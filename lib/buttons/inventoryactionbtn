@@ -1,0 +1,36 @@
+import 'package:flutter/material.dart';
+
+class InventoryActionButton extends StatelessWidget {
+  final VoidCallback onIncrease;
+  final VoidCallback onDecrease;
+
+  const InventoryActionButton({
+    super.key,
+    required this.onIncrease,
+    required this.onDecrease,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert),
+      onSelected: (value) {
+        if (value == 'increase') {
+          onIncrease();
+        } else if (value == 'decrease') {
+          onDecrease();
+        }
+      },
+      itemBuilder: (BuildContext context) => [
+        const PopupMenuItem(
+          value: 'increase',
+          child: Text("Increase Stock"),
+        ),
+        const PopupMenuItem(
+          value: 'decrease',
+          child: Text("Decrease Stock"),
+        ),
+      ],
+    );
+  }
+}
