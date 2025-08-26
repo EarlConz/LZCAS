@@ -1,14 +1,59 @@
 import 'package:flutter/material.dart';
+import '/widgets/memberstable.dart';
+import '/widgets/searchmembers.dart';
+import '/widgets/memberdetails.dart';
 
-class MembersPage extends StatelessWidget {
+class MembersPage extends StatefulWidget {
   const MembersPage({super.key});
 
   @override
+  State<MembersPage> createState() => _MembersPageState();
+}
+
+class _MembersPageState extends State<MembersPage> {
+  String searchTerm = "";
+  Map<String, dynamic>? selectedMember;
+
+  @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        "Members Page",
-        style: Theme.of(context).textTheme.headlineMedium,
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    return Scaffold(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 🔎 Search bar
+            SearchMembersWidget(
+              onChanged: (value) {
+                setState(() {
+                  searchTerm = value;
+                });
+              },
+            ),
+            const SizedBox(height: 10),
+
+            // 📋 Members Table with responsive height
+            SizedBox(
+              height: screenHeight * 0.5, // table takes ~50% of screen
+              child: MembersTable(
+                searchTerm: searchTerm,
+                onRowSelected: (member) {
+                  setState(() {
+                    selectedMember = member;
+                  });
+                },
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // 📇 Member Details Card
+            if (selectedMember != null)
+              MemberDetailsCard(member: selectedMember!),
+          ],
+        ),
       ),
     );
   }

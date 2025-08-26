@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
 
-class SearchBarWidget extends StatelessWidget {
-  final ValueChanged<String> onChanged;
+class InventorySearchBar extends StatelessWidget {
+  final ValueChanged<String> onSearchChanged;
 
-  const SearchBarWidget({super.key, required this.onChanged});
+  const InventorySearchBar({super.key, required this.onSearchChanged});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
+    return Expanded(
       child: TextField(
         decoration: InputDecoration(
           hintText: "Search items...",
           prefixIcon: const Icon(Icons.search),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(8),
           ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
         ),
-        onChanged: onChanged,
+        onChanged: onSearchChanged,
       ),
     );
   }
