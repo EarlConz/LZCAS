@@ -59,6 +59,17 @@ class _InventoryTableState extends State<InventoryTable> {
     }
   }
 
+  // 🔹 Update status automatically when stock changes
+  void _refreshStatus(Map<String, dynamic> item) {
+    if (item["stock"] <= 0) {
+      item["status"] = "Out of Stock";
+    } else if (item["stock"] < 50) {
+      item["status"] = "Low Stock";
+    } else {
+      item["status"] = "Good";
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // 🔹 Apply filters
@@ -145,8 +156,11 @@ class _InventoryTableState extends State<InventoryTable> {
                       ),
                       DataCell(
                         InventoryActionButton(
-                          onEditStock: () {
-                            // your edit stock logic here
+                          item: item,
+                          onUpdated: () {
+                            setState(() {
+                              _refreshStatus(item); // ✅ auto update status
+                            });
                           },
                         ),
                       ),
