@@ -7,7 +7,7 @@ class LoyaltyPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Text(
-        "Loyalty Points Page",
+        "Gay",
         style: Theme.of(context).textTheme.headlineMedium,
       ),
     );
