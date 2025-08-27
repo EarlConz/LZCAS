@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import '/widgets/memberstable.dart';
 import '/widgets/searchmembers.dart';
 import '/widgets/memberdetails.dart';
-import '/buttons/editmemberbutton.dart'; // ✅ Import the edit button
-import '/buttons/deletememberbutton.dart'; // ✅ Import the delete button
-import '/buttons/addmemberbutton.dart'; // ✅ Import the add button
+import '/buttons/editmemberbutton.dart';
+import '/buttons/deletememberbutton.dart';
+import '/buttons/addmemberbutton.dart';
 
 class MembersPage extends StatefulWidget {
   const MembersPage({super.key});
@@ -17,15 +17,17 @@ class _MembersPageState extends State<MembersPage> {
   String searchTerm = "";
   Map<String, dynamic>? selectedMember;
 
+  final GlobalKey<MembersTableState> _tableKey = GlobalKey<MembersTableState>();
+
   void _updateMember(Map<String, dynamic> updatedMember) {
     setState(() {
-      selectedMember = updatedMember; // update details card
+      selectedMember = updatedMember;
     });
   }
 
   void _deleteMember() {
     setState(() {
-      selectedMember = null; // hide details card after delete
+      selectedMember = null;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -33,50 +35,41 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  void _addMember(Map<String, dynamic> newMember) {
-    setState(() {
-      selectedMember = newMember; // show new member details immediately
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("New member added!")),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-
     return Scaffold(
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(8.0),
+      body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🔎 Search bar + ➕ Add Member button
-            Row(
-              children: [
-                Expanded(
-                  child: SearchMembersWidget(
-                    onChanged: (value) {
-                      setState(() {
-                        searchTerm = value;
-                      });
+            // 🔎 Search bar + Add button in one row
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SearchMembersWidget(
+                      onChanged: (value) {
+                        setState(() {
+                          searchTerm = value;
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AddMemberButton(
+                    onMemberAdded: (newMember) {
+                      _tableKey.currentState?.addMember(newMember);
                     },
                   ),
-                ),
-                const SizedBox(width: 10),
-                AddMemberButton(
-                  onMemberAdded: _addMember,
-                ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
 
-            // 📋 Members Table with responsive height
-            SizedBox(
-              height: screenHeight * 0.5, // table takes ~50% of screen
+            // 📋 Members Table fills the whole screen
+            Expanded(
               child: MembersTable(
+                key: _tableKey,
                 searchTerm: searchTerm,
                 onRowSelected: (member) {
                   setState(() {
@@ -86,30 +79,32 @@ class _MembersPageState extends State<MembersPage> {
               ),
             ),
 
-            const SizedBox(height: 20),
-
-            // 📇 Member Details Card + Edit + Delete buttons
+            // 📇 Details at bottom (optional)
             if (selectedMember != null)
-              Stack(
-                children: [
-                  MemberDetailsCard(member: selectedMember!),
-                  Positioned(
-                    top: 8,
-                    right: 56, // ✅ leave space for delete button
-                    child: EditMemberButton(
-                      member: selectedMember!,
-                      onMemberUpdated: _updateMember,
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.all(8),
+                child: Stack(
+                  children: [
+                    MemberDetailsCard(member: selectedMember!),
+                    Positioned(
+                      top: 8,
+                      right: 56,
+                      child: EditMemberButton(
+                        member: selectedMember!,
+                        onMemberUpdated: _updateMember,
+                      ),
                     ),
-                  ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: DeleteMemberButton(
-                      member: selectedMember!,
-                      onDeleted: _deleteMember,
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: DeleteMemberButton(
+                        member: selectedMember!,
+                        onDeleted: _deleteMember,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
           ],
         ),
