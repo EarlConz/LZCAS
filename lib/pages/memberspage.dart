@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '/widgets/memberstable.dart';
 import '/widgets/searchmembers.dart';
 import '/widgets/memberdetails.dart';
+import '/buttons/editmemberbutton.dart'; // ✅ Import the edit button
 
 class MembersPage extends StatefulWidget {
   const MembersPage({super.key});
@@ -13,6 +14,12 @@ class MembersPage extends StatefulWidget {
 class _MembersPageState extends State<MembersPage> {
   String searchTerm = "";
   Map<String, dynamic>? selectedMember;
+
+  void _updateMember(Map<String, dynamic> updatedMember) {
+    setState(() {
+      selectedMember = updatedMember; // update details card
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,9 +56,21 @@ class _MembersPageState extends State<MembersPage> {
 
             const SizedBox(height: 20),
 
-            // 📇 Member Details Card
+            // 📇 Member Details Card + Edit button
             if (selectedMember != null)
-              MemberDetailsCard(member: selectedMember!),
+              Stack(
+                children: [
+                  MemberDetailsCard(member: selectedMember!),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: EditMemberButton(
+                      member: selectedMember!,
+                      onMemberUpdated: _updateMember,
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
       ),

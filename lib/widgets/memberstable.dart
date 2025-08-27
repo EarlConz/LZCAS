@@ -156,64 +156,59 @@ class _MembersTableState extends State<MembersTable> {
 
     return Column(
       children: [
-        // Table area (stretches to screen width but can grow wider if needed)
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 24.0), // breathing room at the edge
-              child: ConstrainedBox(
-                // 👇 Important: fill the screen width at minimum,
-                // but allow the table to be wider when columns need more space.
-                constraints: BoxConstraints(
-                  minWidth: MediaQuery.of(context).size.width,
-                ),
-                child: DataTable(
-                  headingRowColor: MaterialStateProperty.all(Colors.grey[200]),
-                  columnSpacing: 20,
-                  columns: const [
-                    DataColumn(label: Text('Last Name')),
-                    DataColumn(label: Text('First Name')),
-                    DataColumn(label: Text('Middle Name')),
-                    DataColumn(label: Text('Role')),
-                    DataColumn(label: Text('Contact No.')),
-                    DataColumn(label: Text('Birthday')),
-                    DataColumn(label: Text('Address')),
-                  ],
-                  rows: pageItems.map((member) {
-                    return DataRow(
-                      cells: [
-                        DataCell(Text(member['lastName'].toString()),
-                            onTap: () => widget.onRowSelected(member)),
-                        DataCell(Text(member['firstName'].toString()),
-                            onTap: () => widget.onRowSelected(member)),
-                        DataCell(Text(member['middleName'].toString()),
-                            onTap: () => widget.onRowSelected(member)),
-                        DataCell(Text(member['role'].toString()),
-                            onTap: () => widget.onRowSelected(member)),
-                        DataCell(Text(member['contact'].toString()),
-                            onTap: () => widget.onRowSelected(member)),
-                        DataCell(Text(member['birthday'].toString()),
-                            onTap: () => widget.onRowSelected(member)),
-                        // 👇 Give Address column extra minimum width so it won't be squished
-                        DataCell(
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(minWidth: 220),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                member['address'].toString(),
-                                softWrap: false,
-                                overflow: TextOverflow.visible, // don't ellipsize; allow wider table
-                              ),
+        // 📋 Table with horizontal scroll
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Padding(
+            padding: const EdgeInsets.only(right: 24.0),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minWidth: MediaQuery.of(context).size.width,
+              ),
+              child: DataTable(
+                headingRowColor: MaterialStateProperty.all(Colors.grey[200]),
+                columnSpacing: 20,
+                columns: const [
+                  DataColumn(label: Text('Last Name')),
+                  DataColumn(label: Text('First Name')),
+                  DataColumn(label: Text('Middle Name')),
+                  DataColumn(label: Text('Role')),
+                  DataColumn(label: Text('Contact No.')),
+                  DataColumn(label: Text('Birthday')),
+                  DataColumn(label: Text('Address')),
+                ],
+                rows: pageItems.map((member) {
+                  return DataRow(
+                    cells: [
+                      DataCell(Text(member['lastName'].toString()),
+                          onTap: () => widget.onRowSelected(member)),
+                      DataCell(Text(member['firstName'].toString()),
+                          onTap: () => widget.onRowSelected(member)),
+                      DataCell(Text(member['middleName'].toString()),
+                          onTap: () => widget.onRowSelected(member)),
+                      DataCell(Text(member['role'].toString()),
+                          onTap: () => widget.onRowSelected(member)),
+                      DataCell(Text(member['contact'].toString()),
+                          onTap: () => widget.onRowSelected(member)),
+                      DataCell(Text(member['birthday'].toString()),
+                          onTap: () => widget.onRowSelected(member)),
+                      DataCell(
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(minWidth: 220),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              member['address'].toString(),
+                              softWrap: false,
+                              overflow: TextOverflow.visible,
                             ),
                           ),
-                          onTap: () => widget.onRowSelected(member),
                         ),
-                      ],
-                    );
-                  }).toList(),
-                ),
+                        onTap: () => widget.onRowSelected(member),
+                      ),
+                    ],
+                  );
+                }).toList(),
               ),
             ),
           ),
