@@ -44,7 +44,7 @@ class MemberDetailsCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text("Contact: ${member['contact']}"),
+          Text("Contact: ${member['contactNo']}"),
           Text("Birthday: ${member['birthday']}"),
           Text("Address: ${member['address']}"),
           const SizedBox(height: 8),

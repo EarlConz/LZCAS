@@ -19,20 +19,33 @@ class _MembersPageState extends State<MembersPage> {
 
   final GlobalKey<MembersTableState> _tableKey = GlobalKey<MembersTableState>();
 
-  void _updateMember(Map<String, dynamic> updatedMember) {
+void _updateMember(Map<String, dynamic> updatedMember) {
+  if (selectedMember != null) {
+    _tableKey.currentState?.updateMember(selectedMember!, updatedMember);
+
     setState(() {
       selectedMember = updatedMember;
     });
-  }
-
-  void _deleteMember() {
-    setState(() {
-      selectedMember = null;
-    });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Member deleted")),
+      const SnackBar(content: Text("Member updated successfully!")),
     );
+  }
+}
+
+  void _deleteMember() {
+    if (selectedMember != null) {
+      // ✅ remove from the table
+      _tableKey.currentState?.removeMember(selectedMember!);
+
+      setState(() {
+        selectedMember = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Member deleted")),
+      );
+    }
   }
 
   @override

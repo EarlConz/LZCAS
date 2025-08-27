@@ -23,7 +23,9 @@ class MembersTableState extends State<MembersTable> {
       "role": "Leader",
       "contactNo": "09171234567",
       "birthday": "Jan 10, 1990",
-      "address": "Quezon City"
+      "address": "Quezon City",
+      "referrer": "Reyes",   // ✅ new field
+      "points": 15,          // ✅ always 15 by default
     },
     {
       "lastName": "Reyes",
@@ -32,14 +34,34 @@ class MembersTableState extends State<MembersTable> {
       "role": "Member",
       "contactNo": "09182345678",
       "birthday": "Feb 20, 1992",
-      "address": "Makati City"
+      "address": "Makati City",
+      "referrer": "Cruz",    // ✅ new field
+      "points": 15,          // ✅ always 15
     },
     // add more for testing
   ];
+    // add more for testing
+
 
   void addMember(Map<String, dynamic> newMember) {
     setState(() {
       members.add(newMember);
+    });
+  }
+
+  void updateMember(Map<String, dynamic> oldMember, Map<String, dynamic> updatedMember) {
+  setState(() {
+    final index = members.indexOf(oldMember);
+    if (index != -1) {
+      members[index] = updatedMember;
+    }
+  });
+}
+
+  // ✅ NEW: remove member
+  void removeMember(Map<String, dynamic> member) {
+    setState(() {
+      members.remove(member);
     });
   }
 

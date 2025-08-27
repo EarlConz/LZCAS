@@ -25,7 +25,7 @@ class EditMemberButton extends StatelessWidget {
     final middleNameController = TextEditingController(text: member["middleName"]);
     final lastNameController = TextEditingController(text: member["lastName"]);
     final roleController = TextEditingController(text: member["role"]);
-    final contactController = TextEditingController(text: member["contact"]);
+    final contactController = TextEditingController(text: member["contactNo"]); // ✅ fixed key
     final birthdayController = TextEditingController(text: member["birthday"]);
     final addressController = TextEditingController(text: member["address"]);
     final pointsController = TextEditingController(text: member["points"].toString());
@@ -46,7 +46,11 @@ class EditMemberButton extends StatelessWidget {
                 TextField(controller: contactController, decoration: const InputDecoration(labelText: "Contact No.")),
                 TextField(controller: birthdayController, decoration: const InputDecoration(labelText: "Birthday")),
                 TextField(controller: addressController, decoration: const InputDecoration(labelText: "Address")),
-                TextField(controller: pointsController, decoration: const InputDecoration(labelText: "Points"), keyboardType: TextInputType.number),
+                TextField(
+                  controller: pointsController,
+                  decoration: const InputDecoration(labelText: "Points"),
+                  keyboardType: TextInputType.number,
+                ),
                 TextField(controller: referrerController, decoration: const InputDecoration(labelText: "Referrer")),
               ],
             ),
@@ -60,14 +64,19 @@ class EditMemberButton extends StatelessWidget {
                   "middleName": middleNameController.text,
                   "lastName": lastNameController.text,
                   "role": roleController.text,
-                  "contact": contactController.text,
+                  "contactNo": contactController.text, // ✅ fixed key
                   "birthday": birthdayController.text,
                   "address": addressController.text,
                   "points": int.tryParse(pointsController.text) ?? 0,
                   "referrer": referrerController.text,
                 };
+
                 onMemberUpdated(updatedMember);
                 Navigator.pop(context);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Member updated successfully!")),
+                );
               },
               child: const Text("Save"),
             ),

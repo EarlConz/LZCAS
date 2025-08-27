@@ -84,11 +84,32 @@ class AddMemberButton extends StatelessWidget {
                 ),
                 ElevatedButton(
                   onPressed: () {
+                    // ✅ Validation check
+                    if (lastNameController.text.trim().isEmpty ||
+                        firstNameController.text.trim().isEmpty ||
+                        middleNameController.text.trim().isEmpty) {
+                      // show popup
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text("Error"),
+                          content: const Text("Must put full name"),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text("OK"),
+                            ),
+                          ],
+                        ),
+                      );
+                      return; // stop execution
+                    }
+
                     final newMember = {
                       "lastName": lastNameController.text,
                       "firstName": firstNameController.text,
                       "middleName": middleNameController.text,
-                      "contact": contactController.text,
+                      "contactNo": contactController.text,
                       "birthday": birthdayController.text,
                       "address": addressController.text,
                       "referrer": referrerController.text,
