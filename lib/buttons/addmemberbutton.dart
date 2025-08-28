@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '/widgets/qrgenerator.dart'; // ✅ import the QR generator file
 
 class AddMemberButton extends StatelessWidget {
   final Function(Map<String, dynamic>) onMemberAdded;
@@ -139,6 +140,20 @@ class AddMemberButton extends StatelessWidget {
 
                     onMemberAdded(newMember);
                     Navigator.pop(context);
+
+                    // ✅ Show QR Code popup after adding member
+                    showDialog(
+                      context: context,
+                      builder: (context) => Dialog(
+                        backgroundColor: Colors.transparent,
+                        insetPadding: const EdgeInsets.all(20),
+                        child: QrGenerator(
+                          lastName: lastNameController.text,
+                          firstName: firstNameController.text,
+                          middleName: middleNameController.text,
+                        ),
+                      ),
+                    );
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text("Member added successfully!")),
