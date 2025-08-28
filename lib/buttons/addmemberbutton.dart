@@ -84,11 +84,10 @@ class AddMemberButton extends StatelessWidget {
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    // ✅ Validation check
+                    // ✅ Validation check for name
                     if (lastNameController.text.trim().isEmpty ||
                         firstNameController.text.trim().isEmpty ||
                         middleNameController.text.trim().isEmpty) {
-                      // show popup
                       showDialog(
                         context: context,
                         builder: (context) => AlertDialog(
@@ -102,14 +101,35 @@ class AddMemberButton extends StatelessWidget {
                           ],
                         ),
                       );
-                      return; // stop execution
+                      return;
+                    }
+
+                    // ✅ Contact No. check: allow empty, but validate numbers if not empty
+                    if (contactController.text.trim().isNotEmpty &&
+                        !RegExp(r'^[0-9]+$').hasMatch(contactController.text)) {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text("Error"),
+                          content: const Text("Contact No. must be numbers only"),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text("OK"),
+                            ),
+                          ],
+                        ),
+                      );
+                      return;
                     }
 
                     final newMember = {
                       "lastName": lastNameController.text,
                       "firstName": firstNameController.text,
                       "middleName": middleNameController.text,
-                      "contactNo": contactController.text,
+                      "contactNo": contactController.text.isEmpty
+                          ? null
+                          : contactController.text,
                       "birthday": birthdayController.text,
                       "address": addressController.text,
                       "referrer": referrerController.text,
