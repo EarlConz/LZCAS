@@ -120,7 +120,7 @@ class _InventoryTableState extends State<InventoryTable> {
               ),
               child: DataTable(
                 headingRowColor:
-                    MaterialStateProperty.all(Colors.blueGrey[50]),
+                    WidgetStateProperty.all(Colors.blueGrey[50]),
                 columns: const [
                   DataColumn(label: Text("Item Name")),
                   DataColumn(label: Text("Category")),
@@ -134,8 +134,8 @@ class _InventoryTableState extends State<InventoryTable> {
                   final isEven = index % 2 == 0;
 
                   return DataRow(
-                    color: MaterialStateProperty.resolveWith<Color?>(
-                      (Set<MaterialState> states) {
+                    color: WidgetStateProperty.resolveWith<Color?>(
+                      (Set<WidgetState> states) {
                         if (isEven) return Colors.grey[100];
                         return null;
                       },

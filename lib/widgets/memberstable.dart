@@ -77,7 +77,7 @@ class MembersTableState extends State<MembersTable> {
       width: double.infinity, // make table take full width
       child: PaginatedDataTable(
         columnSpacing: 40,
-        headingRowColor: MaterialStateProperty.all(Colors.grey.shade200),
+        headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
         rowsPerPage: 7, // 🔥 pagination restored here
         columns: const [
           DataColumn(label: Text('Last Name')),
