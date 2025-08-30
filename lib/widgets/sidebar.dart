@@ -16,17 +16,25 @@ class Sidebar extends StatelessWidget {
       width: 220,
       color: Colors.red.shade700,
       child: Column(
-        children: [
-          const SizedBox(height: 50),
-          const Text(
-            "LZCAS",
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
+        children: <Widget>[
+          // Logo Section
+          Container(
+            child: Column(
+              children: [
+                const SizedBox(height: 50),
+                const Text(
+                  "LZCAS",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 30),
+              ],
             ),
           ),
-          const SizedBox(height: 30),
+          // Navigation Section
           _buildNavItem(Icons.dashboard, "Dashboard", 0),
           _buildNavItem(Icons.inventory, "Inventory", 1),
           _buildNavItem(Icons.people, "Members", 2),
