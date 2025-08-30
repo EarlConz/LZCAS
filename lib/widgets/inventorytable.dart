@@ -17,7 +17,7 @@ class _InventoryTableState extends State<InventoryTable> {
 
   List<Map<String, dynamic>> items = [
     {
-      "name": "Tomatoes",
+      "name": "Tomatoesq",
       "category": "Powder",
       "stock": 120,
       "lastUpdated": "Aug 15, 2024, 14:30",
