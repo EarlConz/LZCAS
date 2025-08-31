@@ -25,26 +25,35 @@ class DashboardPage extends StatelessWidget {
               Expanded(child: OutOfStockCard()),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
 
           // Weekly Sales Section
           const Card(
-            elevation: 3,
+            elevation: 6,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+              side: BorderSide(color: Colors.greenAccent, width: 1.5),
+            ),
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: EdgeInsets.all(8),
               child: WeeklySalesChart(),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
 
           // Monthly Sales Section
           const Card(
-            elevation: 3,
+            elevation: 6,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+              side: BorderSide(color: Colors.greenAccent, width: 1.5),
+            ),
             child: Padding(
-              padding: EdgeInsets.all(16),
+              padding: EdgeInsets.all(8),
               child: MonthlySalesChart(),
             ),
           ),
+          const SizedBox(height: 10),
         ],
       ),
     );
