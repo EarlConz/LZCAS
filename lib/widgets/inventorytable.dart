@@ -15,7 +15,7 @@ class _InventoryTableState extends State<InventoryTable> {
   String? selectedStatus;
   String? selectedCategory;
 
-  List<Map<String, dynamic>> items = [
+  final List<Map<String, dynamic>> items = [
     {
       "name": "Tomatoesq",
       "category": "Powder",
@@ -59,7 +59,6 @@ class _InventoryTableState extends State<InventoryTable> {
     }
   }
 
-  // 🔹 Update status automatically when stock changes
   void _refreshStatus(Map<String, dynamic> item) {
     if (item["stock"] <= 0) {
       item["status"] = "Out of Stock";
@@ -70,9 +69,14 @@ class _InventoryTableState extends State<InventoryTable> {
     }
   }
 
+  void _onUpdate(Map<String, dynamic> item) {
+    setState(() {
+      _refreshStatus(item);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    // 🔹 Apply filters
     final filteredItems = items.where((item) {
       final matchesSearch =
           item["name"].toString().toLowerCase().contains(searchTerm.toLowerCase());
@@ -85,7 +89,6 @@ class _InventoryTableState extends State<InventoryTable> {
 
     return Column(
       children: [
-        // 🔹 Search + Filter Toolbar
         Padding(
           padding: const EdgeInsets.all(8.0),
           child: Row(
@@ -114,18 +117,23 @@ class _InventoryTableState extends State<InventoryTable> {
             ],
           ),
         ),
-
-        // 🔹 Table
         Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.vertical,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minWidth: MediaQuery.of(context).size.width,
+          child: SizedBox(
+            width: double.infinity,
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                cardTheme: CardThemeData(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(color: Colors.grey.shade300, width: 1),
+                  ),
+                  color: Colors.white,
+                ),
               ),
-              child: DataTable(
-                headingRowColor:
-                    WidgetStateProperty.all(Colors.blueGrey[50]),
+              child: PaginatedDataTable(
+                headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
+                rowsPerPage: 7,
                 columns: const [
                   DataColumn(label: Text("Item Name")),
                   DataColumn(label: Text("Category")),
@@ -134,44 +142,11 @@ class _InventoryTableState extends State<InventoryTable> {
                   DataColumn(label: Text("Status")),
                   DataColumn(label: Text("Action")),
                 ],
-                rows: List.generate(filteredItems.length, (index) {
-                  final item = filteredItems[index];
-                  final isEven = index % 2 == 0;
-
-                  return DataRow(
-                    color: WidgetStateProperty.resolveWith<Color?>(
-                      (Set<WidgetState> states) {
-                        if (isEven) return Colors.grey[100];
-                        return null;
-                      },
-                    ),
-                    cells: [
-                      DataCell(Text(item["name"].toString())),
-                      DataCell(Text(item["category"].toString())),
-                      DataCell(Text(item["stock"].toString())),
-                      DataCell(Text(item["lastUpdated"].toString())),
-                      DataCell(
-                        Text(
-                          item["status"].toString(),
-                          style: TextStyle(
-                            color: _getStatusColor(item["status"].toString()),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      DataCell(
-                        InventoryActionButton(
-                          item: item,
-                          onUpdated: () {
-                            setState(() {
-                              _refreshStatus(item); // ✅ auto update status
-                            });
-                          },
-                        ),
-                      ),
-                    ],
-                  );
-                }),
+                source: _InventoryDataSource(
+                  filteredItems,
+                  _getStatusColor,
+                  _onUpdate,
+                ),
               ),
             ),
           ),
@@ -179,4 +154,57 @@ class _InventoryTableState extends State<InventoryTable> {
       ],
     );
   }
+}
+
+class _InventoryDataSource extends DataTableSource {
+  final List<Map<String, dynamic>> items;
+  final Color Function(String) getStatusColor;
+  final void Function(Map<String, dynamic>) onUpdate;
+
+  _InventoryDataSource(this.items, this.getStatusColor, this.onUpdate);
+
+  @override
+  DataRow getRow(int index) {
+    if (index >= items.length) return const DataRow(cells: []);
+    final item = items[index];
+    final isEven = index % 2 == 0;
+    return DataRow(
+      color: WidgetStateProperty.resolveWith<Color?>(
+        (Set<WidgetState> states) {
+          if (isEven) return Colors.grey[100];
+          return null;
+        },
+      ),
+      cells: [
+        DataCell(Text(item["name"].toString())),
+        DataCell(Text(item["category"].toString())),
+        DataCell(Text(item["stock"].toString())),
+        DataCell(Text(item["lastUpdated"].toString())),
+        DataCell(
+          Text(
+            item["status"].toString(),
+            style: TextStyle(
+              color: getStatusColor(item["status"].toString()),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        DataCell(
+          InventoryActionButton(
+            item: item,
+            onUpdated: () => onUpdate(item),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  bool get isRowCountApproximate => false;
+
+  @override
+  int get rowCount => items.length;
+
+  @override
+  int get selectedRowCount => 0;
 }

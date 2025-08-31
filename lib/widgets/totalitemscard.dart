@@ -7,14 +7,12 @@ class TotalItemsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
+    Theme.of(context);
 
     return Card(
+      color: Color(0xFFE8F5E9),
       elevation: 6,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.greenAccent, width: 1.5)),
-      color: theme.colorScheme.surface,
-      surfaceTintColor: theme.colorScheme.surfaceTint,
-      shadowColor: theme.colorScheme.shadow,
       borderOnForeground: true,
       clipBehavior: Clip.none,
       margin: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
@@ -25,7 +23,7 @@ class TotalItemsCard extends StatelessWidget {
           children: [
             Row(
               children: const [
-                Icon(Icons.inventory_2, color: Colors.green),
+                Icon(Icons.inventory_2, color: Color(0xFF4CAF50)),
                 SizedBox(width: 8),
                 Text(
                   "Total Products",
@@ -39,7 +37,7 @@ class TotalItemsCard extends StatelessWidget {
             const SizedBox(height: 10),
             const Text(
               "Total number of products in inventory",
-              style: TextStyle(color: Colors.black54),
+              style: TextStyle(color: Color(0xFF4CAF50)),
             ),
             const SizedBox(height: 10),
             Text(

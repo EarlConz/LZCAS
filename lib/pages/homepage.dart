@@ -16,10 +16,22 @@ class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
 
   final List<Widget> _pages = const [
-    DashboardPage(),
-    InventoryPage(),
-    MembersPage(),
-    LoyaltyPage(),
+     ColoredBox(
+      color: Color(0xFFF9FAFB),
+      child: DashboardPage(),
+    ),
+    ColoredBox(
+      color: Color(0xFFF9FAFB),
+      child: InventoryPage(),
+    ),
+    ColoredBox(
+      color: Color(0xFFF9FAFB),
+      child: MembersPage(),
+    ),
+    ColoredBox(
+      color: Color(0xFFF9FAFB),
+      child: LoyaltyPage(),
+    ),
   ];
 
   final List<String> _titles = [
@@ -47,18 +59,17 @@ class _HomePageState extends State<HomePage> {
           Expanded(
             child: Column(
               children: [
-                Container(
-                  height: 60,
-                  color: Colors.green.shade700,
-                  alignment: Alignment.centerLeft,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    _titles[_selectedIndex],
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+               Container(
+                 height: 60,
+                 decoration: ShapeDecoration(
+                   color: Theme.of(context).appBarTheme.backgroundColor,
+                   shape: Theme.of(context).appBarTheme.shape ?? const Border(),
+                 ),
+                 alignment: Alignment.centerLeft,
+                 padding: const EdgeInsets.symmetric(horizontal: 16),
+                 child: Text(
+                   _titles[_selectedIndex],
+                   style: Theme.of(context).textTheme.headlineSmall,
                   ),
                 ),
                 Expanded(child: _pages[_selectedIndex]),

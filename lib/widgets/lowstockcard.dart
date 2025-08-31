@@ -7,14 +7,12 @@ class LowStockCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ThemeData theme = Theme.of(context);
+    Theme.of(context);
 
     return Card(
+      color: Color(0xFFFFF3E0),
       elevation: 6,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.orangeAccent, width: 1.5)),       
-      color: theme.colorScheme.surface,
-      surfaceTintColor: theme.colorScheme.surfaceTint,
-      shadowColor: theme.colorScheme.shadow,
       borderOnForeground: true,
       clipBehavior: Clip.none,
       margin: EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
@@ -25,13 +23,14 @@ class LowStockCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                Icon(Icons.warning_amber_rounded, color: Color(0xFFFFB74D)),
                 SizedBox(width: 8),
                 Text(
                   "Low Stock Items",
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
+                    color: Color(0xFFFFB74D)
                   ),
                 ),
               ],
@@ -39,7 +38,7 @@ class LowStockCard extends StatelessWidget {
             const SizedBox(height: 10),
             const Text(
               "Number of items that are running low",
-              style: TextStyle(color: Colors.black54),
+              style: TextStyle(color: Color(0xFFFFB74D)),
             ),
             SizedBox(height: 10),
             Text(
