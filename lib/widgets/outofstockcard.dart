@@ -3,11 +3,20 @@ import 'package:flutter/material.dart';
 class OutOfStockCard extends StatelessWidget {
   const OutOfStockCard({super.key});
 
+  final int outOfStockCount = 15;
+
   @override
   Widget build(BuildContext context) {
+    ThemeData theme = Theme.of(context);
     return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 6,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.redAccent, width: 1.5)),
+      color: theme.colorScheme.surface,
+      surfaceTintColor: theme.colorScheme.surfaceTint,
+      shadowColor: theme.colorScheme.shadow,
+      borderOnForeground: true,
+      clipBehavior: Clip.antiAlias,
+      margin: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 12.0),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -32,8 +41,8 @@ class OutOfStockCard extends StatelessWidget {
               style: TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 10),
-            const Text(
-              "15", // replace with dynamic value later
+            Text(
+              "$outOfStockCount", // replace with dynamic value later
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
