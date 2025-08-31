@@ -45,7 +45,7 @@ class EditMemberButton extends StatelessWidget {
                     TextField(controller: middleNameController, decoration: const InputDecoration(labelText: "Middle Name")),
                     TextField(controller: lastNameController, decoration: const InputDecoration(labelText: "Last Name")),
                     DropdownButtonFormField<String>(
-                      value: roleValue,
+                      initialValue: roleValue,
                       decoration: const InputDecoration(labelText: "Role"),
                       items: const [
                         DropdownMenuItem(value: "Member", child: Text("Member")),

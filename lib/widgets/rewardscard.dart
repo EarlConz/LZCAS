@@ -7,7 +7,7 @@ class RewardsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       elevation: 6,
-      shadowColor: Colors.blueGrey.withOpacity(0.2),
+      shadowColor: Colors.blueGrey.withValues(alpha: 0.2),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
       ),

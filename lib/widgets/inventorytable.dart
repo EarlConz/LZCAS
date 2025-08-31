@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '/buttons/inventoryactionbutton.dart';
 import '/buttons/inventoryfilterbutton.dart';
-import '/widgets/searchinventory.dart';
+import '/widgets/search.dart';
 
 class InventoryTable extends StatefulWidget {
   const InventoryTable({super.key});
@@ -90,10 +90,15 @@ class _InventoryTableState extends State<InventoryTable> {
           padding: const EdgeInsets.all(8.0),
           child: Row(
             children: [
-              InventorySearchBar(
-                onSearchChanged: (value) {
-                  setState(() => searchTerm = value);
-                },
+              Expanded(
+                child: SearchBarWidget(
+                  onChanged: (value) {
+                    setState(() => searchTerm = value);
+                  },
+                  hintText: "Search items...",
+                  borderRadius: 12,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                ),
               ),
               const SizedBox(width: 8),
               InventoryFilterButton(
@@ -120,7 +125,7 @@ class _InventoryTableState extends State<InventoryTable> {
               ),
               child: DataTable(
                 headingRowColor:
-                    MaterialStateProperty.all(Colors.blueGrey[50]),
+                    WidgetStateProperty.all(Colors.blueGrey[50]),
                 columns: const [
                   DataColumn(label: Text("Item Name")),
                   DataColumn(label: Text("Category")),
@@ -134,8 +139,8 @@ class _InventoryTableState extends State<InventoryTable> {
                   final isEven = index % 2 == 0;
 
                   return DataRow(
-                    color: MaterialStateProperty.resolveWith<Color?>(
-                      (Set<MaterialState> states) {
+                    color: WidgetStateProperty.resolveWith<Color?>(
+                      (Set<WidgetState> states) {
                         if (isEven) return Colors.grey[100];
                         return null;
                       },
