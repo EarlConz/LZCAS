@@ -30,8 +30,10 @@ class MonthlySalesChart extends StatelessWidget {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 20),
-        SizedBox(
-          height: 250,
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: SizedBox(
+          height: 230,
           child: BarChart(
             BarChartData(
               alignment: BarChartAlignment.spaceAround,
@@ -85,6 +87,7 @@ class MonthlySalesChart extends StatelessWidget {
               }).toList(),
             ),
           ),
+        ),
         ),
       ],
     );
