@@ -15,8 +15,8 @@ class Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.green, width: 1),
-        color: Colors.white, // Light background
+        border: Border.all(color: Colors.green, width: 1.5),
+        color: const Color(0xFFE8F5E9), // Light background
       ),
       width: 240,
       child: Column(
@@ -51,7 +51,7 @@ class Sidebar extends StatelessWidget {
             ),
           ),
           // Bottom section (settings)
-          const Divider(color: Colors.grey), // Visual separator
+          const Divider(color: Colors.green), // Visual separator
           _buildNavItem(Icons.settings, "Settings", 4),
           SizedBox(height: 20), // Space at the bottom
         ],
@@ -71,7 +71,7 @@ class Sidebar extends StatelessWidget {
             topRight: Radius.circular(30),
             bottomRight: Radius.circular(30),
           ),
-          border: selected ? Border.all(color: Colors.greenAccent, width: 1.5) : null,
+          border: selected ? Border.all(color: const Color(0xFF81C784), width: 1.5) : null,
         ),
         child: Row(
           children: [
@@ -79,7 +79,7 @@ class Sidebar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
               child: Row(
                 children: [
-                  Icon(icon, color: selected ? Colors.redAccent : Colors.black), // Blue accent color when selected
+                  Icon(icon, color: selected ? const Color(0xFF2E7D32) : Colors.black), // Blue accent color when selected
                   const SizedBox(width: 10),
                   Text(
                     label,

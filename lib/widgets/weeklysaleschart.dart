@@ -18,74 +18,77 @@ class WeeklySalesChart extends StatelessWidget {
     // Sort sales descending (highest on left)
     salesData.sort((a, b) => (b["sales"] as int).compareTo(a["sales"] as int));
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          "Top Sales This Week",
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 20),
-        Padding(
-          padding: const EdgeInsets.all(8.0), // Increased padding here
-          child: SizedBox(
-          height: 230,
-          child: BarChart(
-            BarChartData(
-              alignment: BarChartAlignment.spaceAround,
-              maxY: (salesData.isNotEmpty
-                      ? (salesData.first["sales"] as int) + 20
-                      : 100)
-                  .toDouble(),
-              barTouchData: BarTouchData(enabled: true),
-              titlesData: FlTitlesData(
-                leftTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)), // ❌ Remove numbers
-                rightTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                topTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    getTitlesWidget: (value, meta) {
-                      int index = value.toInt();
-                      if (index < 0 || index >= salesData.length) {
-                        return const SizedBox.shrink();
-                      }
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          salesData[index]["product"] as String,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      );
-                    },
+    return Card(
+      color: Colors.white,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            "Top Sales This Week",
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.all(12.0), // Increased padding here
+            child: SizedBox(
+            height: 210,
+            child: BarChart(
+              BarChartData(
+                alignment: BarChartAlignment.spaceAround,
+                maxY: (salesData.isNotEmpty
+                        ? (salesData.first["sales"] as int) + 20
+                        : 100)
+                    .toDouble(),
+                barTouchData: BarTouchData(enabled: true),
+                titlesData: FlTitlesData(
+                  leftTitles:
+                      const AxisTitles(sideTitles: SideTitles(showTitles: false)), // ❌ Remove numbers
+                  rightTitles:
+                      const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles:
+                      const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      getTitlesWidget: (value, meta) {
+                        int index = value.toInt();
+                        if (index < 0 || index >= salesData.length) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            salesData[index]["product"] as String,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
+                borderData: FlBorderData(show: false),
+                gridData: const FlGridData(show: false),
+                barGroups: salesData.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final sales = entry.value["sales"] as int;
+                  return BarChartGroupData(
+                    x: index,
+                    barRods: [
+                      BarChartRodData(
+                        toY: sales.toDouble(),
+                        color: Colors.green, // Bars green
+                        width: 20,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ],
+                  );
+                }).toList(),
               ),
-              borderData: FlBorderData(show: false),
-              gridData: const FlGridData(show: false),
-              barGroups: salesData.asMap().entries.map((entry) {
-                final index = entry.key;
-                final sales = entry.value["sales"] as int;
-                return BarChartGroupData(
-                  x: index,
-                  barRods: [
-                    BarChartRodData(
-                      toY: sales.toDouble(),
-                      color: Colors.green, // Bars green
-                      width: 20,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ],
-                );
-              }).toList(),
             ),
           ),
-        ),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }

@@ -28,28 +28,18 @@ class DashboardPage extends StatelessWidget {
           const SizedBox(height: 10),
 
           // Weekly Sales Section
-          const Card(
-            elevation: 6,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(12)),
-              side: BorderSide(color: Colors.greenAccent, width: 1.5),
-            ),
+          Card(
             child: Padding(
-              padding: EdgeInsets.all(8),
+              padding: const EdgeInsets.all(8),
               child: WeeklySalesChart(),
             ),
           ),
           const SizedBox(height: 10),
 
           // Monthly Sales Section
-          const Card(
-            elevation: 6,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(12)),
-              side: BorderSide(color: Colors.greenAccent, width: 1.5),
-            ),
+          Card(
             child: Padding(
-              padding: EdgeInsets.all(8),
+              padding: const EdgeInsets.all(8),
               child: MonthlySalesChart(),
             ),
           ),

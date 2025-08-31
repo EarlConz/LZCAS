@@ -98,20 +98,32 @@ class MembersTableState extends State<MembersTable> {
         Expanded(
           child: SizedBox(
             width: double.infinity,
-            child: PaginatedDataTable(
-              columnSpacing: 40,
-              headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
-              rowsPerPage: 7,
-              columns: const [
-                DataColumn(label: Text('Last Name')),
-                DataColumn(label: Text('First Name')),
-                DataColumn(label: Text('Middle Name')),
-                DataColumn(label: Text('Role')),
-                DataColumn(label: Text('Contact No.')),
-                DataColumn(label: Text('Birthday')),
-                DataColumn(label: Text('Address')),
-              ],
-              source: _MembersDataSource(filteredMembers, widget.onRowSelected),
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                cardTheme: CardThemeData(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: BorderSide(color: Colors.grey.shade300, width: 1),
+                  ),
+                  color: Colors.white,
+                ),
+              ),
+              child: PaginatedDataTable(
+                headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
+                columnSpacing: 40,
+                rowsPerPage: 7,
+                columns: const [
+                  DataColumn(label: Text('Last Name')),
+                  DataColumn(label: Text('First Name')),
+                  DataColumn(label: Text('Middle Name')),
+                  DataColumn(label: Text('Role')),
+                  DataColumn(label: Text('Contact No.')),
+                  DataColumn(label: Text('Birthday')),
+                  DataColumn(label: Text('Address')),
+                ],
+                source: _MembersDataSource(filteredMembers, widget.onRowSelected),
+              ),
             ),
           ),
         ),
@@ -130,7 +142,14 @@ class _MembersDataSource extends DataTableSource {
   DataRow getRow(int index) {
     if (index >= members.length) return const DataRow(cells: []);
     final member = members[index];
+    final isEven = index % 2 == 0;
     return DataRow(
+      color: WidgetStateProperty.resolveWith<Color?>(
+        (Set<WidgetState> states) {
+          if (isEven) return Colors.grey[100];
+          return null;
+        },
+      ),
       onSelectChanged: (_) => onRowSelected(member),
       cells: [
         DataCell(Text(member["lastName"] ?? "")),
