@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
+import '/widgets/search.dart';
+import '/buttons/addmemberbutton.dart';
 
 class MembersTable extends StatefulWidget {
-  final String searchTerm;
   final Function(Map<String, dynamic>) onRowSelected;
 
   const MembersTable({
     super.key,
-    required this.searchTerm,
     required this.onRowSelected,
   });
 
@@ -15,6 +15,7 @@ class MembersTable extends StatefulWidget {
 }
 
 class MembersTableState extends State<MembersTable> {
+  String searchTerm = "";
   final List<Map<String, dynamic>> members = [
     {
       "lastName": "Cruz",
@@ -24,8 +25,8 @@ class MembersTableState extends State<MembersTable> {
       "contactNo": "09171234567",
       "birthday": "Jan 10, 1990",
       "address": "Quezon City",
-      "referrer": "Reyes",   // ✅ new field
-      "points": 15,          // ✅ always 15 by default
+      "referrer": "Reyes",
+      "points": 15,
     },
     {
       "lastName": "Reyes",
@@ -35,13 +36,10 @@ class MembersTableState extends State<MembersTable> {
       "contactNo": "09182345678",
       "birthday": "Feb 20, 1992",
       "address": "Makati City",
-      "referrer": "Cruz",    // ✅ new field
-      "points": 15,          // ✅ always 15
+      "referrer": "Cruz",
+      "points": 15,
     },
-    // add more for testing
   ];
-    // add more for testing
-
 
   void addMember(Map<String, dynamic> newMember) {
     setState(() {
@@ -50,15 +48,14 @@ class MembersTableState extends State<MembersTable> {
   }
 
   void updateMember(Map<String, dynamic> oldMember, Map<String, dynamic> updatedMember) {
-  setState(() {
-    final index = members.indexOf(oldMember);
-    if (index != -1) {
-      members[index] = updatedMember;
-    }
-  });
-}
+    setState(() {
+      final index = members.indexOf(oldMember);
+      if (index != -1) {
+        members[index] = updatedMember;
+      }
+    });
+  }
 
-  // ✅ NEW: remove member
   void removeMember(Map<String, dynamic> member) {
     setState(() {
       members.remove(member);
@@ -68,28 +65,57 @@ class MembersTableState extends State<MembersTable> {
   @override
   Widget build(BuildContext context) {
     final filteredMembers = members.where((member) {
-      final search = widget.searchTerm.toLowerCase();
+      final search = searchTerm.toLowerCase();
       return member.values.any((value) =>
           value.toString().toLowerCase().contains(search));
     }).toList();
 
-    return SizedBox(
-      width: double.infinity, // make table take full width
-      child: PaginatedDataTable(
-        columnSpacing: 40,
-        headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
-        rowsPerPage: 7, // 🔥 pagination restored here
-        columns: const [
-          DataColumn(label: Text('Last Name')),
-          DataColumn(label: Text('First Name')),
-          DataColumn(label: Text('Middle Name')),
-          DataColumn(label: Text('Role')),
-          DataColumn(label: Text('Contact No.')),
-          DataColumn(label: Text('Birthday')),
-          DataColumn(label: Text('Address')),
-        ],
-        source: _MembersDataSource(filteredMembers, widget.onRowSelected),
-      ),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: SearchBarWidget(
+                  onChanged: (value) {
+                    setState(() {
+                      searchTerm = value;
+                    });
+                  },
+                  hintText: "Search members...",
+                  borderRadius: 12,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                ),
+              ),
+              const SizedBox(width: 8),
+              AddMemberButton(
+                onMemberAdded: addMember,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: SizedBox(
+            width: double.infinity,
+            child: PaginatedDataTable(
+              columnSpacing: 40,
+              headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
+              rowsPerPage: 7,
+              columns: const [
+                DataColumn(label: Text('Last Name')),
+                DataColumn(label: Text('First Name')),
+                DataColumn(label: Text('Middle Name')),
+                DataColumn(label: Text('Role')),
+                DataColumn(label: Text('Contact No.')),
+                DataColumn(label: Text('Birthday')),
+                DataColumn(label: Text('Address')),
+              ],
+              source: _MembersDataSource(filteredMembers, widget.onRowSelected),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

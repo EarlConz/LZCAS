@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '/buttons/inventoryactionbutton.dart';
 import '/buttons/inventoryfilterbutton.dart';
-import '/widgets/searchinventory.dart';
+import '/widgets/search.dart';
 
 class InventoryTable extends StatefulWidget {
   const InventoryTable({super.key});
@@ -90,10 +90,15 @@ class _InventoryTableState extends State<InventoryTable> {
           padding: const EdgeInsets.all(8.0),
           child: Row(
             children: [
-              InventorySearchBar(
-                onSearchChanged: (value) {
-                  setState(() => searchTerm = value);
-                },
+              Expanded(
+                child: SearchBarWidget(
+                  onChanged: (value) {
+                    setState(() => searchTerm = value);
+                  },
+                  hintText: "Search items...",
+                  borderRadius: 12,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                ),
               ),
               const SizedBox(width: 8),
               InventoryFilterButton(
