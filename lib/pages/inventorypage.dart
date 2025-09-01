@@ -11,6 +11,6 @@ class InventoryPage extends StatefulWidget {
 class _InventoryPageState extends State<InventoryPage> {
   @override
   Widget build(BuildContext context) {
-    return const InventoryTable(); // ✅ Only the table now
+    return const InventoryTable();
   }
 }

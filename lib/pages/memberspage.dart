@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import '/widgets/memberstable.dart';
-import '/widgets/searchmembers.dart';
 import '/widgets/memberdetails.dart';
 import '/buttons/editmemberbutton.dart';
 import '/buttons/deletememberbutton.dart';
-import '/buttons/addmemberbutton.dart';
 
 class MembersPage extends StatefulWidget {
   const MembersPage({super.key});
@@ -14,28 +12,26 @@ class MembersPage extends StatefulWidget {
 }
 
 class _MembersPageState extends State<MembersPage> {
-  String searchTerm = "";
   Map<String, dynamic>? selectedMember;
 
   final GlobalKey<MembersTableState> _tableKey = GlobalKey<MembersTableState>();
 
-void _updateMember(Map<String, dynamic> updatedMember) {
-  if (selectedMember != null) {
-    _tableKey.currentState?.updateMember(selectedMember!, updatedMember);
+  void _updateMember(Map<String, dynamic> updatedMember) {
+    if (selectedMember != null) {
+      _tableKey.currentState?.updateMember(selectedMember!, updatedMember);
 
-    setState(() {
-      selectedMember = updatedMember;
-    });
+      setState(() {
+        selectedMember = updatedMember;
+      });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Member updated successfully!")),
-    );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Member updated successfully!")),
+      );
+    }
   }
-}
 
   void _deleteMember() {
     if (selectedMember != null) {
-      // ✅ remove from the table
       _tableKey.currentState?.removeMember(selectedMember!);
 
       setState(() {
@@ -55,35 +51,9 @@ void _updateMember(Map<String, dynamic> updatedMember) {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🔎 Search bar + Add button in one row
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SearchMembersWidget(
-                      onChanged: (value) {
-                        setState(() {
-                          searchTerm = value;
-                        });
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  AddMemberButton(
-                    onMemberAdded: (newMember) {
-                      _tableKey.currentState?.addMember(newMember);
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-            // 📋 Members Table fills the whole screen
             Expanded(
               child: MembersTable(
                 key: _tableKey,
-                searchTerm: searchTerm,
                 onRowSelected: (member) {
                   setState(() {
                     selectedMember = member;
@@ -92,7 +62,6 @@ void _updateMember(Map<String, dynamic> updatedMember) {
               ),
             ),
 
-            // 📇 Details at bottom (optional)
             if (selectedMember != null)
               Container(
                 width: double.infinity,
