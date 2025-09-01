@@ -4,7 +4,7 @@ import 'inventorypage.dart';
 import 'memberspage.dart';
 import 'loyaltypage.dart';
 import '/widgets/sidebar.dart';
-import '/widgets/appbar.dart';
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -50,6 +50,10 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final appBarTheme = theme.appBarTheme;
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
       body: Row(
         children: [
@@ -60,7 +64,32 @@ class _HomePageState extends State<HomePage> {
           Expanded(
             child: Column(
               children: [
-               CustomAppBar(title: _titles[_selectedIndex]),
+               SafeArea(
+                  top: true,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: appBarTheme.backgroundColor ?? colorScheme.surface,
+                      boxShadow: (appBarTheme.elevation != null && appBarTheme.elevation! > 0)
+                          ? [
+                              BoxShadow(
+                                color: appBarTheme.shadowColor ?? Colors.black.withOpacity(0.1),
+                                blurRadius: 20,
+                                offset: const Offset(0, 8),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    padding: const EdgeInsets.fromLTRB(24.0, 20.0, 24.0, 0.0),
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _titles[_selectedIndex],
+                      style: appBarTheme.titleTextStyle ?? theme.textTheme.headlineMedium?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
                 Expanded(child: _pages[_selectedIndex]),
               ],
             ),
