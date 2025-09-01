@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '/widgets/infocard.dart';
+import '/buttons/qrscanbutton.dart'; // ✅ import the button
 
 class LoyaltyPage extends StatelessWidget {
   const LoyaltyPage({super.key});
@@ -31,6 +32,8 @@ class LoyaltyPage extends StatelessWidget {
                     Text("5,000 pts :   ₱2,500", style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
                     Text("10,000 pts : ₱5,000", style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
                     Text("20,000 pts : ₱10,000", style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
+                    const SizedBox(height: 20),
+                    const QRScanButton(), // ✅ place the scan button here
                   ],
                 ),
               ),
