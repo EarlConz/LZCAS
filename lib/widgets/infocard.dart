@@ -7,7 +7,7 @@ class InfoCard extends StatelessWidget {
   final Color? backgroundColor;
   final String? value;
   final String? description;
-  final Widget? contentWidget; // New parameter for custom content
+  final Widget? contentWidget;
 
   const InfoCard({
     super.key,
@@ -63,7 +63,7 @@ class InfoCard extends StatelessWidget {
               Text(
                 value!,
                 style: theme.textTheme.headlineLarge?.copyWith(
-                  color: theme.colorScheme.onBackground,
+                  color: theme.colorScheme.onSurface,
                   fontWeight: FontWeight.bold,
                 ),
               ),

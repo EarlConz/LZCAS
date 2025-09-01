@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import '/widgets/infocard.dart'; // New import
+import '/widgets/infocard.dart';
 
 class LoyaltyPage extends StatelessWidget {
   const LoyaltyPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context); // Get theme
-    final colorScheme = theme.colorScheme; // Get colorScheme
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     return Scaffold(
       body: Padding(
@@ -15,12 +15,12 @@ class LoyaltyPage extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox( // Maintain fixed width
+            SizedBox(
               width: 280,
               child: InfoCard(
                 title: "REWARDS",
                 icon: Icons.card_giftcard_rounded,
-                contentColor: colorScheme.secondary, // Use secondary color for rewards
+                contentColor: colorScheme.secondary,
                 backgroundColor: colorScheme.secondary.withOpacity(0.1),
                 contentWidget: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -36,7 +36,7 @@ class LoyaltyPage extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 20),
-            const Expanded(child: SizedBox()), // placeholder for right section
+            const Expanded(child: SizedBox()),
           ],
         ),
       ),

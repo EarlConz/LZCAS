@@ -9,7 +9,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   });
 
   @override
-  Size get preferredSize => const Size.fromHeight(60.0); // Fixed height
+  Size get preferredSize => const Size.fromHeight(60.0);
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +19,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
     return Container(
       height: preferredSize.height,
       decoration: BoxDecoration(
-        color: appBarTheme.backgroundColor ?? theme.colorScheme.surface, // Fallback to surface color
+        color: appBarTheme.backgroundColor ?? theme.colorScheme.surface,
         boxShadow: appBarTheme.elevation != null && appBarTheme.elevation! > 0
             ? [
                 BoxShadow(
@@ -34,7 +34,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Text(
         title,
-        style: appBarTheme.titleTextStyle ?? theme.textTheme.headlineSmall, // Use app bar title style from theme
+        style: appBarTheme.titleTextStyle ?? theme.textTheme.headlineSmall,
       ),
     );
   }

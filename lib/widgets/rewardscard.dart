@@ -12,12 +12,12 @@ class RewardsCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: SizedBox(
-        width: 280, // 🔹 Small fixed width
+        width: 280,
         child: Padding(
           padding: const EdgeInsets.all(20.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start, // 🔹 Align left
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Title (Top Left)
               Text(

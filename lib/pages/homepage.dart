@@ -4,7 +4,7 @@ import 'inventorypage.dart';
 import 'memberspage.dart';
 import 'loyaltypage.dart';
 import '/widgets/sidebar.dart';
-import '/widgets/appbar.dart'; // New import
+import '/widgets/appbar.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});

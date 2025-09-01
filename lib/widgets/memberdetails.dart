@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'memberqr.dart'; // ✅ import the new QR widget
+import 'memberqr.dart';
 
 class MemberDetailsCard extends StatelessWidget {
   final Map<String, dynamic> member;
@@ -29,7 +29,7 @@ class MemberDetailsCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 👤 Member details on the left
+          // Member details on the left
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -62,7 +62,7 @@ class MemberDetailsCard extends StatelessWidget {
             ),
           ),
 
-          // 📌 QR code on the right
+          // QR code on the right
           MemberQr(
             lastName: member['lastName'],
             firstName: member['firstName'],
