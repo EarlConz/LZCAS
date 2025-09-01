@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import '/buttons/inventoryactionbutton.dart';
 import '/buttons/inventoryfilterbutton.dart';
 import '/widgets/search.dart';
+import '/dialogs/edit_stock_dialog.dart';
 
 class InventoryTable extends StatefulWidget {
   const InventoryTable({super.key});
@@ -190,9 +190,27 @@ class _InventoryDataSource extends DataTableSource {
           ),
         ),
         DataCell(
-          InventoryActionButton(
-            item: item,
-            onUpdated: () => onUpdate(item),
+          Builder(
+            builder: (cellContext) => PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'edit') {
+                  showDialog(
+                    context: cellContext,
+                    builder: (dialogContext) => EditStockDialog(
+                      item: item,
+                      onUpdated: () => onUpdate(item),
+                    ),
+                  );
+                }
+              },
+              itemBuilder: (menuContext) => [
+                const PopupMenuItem(
+                  value: 'edit',
+                  child: Text('Edit Stock'),
+                ),
+              ],
+            ),
           ),
         ),
       ],

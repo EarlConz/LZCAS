@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '/widgets/search.dart';
-import '/buttons/addmemberbutton.dart';
+import '/widgets/custom_elevated_button.dart';
+import '/dialogs/add_member_dialog.dart';
 
 class MembersTable extends StatefulWidget {
   final Function(Map<String, dynamic>) onRowSelected;
@@ -89,8 +90,20 @@ class MembersTableState extends State<MembersTable> {
                 ),
               ),
               const SizedBox(width: 8),
-              AddMemberButton(
-                onMemberAdded: addMember,
+              CustomElevatedButton(
+                icon: const Icon(Icons.person_add, color: Colors.white),
+                label: const Text(
+                  "Add Member",
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => AddMemberDialog(
+                      onMemberAdded: addMember,
+                    ),
+                  );
+                },
               ),
             ],
           ),

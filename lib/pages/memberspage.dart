@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '/widgets/memberstable.dart';
 import '/widgets/memberdetails.dart';
-import '/buttons/editmemberbutton.dart';
-import '/buttons/deletememberbutton.dart';
+import 'package:lzcas/dialogs/edit_member_dialog.dart';
+import '/widgets/custom_icon_button.dart';
+import '/dialogs/confirmation_dialog.dart';
 
 class MembersPage extends StatefulWidget {
   const MembersPage({super.key});
@@ -72,17 +73,34 @@ class _MembersPageState extends State<MembersPage> {
                     Positioned(
                       top: 8,
                       right: 56,
-                      child: EditMemberButton(
-                        member: selectedMember!,
-                        onMemberUpdated: _updateMember,
+                      child: CustomIconButton(
+                        icon: const Icon(Icons.edit, color: Colors.blue),
+                        onPressed: () {
+                          showDialog(
+                            context: context, 
+                            builder: (context) => EditMemberDialog(
+                            member: selectedMember!,
+                            onMemberUpdated: _updateMember,
+                            ),
+                          );
+                        },
                       ),
                     ),
                     Positioned(
                       top: 8,
                       right: 8,
-                      child: DeleteMemberButton(
-                        member: selectedMember!,
-                        onDeleted: _deleteMember,
+                      child: CustomIconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () {
+                          showDialog<bool>(
+                            context: context,
+                            builder: (context) => ConfirmationDialog(
+                              title: "Confirm Delete",
+                              content: "Do you want to delete ${selectedMember!['firstName']}?",
+                              onConfirm: _deleteMember,
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
