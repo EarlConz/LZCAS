@@ -4,6 +4,7 @@ import 'inventorypage.dart';
 import 'memberspage.dart';
 import 'loyaltypage.dart';
 import '/widgets/sidebar.dart';
+import '/widgets/appbar.dart'; // New import
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -59,19 +60,7 @@ class _HomePageState extends State<HomePage> {
           Expanded(
             child: Column(
               children: [
-               Container(
-                 height: 60,
-                 decoration: ShapeDecoration(
-                   color: Theme.of(context).appBarTheme.backgroundColor,
-                   shape: Theme.of(context).appBarTheme.shape ?? const Border(),
-                 ),
-                 alignment: Alignment.centerLeft,
-                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                 child: Text(
-                   _titles[_selectedIndex],
-                   style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                ),
+               CustomAppBar(title: _titles[_selectedIndex]),
                 Expanded(child: _pages[_selectedIndex]),
               ],
             ),
