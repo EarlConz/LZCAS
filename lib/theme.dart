@@ -46,14 +46,15 @@ final appTheme = ThemeData(
       fontSize: 14,
     ),
   ),
-  appBarTheme: const AppBarTheme(
-    backgroundColor: Colors.transparent,
-    elevation: 0,
-    foregroundColor: Color(0xFF212529),
-    titleTextStyle: TextStyle(
+  appBarTheme: AppBarTheme(
+    backgroundColor: const Color(0xFFFFFFFF),
+    elevation: 4.0,
+    shadowColor: Colors.black.withOpacity(0.1),
+    foregroundColor: const Color(0xFF212529),
+    titleTextStyle: const TextStyle(
       color: Color(0xFF212529),
-      fontSize: 22,
-      fontWeight: FontWeight.bold,
+      fontSize: 28,
+      fontWeight: FontWeight.w600,
     ),
   ),
   dataTableTheme: DataTableThemeData(
