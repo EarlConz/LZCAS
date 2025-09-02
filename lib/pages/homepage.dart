@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'dashboardpage.dart';
 import 'inventorypage.dart';
 import 'memberspage.dart';
-import 'loyaltypage.dart';
+import 'transactionpage.dart';
 import '/widgets/sidebar.dart';
 
 
@@ -31,7 +31,7 @@ class _HomePageState extends State<HomePage> {
     ),
     ColoredBox(
       color: Color(0xFFF9FAFB),
-      child: LoyaltyPage(),
+      child: TransactionPage(),
     ),
   ];
 
@@ -39,7 +39,7 @@ class _HomePageState extends State<HomePage> {
     "Dashboard",
     "Inventory",
     "Members",
-    "Loyalty Points",
+    "Transactions",
   ];
 
   void _onItemTapped(int index) {

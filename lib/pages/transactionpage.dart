@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import '/widgets/infocard.dart';
 import '/buttons/qrscanbutton.dart'; // ✅ import the button
+import '/buttons/sellbutton.dart';
 
-class LoyaltyPage extends StatelessWidget {
-  const LoyaltyPage({super.key});
+class TransactionPage extends StatelessWidget {
+  const TransactionPage({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -16,6 +17,7 @@ class LoyaltyPage extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Rewards card
             SizedBox(
               width: 280,
               child: InfoCard(
@@ -27,18 +29,27 @@ class LoyaltyPage extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("1,000 pts :   ₱500", style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
-                    Text("2,000 pts :   ₱1,000", style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
-                    Text("5,000 pts :   ₱2,500", style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
-                    Text("10,000 pts : ₱5,000", style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
-                    Text("20,000 pts : ₱10,000", style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
-                    const SizedBox(height: 20),
-                    const QRScanButton(), // ✅ place the scan button here
+                    Text("1,000 pts :   ₱500",
+                        style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
+                    Text("2,000 pts :   ₱1,000",
+                        style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
+                    Text("5,000 pts :   ₱2,500",
+                        style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
+                    Text("10,000 pts : ₱5,000",
+                        style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
+                    Text("20,000 pts : ₱10,000",
+                        style: theme.textTheme.bodyMedium?.copyWith(height: 1.5)),
                   ],
                 ),
               ),
             ),
+
             const SizedBox(width: 20),
+
+            const QRScanButton(),
+
+            const SellButton(),
+
             const Expanded(child: SizedBox()),
           ],
         ),

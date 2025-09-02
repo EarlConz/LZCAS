@@ -48,7 +48,7 @@ class Sidebar extends StatelessWidget {
                 _buildNavItem(context, Icons.dashboard_rounded, "Dashboard", 0),
                 _buildNavItem(context, Icons.inventory_2_rounded, "Inventory", 1),
                 _buildNavItem(context, Icons.people_alt_rounded, "Members", 2),
-                _buildNavItem(context, Icons.card_giftcard_rounded, "Loyalty", 3),
+                _buildNavItem(context, Icons.card_giftcard_rounded, "Transactions", 3),
               ],
             ),
           ),

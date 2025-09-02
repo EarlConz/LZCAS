@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '/buttons/inventoryfilterbutton.dart';
 import '/widgets/search.dart';
 import '/dialogs/edit_stock_dialog.dart';
+import '/data/itemsdata.dart';
 
 class InventoryTable extends StatefulWidget {
   const InventoryTable({super.key});
@@ -15,36 +16,7 @@ class _InventoryTableState extends State<InventoryTable> {
   String? selectedStatus;
   String? selectedCategory;
 
-  final List<Map<String, dynamic>> items = [
-    {
-      "name": "Tomatoesq",
-      "category": "Powder",
-      "stock": 120,
-      "lastUpdated": "Aug 15, 2024, 14:30",
-      "status": "Good"
-    },
-    {
-      "name": "Chicken Breast",
-      "category": "Tablet/Capsules",
-      "stock": 40,
-      "lastUpdated": "Aug 15, 2024, 14:30",
-      "status": "Low Stock"
-    },
-    {
-      "name": "Eggs",
-      "category": "Tablet/Capsules",
-      "stock": 0,
-      "lastUpdated": "Aug 15, 2024, 14:30",
-      "status": "Out of Stock"
-    },
-    {
-      "name": "Olive Oil",
-      "category": "Oil",
-      "stock": 100,
-      "lastUpdated": "Aug 15, 2024, 14:30",
-      "status": "Good"
-    },
-  ];
+  final List<Map<String, dynamic>> items = inventoryItems;
 
   Color _getStatusColor(String status) {
     switch (status) {
