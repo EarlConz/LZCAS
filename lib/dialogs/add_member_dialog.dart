@@ -122,7 +122,8 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               );
               return;
             }
-
+            
+            final qrdata = "${lastNameController.text}, ${firstNameController.text} ${middleNameController.text}";
             final newMember = {
               "lastName": lastNameController.text,
               "firstName": firstNameController.text,
@@ -133,8 +134,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               "birthday": birthdayController.text,
               "address": addressController.text,
               "referrer": referrerController.text,
-              "points": 15, // default
+              "points": 0, // default
               "role": "Member", // default
+              "qr": qrdata,
             };
 
             widget.onMemberAdded(newMember);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '/data/membersdata.dart'; // ✅ import members data
 
 class QRScanButton extends StatefulWidget {
   const QRScanButton({super.key});
@@ -20,25 +21,61 @@ class _QRScanButtonState extends State<QRScanButton> {
     if (result != null && mounted) {
       setState(() => scannedText = result);
 
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text("QR Code Scanned"),
-          content: Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Text(scannedText ?? ""),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Close"),
-            ),
-          ],
-        ),
+      // ✅ Look for the member in membersdata
+      final member = membersdata.firstWhere(
+        (m) => m["qr"] == scannedText,
+        orElse: () => {},
       );
+
+      if (member.isNotEmpty) {
+        // ✅ Member found
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text("Member Found"),
+            content: Card(
+              elevation: 4,
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Name: ${member["firstName"]} ${member["middleName"]} ${member["lastName"]}"),
+                    Text("Role: ${member["role"]}"),
+                    Text("Contact: ${member["contactNo"]}"),
+                    Text("Birthday: ${member["birthday"]}"),
+                    Text("Address: ${member["address"]}"),
+                    Text("Referrer: ${member["referrer"]}"),
+                    Text("Points: ${member["points"]}"),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Close"),
+              ),
+            ],
+          ),
+        );
+      } else {
+        // ❌ Not found
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text("Not Found"),
+            content: Text("No member matches QR: $scannedText"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Close"),
+              ),
+            ],
+          ),
+        );
+      }
     }
   }
 
@@ -86,7 +123,6 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
             controller: controller,
             scanWindow: scanArea,
             fit: BoxFit.cover,
-            //detectionSpeed: DetectionSpeed.normal,
             onDetect: (capture) async {
               if (isScanned) return; // prevent multiple triggers
               final List<Barcode> barcodes = capture.barcodes;

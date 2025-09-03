@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '/widgets/search.dart';
 import '/widgets/custom_elevated_button.dart';
 import '/dialogs/add_member_dialog.dart';
+import '/data/membersdata.dart';
 
 class MembersTable extends StatefulWidget {
   final Function(Map<String, dynamic>) onRowSelected;
@@ -17,30 +18,7 @@ class MembersTable extends StatefulWidget {
 
 class MembersTableState extends State<MembersTable> {
   String searchTerm = "";
-  final List<Map<String, dynamic>> members = [
-    {
-      "lastName": "Cruz",
-      "firstName": "Juan",
-      "middleName": "Dela",
-      "role": "Leader",
-      "contactNo": "09171234567",
-      "birthday": "Jan 10, 1990",
-      "address": "Quezon City",
-      "referrer": "Reyes",
-      "points": 15,
-    },
-    {
-      "lastName": "Reyes",
-      "firstName": "Maria",
-      "middleName": "Lopez",
-      "role": "Member",
-      "contactNo": "09182345678",
-      "birthday": "Feb 20, 1992",
-      "address": "Makati City",
-      "referrer": "Cruz",
-      "points": 15,
-    },
-  ];
+  final List<Map<String, dynamic>> members = membersdata;
 
   void addMember(Map<String, dynamic> newMember) {
     setState(() {
