@@ -8,14 +8,14 @@ final appTheme = ThemeData(
     onPrimary: Colors.white,
     secondary: const Color(0xFF00A896),
     onSecondary: Colors.white,
-    surface: Colors.white,
-    background: const Color(0xFFF8F9FA),
-    onBackground: const Color(0xFF212529),
+  surface: Colors.white,
+  // 'background' and 'onBackground' were deprecated; prefer surface/onSurface
+  onSurface: const Color(0xFF212529),
   ),
   scaffoldBackgroundColor: const Color(0xFFF8F9FA),
   cardTheme: CardThemeData(
     elevation: 4,
-    shadowColor: Colors.black.withOpacity(0.1),
+  shadowColor: Colors.black.withAlpha((0.1 * 255).round()),
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(16),
     ),
@@ -46,10 +46,10 @@ final appTheme = ThemeData(
       fontSize: 14,
     ),
   ),
-  appBarTheme: AppBarTheme(
+    appBarTheme: AppBarTheme(
     backgroundColor: const Color(0xFFFFFFFF),
     elevation: 4.0,
-    shadowColor: Colors.black.withOpacity(0.1),
+  shadowColor: Colors.black.withAlpha((0.1 * 255).round()),
     foregroundColor: const Color(0xFF212529),
     titleTextStyle: const TextStyle(
       color: Color(0xFF212529),

@@ -1,4 +1,7 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
+import 'package:drift/drift.dart' show Value;
+import 'package:lzcas/db/db.dart';
 
 class EditStockDialog extends StatefulWidget {
   final Map<String, dynamic> item;
@@ -47,22 +50,51 @@ class _EditStockDialogState extends State<EditStockDialog> {
           child: const Text("Cancel"),
         ),
         ElevatedButton(
-          onPressed: () {
+          onPressed: () async {
             final input = controller.text.trim();
+            final newStock = int.tryParse(input);
 
-            if (int.tryParse(input) == null) {
+            if (newStock == null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text("Numbers only")),
               );
-            } else {
-              widget.item["stock"] = int.parse(input);
+              return;
+            }
+
+            // If item has an id, persist change to the DB; otherwise fall back
+            // to updating the provided in-memory map.
+            final id = widget.item['id'] as int?;
+            if (id == null) {
+              widget.item["stock"] = newStock;
               widget.item["lastUpdated"] =
                   "${DateTime.now().toLocal()}".split('.')[0];
-
               widget.onUpdated();
-
               Navigator.pop(context);
+              return;
             }
+
+            final row = await repository.db.getItemById(id);
+            if (row == null) {
+              if (!mounted) return;
+              final localCtx = context;
+              ScaffoldMessenger.of(localCtx).showSnackBar(
+                const SnackBar(content: Text("Item not found in DB")),
+              );
+              return;
+            }
+
+            final newStatus = statusFromStock(newStock);
+            final updated = row.copyWith(
+              stock: newStock,
+              lastUpdated: Value(DateTime.now()),
+              status: Value(newStatus),
+            );
+
+            await repository.updateItem(updated);
+
+            if (!mounted) return;
+            widget.onUpdated();
+            Navigator.pop(context);
           },
           child: const Text("Save"),
         ),

@@ -21,7 +21,7 @@ class Sidebar extends StatelessWidget {
         color: colorScheme.surface,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withAlpha((0.05 * 255).round()),
             blurRadius: 12,
             offset: const Offset(1, 0),
           ),
@@ -54,7 +54,7 @@ class Sidebar extends StatelessWidget {
           ),
           // Bottom section (settings)
           Divider(
-            color: colorScheme.onSurface.withOpacity(0.1),
+            color: colorScheme.onSurface.withAlpha((0.1 * 255).round()),
             indent: 20,
             endIndent: 20,
           ),
@@ -76,21 +76,21 @@ class Sidebar extends StatelessWidget {
     return InkWell(
       onTap: () => onItemSelected(index),
       borderRadius: BorderRadius.circular(12),
-      hoverColor: colorScheme.primary.withOpacity(0.05),
-      splashColor: colorScheme.primary.withOpacity(0.1),
-      highlightColor: colorScheme.primary.withOpacity(0.1),
+  hoverColor: colorScheme.primary.withAlpha((0.05 * 255).round()),
+  splashColor: colorScheme.primary.withAlpha((0.1 * 255).round()),
+  highlightColor: colorScheme.primary.withAlpha((0.1 * 255).round()),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 5),
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
         decoration: BoxDecoration(
-          color: selected ? colorScheme.primary.withOpacity(0.1) : Colors.transparent,
+          color: selected ? colorScheme.primary.withAlpha((0.1 * 255).round()) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
             Icon(
               icon,
-              color: selected ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.6),
+              color: selected ? colorScheme.primary : colorScheme.onSurface.withAlpha((0.6 * 255).round()),
               size: 24,
             ),
             const SizedBox(width: 16),
@@ -98,7 +98,7 @@ class Sidebar extends StatelessWidget {
               label,
               style: theme.textTheme.bodyLarge?.copyWith(
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                color: selected ? colorScheme.primary : colorScheme.onSurface.withOpacity(0.8),
+                color: selected ? colorScheme.primary : colorScheme.onSurface.withAlpha((0.8 * 255).round()),
               ),
             ),
           ],

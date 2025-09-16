@@ -72,7 +72,7 @@ class _HomePageState extends State<HomePage> {
                       boxShadow: (appBarTheme.elevation != null && appBarTheme.elevation! > 0)
                           ? [
                               BoxShadow(
-                                color: appBarTheme.shadowColor ?? Colors.black.withOpacity(0.1),
+                                color: appBarTheme.shadowColor ?? Colors.black.withAlpha((0.1 * 255).round()),
                                 blurRadius: 20,
                                 offset: const Offset(0, 8),
                               ),

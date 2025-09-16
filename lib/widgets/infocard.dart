@@ -25,7 +25,7 @@ class InfoCard extends StatelessWidget {
     final theme = Theme.of(context);
     final cardTheme = theme.cardTheme;
 
-    final effectiveBackgroundColor = backgroundColor ?? contentColor.withOpacity(0.1);
+  final effectiveBackgroundColor = backgroundColor ?? contentColor.withAlpha((0.1 * 255).round());
 
     return Card(
       shape: cardTheme.shape,
@@ -72,7 +72,7 @@ class InfoCard extends StatelessWidget {
                 Text(
                   description!,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    color: contentColor.withOpacity(0.9),
+                    color: contentColor.withAlpha((0.9 * 255).round()),
                   ),
                 ),
               ],

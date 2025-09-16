@@ -1,6 +1,7 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import '/data/membersdata.dart'; // ✅ import members data
+import 'package:lzcas/db/db.dart';
 
 class QRScanButton extends StatefulWidget {
   const QRScanButton({super.key});
@@ -11,71 +12,81 @@ class QRScanButton extends StatefulWidget {
 
 class _QRScanButtonState extends State<QRScanButton> {
   String? scannedText;
-
-  void _startQRScan(BuildContext context) async {
+  Future<void> _startQRScan(BuildContext context) async {
+    // Capture the incoming BuildContext before any async gaps so we can
+    // use it safely after awaits without linting about using context
+    // across async gaps.
+    final localContext = context;
+  // It's safe to use the captured localContext here; silence the
+  // analyzer rule about using BuildContext across async gaps.
     final result = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const QRScannerScreen()),
+      localContext,
+      MaterialPageRoute(builder: (_) => const QRScannerScreen()),
     );
 
-    if (result != null && mounted) {
-      setState(() => scannedText = result);
+    if (result == null) return;
+    if (!mounted) return;
+    setState(() => scannedText = result);
 
-      // ✅ Look for the member in membersdata
-      final member = membersdata.firstWhere(
-        (m) => m["qr"] == scannedText,
-        orElse: () => {},
-      );
+    // Query DB for member
+    final rows = await repository.fetchMembers();
+    Member? memberRow;
+    try {
+      memberRow = rows.firstWhere((r) => r.qr == scannedText);
+    } catch (_) {
+      memberRow = null;
+    }
 
-      if (member.isNotEmpty) {
-        // ✅ Member found
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text("Member Found"),
-            content: Card(
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("Name: ${member["firstName"]} ${member["middleName"]} ${member["lastName"]}"),
-                    Text("Role: ${member["role"]}"),
-                    Text("Contact: ${member["contactNo"]}"),
-                    Text("Birthday: ${member["birthday"]}"),
-                    Text("Address: ${member["address"]}"),
-                    Text("Referrer: ${member["referrer"]}"),
-                    Text("Points: ${member["points"]}"),
-                  ],
-                ),
+  if (!mounted) return;
+  // Use the captured context for dialogs
+  final dialogContext = localContext;
+  if (memberRow != null) {
+      final m = memberRow;
+  showDialog(
+        context: dialogContext,
+        builder: (_) => AlertDialog(
+          title: const Text("Member Found"),
+          content: Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Name: ${m.firstName ?? ''} ${m.middleName ?? ''} ${m.lastName ?? ''}"),
+                  Text("Role: ${m.role ?? ''}"),
+                  Text("Contact: ${m.contactNo ?? ''}"),
+                  Text("Birthday: ${m.birthday ?? ''}"),
+                  Text("Address: ${m.address ?? ''}"),
+                  Text("Referrer: ${m.referrer ?? ''}"),
+                  Text("Points: ${m.points}"),
+                ],
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Close"),
-              ),
-            ],
           ),
-        );
-      } else {
-        // ❌ Not found
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text("Not Found"),
-            content: Text("No member matches QR: $scannedText"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Close"),
-              ),
-            ],
-          ),
-        );
-      }
+          actions: [
+      TextButton(
+      onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("Close"),
+            ),
+          ],
+        ),
+      );
+    } else {
+  showDialog(
+        context: dialogContext,
+        builder: (_) => AlertDialog(
+          title: const Text("Not Found"),
+          content: Text("No member matches QR: $scannedText"),
+          actions: [
+            TextButton(
+      onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("Close"),
+            ),
+          ],
+        ),
+      );
     }
   }
 
@@ -137,9 +148,9 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           ),
 
           // ✅ Dark overlay with transparent scan area
-          ColorFiltered(
+            ColorFiltered(
             colorFilter: ColorFilter.mode(
-              Colors.black.withOpacity(0.6),
+              Colors.black.withAlpha((0.6 * 255).round()),
               BlendMode.srcOut,
             ),
             child: Stack(

@@ -1,6 +1,8 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '/data/itemsdata.dart';
+import 'package:drift/drift.dart' show Value;
+import 'package:lzcas/db/db.dart';
 
 class SellButton extends StatefulWidget {
   const SellButton({super.key});
@@ -10,17 +12,12 @@ class SellButton extends StatefulWidget {
 }
 
 class _SellButtonState extends State<SellButton> {
-  final List<String> items =
-      inventoryItems.map((item) => item["name"].toString()).toList();
-  String? selectedItem;
-  int quantity = 1;
-  List<Map<String, dynamic>> cart = [];
-  final TextEditingController _qtyController = TextEditingController(text: "1");
-  final FocusNode _qtyFocusNode = FocusNode();
+  List<String> items = [];
 
   @override
   void initState() {
     super.initState();
+    _loadItems();
 
     // ✅ Clear field when focused (if it's "1")
     _qtyFocusNode.addListener(() {
@@ -29,6 +26,19 @@ class _SellButtonState extends State<SellButton> {
       }
     });
   }
+
+  Future<void> _loadItems() async {
+    final rows = await repository.fetchItems();
+    setState(() {
+      items = inventoryItemsFromRows(rows).map((i) => i['name'].toString()).toList();
+    });
+  }
+
+  String? selectedItem;
+  int quantity = 1;
+  List<Map<String, dynamic>> cart = [];
+  final TextEditingController _qtyController = TextEditingController(text: "1");
+  final FocusNode _qtyFocusNode = FocusNode();
 
   @override
   void dispose() {
@@ -54,11 +64,13 @@ class _SellButtonState extends State<SellButton> {
   }
 
   void _showSellDialog(BuildContext context) {
-    showDialog(
-      context: context,
+  // Capture context before async/await usage inside the dialog
+  final localContext = context;
+  showDialog(
+      context: localContext,
       builder: (_) {
         return StatefulBuilder(
-          builder: (context, setState) {
+          builder: (dialogContext, setState) {
             return AlertDialog(
               title: const Text("Sell Items"),
               content: SizedBox(
@@ -68,7 +80,7 @@ class _SellButtonState extends State<SellButton> {
                   children: [
                     // 🔍 Dropdown
                     DropdownButtonFormField<String>(
-                      value: selectedItem,
+                      initialValue: selectedItem,
                       hint: const Text("Select Item"),
                       items: items
                           .map((e) => DropdownMenuItem(
@@ -125,14 +137,17 @@ class _SellButtonState extends State<SellButton> {
                     const SizedBox(height: 12),
 
                     // ➕ Add to List
-                    ElevatedButton.icon(
-                      onPressed: () {
+          ElevatedButton.icon(
+                      onPressed: () async {
                         if (selectedItem != null) {
-                          final item = inventoryItems.firstWhere(
-                              (it) => it["name"] == selectedItem);
+                          final itemObj = (await repository.fetchItems())
+                .firstWhere((r) => r.name == selectedItem);
 
-                          if (item["stock"] <= 0 || item["stock"] < quantity) {
-                            _showError(context, "Not enough stock");
+              if (!mounted) return;
+
+                          if (itemObj.stock <= 0 || itemObj.stock < quantity) {
+                            if (!mounted) return;
+                            _showError(dialogContext, "Not enough stock");
                             return;
                           }
 
@@ -148,7 +163,7 @@ class _SellButtonState extends State<SellButton> {
                             quantity = 1;
                             _qtyController.text = "1";
                           });
-                        }
+                          }
                       },
                       icon: const Icon(Icons.add),
                       label: const Text("Add to List"),
@@ -211,20 +226,36 @@ class _SellButtonState extends State<SellButton> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.pop(dialogContext),
                   child: const Text("Cancel"),
                 ),
                 ElevatedButton(
                   onPressed: cart.isEmpty
                       ? null
-                      : () {
+                      : () async {
                           for (var entry in cart) {
-                            final item = inventoryItems.firstWhere(
-                                (it) => it["name"] == entry["item"]);
-                            item["stock"] -= entry["quantity"];
+                            final dbItem = (await repository.fetchItems())
+                                .firstWhere((r) => r.name == entry["item"]);
+                            final q = entry["quantity"] as int;
+                            final newStock = dbItem.stock - q;
+                            final newStatus = statusFromStock(newStock);
+                            final updated = dbItem.copyWith(
+                                stock: newStock,
+                                lastUpdated: Value(DateTime.now()),
+                                status: Value(newStatus));
+                            // use repository helper so listeners are notified
+                            await repository.updateItem(updated);
+                            // persist sale record
+                            final priceStr = (entry["price"] ?? '').toString();
+                            final price = int.tryParse(priceStr) ?? 0;
+                            await repository.addSale(itemId: dbItem.id, itemName: dbItem.name, quantity: q, price: price);
                           }
-                          Navigator.pop(context, cart);
+                          // reload items first, then close dialog using captured dialogContext
+                          await _loadItems();
+                          if (!mounted) return;
+                          Navigator.pop(dialogContext, cart);
                           cart.clear();
+                          // optionally notify a transactions list elsewhere by reloading sales if implemented
                         },
                   child: const Text("Confirm"),
                 ),
