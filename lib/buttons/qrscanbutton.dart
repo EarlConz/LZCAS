@@ -13,12 +13,7 @@ class QRScanButton extends StatefulWidget {
 class _QRScanButtonState extends State<QRScanButton> {
   String? scannedText;
   Future<void> _startQRScan(BuildContext context) async {
-    // Capture the incoming BuildContext before any async gaps so we can
-    // use it safely after awaits without linting about using context
-    // across async gaps.
     final localContext = context;
-  // It's safe to use the captured localContext here; silence the
-  // analyzer rule about using BuildContext across async gaps.
     final result = await Navigator.push(
       localContext,
       MaterialPageRoute(builder: (_) => const QRScannerScreen()),
@@ -28,7 +23,6 @@ class _QRScanButtonState extends State<QRScanButton> {
     if (!mounted) return;
     setState(() => scannedText = result);
 
-    // Query DB for member
     final rows = await repository.fetchMembers();
     Member? memberRow;
     try {
@@ -37,12 +31,11 @@ class _QRScanButtonState extends State<QRScanButton> {
       memberRow = null;
     }
 
-  if (!mounted) return;
-  // Use the captured context for dialogs
-  final dialogContext = localContext;
-  if (memberRow != null) {
+    if (!mounted) return;
+    final dialogContext = localContext;
+    if (memberRow != null) {
       final m = memberRow;
-  showDialog(
+      showDialog(
         context: dialogContext,
         builder: (_) => AlertDialog(
           title: const Text("Member Found"),
@@ -66,22 +59,22 @@ class _QRScanButtonState extends State<QRScanButton> {
             ),
           ),
           actions: [
-      TextButton(
-      onPressed: () => Navigator.pop(dialogContext),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text("Close"),
             ),
           ],
         ),
       );
     } else {
-  showDialog(
+      showDialog(
         context: dialogContext,
         builder: (_) => AlertDialog(
           title: const Text("Not Found"),
           content: Text("No member matches QR: $scannedText"),
           actions: [
             TextButton(
-      onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text("Close"),
             ),
           ],
@@ -108,8 +101,15 @@ class QRScannerScreen extends StatefulWidget {
 }
 
 class _QRScannerScreenState extends State<QRScannerScreen> {
-  final MobileScannerController controller = MobileScannerController();
+  final MobileScannerController controller =
+      MobileScannerController(facing: CameraFacing.back);
   bool isScanned = false;
+
+  @override
+  void initState() {
+    super.initState();
+    controller.start();
+  }
 
   @override
   void dispose() {
@@ -129,7 +129,6 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // ✅ Camera feed
           MobileScanner(
             controller: controller,
             scanWindow: scanArea,
@@ -139,16 +138,39 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
               final List<Barcode> barcodes = capture.barcodes;
               if (barcodes.isNotEmpty) {
                 isScanned = true;
-                await controller.stop(); // ✅ stop scanning immediately
+                await controller.stop();
                 if (mounted) {
                   Navigator.pop(context, barcodes.first.rawValue ?? "");
                 }
               }
             },
+            errorBuilder: (context, error, child) {
+              return Scaffold(
+                appBar: AppBar(title: const Text('QR Scan Error')),
+                body: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Error: ${error.errorCode.name}',
+                          style: const TextStyle(
+                              color: Colors.red, fontSize: 18),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          error.errorDetails?.message ?? 'Unknown error',
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
-
-          // ✅ Dark overlay with transparent scan area
-            ColorFiltered(
+          ColorFiltered(
             colorFilter: ColorFilter.mode(
               Colors.black.withAlpha((0.6 * 255).round()),
               BlendMode.srcOut,
@@ -174,8 +196,6 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
               ],
             ),
           ),
-
-          // ✅ Green scan box border (kept bright)
           Center(
             child: Container(
               width: 250,
@@ -189,8 +209,6 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
               ),
             ),
           ),
-
-          // Close button
           Positioned(
             top: 40,
             left: 20,
@@ -199,8 +217,14 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
               onPressed: () => Navigator.pop(context),
             ),
           ),
-
-          // Instruction text
+          Positioned(
+            top: 40,
+            right: 20,
+            child: IconButton(
+              icon: const Icon(Icons.switch_camera, color: Colors.white, size: 30),
+              onPressed: () => controller.switchCamera(),
+            ),
+          ),
           Positioned(
             bottom: 80,
             left: 0,
