@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import '../widgets/infocard.dart';
-import '../buttons/qrscanbutton.dart';
 import '../buttons/sellbutton.dart';
+import '../buttons/redeembutton.dart';
 import '../db/db.dart' show repository, Sale;
 
 class TransactionPage extends StatefulWidget {
@@ -58,7 +58,6 @@ class _TransactionPageState extends State<TransactionPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Transactions'),
         actions: [
           IconButton(onPressed: _loadSales, icon: const Icon(Icons.refresh))
         ],
@@ -97,9 +96,13 @@ class _TransactionPageState extends State<TransactionPage> {
 
             const SizedBox(width: 20),
 
-            const QRScanButton(),
-
             const SellButton(),
+
+            const SizedBox(width: 20),
+
+            const RedeemButton(),
+
+            const SizedBox(width: 20),
 
             const SizedBox(width: 20),
 
