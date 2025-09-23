@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
+import 'package:flutter/services.dart';
 
+// Placeholder generator UI — QR generation was removed from the product. This
+// stub displays the name string and a copy button so importing code can still
+// use this widget if needed without pulling qr_flutter.
 class QrGenerator extends StatelessWidget {
   final String lastName;
   final String firstName;
@@ -15,41 +18,27 @@ class QrGenerator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final qrData = "$lastName, $firstName $middleName"; // QR content
-
+    final label = '$lastName, $firstName $middleName';
     return Center(
       child: Card(
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  QrImageView(
-                    data: qrData,
-                    version: QrVersions.auto,
-                    size: 200,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    qrData,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ],
+        elevation: 6,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: Text(label)),
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Icons.copy),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: label));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+                },
               ),
-            ),
-            // ❌ Close button
-            Positioned(
-              right: 0,
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.red),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

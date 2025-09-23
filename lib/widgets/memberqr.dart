@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
+// Placeholder for Member QR view. QR features were removed from the UI and
+// QR package dependencies were removed from pubspec.yaml. Keep a small stub
+// so other code can import this file without pulling qr_flutter.
 class MemberQr extends StatelessWidget {
   final String lastName;
   final String firstName;
@@ -15,13 +17,10 @@ class MemberQr extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final qrData = "$lastName, $firstName $middleName";
-
-    return QrImageView(
-      data: qrData,
-      version: QrVersions.auto,
-      size: 100.0,
-      backgroundColor: Colors.white,
+    // Render a simple avatar with initials instead of a QR code
+    final initials = '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}';
+    return CircleAvatar(
+      child: Text(initials.toUpperCase()),
     );
   }
 }

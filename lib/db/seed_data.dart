@@ -1,30 +1,9 @@
-// Minimal seed data and helper mappers used by UI components.
+// Helper mappers and utilities used by UI components.
+// NOTE: in-memory seed lists were removed. Use CSV import helpers on the repository
+// (e.g. `repository.importItemsCsv(...)`) or an external seed script if initial data is needed.
 import 'package:lzcas/db/app_db.dart' show Item, Member;
 
-final List<Map<String, dynamic>> inventoryItemsSeed = [
-  // keep this small; developers can modify
-  {
-    'name': 'Sample Item A',
-    'category': 'General',
-    'stock': 100,
-    'status': 'Good',
-  },
-  {
-    'name': 'Sample Item B',
-    'category': 'General',
-    'stock': 10,
-    'status': 'Low Stock',
-  },
-];
-
-final List<Map<String, dynamic>> membersdataSeed = [
-  {
-    'firstName': 'John',
-    'lastName': 'Doe',
-    'role': 'Customer',
-    'points': 0,
-  }
-];
+// Seed lists removed: this module now only exposes helper mappers and utilities.
 
 List<Map<String, dynamic>> inventoryItemsFromRows(List<Item> rows) {
   return rows.map((r) => {

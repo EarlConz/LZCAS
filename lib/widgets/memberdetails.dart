@@ -8,12 +8,13 @@ class MemberDetailsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -31,11 +32,27 @@ class MemberDetailsCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  "${member['firstName']} ${member['middleName']} ${member['lastName']}",
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
+                // Name with avatar embedded inline so the icon follows the name text
+                RichText(
+                  text: TextSpan(
+                    style: DefaultTextStyle.of(context).style.copyWith(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                    children: [
+                      TextSpan(text: "${member['firstName']} ${member['middleName']} ${member['lastName']}"),
+                      WidgetSpan(
+                        alignment: PlaceholderAlignment.middle,
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: MemberQr(
+                            lastName: member['lastName'],
+                            firstName: member['firstName'],
+                            middleName: member['middleName'],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -60,13 +77,6 @@ class MemberDetailsCard extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-
-          // QR code on the right
-          MemberQr(
-            lastName: member['lastName'],
-            firstName: member['firstName'],
-            middleName: member['middleName'],
           ),
         ],
       ),

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lzcas/buttons/inventoryfilterbutton.dart';
 import 'package:lzcas/widgets/search.dart';
-import 'package:lzcas/dialogs/edit_stock_dialog.dart';
+import 'package:lzcas/dialogs/edit_stock_dialog.dart' show EditProductDialog;
 import 'package:lzcas/dialogs/add_product_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
@@ -38,8 +38,9 @@ class _InventoryTableState extends State<InventoryTable> {
           e == 'sale_added' ||
           e == 'item_imported' ||
           e == 'item_added' ||
-          e == 'item_deleted')
+          e == 'item_deleted') {
         _loadItems();
+      }
     });
   }
 
@@ -141,7 +142,7 @@ class _InventoryTableState extends State<InventoryTable> {
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
-                icon: const Icon(Icons.add_business, color: Colors.white),
+                icon: Icon(Icons.add_business, color: Theme.of(context).colorScheme.onPrimary),
                 label: const Text(
                   'Add Product',
                   style: TextStyle(
@@ -175,7 +176,7 @@ class _InventoryTableState extends State<InventoryTable> {
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
-                icon: const Icon(Icons.upload_file, color: Colors.white),
+                icon: Icon(Icons.upload_file, color: Theme.of(context).colorScheme.onPrimary),
                 label: const Text(
                   'Export CSV',
                   style: TextStyle(
@@ -223,7 +224,7 @@ class _InventoryTableState extends State<InventoryTable> {
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
-                icon: const Icon(Icons.download, color: Colors.white),
+                icon: Icon(Icons.download, color: Theme.of(context).colorScheme.onPrimary),
                 label: const Text(
                   'Import CSV',
                   style: TextStyle(
@@ -278,7 +279,7 @@ class _InventoryTableState extends State<InventoryTable> {
         Expanded(
           child: SizedBox(
             width: double.infinity,
-            child: Theme(
+              child: Theme(
               data: Theme.of(context).copyWith(
                 cardTheme: CardThemeData(
                   elevation: 0,
@@ -286,11 +287,10 @@ class _InventoryTableState extends State<InventoryTable> {
                     borderRadius: BorderRadius.circular(8),
                     side: BorderSide(color: Colors.grey.shade300, width: 1),
                   ),
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                 ),
               ),
               child: PaginatedDataTable(
-                headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
                 rowsPerPage: 7,
                 columns: const [
                   DataColumn(label: Text("Item Name")),
@@ -300,11 +300,12 @@ class _InventoryTableState extends State<InventoryTable> {
                   DataColumn(label: Text("Status")),
                   DataColumn(label: Text("Action")),
                 ],
-                source: _InventoryDataSource(
-                  filteredItems,
-                  _getStatusColor,
-                  _onUpdate,
-                ),
+                    source: _InventoryDataSource(
+                      filteredItems,
+                      _getStatusColor,
+                      _onUpdate,
+                      context,
+                    ),
               ),
             ),
           ),
@@ -325,18 +326,21 @@ class _InventoryDataSource extends DataTableSource {
   final Color Function(String) getStatusColor;
   final void Function(Map<String, dynamic>) onUpdate;
 
-  _InventoryDataSource(this.items, this.getStatusColor, this.onUpdate);
+  final BuildContext _context;
+  _InventoryDataSource(this.items, this.getStatusColor, this.onUpdate, this._context);
 
   @override
   DataRow getRow(int index) {
     if (index >= items.length) return const DataRow(cells: []);
     final item = items[index];
     final isEven = index % 2 == 0;
-    return DataRow(
-      color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
-        if (isEven) return Colors.grey[100];
-        return null;
-      }),
+          return DataRow(
+            color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+              if (isEven) {
+                return Theme.of(_context).colorScheme.surfaceContainerHighest;
+              }
+              return null;
+            }),
       cells: [
         DataCell(Text(item["name"] ?? "")),
         DataCell(Text(item["category"] ?? "")),
@@ -359,7 +363,7 @@ class _InventoryDataSource extends DataTableSource {
                 if (value == 'edit') {
                   showDialog(
                     context: cellContext,
-                    builder: (dialogContext) => EditStockDialog(
+                    builder: (dialogContext) => EditProductDialog(
                       item: item,
                       onUpdated: () => onUpdate(item),
                     ),
@@ -400,7 +404,7 @@ class _InventoryDataSource extends DataTableSource {
                 }
               },
               itemBuilder: (menuContext) => [
-                const PopupMenuItem(value: 'edit', child: Text('Edit Stock')),
+                const PopupMenuItem(value: 'edit', child: Text('Edit Product')),
                 const PopupMenuItem(
                   value: 'delete',
                   child: Text('Delete Product'),

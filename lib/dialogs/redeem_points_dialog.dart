@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:lzcas/db/db.dart';
 
 class RedeemPointsDialog extends StatefulWidget {
   final List<Map<String, dynamic>> members;
@@ -49,48 +48,39 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
                       ),
                       onChanged: (_) => setState(() {}),
                     ),
-                    if (_memberFocusNode.hasFocus ||
-                        _memberSearchController.text.isNotEmpty)
+                    if (_memberFocusNode.hasFocus || _memberSearchController.text.isNotEmpty)
                       Container(
                         constraints: const BoxConstraints(maxHeight: 200),
                         margin: const EdgeInsets.only(top: 4),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: Theme.of(context).cardColor,
                           border: Border.all(color: Colors.grey.shade300),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Builder(
                           builder: (context) {
-                            final List<String> memberNames = widget.members.map(
-                              (m) {
-                                final lastName = m['lastName'] ?? '';
-                                final firstName = m['firstName'] ?? '';
-                                return '$firstName $lastName'.trim();
-                              },
-                            ).toList();
+                            final List<String> memberNames = widget.members.map((m) {
+                              final lastName = m['lastName'] ?? '';
+                              final firstName = m['firstName'] ?? '';
+                              return '$firstName $lastName'.trim();
+                            }).toList();
 
-                            return ListView(
+                            final query = _memberSearchController.text.toLowerCase();
+                            final filtered = memberNames.where((m) => query.isEmpty || m.toLowerCase().contains(query)).toList();
+
+                            return ListView.builder(
                               shrinkWrap: true,
-                              children: memberNames
-                                  .where((m) {
-                                    final query = _memberSearchController.text
-                                        .toLowerCase();
-                                    return query.isEmpty ||
-                                        m.toLowerCase().contains(query);
-                                  })
-                                  .map(
-                                    (m) => ListTile(
-                                      title: Text(m),
-                                      onTap: () {
-                                        setState(() {
-                                          selectedMember = m;
-                                          _memberSearchController.text = m;
-                                          _memberFocusNode.unfocus();
-                                        });
-                                      },
-                                    ),
-                                  )
-                                  .toList(),
+                              itemCount: filtered.length,
+                              itemBuilder: (ctx, i) => ListTile(
+                                title: Text(filtered[i]),
+                                onTap: () {
+                                  setState(() {
+                                    selectedMember = filtered[i];
+                                    _memberSearchController.text = filtered[i];
+                                    _memberFocusNode.unfocus();
+                                  });
+                                },
+                              ),
                             );
                           },
                         ),

@@ -3,10 +3,14 @@ import 'dashboardpage.dart';
 import 'inventorypage.dart';
 import 'memberspage.dart';
 import 'transactionpage.dart';
+import 'settingspage.dart';
 import '/widgets/sidebar.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final void Function(bool)? onToggleTheme;
+  final bool isDark;
+
+  const HomePage({super.key, this.onToggleTheme, this.isDark = false});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -15,18 +19,27 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = const [
-    ColoredBox(color: Color(0xFFF9FAFB), child: DashboardPage()),
-    ColoredBox(color: Color(0xFFF9FAFB), child: InventoryPage()),
-    ColoredBox(color: Color(0xFFF9FAFB), child: MembersPage()),
-    ColoredBox(color: Color(0xFFF9FAFB), child: TransactionPage()),
-  ];
+  // pages are built dynamically via _buildPages()
 
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  // Build pages in build() so SettingsPage receives updated `isDark` when theme changes
+  List<Widget> _buildPages() => [
+        const DashboardPage(),
+        const InventoryPage(),
+        const MembersPage(),
+        const TransactionPage(),
+        SettingsPage(onToggle: widget.onToggleTheme, initialDark: widget.isDark),
+      ];
   final List<String> _titles = [
     "Dashboard",
     "Inventory",
     "Members",
     "Transactions",
+    "Settings",
   ];
 
   void _onItemTapped(int index) {
@@ -80,7 +93,12 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ),
-                Expanded(child: _pages[_selectedIndex]),
+                Expanded(
+                  child: Container(
+                    color: theme.colorScheme.surface,
+                    child: _buildPages()[_selectedIndex],
+                  ),
+                ),
               ],
             ),
           ),

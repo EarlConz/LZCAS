@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '/widgets/qrgenerator.dart';
 
 class AddMemberDialog extends StatefulWidget {
   final Function(Map<String, dynamic>) onMemberAdded;
@@ -123,8 +122,6 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               return;
             }
 
-            final qrdata =
-                "${lastNameController.text}, ${firstNameController.text} ${middleNameController.text}";
             final newMember = {
               "lastName": lastNameController.text,
               "firstName": firstNameController.text,
@@ -137,29 +134,16 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               "referrer": referrerController.text,
               "points": 0, // default
               "role": "Member", // default
-              "qr": qrdata,
             };
 
             widget.onMemberAdded(newMember);
             Navigator.pop(context);
 
-            // ✅ Show QR Code popup after adding member
-            showDialog(
-              context: context,
-              builder: (context) => Dialog(
-                backgroundColor: Colors.transparent,
-                insetPadding: const EdgeInsets.all(20),
-                child: QrGenerator(
-                  lastName: lastNameController.text,
-                  firstName: firstNameController.text,
-                  middleName: middleNameController.text,
-                ),
-              ),
-            );
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Member added successfully!")),
-            );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Member added successfully!")),
+              );
+            }
           },
           child: const Text("Confirm"),
         ),

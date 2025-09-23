@@ -63,7 +63,6 @@ class MembersTableState extends State<MembersTable> {
       points: (newMember['points'] ?? 0) is int
           ? newMember['points']
           : int.tryParse(newMember['points']?.toString() ?? '0') ?? 0,
-      qr: newMember['qr']?.toString(),
     );
     await _loadMembers();
   }
@@ -102,9 +101,7 @@ class MembersTableState extends State<MembersTable> {
           ? Value(updatedMember['referrer'].toString())
           : const Value.absent(),
       points: updatedMember['points'] is int ? updatedMember['points'] : null,
-      qr: updatedMember['qr'] != null
-          ? Value(updatedMember['qr'].toString())
-          : const Value.absent(),
+    // QR field removed from UI; keep existing DB value unless updated via import.
     );
     await repository.db.updateMemberData(updated);
     await _loadMembers();
@@ -149,7 +146,7 @@ class MembersTableState extends State<MembersTable> {
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
-                icon: const Icon(Icons.person_add, color: Colors.white),
+                icon: Icon(Icons.person_add, color: Theme.of(context).colorScheme.onPrimary),
                 label: const Text(
                   "Add Member",
                   style: TextStyle(
@@ -171,7 +168,7 @@ class MembersTableState extends State<MembersTable> {
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
-                icon: const Icon(Icons.upload_file, color: Colors.white),
+                icon: Icon(Icons.upload_file, color: Theme.of(context).colorScheme.onPrimary),
                 label: const Text(
                   'Export CSV',
                   style: TextStyle(
@@ -217,7 +214,7 @@ class MembersTableState extends State<MembersTable> {
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
-                icon: const Icon(Icons.download, color: Colors.white),
+                icon: Icon(Icons.download, color: Theme.of(context).colorScheme.onPrimary),
                 label: const Text(
                   'Import CSV',
                   style: TextStyle(
@@ -269,7 +266,7 @@ class MembersTableState extends State<MembersTable> {
         Expanded(
           child: SizedBox(
             width: double.infinity,
-            child: Theme(
+              child: Theme(
               data: Theme.of(context).copyWith(
                 cardTheme: CardThemeData(
                   elevation: 0,
@@ -277,7 +274,7 @@ class MembersTableState extends State<MembersTable> {
                     borderRadius: BorderRadius.circular(8),
                     side: BorderSide(color: Colors.grey.shade300, width: 1),
                   ),
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                 ),
               ),
               child: LayoutBuilder(
@@ -289,9 +286,6 @@ class MembersTableState extends State<MembersTable> {
                   var estimated = (available ~/ 56).clamp(1, 7);
                   return SingleChildScrollView(
                     child: PaginatedDataTable(
-                      headingRowColor: WidgetStateProperty.all(
-                        Colors.blueGrey[50],
-                      ),
                       columnSpacing: 40,
                       rowsPerPage: estimated,
                       columns: const [
@@ -306,6 +300,7 @@ class MembersTableState extends State<MembersTable> {
                       source: _MembersDataSource(
                         filteredMembers,
                         widget.onRowSelected,
+                        context,
                       ),
                     ),
                   );
@@ -328,8 +323,9 @@ class MembersTableState extends State<MembersTable> {
 class _MembersDataSource extends DataTableSource {
   final List<Map<String, dynamic>> members;
   final Function(Map<String, dynamic>) onRowSelected;
+  final BuildContext _context;
 
-  _MembersDataSource(this.members, this.onRowSelected);
+  _MembersDataSource(this.members, this.onRowSelected, this._context);
 
   @override
   DataRow getRow(int index) {
@@ -338,7 +334,7 @@ class _MembersDataSource extends DataTableSource {
     final isEven = index % 2 == 0;
     return DataRow(
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
-        if (isEven) return Colors.grey[100];
+        if (isEven) return Theme.of(_context).colorScheme.surfaceContainerHighest;
         return null;
       }),
       onSelectChanged: (_) => onRowSelected(member),

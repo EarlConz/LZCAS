@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import '../widgets/infocard.dart';
-import '../buttons/sellbutton.dart';
-import '../buttons/redeembutton.dart';
 import '../widgets/transactionstable.dart';
 
 class TransactionPage extends StatefulWidget {

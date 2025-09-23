@@ -37,7 +37,7 @@ Future<String> exportItemsToCsvString(AppDb db) async {
 }
 
 Future<int> importItemsFromCsvString(AppDb db, String csv) async {
-  final converter = const CsvToListConverter();
+  final converter = const CsvToListConverter(eol: '\n');
   final list = converter.convert(csv);
   if (list.isEmpty) return 0;
   // assume header present
@@ -73,6 +73,7 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
         );
         await db.updateItemData(updated);
         inserted++;
+        
         continue;
       }
     }
@@ -94,6 +95,7 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
       );
       await db.updateItemData(updated);
       inserted++;
+      
       continue;
     }
 
@@ -124,7 +126,7 @@ Future<String> exportMembersToCsvFile(AppDb db) async {
 Future<String> exportMembersToCsvString(AppDb db) async {
   final rows = await db.getAllMembers();
   final fields = [
-    ['id', 'lastName', 'firstName', 'middleName', 'role', 'contactNo', 'birthday', 'address', 'referrer', 'points', 'qr']
+    ['id', 'lastName', 'firstName', 'middleName', 'role', 'contactNo', 'birthday', 'address', 'referrer', 'points']
   ];
   for (final r in rows) {
     fields.add([
@@ -138,7 +140,6 @@ Future<String> exportMembersToCsvString(AppDb db) async {
       r.address ?? '',
       r.referrer ?? '',
       r.points.toString(),
-      r.qr ?? ''
     ]);
   }
 
@@ -147,7 +148,7 @@ Future<String> exportMembersToCsvString(AppDb db) async {
 }
 
 Future<int> importMembersFromCsvString(AppDb db, String csv) async {
-  final converter = const CsvToListConverter();
+  final converter = const CsvToListConverter(eol: '\n');
   final list = converter.convert(csv);
   if (list.isEmpty) return 0;
   final headers = list.first.map((e) => e.toString()).toList();
@@ -177,10 +178,10 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
           address: Value(map['address']),
           referrer: Value(map['referrer']),
           points: int.tryParse(map['points'] ?? '') ?? 0,
-          qr: Value(map['qr']),
         );
         await db.updateMemberData(updated);
         inserted++;
+        
         continue;
       }
     }
@@ -193,7 +194,7 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
       byName = null;
     }
     if (byName != null) {
-      final updated = byName.copyWith(
+    final updated = byName.copyWith(
   middleName: Value(map['middleName']),
   role: Value(map['role']),
   contactNo: Value(map['contactNo']),
@@ -201,10 +202,10 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
   address: Value(map['address']),
   referrer: Value(map['referrer']),
   points: int.tryParse(map['points'] ?? '') ?? 0,
-  qr: Value(map['qr']),
-      );
+    );
       await db.updateMemberData(updated);
       inserted++;
+      
       continue;
     }
 
@@ -218,7 +219,6 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
       address: Value(map['address']),
       referrer: Value(map['referrer']),
       points: Value(int.tryParse(map['points'] ?? '') ?? 0),
-      qr: Value(map['qr']),
     );
     await db.insertMember(companion);
     inserted++;

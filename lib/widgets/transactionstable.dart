@@ -24,7 +24,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
     super.initState();
     _loadSales();
     _sub = repository.changes.listen((e) {
-      if (e == 'sale_added' || e == 'item_updated') {
+      if (e == 'sale_added' || e == 'item_updated' || e == 'sale_updated' || e == 'sale_deleted') {
+        // reload whenever sales change so UI reflects deletes/edits immediately
         _loadSales();
       }
     });
@@ -102,20 +103,20 @@ class _TransactionsTableState extends State<TransactionsTable> {
               ? const Center(child: Text('No transactions yet'))
               : SizedBox(
                   width: double.infinity,
-                  child: Theme(
-                    data: Theme.of(context).copyWith(
-                      cardTheme: CardThemeData(
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          side: BorderSide(
-                            color: Colors.grey.shade300,
-                            width: 1,
+                    child: Theme(
+                      data: Theme.of(context).copyWith(
+                        cardTheme: CardThemeData(
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: BorderSide(
+                              color: Colors.grey.shade300,
+                              width: 1,
+                            ),
                           ),
+                          color: Theme.of(context).colorScheme.surface,
                         ),
-                        color: Colors.white,
                       ),
-                    ),
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final reserved = 140.0;
@@ -123,10 +124,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
                         if (available < 56) available = 56;
                         var estimated = (available ~/ 56).clamp(1, 10);
                         return SingleChildScrollView(
-                          child: PaginatedDataTable(
-                            headingRowColor: WidgetStateProperty.all(
-                              Colors.blueGrey[50],
-                            ),
+          child: PaginatedDataTable(
                             columnSpacing: 40,
                             rowsPerPage: estimated,
                             columns: const [
@@ -135,8 +133,9 @@ class _TransactionsTableState extends State<TransactionsTable> {
                               DataColumn(label: Text('Price')),
                               DataColumn(label: Text('Date')),
                               DataColumn(label: Text('Sale ID')),
+                              DataColumn(label: Text('Actions')),
                             ],
-                            source: _TransactionsDataSource(filteredSales),
+                            source: _TransactionsDataSource(filteredSales, context),
                           ),
                         );
                       },
@@ -151,8 +150,9 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
 class _TransactionsDataSource extends DataTableSource {
   final List<Sale> _sales;
+  final BuildContext _context;
 
-  _TransactionsDataSource(this._sales);
+  _TransactionsDataSource(this._sales, this._context);
 
   @override
   DataRow getRow(int index) {
@@ -161,17 +161,73 @@ class _TransactionsDataSource extends DataTableSource {
     final isEven = index % 2 == 0;
 
     return DataRow(
-      color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
-        if (isEven) return Colors.grey[100];
-        return null;
-      }),
+          color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+            if (isEven) return Theme.of(_context).colorScheme.surfaceContainerHighest;
+            return null;
+          }),
       cells: [
         DataCell(Text(sale.itemName)),
         DataCell(Text(sale.quantity.toString())),
         DataCell(Text('₱${sale.price}')),
         DataCell(Text(DateFormat.yMMMd().add_jm().format(sale.timestamp))),
         DataCell(Text('ID:${sale.id}')),
+        DataCell(_buildActionsCell(_context, sale)),
       ],
+    );
+  }
+
+  Widget _buildActionsCell(BuildContext context, Sale sale) {
+    return PopupMenuButton<String>(
+      onSelected: (value) async {
+        if (value == 'delete') {
+          final ok = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Delete sale'),
+              content: const Text('Are you sure you want to delete this sale?'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+              ],
+            ),
+          );
+          if (ok == true) {
+            await repository.deleteSaleById(sale.id);
+          }
+  } else if (value == 'edit') {
+          // show a simple edit dialog for quantity and price
+          final qtyCtrl = TextEditingController(text: sale.quantity.toString());
+          final priceCtrl = TextEditingController(text: sale.price.toString());
+          final result = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Edit Sale'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(controller: qtyCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantity')),
+                  TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Price')),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+              ],
+            ),
+          );
+          if (result == true) {
+            final newQty = int.tryParse(qtyCtrl.text.trim()) ?? sale.quantity;
+            final newPrice = int.tryParse(priceCtrl.text.trim()) ?? sale.price;
+            final updated = sale.copyWith(quantity: newQty, price: newPrice);
+            await repository.updateSale(updated);
+          }
+        }
+      },
+      itemBuilder: (ctx) => const [
+        PopupMenuItem(value: 'edit', child: Text('Edit')),
+        PopupMenuItem(value: 'delete', child: Text('Delete')),
+      ],
+      icon: const Icon(Icons.more_vert),
     );
   }
 

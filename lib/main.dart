@@ -10,15 +10,27 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final db = await initDb();
   repository = DbRepository(db);
-  // seed initial data if DB empty
-  // await repository.seedItemsFromList(inventoryItemsSeed);
-  // await repository.seedMembersFromList(membersdataSeed);
+  // If you need initial data, use CSV import helpers on the repository
+  // e.g. `await repository.importItemsCsv(csvString)` or use your own seed script.
 
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  ThemeMode _mode = ThemeMode.light;
+
+  void toggleThemeMode(bool dark) {
+    setState(() {
+      _mode = dark ? ThemeMode.dark : ThemeMode.light;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +38,12 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Admin App',
       theme: appTheme,
-      home: const HomePage(),
+      darkTheme: appDarkTheme,
+      themeMode: _mode,
+      home: HomePage(
+        onToggleTheme: toggleThemeMode,
+        isDark: _mode == ThemeMode.dark,
+      ),
     );
   }
 }

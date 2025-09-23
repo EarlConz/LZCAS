@@ -92,3 +92,81 @@ final appTheme = ThemeData(
   ),
   useMaterial3: true,
 );
+
+final appDarkTheme = ThemeData(
+  colorScheme: ColorScheme.fromSeed(
+    seedColor: const Color(0xFF005f73),
+    brightness: Brightness.dark,
+    primary: const Color(0xFF005f73),
+    onPrimary: Colors.white,
+    secondary: const Color(0xFF00A896),
+    onSecondary: Colors.black,
+    surface: const Color(0xFF121212),
+    onSurface: const Color(0xFFE7EEF1),
+  ),
+  scaffoldBackgroundColor: const Color(0xFF0B0F12),
+  cardTheme: CardThemeData(
+    elevation: 4,
+    shadowColor: Colors.black.withAlpha((0.2 * 255).round()),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    margin: const EdgeInsets.all(8),
+  ),
+  textTheme: const TextTheme(
+    headlineLarge: TextStyle(
+      color: Color(0xFFE7EEF1),
+      fontSize: 32,
+      fontWeight: FontWeight.bold,
+    ),
+    headlineMedium: TextStyle(
+      color: Color(0xFFE7EEF1),
+      fontSize: 28,
+      fontWeight: FontWeight.bold,
+    ),
+    headlineSmall: TextStyle(
+      color: Color(0xFFE7EEF1),
+      fontSize: 24,
+      fontWeight: FontWeight.w600,
+    ),
+    bodyLarge: TextStyle(color: Color(0xFFBFC9CB), fontSize: 16),
+    bodyMedium: TextStyle(color: Color(0xFFBFC9CB), fontSize: 14),
+  ),
+  appBarTheme: AppBarTheme(
+    backgroundColor: const Color(0xFF0F1720),
+    elevation: 4.0,
+    shadowColor: Colors.black.withAlpha((0.2 * 255).round()),
+    foregroundColor: const Color(0xFFE7EEF1),
+    titleTextStyle: const TextStyle(
+      color: Color(0xFFE7EEF1),
+      fontSize: 28,
+      fontWeight: FontWeight.w600,
+    ),
+  ),
+  dataTableTheme: DataTableThemeData(
+    headingRowColor: WidgetStateProperty.all(const Color(0xFF1F2A31)),
+    dataRowColor: WidgetStateProperty.all(const Color(0xFF0F1720)),
+    dividerThickness: 1,
+    headingTextStyle: const TextStyle(
+      fontWeight: FontWeight.w600,
+      color: Color(0xFFE7EEF1),
+    ),
+    dataTextStyle: const TextStyle(color: Color(0xFFBFC9CB)),
+  ),
+  inputDecorationTheme: InputDecorationTheme(
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: Colors.grey.shade800),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: Colors.grey.shade800),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: const Color(0xFF66C0AD), width: 2),
+    ),
+    filled: true,
+    fillColor: const Color(0xFF0F1720),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+  ),
+  useMaterial3: true,
+);

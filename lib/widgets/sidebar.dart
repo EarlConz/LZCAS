@@ -118,13 +118,16 @@ class Sidebar extends StatelessWidget {
               size: 24,
             ),
             const SizedBox(width: 16),
-            Text(
-              label,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                color: selected
-                    ? colorScheme.primary
-                    : colorScheme.onSurface.withAlpha((0.8 * 255).round()),
+            Expanded(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                  color: selected
+                      ? colorScheme.primary
+                      : colorScheme.onSurface.withAlpha((0.8 * 255).round()),
+                ),
               ),
             ),
           ],
