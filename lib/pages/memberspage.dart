@@ -39,9 +39,9 @@ class _MembersPageState extends State<MembersPage> {
         selectedMember = null;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Member deleted")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Member deleted")));
     }
   }
 
@@ -77,10 +77,10 @@ class _MembersPageState extends State<MembersPage> {
                         icon: const Icon(Icons.edit, color: Colors.blue),
                         onPressed: () {
                           showDialog(
-                            context: context, 
+                            context: context,
                             builder: (context) => EditMemberDialog(
-                            member: selectedMember!,
-                            onMemberUpdated: _updateMember,
+                              member: selectedMember!,
+                              onMemberUpdated: _updateMember,
                             ),
                           );
                         },
@@ -96,7 +96,8 @@ class _MembersPageState extends State<MembersPage> {
                             context: context,
                             builder: (context) => ConfirmationDialog(
                               title: "Confirm Delete",
-                              content: "Do you want to delete ${selectedMember!['firstName']}?",
+                              content:
+                                  "Do you want to delete ${selectedMember!['firstName']}?",
                               onConfirm: _deleteMember,
                             ),
                           );

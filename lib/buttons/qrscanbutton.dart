@@ -47,7 +47,9 @@ class _QRScanButtonState extends State<QRScanButton> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Name: ${m.firstName ?? ''} ${m.middleName ?? ''} ${m.lastName ?? ''}"),
+                  Text(
+                    "Name: ${m.firstName ?? ''} ${m.middleName ?? ''} ${m.lastName ?? ''}",
+                  ),
                   Text("Role: ${m.role ?? ''}"),
                   Text("Contact: ${m.contactNo ?? ''}"),
                   Text("Birthday: ${m.birthday ?? ''}"),
@@ -101,8 +103,9 @@ class QRScannerScreen extends StatefulWidget {
 }
 
 class _QRScannerScreenState extends State<QRScannerScreen> {
-  final MobileScannerController controller =
-      MobileScannerController(facing: CameraFacing.back);
+  final MobileScannerController controller = MobileScannerController(
+    facing: CameraFacing.back,
+  );
   bool isScanned = false;
 
   @override
@@ -156,7 +159,9 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                         Text(
                           'Error: ${error.errorCode.name}',
                           style: const TextStyle(
-                              color: Colors.red, fontSize: 18),
+                            color: Colors.red,
+                            fontSize: 18,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Text(
@@ -188,9 +193,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                   child: Container(
                     width: 250,
                     height: 250,
-                    decoration: const BoxDecoration(
-                      color: Colors.transparent,
-                    ),
+                    decoration: const BoxDecoration(color: Colors.transparent),
                   ),
                 ),
               ],
@@ -201,10 +204,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
               width: 250,
               height: 250,
               decoration: BoxDecoration(
-                border: Border.all(
-                  color: Colors.greenAccent,
-                  width: 4,
-                ),
+                border: Border.all(color: Colors.greenAccent, width: 4),
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
@@ -221,7 +221,11 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
             top: 40,
             right: 20,
             child: IconButton(
-              icon: const Icon(Icons.switch_camera, color: Colors.white, size: 30),
+              icon: const Icon(
+                Icons.switch_camera,
+                color: Colors.white,
+                size: 30,
+              ),
               onPressed: () => controller.switchCamera(),
             ),
           ),

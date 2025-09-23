@@ -39,10 +39,7 @@ class _EditStockDialogState extends State<EditStockDialog> {
       content: TextField(
         controller: controller,
         keyboardType: TextInputType.number,
-        decoration: const InputDecoration(
-          labelText: "Enter new stock amount",
-          border: OutlineInputBorder(),
-        ),
+        decoration: const InputDecoration(labelText: "Enter new stock amount"),
       ),
       actions: [
         TextButton(
@@ -55,9 +52,9 @@ class _EditStockDialogState extends State<EditStockDialog> {
             final newStock = int.tryParse(input);
 
             if (newStock == null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Numbers only")),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text("Numbers only")));
               return;
             }
 
@@ -66,8 +63,9 @@ class _EditStockDialogState extends State<EditStockDialog> {
             final id = widget.item['id'] as int?;
             if (id == null) {
               widget.item["stock"] = newStock;
-              widget.item["lastUpdated"] =
-                  "${DateTime.now().toLocal()}".split('.')[0];
+              widget.item["lastUpdated"] = "${DateTime.now().toLocal()}".split(
+                '.',
+              )[0];
               widget.onUpdated();
               Navigator.pop(context);
               return;

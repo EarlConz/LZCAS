@@ -28,14 +28,22 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   @override
   void initState() {
     super.initState();
-    firstNameController = TextEditingController(text: widget.member["firstName"]);
-    middleNameController = TextEditingController(text: widget.member["middleName"]);
+    firstNameController = TextEditingController(
+      text: widget.member["firstName"],
+    );
+    middleNameController = TextEditingController(
+      text: widget.member["middleName"],
+    );
     lastNameController = TextEditingController(text: widget.member["lastName"]);
     roleValue = widget.member["role"] ?? "Member";
-    contactController = TextEditingController(text: widget.member["contactNo"] ?? "");
+    contactController = TextEditingController(
+      text: widget.member["contactNo"] ?? "",
+    );
     birthdayController = TextEditingController(text: widget.member["birthday"]);
     addressController = TextEditingController(text: widget.member["address"]);
-    pointsController = TextEditingController(text: widget.member["points"].toString());
+    pointsController = TextEditingController(
+      text: widget.member["points"].toString(),
+    );
     referrerController = TextEditingController(text: widget.member["referrer"]);
   }
 
@@ -59,9 +67,21 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
       content: SingleChildScrollView(
         child: Column(
           children: [
-            TextField(controller: firstNameController, decoration: const InputDecoration(labelText: "First Name")),
-            TextField(controller: middleNameController, decoration: const InputDecoration(labelText: "Middle Name")),
-            TextField(controller: lastNameController, decoration: const InputDecoration(labelText: "Last Name")),
+            TextField(
+              controller: firstNameController,
+              decoration: const InputDecoration(labelText: "First Name"),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: middleNameController,
+              decoration: const InputDecoration(labelText: "Middle Name"),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: lastNameController,
+              decoration: const InputDecoration(labelText: "Last Name"),
+            ),
+            const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: roleValue,
               decoration: const InputDecoration(labelText: "Role"),
@@ -75,24 +95,41 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                 });
               },
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: contactController,
               decoration: const InputDecoration(labelText: "Contact No."),
               keyboardType: TextInputType.phone,
             ),
-            TextField(controller: birthdayController, decoration: const InputDecoration(labelText: "Birthday")),
-            TextField(controller: addressController, decoration: const InputDecoration(labelText: "Address")),
+            const SizedBox(height: 16),
+            TextField(
+              controller: birthdayController,
+              decoration: const InputDecoration(labelText: "Birthday"),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: addressController,
+              decoration: const InputDecoration(labelText: "Address"),
+            ),
+            const SizedBox(height: 16),
             TextField(
               controller: pointsController,
               decoration: const InputDecoration(labelText: "Points"),
               keyboardType: TextInputType.number,
             ),
-            TextField(controller: referrerController, decoration: const InputDecoration(labelText: "Referrer")),
+            const SizedBox(height: 16),
+            TextField(
+              controller: referrerController,
+              decoration: const InputDecoration(labelText: "Referrer"),
+            ),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancel"),
+        ),
         ElevatedButton(
           onPressed: () {
             // ✅ Contact No. validation (allow empty, but if filled -> must be numbers only)

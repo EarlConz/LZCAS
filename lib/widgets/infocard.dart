@@ -25,7 +25,8 @@ class InfoCard extends StatelessWidget {
     final theme = Theme.of(context);
     final cardTheme = theme.cardTheme;
 
-  final effectiveBackgroundColor = backgroundColor ?? contentColor.withAlpha((0.1 * 255).round());
+    final effectiveBackgroundColor =
+        backgroundColor ?? contentColor.withAlpha((0.1 * 255).round());
 
     return Card(
       shape: cardTheme.shape,
@@ -58,7 +59,7 @@ class InfoCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             if (contentWidget != null)
-              Expanded(child: contentWidget!)
+              contentWidget!
             else if (value != null) ...[
               Text(
                 value!,

@@ -4,10 +4,7 @@ import '/widgets/qrgenerator.dart';
 class AddMemberDialog extends StatefulWidget {
   final Function(Map<String, dynamic>) onMemberAdded;
 
-  const AddMemberDialog({
-    super.key,
-    required this.onMemberAdded,
-  });
+  const AddMemberDialog({super.key, required this.onMemberAdded});
 
   @override
   State<AddMemberDialog> createState() => _AddMemberDialogState();
@@ -37,9 +34,6 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15),
-      ),
       title: const Text("Add New Member"),
       content: SingleChildScrollView(
         child: Column(
@@ -49,27 +43,33 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               controller: lastNameController,
               decoration: const InputDecoration(labelText: "Last Name"),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: firstNameController,
               decoration: const InputDecoration(labelText: "First Name"),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: middleNameController,
               decoration: const InputDecoration(labelText: "Middle Name"),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: contactController,
               decoration: const InputDecoration(labelText: "Contact No."),
               keyboardType: TextInputType.phone,
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: birthdayController,
               decoration: const InputDecoration(labelText: "Birthday"),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: addressController,
               decoration: const InputDecoration(labelText: "Address"),
             ),
+            const SizedBox(height: 16),
             TextField(
               controller: referrerController,
               decoration: const InputDecoration(labelText: "Referrer"),
@@ -122,8 +122,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               );
               return;
             }
-            
-            final qrdata = "${lastNameController.text}, ${firstNameController.text} ${middleNameController.text}";
+
+            final qrdata =
+                "${lastNameController.text}, ${firstNameController.text} ${middleNameController.text}";
             final newMember = {
               "lastName": lastNameController.text,
               "firstName": firstNameController.text,

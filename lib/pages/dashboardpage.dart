@@ -50,8 +50,12 @@ class _DashboardPageState extends State<DashboardPage> {
       }
     }
 
-    weekly = weekAgg.entries.map((e) => {"product": e.key, "sales": e.value}).toList();
-    monthly = monthAgg.entries.map((e) => {"product": e.key, "sales": e.value}).toList();
+    weekly = weekAgg.entries
+        .map((e) => {"product": e.key, "sales": e.value})
+        .toList();
+    monthly = monthAgg.entries
+        .map((e) => {"product": e.key, "sales": e.value})
+        .toList();
 
     // sort descending
     weekly.sort((a, b) => (b['sales'] as int).compareTo(a['sales'] as int));
@@ -117,7 +121,8 @@ class _DashboardPageState extends State<DashboardPage> {
 
           // Monthly Sales Section
           SalesChart(
-            title: "Top Sales This Month (${DateFormat.MMMM().format(DateTime.now())})",
+            title:
+                "Top Sales This Month (${DateFormat.MMMM().format(DateTime.now())})",
             salesData: monthly,
             maxYOffset: 50,
             barColor: Theme.of(context).colorScheme.primary,

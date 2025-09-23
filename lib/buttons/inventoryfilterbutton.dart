@@ -29,14 +29,8 @@ class InventoryFilterButton extends StatelessWidget {
         }
       },
       itemBuilder: (BuildContext context) => [
-        const PopupMenuItem(
-          enabled: false,
-          child: Text("Filter by Status"),
-        ),
-        const PopupMenuItem(
-          value: "status:Good",
-          child: Text("Good"),
-        ),
+        const PopupMenuItem(enabled: false, child: Text("Filter by Status")),
+        const PopupMenuItem(value: "status:Good", child: Text("Good")),
         const PopupMenuItem(
           value: "status:Low Stock",
           child: Text("Low Stock"),
@@ -46,27 +40,15 @@ class InventoryFilterButton extends StatelessWidget {
           child: Text("Out of Stock"),
         ),
         const PopupMenuDivider(),
-        const PopupMenuItem(
-          enabled: false,
-          child: Text("Filter by Category"),
-        ),
-        const PopupMenuItem(
-          value: "category:Powder",
-          child: Text("Powder"),
-        ),
-        const PopupMenuItem(
-          value: "category:Oil",
-          child: Text("Oil"),
-        ),
+        const PopupMenuItem(enabled: false, child: Text("Filter by Category")),
+        const PopupMenuItem(value: "category:Powder", child: Text("Powder")),
+        const PopupMenuItem(value: "category:Oil", child: Text("Oil")),
         const PopupMenuItem(
           value: "category:Tablet/Capsules",
           child: Text("Tablet/Capsules"),
         ),
         const PopupMenuDivider(),
-        const PopupMenuItem(
-          value: "clear",
-          child: Text("Clear Filters"),
-        ),
+        const PopupMenuItem(value: "clear", child: Text("Clear Filters")),
       ],
     );
   }

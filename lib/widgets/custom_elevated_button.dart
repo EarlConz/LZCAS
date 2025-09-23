@@ -21,21 +21,31 @@ class CustomElevatedButton extends StatelessWidget {
     final theme = Theme.of(context);
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor: backgroundColor ?? theme.elevatedButtonTheme.style?.backgroundColor?.resolve({WidgetState.selected}),
-        foregroundColor: foregroundColor ?? theme.elevatedButtonTheme.style?.foregroundColor?.resolve({WidgetState.selected}),
-        shape: theme.elevatedButtonTheme.style?.shape?.resolve({WidgetState.selected}),
-        padding: theme.elevatedButtonTheme.style?.padding?.resolve({WidgetState.selected}),
-        textStyle: theme.elevatedButtonTheme.style?.textStyle?.resolve({WidgetState.selected}),
+        backgroundColor:
+            backgroundColor ??
+            theme.elevatedButtonTheme.style?.backgroundColor?.resolve({
+              WidgetState.selected,
+            }),
+        foregroundColor:
+            foregroundColor ??
+            theme.elevatedButtonTheme.style?.foregroundColor?.resolve({
+              WidgetState.selected,
+            }),
+        shape: theme.elevatedButtonTheme.style?.shape?.resolve({
+          WidgetState.selected,
+        }),
+        padding: theme.elevatedButtonTheme.style?.padding?.resolve({
+          WidgetState.selected,
+        }),
+        textStyle: theme.elevatedButtonTheme.style?.textStyle?.resolve({
+          WidgetState.selected,
+        }),
       ),
       onPressed: onPressed,
       child: icon != null
           ? Row(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                icon!,
-                const SizedBox(width: 8),
-                label,
-              ],
+              children: [icon!, const SizedBox(width: 8), label],
             )
           : label,
     );

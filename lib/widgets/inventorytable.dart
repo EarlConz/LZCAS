@@ -34,7 +34,12 @@ class _InventoryTableState extends State<InventoryTable> {
     super.initState();
     _loadItems();
     _sub = repository.changes.listen((e) {
-      if (e == 'item_updated' || e == 'sale_added' || e == 'item_imported' || e == 'item_added' || e == 'item_deleted') _loadItems();
+      if (e == 'item_updated' ||
+          e == 'sale_added' ||
+          e == 'item_imported' ||
+          e == 'item_added' ||
+          e == 'item_deleted')
+        _loadItems();
     });
   }
 
@@ -94,8 +99,9 @@ class _InventoryTableState extends State<InventoryTable> {
   @override
   Widget build(BuildContext context) {
     final filteredItems = items.where((item) {
-      final matchesSearch =
-          item["name"].toString().toLowerCase().contains(searchTerm.toLowerCase());
+      final matchesSearch = item["name"].toString().toLowerCase().contains(
+        searchTerm.toLowerCase(),
+      );
       final matchesStatus =
           selectedStatus == null || item["status"] == selectedStatus;
       final matchesCategory =
@@ -116,7 +122,10 @@ class _InventoryTableState extends State<InventoryTable> {
                   },
                   hintText: "Search items...",
                   borderRadius: 12,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  contentPadding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 16,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -133,42 +142,68 @@ class _InventoryTableState extends State<InventoryTable> {
               const SizedBox(width: 8),
               CustomElevatedButton(
                 icon: const Icon(Icons.add_business, color: Colors.white),
-                label: const Text('Add Product', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Add Product',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 backgroundColor: Colors.blue[700],
                 onPressed: () {
                   showDialog(
                     context: context,
                     builder: (context) => AddProductDialog(
-                        onProductAdded: (p) async {
-                          await repository.addItem(
-                            name: p['name']?.toString() ?? '',
-                            category: p['category']?.toString(),
-                            stock: (p['stock'] ?? 0) is int ? p['stock'] : int.tryParse(p['stock']?.toString() ?? '0') ?? 0,
-                          );
-                          await _loadItems();
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Product added')));
-                        },
-                      ),
+                      onProductAdded: (p) async {
+                        await repository.addItem(
+                          name: p['name']?.toString() ?? '',
+                          category: p['category']?.toString(),
+                          stock: (p['stock'] ?? 0) is int
+                              ? p['stock']
+                              : int.tryParse(p['stock']?.toString() ?? '0') ??
+                                    0,
+                        );
+                        await _loadItems();
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          const SnackBar(content: Text('Product added')),
+                        );
+                      },
+                    ),
                   );
                 },
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
                 icon: const Icon(Icons.upload_file, color: Colors.white),
-                label: const Text('Export CSV', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Export CSV',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 backgroundColor: Colors.grey[700],
                 onPressed: () async {
                   final csv = await repository.exportItemsCsvString();
-                  final suggested = 'items_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+                  final suggested =
+                      'items_export_${DateTime.now().millisecondsSinceEpoch}.csv';
                   try {
                     // Try native save dialog
-                    final fs.FileSaveLocation? loc = await fs.getSaveLocation(suggestedName: suggested);
+                    final fs.FileSaveLocation? loc = await fs.getSaveLocation(
+                      suggestedName: suggested,
+                    );
                     if (loc != null) {
-                      final xfile = fs.XFile.fromData(Uint8List.fromList(csv.codeUnits), mimeType: 'text/csv', name: suggested);
+                      final xfile = fs.XFile.fromData(
+                        Uint8List.fromList(csv.codeUnits),
+                        mimeType: 'text/csv',
+                        name: suggested,
+                      );
                       await xfile.saveTo(loc.path);
                       if (!mounted) return;
-                      ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(content: Text('Exported to ${loc.path}')),
+                      );
                       return;
                     }
                     // if user canceled, just return
@@ -180,18 +215,29 @@ class _InventoryTableState extends State<InventoryTable> {
                     final file = File(savePath);
                     await file.writeAsString(csv);
                     if (!mounted) return;
-                    ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(content: Text('Exported to $savePath')),
+                    );
                   }
                 },
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
                 icon: const Icon(Icons.download, color: Colors.white),
-                label: const Text('Import CSV', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Import CSV',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 backgroundColor: Colors.grey[700],
                 onPressed: () async {
-                  
-                  final files = await fs.openFiles(acceptedTypeGroups: [fs.XTypeGroup(label: 'CSV', extensions: ['csv'])]);
+                  final files = await fs.openFiles(
+                    acceptedTypeGroups: [
+                      fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
+                    ],
+                  );
                   if (files.isEmpty) return;
                   final xfile = files.first;
                   final content = await xfile.readAsString();
@@ -199,18 +245,31 @@ class _InventoryTableState extends State<InventoryTable> {
                   final conv = const CsvToListConverter();
                   final parsed = conv.convert(content);
                   if (parsed.isEmpty) return;
-                  final headers = parsed.first.map((e) => e.toString()).toList();
-                  final rows = parsed.sublist(1).map((r) => r.map((c) => c?.toString() ?? '').toList()).toList();
+                  final headers = parsed.first
+                      .map((e) => e.toString())
+                      .toList();
+                  final rows = parsed
+                      .sublist(1)
+                      .map((r) => r.map((c) => c?.toString() ?? '').toList())
+                      .toList();
                   if (!mounted) return;
                   // context is checked above; show import preview immediately
                   // ignore: use_build_context_synchronously
-                  final confirm = await showImportPreviewDialog(this.context, headers, rows);
+                  final confirm = await showImportPreviewDialog(
+                    this.context,
+                    headers,
+                    rows,
+                  );
                   if (confirm != true) return;
                   final count = await repository.importItemsCsv(content);
                   if (!mounted) return;
                   // context was verified before showing the dialog; still guard and then use it
                   // ignore: use_build_context_synchronously
-                  ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Imported $count rows from ${xfile.name}')));
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(
+                      content: Text('Imported $count rows from ${xfile.name}'),
+                    ),
+                  );
                 },
               ),
             ],
@@ -274,73 +333,78 @@ class _InventoryDataSource extends DataTableSource {
     final item = items[index];
     final isEven = index % 2 == 0;
     return DataRow(
-      color: WidgetStateProperty.resolveWith<Color?>(
-        (Set<WidgetState> states) {
-          if (isEven) return Colors.grey[100];
-          return null;
-        },
-      ),
+      color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+        if (isEven) return Colors.grey[100];
+        return null;
+      }),
       cells: [
-        DataCell(Text(item["name"].toString())),
-        DataCell(Text(item["category"].toString())),
-        DataCell(Text(item["stock"].toString())),
-        DataCell(Text(item["lastUpdated"].toString())),
+        DataCell(Text(item["name"] ?? "")),
+        DataCell(Text(item["category"] ?? "")),
+        DataCell(Text((item["stock"] ?? 0).toString())),
+        DataCell(Text(item["lastUpdated"] ?? "")),
         DataCell(
           Text(
-            item["status"].toString(),
+            item["status"]?.toString() ?? "",
             style: TextStyle(
-              color: getStatusColor(item["status"].toString()),
+              color: getStatusColor(item["status"]?.toString() ?? ""),
               fontWeight: FontWeight.bold,
             ),
           ),
         ),
         DataCell(
-              Builder(
-                builder: (cellContext) => PopupMenuButton<String>(
+          Builder(
+            builder: (cellContext) => PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert),
-                  onSelected: (value) async {
-                    if (value == 'edit') {
-                      showDialog(
-                        context: cellContext,
-                        builder: (dialogContext) => EditStockDialog(
-                          item: item,
-                          onUpdated: () => onUpdate(item),
+              onSelected: (value) async {
+                if (value == 'edit') {
+                  showDialog(
+                    context: cellContext,
+                    builder: (dialogContext) => EditStockDialog(
+                      item: item,
+                      onUpdated: () => onUpdate(item),
+                    ),
+                  );
+                } else if (value == 'delete') {
+                  final id = item['id'] as int?;
+                  if (id != null) {
+                    final confirm = await showDialog<bool>(
+                      context: cellContext,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Delete product'),
+                        content: const Text(
+                          'Are you sure you want to delete this product? This action cannot be undone.',
                         ),
-                      );
-                    } else if (value == 'delete') {
-                      final id = item['id'] as int?;
-                      if (id != null) {
-                        final confirm = await showDialog<bool>(
-                          context: cellContext,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Delete product'),
-                            content: const Text('Are you sure you want to delete this product? This action cannot be undone.'),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
-                            ],
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Cancel'),
                           ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      await repository.deleteItemById(id);
+                      await repository.fetchItems();
+                      onUpdate(item);
+                      if (cellContext.mounted) {
+                        ScaffoldMessenger.of(cellContext).showSnackBar(
+                          const SnackBar(content: Text('Product deleted')),
                         );
-                        if (confirm == true) {
-                          await repository.deleteItemById(id);
-                          await repository.fetchItems();
-                          onUpdate(item);
-                          if (cellContext.mounted) {
-                            ScaffoldMessenger.of(cellContext).showSnackBar(const SnackBar(content: Text('Product deleted')));
-                          }
-                        }
                       }
                     }
+                  }
+                }
               },
               itemBuilder: (menuContext) => [
+                const PopupMenuItem(value: 'edit', child: Text('Edit Stock')),
                 const PopupMenuItem(
-                  value: 'edit',
-                  child: Text('Edit Stock'),
+                  value: 'delete',
+                  child: Text('Delete Product'),
                 ),
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Text('Delete Product'),
-                    ),
               ],
             ),
           ),

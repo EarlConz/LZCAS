@@ -5,7 +5,6 @@ import 'memberspage.dart';
 import 'transactionpage.dart';
 import '/widgets/sidebar.dart';
 
-
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -17,22 +16,10 @@ class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
 
   final List<Widget> _pages = const [
-     ColoredBox(
-      color: Color(0xFFF9FAFB),
-      child: DashboardPage(),
-    ),
-    ColoredBox(
-      color: Color(0xFFF9FAFB),
-      child: InventoryPage(),
-    ),
-    ColoredBox(
-      color: Color(0xFFF9FAFB),
-      child: MembersPage(),
-    ),
-    ColoredBox(
-      color: Color(0xFFF9FAFB),
-      child: TransactionPage(),
-    ),
+    ColoredBox(color: Color(0xFFF9FAFB), child: DashboardPage()),
+    ColoredBox(color: Color(0xFFF9FAFB), child: InventoryPage()),
+    ColoredBox(color: Color(0xFFF9FAFB), child: MembersPage()),
+    ColoredBox(color: Color(0xFFF9FAFB), child: TransactionPage()),
   ];
 
   final List<String> _titles = [
@@ -57,22 +44,23 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       body: Row(
         children: [
-          Sidebar(
-            selectedIndex: _selectedIndex,
-            onItemSelected: _onItemTapped,
-          ),
+          Sidebar(selectedIndex: _selectedIndex, onItemSelected: _onItemTapped),
           Expanded(
             child: Column(
               children: [
-               SafeArea(
+                SafeArea(
                   top: true,
                   child: Container(
                     decoration: BoxDecoration(
                       color: appBarTheme.backgroundColor ?? colorScheme.surface,
-                      boxShadow: (appBarTheme.elevation != null && appBarTheme.elevation! > 0)
+                      boxShadow:
+                          (appBarTheme.elevation != null &&
+                              appBarTheme.elevation! > 0)
                           ? [
                               BoxShadow(
-                                color: appBarTheme.shadowColor ?? Colors.black.withAlpha((0.1 * 255).round()),
+                                color:
+                                    appBarTheme.shadowColor ??
+                                    Colors.black.withAlpha((0.1 * 255).round()),
                                 blurRadius: 20,
                                 offset: const Offset(0, 8),
                               ),
@@ -83,10 +71,12 @@ class _HomePageState extends State<HomePage> {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       _titles[_selectedIndex],
-                      style: appBarTheme.titleTextStyle ?? theme.textTheme.headlineMedium?.copyWith(
-                        color: colorScheme.onSurface,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style:
+                          appBarTheme.titleTextStyle ??
+                          theme.textTheme.headlineMedium?.copyWith(
+                            color: colorScheme.onSurface,
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                   ),
                 ),

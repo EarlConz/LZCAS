@@ -27,10 +27,7 @@ class SalesChart extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            title,
-            style: theme.textTheme.titleLarge,
-          ),
+          Text(title, style: theme.textTheme.titleLarge),
           const SizedBox(height: 20),
           Padding(
             padding: const EdgeInsets.all(12.0),
@@ -39,18 +36,22 @@ class SalesChart extends StatelessWidget {
               child: BarChart(
                 BarChartData(
                   alignment: BarChartAlignment.spaceAround,
-                  maxY: (salesData.isNotEmpty
-                          ? (salesData.first["sales"] as int) + maxYOffset
-                          : 100)
-                      .toDouble(),
+                  maxY:
+                      (salesData.isNotEmpty
+                              ? (salesData.first["sales"] as int) + maxYOffset
+                              : 100)
+                          .toDouble(),
                   barTouchData: BarTouchData(enabled: true),
                   titlesData: FlTitlesData(
-                    leftTitles:
-                        const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles:
-                        const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles:
-                        const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
@@ -63,7 +64,9 @@ class SalesChart extends StatelessWidget {
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
                               salesData[index]["product"] as String,
-                              style: theme.textTheme.bodySmall, // Use theme's text style
+                              style: theme
+                                  .textTheme
+                                  .bodySmall, // Use theme's text style
                             ),
                           );
                         },

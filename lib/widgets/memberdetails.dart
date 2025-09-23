@@ -4,10 +4,7 @@ import 'memberqr.dart';
 class MemberDetailsCard extends StatelessWidget {
   final Map<String, dynamic> member;
 
-  const MemberDetailsCard({
-    super.key,
-    required this.member,
-  });
+  const MemberDetailsCard({super.key, required this.member});
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +33,10 @@ class MemberDetailsCard extends StatelessWidget {
               children: [
                 Text(
                   "${member['firstName']} ${member['middleName']} ${member['lastName']}",
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Row(

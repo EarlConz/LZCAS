@@ -15,10 +15,7 @@ import 'package:lzcas/dialogs/import_preview_dialog.dart';
 class MembersTable extends StatefulWidget {
   final Function(Map<String, dynamic>) onRowSelected;
 
-  const MembersTable({
-    super.key,
-    required this.onRowSelected,
-  });
+  const MembersTable({super.key, required this.onRowSelected});
 
   @override
   MembersTableState createState() => MembersTableState();
@@ -37,7 +34,10 @@ class MembersTableState extends State<MembersTable> {
     // refresh when repository reports changes (imports/adds/deletes)
     // keep subscription so we can cancel on dispose
     _changesSub = repository.changes.listen((e) {
-      if (e == 'member_added' || e == 'member_imported' || e == 'member_deleted' || e == 'item_updated') {
+      if (e == 'member_added' ||
+          e == 'member_imported' ||
+          e == 'member_deleted' ||
+          e == 'item_updated') {
         _loadMembers();
       }
     });
@@ -60,28 +60,51 @@ class MembersTableState extends State<MembersTable> {
       birthday: newMember['birthday']?.toString(),
       address: newMember['address']?.toString(),
       referrer: newMember['referrer']?.toString(),
-      points: (newMember['points'] ?? 0) is int ? newMember['points'] : int.tryParse(newMember['points']?.toString() ?? '0') ?? 0,
+      points: (newMember['points'] ?? 0) is int
+          ? newMember['points']
+          : int.tryParse(newMember['points']?.toString() ?? '0') ?? 0,
       qr: newMember['qr']?.toString(),
     );
     await _loadMembers();
   }
 
-  Future<void> updateMember(Map<String, dynamic> oldMember, Map<String, dynamic> updatedMember) async {
+  Future<void> updateMember(
+    Map<String, dynamic> oldMember,
+    Map<String, dynamic> updatedMember,
+  ) async {
     // find by id if present
     final id = oldMember['id'] as int?;
     if (id == null) return;
     final row = (await repository.fetchMembers()).firstWhere((r) => r.id == id);
     final updated = row.copyWith(
-      lastName: updatedMember['lastName'] != null ? Value(updatedMember['lastName'].toString()) : const Value.absent(),
-      firstName: updatedMember['firstName'] != null ? Value(updatedMember['firstName'].toString()) : const Value.absent(),
-      middleName: updatedMember['middleName'] != null ? Value(updatedMember['middleName'].toString()) : const Value.absent(),
-      role: updatedMember['role'] != null ? Value(updatedMember['role'].toString()) : const Value.absent(),
-      contactNo: updatedMember['contactNo'] != null ? Value(updatedMember['contactNo'].toString()) : const Value.absent(),
-      birthday: updatedMember['birthday'] != null ? Value(updatedMember['birthday'].toString()) : const Value.absent(),
-      address: updatedMember['address'] != null ? Value(updatedMember['address'].toString()) : const Value.absent(),
-      referrer: updatedMember['referrer'] != null ? Value(updatedMember['referrer'].toString()) : const Value.absent(),
+      lastName: updatedMember['lastName'] != null
+          ? Value(updatedMember['lastName'].toString())
+          : const Value.absent(),
+      firstName: updatedMember['firstName'] != null
+          ? Value(updatedMember['firstName'].toString())
+          : const Value.absent(),
+      middleName: updatedMember['middleName'] != null
+          ? Value(updatedMember['middleName'].toString())
+          : const Value.absent(),
+      role: updatedMember['role'] != null
+          ? Value(updatedMember['role'].toString())
+          : const Value.absent(),
+      contactNo: updatedMember['contactNo'] != null
+          ? Value(updatedMember['contactNo'].toString())
+          : const Value.absent(),
+      birthday: updatedMember['birthday'] != null
+          ? Value(updatedMember['birthday'].toString())
+          : const Value.absent(),
+      address: updatedMember['address'] != null
+          ? Value(updatedMember['address'].toString())
+          : const Value.absent(),
+      referrer: updatedMember['referrer'] != null
+          ? Value(updatedMember['referrer'].toString())
+          : const Value.absent(),
       points: updatedMember['points'] is int ? updatedMember['points'] : null,
-      qr: updatedMember['qr'] != null ? Value(updatedMember['qr'].toString()) : const Value.absent(),
+      qr: updatedMember['qr'] != null
+          ? Value(updatedMember['qr'].toString())
+          : const Value.absent(),
     );
     await repository.db.updateMemberData(updated);
     await _loadMembers();
@@ -98,11 +121,12 @@ class MembersTableState extends State<MembersTable> {
   Widget build(BuildContext context) {
     final filteredMembers = members.where((member) {
       final search = searchTerm.toLowerCase();
-      return member.values.any((value) =>
-          value.toString().toLowerCase().contains(search));
+      return member.values.any(
+        (value) => value.toString().toLowerCase().contains(search),
+      );
     }).toList();
 
-  return Column(
+    return Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(8.0),
@@ -117,7 +141,10 @@ class MembersTableState extends State<MembersTable> {
                   },
                   hintText: "Search members...",
                   borderRadius: 12,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  contentPadding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 16,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -125,7 +152,10 @@ class MembersTableState extends State<MembersTable> {
                 icon: const Icon(Icons.person_add, color: Colors.white),
                 label: const Text(
                   "Add Member",
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 // stronger background color to be more visible
                 // uses primary color from theme if not provided
@@ -134,27 +164,41 @@ class MembersTableState extends State<MembersTable> {
                 onPressed: () {
                   showDialog(
                     context: context,
-                    builder: (context) => AddMemberDialog(
-                      onMemberAdded: addMember,
-                    ),
+                    builder: (context) =>
+                        AddMemberDialog(onMemberAdded: addMember),
                   );
                 },
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
                 icon: const Icon(Icons.upload_file, color: Colors.white),
-                label: const Text('Export CSV', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Export CSV',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 backgroundColor: Colors.grey[700],
                 onPressed: () async {
                   final csv = await repository.exportMembersCsvString();
-                  final suggested = 'members_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+                  final suggested =
+                      'members_export_${DateTime.now().millisecondsSinceEpoch}.csv';
                   try {
-                    final fs.FileSaveLocation? loc = await fs.getSaveLocation(suggestedName: suggested);
+                    final fs.FileSaveLocation? loc = await fs.getSaveLocation(
+                      suggestedName: suggested,
+                    );
                     if (loc != null) {
-                      final xfile = fs.XFile.fromData(Uint8List.fromList(csv.codeUnits), mimeType: 'text/csv', name: suggested);
+                      final xfile = fs.XFile.fromData(
+                        Uint8List.fromList(csv.codeUnits),
+                        mimeType: 'text/csv',
+                        name: suggested,
+                      );
                       await xfile.saveTo(loc.path);
                       if (!mounted) return;
-                      ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+                      ScaffoldMessenger.of(this.context).showSnackBar(
+                        SnackBar(content: Text('Exported to ${loc.path}')),
+                      );
                       return;
                     }
                     return;
@@ -165,33 +209,58 @@ class MembersTableState extends State<MembersTable> {
                     final file = File(savePath);
                     await file.writeAsString(csv);
                     if (!mounted) return;
-                    ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(content: Text('Exported to $savePath')),
+                    );
                   }
                 },
               ),
               const SizedBox(width: 8),
               CustomElevatedButton(
                 icon: const Icon(Icons.download, color: Colors.white),
-                label: const Text('Import CSV', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Import CSV',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 backgroundColor: Colors.grey[700],
                 onPressed: () async {
-                  final files = await fs.openFiles(acceptedTypeGroups: [fs.XTypeGroup(label: 'CSV', extensions: ['csv'])]);
+                  final files = await fs.openFiles(
+                    acceptedTypeGroups: [
+                      fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
+                    ],
+                  );
                   if (files.isEmpty) return;
                   final xfile = files.first;
                   final content = await xfile.readAsString();
                   final conv = const CsvToListConverter();
                   final parsed = conv.convert(content);
                   if (parsed.isEmpty) return;
-                  final headers = parsed.first.map((e) => e.toString()).toList();
-                  final rows = parsed.sublist(1).map((r) => r.map((c) => c?.toString() ?? '').toList()).toList();
+                  final headers = parsed.first
+                      .map((e) => e.toString())
+                      .toList();
+                  final rows = parsed
+                      .sublist(1)
+                      .map((r) => r.map((c) => c?.toString() ?? '').toList())
+                      .toList();
                   if (!mounted) return;
                   // ignore: use_build_context_synchronously
-                  final confirm = await showImportPreviewDialog(this.context, headers, rows);
+                  final confirm = await showImportPreviewDialog(
+                    this.context,
+                    headers,
+                    rows,
+                  );
                   if (confirm != true) return;
                   final count = await repository.importMembersCsv(content);
                   if (!mounted) return;
                   // ignore: use_build_context_synchronously
-                  ScaffoldMessenger.of(this.context).showSnackBar(SnackBar(content: Text('Imported $count rows from ${xfile.name}')));
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(
+                      content: Text('Imported $count rows from ${xfile.name}'),
+                    ),
+                  );
                 },
               ),
             ],
@@ -220,7 +289,9 @@ class MembersTableState extends State<MembersTable> {
                   var estimated = (available ~/ 56).clamp(1, 7);
                   return SingleChildScrollView(
                     child: PaginatedDataTable(
-                      headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
+                      headingRowColor: WidgetStateProperty.all(
+                        Colors.blueGrey[50],
+                      ),
                       columnSpacing: 40,
                       rowsPerPage: estimated,
                       columns: const [
@@ -232,7 +303,10 @@ class MembersTableState extends State<MembersTable> {
                         DataColumn(label: Text('Birthday')),
                         DataColumn(label: Text('Address')),
                       ],
-                      source: _MembersDataSource(filteredMembers, widget.onRowSelected),
+                      source: _MembersDataSource(
+                        filteredMembers,
+                        widget.onRowSelected,
+                      ),
                     ),
                   );
                 },
@@ -249,7 +323,6 @@ class MembersTableState extends State<MembersTable> {
     _changesSub.cancel();
     super.dispose();
   }
-
 }
 
 class _MembersDataSource extends DataTableSource {
@@ -264,12 +337,10 @@ class _MembersDataSource extends DataTableSource {
     final member = members[index];
     final isEven = index % 2 == 0;
     return DataRow(
-      color: WidgetStateProperty.resolveWith<Color?>(
-        (Set<WidgetState> states) {
-          if (isEven) return Colors.grey[100];
-          return null;
-        },
-      ),
+      color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+        if (isEven) return Colors.grey[100];
+        return null;
+      }),
       onSelectChanged: (_) => onRowSelected(member),
       cells: [
         DataCell(Text(member["lastName"] ?? "")),

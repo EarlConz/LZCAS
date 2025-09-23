@@ -8,9 +8,7 @@ class RewardsCard extends StatelessWidget {
     return Card(
       elevation: 6,
       shadowColor: Colors.blueGrey.withValues(alpha: 0.2),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: SizedBox(
         width: 280,
         child: Padding(
@@ -32,16 +30,26 @@ class RewardsCard extends StatelessWidget {
               const SizedBox(height: 16),
 
               // Rewards List
-              const Text("1,000 pts :   ₱500",
-                  style: TextStyle(fontSize: 15, height: 1.5)),
-              const Text("2,000 pts :   ₱1,000",
-                  style: TextStyle(fontSize: 15, height: 1.5)),
-              const Text("5,000 pts :   ₱2,500",
-                  style: TextStyle(fontSize: 15, height: 1.5)),
-              const Text("10,000 pts : ₱5,000",
-                  style: TextStyle(fontSize: 15, height: 1.5)),
-              const Text("20,000 pts : ₱10,000",
-                  style: TextStyle(fontSize: 15, height: 1.5)),
+              const Text(
+                "1,000 pts :   ₱500",
+                style: TextStyle(fontSize: 15, height: 1.5),
+              ),
+              const Text(
+                "2,000 pts :   ₱1,000",
+                style: TextStyle(fontSize: 15, height: 1.5),
+              ),
+              const Text(
+                "5,000 pts :   ₱2,500",
+                style: TextStyle(fontSize: 15, height: 1.5),
+              ),
+              const Text(
+                "10,000 pts : ₱5,000",
+                style: TextStyle(fontSize: 15, height: 1.5),
+              ),
+              const Text(
+                "20,000 pts : ₱10,000",
+                style: TextStyle(fontSize: 15, height: 1.5),
+              ),
             ],
           ),
         ),
