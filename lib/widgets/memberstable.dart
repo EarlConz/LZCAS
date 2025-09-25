@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'dart:async';
 import 'package:csv/csv.dart';
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
+import '../db/csv_header_utils.dart';
 
 class MembersTable extends StatefulWidget {
   final Function(Map<String, dynamic>) onRowSelected;
@@ -243,6 +244,19 @@ class MembersTableState extends State<MembersTable> {
                       .map((r) => r.map((c) => c?.toString() ?? '').toList())
                       .toList();
                   if (!mounted) return;
+                  final expected = ['id', 'lastname', 'firstname', 'middlename', 'role', 'phonenumber', 'birthday', 'address', 'referrer', 'points'];
+                  final missing = findMissingHeaders(headers.cast<String>(), expected);
+                  if (missing.isNotEmpty) {
+                    await showDialog<void>(
+                      context: this.context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Invalid CSV'),
+                        content: Text('This file does not look like a Members export. Missing headers: ${missing.join(', ')}'),
+                        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+                      ),
+                    );
+                    return;
+                  }
                   // ignore: use_build_context_synchronously
                   final confirm = await showImportPreviewDialog(
                     this.context,

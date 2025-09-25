@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../widgets/infocard.dart';
 import '../widgets/transactionstable.dart';
+// ...existing code... (no additional imports required here)
 
 class TransactionPage extends StatefulWidget {
   const TransactionPage({super.key});
@@ -55,6 +56,7 @@ class _TransactionPageState extends State<TransactionPage> {
                       "20,000 pts : ₱10,000",
                       style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
                     ),
+                    const SizedBox(height: 12),
                   ],
                 ),
               ),

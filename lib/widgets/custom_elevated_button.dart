@@ -45,9 +45,20 @@ class CustomElevatedButton extends StatelessWidget {
       child: icon != null
           ? Row(
               mainAxisSize: MainAxisSize.min,
-              children: [icon!, const SizedBox(width: 8), label],
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // constrain icon so it can't force the button wider than available
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 24, maxHeight: 24),
+                  child: icon!,
+                ),
+                const SizedBox(width: 8),
+                // allow the label to shrink/wrap when space is limited
+                Flexible(child: label),
+              ],
             )
-          : label,
+          : // when no icon, still allow label to be flexible
+          Flexible(child: label),
     );
   }
 }

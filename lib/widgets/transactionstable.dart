@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
@@ -5,6 +6,14 @@ import '../db/db.dart' show Sale, repository;
 import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
 import '../buttons/redeembutton.dart';
+import 'package:file_selector/file_selector.dart' as fs;
+import 'package:lzcas/widgets/custom_elevated_button.dart';
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'package:csv/csv.dart';
+import 'package:lzcas/dialogs/import_preview_dialog.dart';
+import '../db/csv_header_utils.dart';
 
 class TransactionsTable extends StatefulWidget {
   const TransactionsTable({super.key});
@@ -24,8 +33,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
     super.initState();
     _loadSales();
     _sub = repository.changes.listen((e) {
-      if (e == 'sale_added' || e == 'item_updated' || e == 'sale_updated' || e == 'sale_deleted') {
-        // reload whenever sales change so UI reflects deletes/edits immediately
+      if (e == 'sale_added' || e == 'item_updated' || e == 'sale_updated' || e == 'sale_deleted' || e == 'sale_imported') {
+        // reload whenever sales change so UI reflects deletes/edits/imports immediately
         _loadSales();
       }
     });
@@ -93,6 +102,79 @@ class _TransactionsTableState extends State<TransactionsTable> {
               const SellButton(),
               const SizedBox(width: 8),
               const RedeemButton(),
+              const SizedBox(width: 8),
+              // Export Sales button
+              CustomElevatedButton(
+                onPressed: () async {
+                  final safeContext = context; // capture early
+                  final csv = await repository.exportSalesCsvString();
+                  final suggested = 'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+                  try {
+                    final fs.FileSaveLocation? loc = await fs.getSaveLocation(suggestedName: suggested);
+                    if (loc != null) {
+                      final xfile = fs.XFile.fromData(Uint8List.fromList(csv.codeUnits), mimeType: 'text/csv', name: suggested);
+                      await xfile.saveTo(loc.path);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(safeContext).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+                    }
+                  } catch (e) {
+                    final dir = Directory.current.path;
+                    final savePath = p.join(dir, suggested);
+                    final file = File(savePath);
+                    await file.writeAsString(csv);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(safeContext).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+                  }
+                },
+                icon: const Icon(Icons.upload_file),
+                label: const Text('Export'),
+                backgroundColor: Colors.grey[700],
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              ),
+              const SizedBox(width: 8),
+              // Import Sales button with preview
+              CustomElevatedButton(
+                onPressed: () async {
+                  final safeContext = context; // capture before any awaits to keep analyzer happy
+                  final files = await fs.openFiles(acceptedTypeGroups: [fs.XTypeGroup(label: 'CSV', extensions: ['csv'])]);
+                  if (files.isEmpty) return;
+                  final xfile = files.first;
+                  final content = await xfile.readAsString();
+
+                  // parse CSV and show preview (reuse the shared dialog)
+                  final conv = const CsvToListConverter();
+                  final parsed = conv.convert(content);
+                  if (parsed.isEmpty) return;
+                  final headers = parsed.first.map((e) => e.toString()).toList();
+                  final rows = parsed.sublist(1).map((r) => r.map((c) => c?.toString() ?? '').toList()).toList();
+                  if (!mounted) return;
+                  final expected = ['id', 'itemid', 'itemname', 'quantity', 'price', 'createdat'];
+                  final missing = findMissingHeaders(headers.cast<String>(), expected);
+                  if (missing.isNotEmpty) {
+                    if (!mounted) return;
+                    await showDialog<void>(
+                      context: safeContext,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Invalid CSV'),
+                        content: Text('This file does not look like a Sales export. Missing headers: ${missing.join(', ')}'),
+                        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+                      ),
+                    );
+                    return;
+                  }
+                  if (!mounted) return;
+                  final confirm = await showImportPreviewDialog(safeContext, headers, rows);
+                  if (confirm != true) return;
+
+                  final count = await repository.importSalesCsv(content);
+                  final messenger = ScaffoldMessenger.of(safeContext);
+                  messenger.showSnackBar(SnackBar(content: Text('Imported $count sales from ${xfile.name}')));
+                },
+                icon: const Icon(Icons.download),
+                label: const Text('Import'),
+                backgroundColor: Colors.grey[700],
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              ),
             ],
           ),
         ),

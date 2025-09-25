@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import 'package:csv/csv.dart';
+import '../db/csv_header_utils.dart';
 
 class InventoryTable extends StatefulWidget {
   const InventoryTable({super.key});
@@ -254,6 +255,20 @@ class _InventoryTableState extends State<InventoryTable> {
                       .map((r) => r.map((c) => c?.toString() ?? '').toList())
                       .toList();
                   if (!mounted) return;
+                  // validate headers using flexible synonyms so common variants are accepted
+                  final expected = ['id', 'name', 'category', 'stock', 'lastupdated', 'status'];
+                  final missing = findMissingHeaders(headers.cast<String>(), expected);
+                  if (missing.isNotEmpty) {
+                    await showDialog<void>(
+                      context: this.context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Invalid CSV'),
+                        content: Text('This file does not look like an Items export. Missing headers: ${missing.join(', ')}'),
+                        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+                      ),
+                    );
+                    return;
+                  }
                   // context is checked above; show import preview immediately
                   // ignore: use_build_context_synchronously
                   final confirm = await showImportPreviewDialog(

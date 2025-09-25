@@ -67,7 +67,7 @@ final appTheme = ThemeData(
     style: ElevatedButton.styleFrom(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      textStyle: const TextStyle(fontWeight: FontWeight.bold),
+      textStyle: const TextStyle(inherit: false, fontWeight: FontWeight.bold),
     ),
   ),
   inputDecorationTheme: InputDecorationTheme(
@@ -101,13 +101,16 @@ final appDarkTheme = ThemeData(
     onPrimary: Colors.white,
     secondary: const Color(0xFF00A896),
     onSecondary: Colors.black,
-    surface: const Color(0xFF121212),
+    // surface should be a bit lighter than scaffold in dark mode so cards remain visible
+    surface: const Color(0xFF14181A),
     onSurface: const Color(0xFFE7EEF1),
   ),
   scaffoldBackgroundColor: const Color(0xFF0B0F12),
   cardTheme: CardThemeData(
-    elevation: 4,
-    shadowColor: Colors.black.withAlpha((0.2 * 255).round()),
+    elevation: 6,
+    // Make card color slightly lighter than scaffold so cards are visible in dark mode
+    color: const Color(0xFF111418),
+    shadowColor: Colors.black.withAlpha((0.35 * 255).round()),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     margin: const EdgeInsets.all(8),
   ),
@@ -143,13 +146,22 @@ final appDarkTheme = ThemeData(
   ),
   dataTableTheme: DataTableThemeData(
     headingRowColor: WidgetStateProperty.all(const Color(0xFF1F2A31)),
-    dataRowColor: WidgetStateProperty.all(const Color(0xFF0F1720)),
+    dataRowColor: WidgetStateProperty.all(const Color(0xFF0D1214)),
     dividerThickness: 1,
     headingTextStyle: const TextStyle(
       fontWeight: FontWeight.w600,
       color: Color(0xFFE7EEF1),
     ),
-    dataTextStyle: const TextStyle(color: Color(0xFFBFC9CB)),
+    dataTextStyle: const TextStyle(color: Color(0xFFCED7D9)),
+  ),
+  elevatedButtonTheme: ElevatedButtonThemeData(
+    style: ElevatedButton.styleFrom(
+      backgroundColor: const Color(0xFF1F6F61), // slightly brighter primary-ish button color
+      foregroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      textStyle: const TextStyle(inherit: false, fontWeight: FontWeight.bold),
+    ),
   ),
   inputDecorationTheme: InputDecorationTheme(
     border: OutlineInputBorder(

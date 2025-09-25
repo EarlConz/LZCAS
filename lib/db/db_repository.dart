@@ -89,6 +89,20 @@ class DbRepository {
     return count;
   }
 
+  // Sales CSV helpers
+  /// Export sales to CSV file and return the file path.
+  Future<String> exportSalesCsv() => exportSalesToCsvFile(db);
+
+  /// Return CSV content for sales as string (UI can show a save dialog).
+  Future<String> exportSalesCsvString() => exportSalesToCsvString(db);
+
+  /// Import sales from CSV string; returns number of rows inserted.
+  Future<int> importSalesCsv(String csv) async {
+    final count = await importSalesFromCsvString(db, csv);
+    if (count > 0) _changes.add('sale_imported');
+    return count;
+  }
+
   // Sales helpers
   Future<int> addSale({required int itemId, required String itemName, required int quantity, int price = 0}) {
     final companion = SalesCompanion.insert(
@@ -135,5 +149,33 @@ class DbRepository {
     final res = await db.update(db.sales).replace(sale);
     _changes.add('sale_updated');
     return res;
+  }
+
+  /// Clear all data from sales, items, and members tables.
+  /// Emits delete notifications so UI can refresh.
+  Future<void> clearAllData() async {
+    try {
+      await db.transaction(() async {
+        await db.delete(db.sales).go();
+        await db.delete(db.items).go();
+        await db.delete(db.members).go();
+        // Reset autoincrement sequences if present
+        try {
+          await db.customStatement("DELETE FROM sqlite_sequence WHERE name IN ('sales','items','members');");
+        } catch (_) {
+          // ignore if sqlite_sequence doesn't exist or fails
+        }
+      });
+
+      // Notify listeners so UI can reload
+      _changes.add('sale_deleted');
+      _changes.add('item_deleted');
+      _changes.add('member_deleted');
+      _changes.add('db_cleared');
+    } catch (e) {
+      // ignore: avoid_print
+      print('clearAllData failed: $e');
+      rethrow;
+    }
   }
 }

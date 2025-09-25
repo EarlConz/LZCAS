@@ -17,36 +17,30 @@ Future<bool?> showImportPreviewDialog(
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                DataTable(
-                  columns: headers
-                      .map((h) => DataColumn(label: Text(h)))
-                      .toList(),
-                  rows: displayRows
-                      .map(
-                        (r) => DataRow(
-                          cells: r.map((c) => DataCell(Text(c))).toList(),
-                        ),
-                      )
-                      .toList(),
+                // Constrain the table height and make it vertically scrollable so large
+                // previews don't cause RenderFlex overflows.
+                SizedBox(
+                  height: 320,
+                  child: SingleChildScrollView(
+                    child: DataTable(
+                      columns: headers.map((h) => DataColumn(label: Text(h))).toList(),
+                      rows: displayRows
+                          .map((r) => DataRow(cells: r.map((c) => DataCell(Text(c))).toList()))
+                          .toList(),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  '${rows.length} total rows — showing ${displayRows.length} rows',
-                ),
+                Text('${rows.length} total rows — showing ${displayRows.length} rows'),
               ],
             ),
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Import'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Import')),
         ],
       );
     },
