@@ -133,6 +133,38 @@ class DbRepository {
 
       final memberId = await db.insertMember(companion);
 
+      // If the imported row includes a referrer, attempt to award 15 points to that referrer
+      final refRaw = (map['referrer'] ?? '').trim();
+      if (refRaw.isNotEmpty) {
+        try {
+          Member? refMember;
+          final parsed = int.tryParse(refRaw);
+          if (parsed != null) {
+            if (parsed != memberId) refMember = await db.getMemberById(parsed);
+          } else {
+            final all = await db.getAllMembers();
+            try {
+              final target = refRaw.toLowerCase();
+              refMember = all.firstWhere((m) {
+                final name = ('${m.firstName ?? ''} ${m.lastName ?? ''}').trim().toLowerCase();
+                return name == target;
+              });
+              if (refMember.id == memberId) refMember = null;
+            } catch (_) {
+              refMember = null;
+            }
+          }
+          if (refMember != null) {
+            final updated = refMember.copyWith(points: refMember.points + 15);
+            await db.update(db.members).replace(updated);
+            _changes.add('member_updated');
+            _changes.add('member_points_awarded');
+          }
+        } catch (_) {
+          // ignore failures here
+        }
+      }
+
       // parse transactions field (if any)
       final txRaw = (map['transactions'] ?? '').trim();
       final List<MemberTransactionEntry> entries = [];
@@ -369,6 +401,44 @@ class DbRepository {
       points: Value(points),
     );
     final id = await db.insertMember(companion);
+
+    // If a referrer string was provided, try to resolve it to a member and award 15 points.
+    if (referrer != null && referrer.trim().isNotEmpty) {
+      try {
+        final refStr = referrer.trim();
+        Member? refMember;
+        final parsed = int.tryParse(refStr);
+        if (parsed != null) {
+          // numeric referrer was provided
+          if (parsed != id) {
+            refMember = await db.getMemberById(parsed);
+          }
+        } else {
+          // try to match by full name (first + last)
+          final all = await db.getAllMembers();
+          try {
+            final target = refStr.toLowerCase();
+            refMember = all.firstWhere((m) {
+              final name = ('${m.firstName ?? ''} ${m.lastName ?? ''}').trim().toLowerCase();
+              return name == target;
+            });
+            if (refMember.id == id) refMember = null; // don't award to self
+          } catch (_) {
+            refMember = null;
+          }
+        }
+
+        if (refMember != null) {
+          final updated = refMember.copyWith(points: refMember.points + 15);
+          await db.update(db.members).replace(updated);
+          _changes.add('member_updated');
+          _changes.add('member_points_awarded');
+        }
+      } catch (_) {
+        // Don't fail member creation if awarding points fails; just continue.
+      }
+    }
+
     _changes.add('member_added');
     return id;
   }
