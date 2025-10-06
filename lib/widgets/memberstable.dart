@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 // ...existing code...
 import 'package:flutter/material.dart';
 import 'package:lzcas/widgets/search.dart';
@@ -180,7 +181,6 @@ class MembersTableState extends State<MembersTable> {
                   ),
                 ),
                 backgroundColor: Colors.grey[700],
-                // ignore: use_build_context_synchronously
                 onPressed: () async {
                   final safeContext = context; // capture before any awaits
                   final csv = await repository.exportMembersCsvString();
@@ -197,7 +197,6 @@ class MembersTableState extends State<MembersTable> {
                       );
                       await xfile.saveTo(loc.path);
                       if (!mounted) return;
-                      // ignore: use_build_context_synchronously
                       ScaffoldMessenger.of(safeContext).showSnackBar(
                         SnackBar(content: Text('Exported to ${loc.path}')),
                       );
@@ -211,7 +210,6 @@ class MembersTableState extends State<MembersTable> {
                     final file = File(savePath);
                     await file.writeAsString(csv);
                     if (!mounted) return;
-                    // ignore: use_build_context_synchronously
                     ScaffoldMessenger.of(safeContext).showSnackBar(
                       SnackBar(content: Text('Exported to $savePath')),
                     );
@@ -255,7 +253,6 @@ class MembersTableState extends State<MembersTable> {
                   final missing = findMissingHeaders(headers.cast<String>(), expected);
                   if (missing.isNotEmpty) {
                     if (!mounted) return;
-                    // ignore: use_build_context_synchronously
                     // Safe: using captured `localCtx` which was taken before async work and checked mounted.
                     await showDialog<void>(
                       context: localCtx,
@@ -292,7 +289,6 @@ class MembersTableState extends State<MembersTable> {
                   }
 
                   if (!mounted) return;
-                  // ignore: use_build_context_synchronously
                   // Safe: preview dialog uses `localCtx` captured earlier and we validated mounted.
                   final sel = await showImportPreviewDialogWithSelection(
                     localCtx,
@@ -304,15 +300,12 @@ class MembersTableState extends State<MembersTable> {
 
                   // Call the repository bulk-import API directly with parsed rows to avoid reparsing CSV
                   final rowsToImport = sel.map((i) => rows[i]).toList();
-                  final selectedCount = rowsToImport.length;
-                  final skippedCount = rows.length - selectedCount;
                   final inserted = await repository.importMembersFromRows(headers.cast<String>(), rowsToImport);
                   if (!mounted) return;
-                  // ignore: use_build_context_synchronously
-                  // Safe: showing snackbar with `localCtx` captured before async work and mounted checked.
+                  // Only report how many were actually inserted (not how many were selected)
                   final messenger = ScaffoldMessenger.of(localCtx);
                   messenger.showSnackBar(SnackBar(
-                    content: Text('Selected $selectedCount, skipped $skippedCount existing rows — inserted $inserted new members'),
+                    content: Text('Inserted $inserted new member${inserted == 1 ? '' : 's'}'),
                   ));
                   }, // end onPressed
                 ), // end Import button

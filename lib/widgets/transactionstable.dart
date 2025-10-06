@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 // ...existing code...
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -152,7 +153,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
                   final missing = findMissingHeaders(headers.cast<String>(), expected);
                   if (missing.isNotEmpty) {
                     if (!mounted) return;
-                    // ignore: use_build_context_synchronously
                     // Safe: using `localCtx` captured before async work and validated via mounted.
                     await showDialog<void>(
                       context: localCtx,
@@ -165,16 +165,40 @@ class _TransactionsTableState extends State<TransactionsTable> {
                     return;
                   }
                   if (!mounted) return;
-                  // ignore: use_build_context_synchronously
-                  // Safe: preview dialog uses `localCtx` captured earlier and we validated mounted.
-                  final confirm = await showImportPreviewDialog(localCtx, headers, rows);
-                  if (confirm != true) return;
+                  // Provide a fast existence checker for sales CSV rows: check by id or by matching core fields
+                  final existingSales = await repository.fetchSales();
+                  bool fastExists(Map<String, String> map) {
+                    final idStr = (map['id'] ?? '').trim();
+                    if (idStr.isNotEmpty) {
+                      final id = int.tryParse(idStr);
+                      if (id != null) {
+                        if (existingSales.any((s) => s.id == id)) return true;
+                      }
+                    }
+                    final itemIdStr = (map['itemid'] ?? map['itemId'] ?? '').trim();
+                    final itemName = (map['itemname'] ?? map['itemName'] ?? '').trim();
+                    final quantityStr = (map['quantity'] ?? '').trim();
+                    final priceStr = (map['price'] ?? '').trim();
+                    final buyerIdStr = (map['buyerid'] ?? map['buyerId'] ?? '').trim();
+                    final itemId = int.tryParse(itemIdStr) ?? -1;
+                    final quantity = int.tryParse(quantityStr) ?? -1;
+                    final price = int.tryParse(priceStr) ?? -1;
+                    final buyerId = int.tryParse(buyerIdStr);
+                    return existingSales.any((s) {
+                      final sameCore = s.itemId == itemId && s.itemName == itemName && s.quantity == quantity && s.price == price && (buyerId == null ? s.buyerId == null : s.buyerId == buyerId);
+                      return sameCore;
+                    });
+                  }
 
-                  final count = await repository.importSalesCsv(content);
+                  final sel = await showImportPreviewDialogWithSelection(localCtx, headers, rows, exists: (m) async => fastExists(m));
+                  if (sel == null || sel.isEmpty) return;
+
+                  final rowsToImport = sel.map((i) => rows[i]).toList();
+                  // Rebuild CSV content for selected rows only
+                  final selectedCsv = const ListToCsvConverter().convert([headers, ...rowsToImport]);
+                  final inserted = await repository.importSalesCsv(selectedCsv);
                   if (!mounted) return;
-                  // ignore: use_build_context_synchronously
-                  // Safe: using `localCtx` captured before async work and validated mounted.
-                  ScaffoldMessenger.of(localCtx).showSnackBar(SnackBar(content: Text('Imported $count sales from ${xfile.name}')));
+                  ScaffoldMessenger.of(localCtx).showSnackBar(SnackBar(content: Text('Inserted $inserted new sale${inserted == 1 ? '' : 's'}')));
                 },
                 icon: const Icon(Icons.download),
                 label: const Text('Import'),

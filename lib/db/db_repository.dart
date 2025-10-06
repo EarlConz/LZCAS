@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:drift/drift.dart';
+import 'dart:math';
 import 'app_db.dart';
 import 'package:csv/csv.dart';
 import 'csv_io.dart';
@@ -14,6 +15,11 @@ class DbRepository {
   final StreamController<String> _changes = StreamController<String>.broadcast();
 
   DbRepository(this.db);
+
+  String _generateMemberQr() {
+    final rnd = Random();
+    return '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${rnd.nextInt(1 << 32).toRadixString(16)}';
+  }
 
   Stream<String> get changes => _changes.stream;
 
@@ -129,6 +135,7 @@ class DbRepository {
         address: Value((map['address'] ?? '').trim().isEmpty ? null : (map['address'] ?? '').trim()),
         referrer: Value((map['referrer'] ?? '').trim().isEmpty ? null : (map['referrer'] ?? '').trim()),
         points: Value(int.tryParse((map['points'] ?? '').trim()) ?? 0),
+        qr: Value(_generateMemberQr()),
       );
 
       final memberId = await db.insertMember(companion);
@@ -399,6 +406,7 @@ class DbRepository {
       address: Value(address == null || address.isEmpty ? null : address),
       referrer: Value(referrer == null || referrer.isEmpty ? null : referrer),
       points: Value(points),
+      qr: Value(_generateMemberQr()),
     );
     final id = await db.insertMember(companion);
 
@@ -545,7 +553,9 @@ class DbRepository {
         await db.delete(db.members).go();
         // Reset autoincrement sequences if present
         try {
-          await db.customStatement("DELETE FROM sqlite_sequence WHERE name IN ('sales','items','members');");
+          // Reset sequences for sales and items only. Preserve members sequence so
+          // member IDs are not reused after delete/clear operations.
+          await db.customStatement("DELETE FROM sqlite_sequence WHERE name IN ('sales','items');");
         } catch (_) {
           // ignore if sqlite_sequence doesn't exist or fails
         }

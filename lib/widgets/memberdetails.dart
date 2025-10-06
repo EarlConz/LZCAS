@@ -1,6 +1,6 @@
 // ignore_for_file: unnecessary_underscores
 import 'package:flutter/material.dart';
-import 'memberqr.dart';
+import 'interactive_member_avatar.dart';
 import 'package:lzcas/db/db.dart';
 
 class MemberDetailsCard extends StatelessWidget {
@@ -47,10 +47,13 @@ class MemberDetailsCard extends StatelessWidget {
                         alignment: PlaceholderAlignment.middle,
                         child: Padding(
                           padding: const EdgeInsets.only(left: 8.0),
-                          child: MemberQr(
-                            lastName: member['lastName'],
-                            firstName: member['firstName'],
-                            middleName: member['middleName'],
+                          child: InteractiveMemberAvatar(
+                            memberId: member['id'] as int?,
+                            lastName: (member['lastName'] ?? '').toString(),
+                            firstName: (member['firstName'] ?? '').toString(),
+                            middleName: (member['middleName'] ?? '').toString(),
+                            imageUrl: (member['image'] ?? '').toString(),
+                            size: 36,
                           ),
                         ),
                       ),
@@ -90,10 +93,13 @@ class MemberDetailsCard extends StatelessWidget {
                 const Text('Member\'s Transaction History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 FutureBuilder<List<Sale>>(
-                  future: repository.fetchSalesForReferrer((member['id'] ?? 0) as int),
+                  // Show transactions for the member (buyer) themselves instead of transactions
+                  // of members they referred. This makes the Member Details card display the
+                  // member's own purchase history.
+                  future: repository.fetchSalesForMember((member['id'] ?? 0) as int),
                   builder: (context, snap) {
                     if (snap.connectionState == ConnectionState.waiting) return const SizedBox(height:100, child: Center(child:CircularProgressIndicator()));
-                    if (!snap.hasData || snap.data!.isEmpty) return const Text('No transactions found for referred members.');
+                    if (!snap.hasData || snap.data!.isEmpty) return const Text('No transactions found for this member.');
                     final sales = snap.data!;
                     return SizedBox(
                       height: 160,
