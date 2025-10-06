@@ -30,6 +30,16 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _pointsMeta = const VerificationMeta('points');
+  @override
+  late final GeneratedColumn<int> points = GeneratedColumn<int>(
+    'points',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _categoryMeta = const VerificationMeta(
     'category',
   );
@@ -75,6 +85,7 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
   List<GeneratedColumn> get $columns => [
     id,
     name,
+    points,
     category,
     stock,
     lastUpdated,
@@ -102,6 +113,12 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
       );
     } else if (isInserting) {
       context.missing(_nameMeta);
+    }
+    if (data.containsKey('points')) {
+      context.handle(
+        _pointsMeta,
+        points.isAcceptableOrUnknown(data['points']!, _pointsMeta),
+      );
     }
     if (data.containsKey('category')) {
       context.handle(
@@ -147,6 +164,10 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
         DriftSqlType.string,
         data['${effectivePrefix}name'],
       )!,
+      points: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}points'],
+      )!,
       category: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}category'],
@@ -175,6 +196,7 @@ class $ItemsTable extends Items with TableInfo<$ItemsTable, Item> {
 class Item extends DataClass implements Insertable<Item> {
   final int id;
   final String name;
+  final int points;
   final String? category;
   final int stock;
   final DateTime? lastUpdated;
@@ -182,6 +204,7 @@ class Item extends DataClass implements Insertable<Item> {
   const Item({
     required this.id,
     required this.name,
+    required this.points,
     this.category,
     required this.stock,
     this.lastUpdated,
@@ -192,6 +215,7 @@ class Item extends DataClass implements Insertable<Item> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['name'] = Variable<String>(name);
+    map['points'] = Variable<int>(points);
     if (!nullToAbsent || category != null) {
       map['category'] = Variable<String>(category);
     }
@@ -209,6 +233,7 @@ class Item extends DataClass implements Insertable<Item> {
     return ItemsCompanion(
       id: Value(id),
       name: Value(name),
+      points: Value(points),
       category: category == null && nullToAbsent
           ? const Value.absent()
           : Value(category),
@@ -230,6 +255,7 @@ class Item extends DataClass implements Insertable<Item> {
     return Item(
       id: serializer.fromJson<int>(json['id']),
       name: serializer.fromJson<String>(json['name']),
+      points: serializer.fromJson<int>(json['points']),
       category: serializer.fromJson<String?>(json['category']),
       stock: serializer.fromJson<int>(json['stock']),
       lastUpdated: serializer.fromJson<DateTime?>(json['lastUpdated']),
@@ -242,6 +268,7 @@ class Item extends DataClass implements Insertable<Item> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'name': serializer.toJson<String>(name),
+      'points': serializer.toJson<int>(points),
       'category': serializer.toJson<String?>(category),
       'stock': serializer.toJson<int>(stock),
       'lastUpdated': serializer.toJson<DateTime?>(lastUpdated),
@@ -252,6 +279,7 @@ class Item extends DataClass implements Insertable<Item> {
   Item copyWith({
     int? id,
     String? name,
+    int? points,
     Value<String?> category = const Value.absent(),
     int? stock,
     Value<DateTime?> lastUpdated = const Value.absent(),
@@ -259,6 +287,7 @@ class Item extends DataClass implements Insertable<Item> {
   }) => Item(
     id: id ?? this.id,
     name: name ?? this.name,
+    points: points ?? this.points,
     category: category.present ? category.value : this.category,
     stock: stock ?? this.stock,
     lastUpdated: lastUpdated.present ? lastUpdated.value : this.lastUpdated,
@@ -268,6 +297,7 @@ class Item extends DataClass implements Insertable<Item> {
     return Item(
       id: data.id.present ? data.id.value : this.id,
       name: data.name.present ? data.name.value : this.name,
+      points: data.points.present ? data.points.value : this.points,
       category: data.category.present ? data.category.value : this.category,
       stock: data.stock.present ? data.stock.value : this.stock,
       lastUpdated: data.lastUpdated.present
@@ -282,6 +312,7 @@ class Item extends DataClass implements Insertable<Item> {
     return (StringBuffer('Item(')
           ..write('id: $id, ')
           ..write('name: $name, ')
+          ..write('points: $points, ')
           ..write('category: $category, ')
           ..write('stock: $stock, ')
           ..write('lastUpdated: $lastUpdated, ')
@@ -292,13 +323,14 @@ class Item extends DataClass implements Insertable<Item> {
 
   @override
   int get hashCode =>
-      Object.hash(id, name, category, stock, lastUpdated, status);
+      Object.hash(id, name, points, category, stock, lastUpdated, status);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Item &&
           other.id == this.id &&
           other.name == this.name &&
+          other.points == this.points &&
           other.category == this.category &&
           other.stock == this.stock &&
           other.lastUpdated == this.lastUpdated &&
@@ -308,6 +340,7 @@ class Item extends DataClass implements Insertable<Item> {
 class ItemsCompanion extends UpdateCompanion<Item> {
   final Value<int> id;
   final Value<String> name;
+  final Value<int> points;
   final Value<String?> category;
   final Value<int> stock;
   final Value<DateTime?> lastUpdated;
@@ -315,6 +348,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   const ItemsCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
+    this.points = const Value.absent(),
     this.category = const Value.absent(),
     this.stock = const Value.absent(),
     this.lastUpdated = const Value.absent(),
@@ -323,6 +357,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   ItemsCompanion.insert({
     this.id = const Value.absent(),
     required String name,
+    this.points = const Value.absent(),
     this.category = const Value.absent(),
     this.stock = const Value.absent(),
     this.lastUpdated = const Value.absent(),
@@ -331,6 +366,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   static Insertable<Item> custom({
     Expression<int>? id,
     Expression<String>? name,
+    Expression<int>? points,
     Expression<String>? category,
     Expression<int>? stock,
     Expression<DateTime>? lastUpdated,
@@ -339,6 +375,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (name != null) 'name': name,
+      if (points != null) 'points': points,
       if (category != null) 'category': category,
       if (stock != null) 'stock': stock,
       if (lastUpdated != null) 'last_updated': lastUpdated,
@@ -349,6 +386,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
   ItemsCompanion copyWith({
     Value<int>? id,
     Value<String>? name,
+    Value<int>? points,
     Value<String?>? category,
     Value<int>? stock,
     Value<DateTime?>? lastUpdated,
@@ -357,6 +395,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     return ItemsCompanion(
       id: id ?? this.id,
       name: name ?? this.name,
+      points: points ?? this.points,
       category: category ?? this.category,
       stock: stock ?? this.stock,
       lastUpdated: lastUpdated ?? this.lastUpdated,
@@ -372,6 +411,9 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
+    }
+    if (points.present) {
+      map['points'] = Variable<int>(points.value);
     }
     if (category.present) {
       map['category'] = Variable<String>(category.value);
@@ -393,6 +435,7 @@ class ItemsCompanion extends UpdateCompanion<Item> {
     return (StringBuffer('ItemsCompanion(')
           ..write('id: $id, ')
           ..write('name: $name, ')
+          ..write('points: $points, ')
           ..write('category: $category, ')
           ..write('stock: $stock, ')
           ..write('lastUpdated: $lastUpdated, ')
@@ -506,6 +549,17 @@ class $MembersTable extends Members with TableInfo<$MembersTable, Member> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _referrerIdMeta = const VerificationMeta(
+    'referrerId',
+  );
+  @override
+  late final GeneratedColumn<int> referrerId = GeneratedColumn<int>(
+    'referrer_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _pointsMeta = const VerificationMeta('points');
   @override
   late final GeneratedColumn<int> points = GeneratedColumn<int>(
@@ -536,6 +590,7 @@ class $MembersTable extends Members with TableInfo<$MembersTable, Member> {
     birthday,
     address,
     referrer,
+    referrerId,
     points,
     qr,
   ];
@@ -602,6 +657,12 @@ class $MembersTable extends Members with TableInfo<$MembersTable, Member> {
         referrer.isAcceptableOrUnknown(data['referrer']!, _referrerMeta),
       );
     }
+    if (data.containsKey('referrer_id')) {
+      context.handle(
+        _referrerIdMeta,
+        referrerId.isAcceptableOrUnknown(data['referrer_id']!, _referrerIdMeta),
+      );
+    }
     if (data.containsKey('points')) {
       context.handle(
         _pointsMeta,
@@ -656,6 +717,10 @@ class $MembersTable extends Members with TableInfo<$MembersTable, Member> {
         DriftSqlType.string,
         data['${effectivePrefix}referrer'],
       ),
+      referrerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}referrer_id'],
+      ),
       points: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}points'],
@@ -683,6 +748,7 @@ class Member extends DataClass implements Insertable<Member> {
   final String? birthday;
   final String? address;
   final String? referrer;
+  final int? referrerId;
   final int points;
   final String? qr;
   const Member({
@@ -695,6 +761,7 @@ class Member extends DataClass implements Insertable<Member> {
     this.birthday,
     this.address,
     this.referrer,
+    this.referrerId,
     required this.points,
     this.qr,
   });
@@ -725,6 +792,9 @@ class Member extends DataClass implements Insertable<Member> {
     }
     if (!nullToAbsent || referrer != null) {
       map['referrer'] = Variable<String>(referrer);
+    }
+    if (!nullToAbsent || referrerId != null) {
+      map['referrer_id'] = Variable<int>(referrerId);
     }
     map['points'] = Variable<int>(points);
     if (!nullToAbsent || qr != null) {
@@ -758,6 +828,9 @@ class Member extends DataClass implements Insertable<Member> {
       referrer: referrer == null && nullToAbsent
           ? const Value.absent()
           : Value(referrer),
+      referrerId: referrerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(referrerId),
       points: Value(points),
       qr: qr == null && nullToAbsent ? const Value.absent() : Value(qr),
     );
@@ -778,6 +851,7 @@ class Member extends DataClass implements Insertable<Member> {
       birthday: serializer.fromJson<String?>(json['birthday']),
       address: serializer.fromJson<String?>(json['address']),
       referrer: serializer.fromJson<String?>(json['referrer']),
+      referrerId: serializer.fromJson<int?>(json['referrerId']),
       points: serializer.fromJson<int>(json['points']),
       qr: serializer.fromJson<String?>(json['qr']),
     );
@@ -795,6 +869,7 @@ class Member extends DataClass implements Insertable<Member> {
       'birthday': serializer.toJson<String?>(birthday),
       'address': serializer.toJson<String?>(address),
       'referrer': serializer.toJson<String?>(referrer),
+      'referrerId': serializer.toJson<int?>(referrerId),
       'points': serializer.toJson<int>(points),
       'qr': serializer.toJson<String?>(qr),
     };
@@ -810,6 +885,7 @@ class Member extends DataClass implements Insertable<Member> {
     Value<String?> birthday = const Value.absent(),
     Value<String?> address = const Value.absent(),
     Value<String?> referrer = const Value.absent(),
+    Value<int?> referrerId = const Value.absent(),
     int? points,
     Value<String?> qr = const Value.absent(),
   }) => Member(
@@ -822,6 +898,7 @@ class Member extends DataClass implements Insertable<Member> {
     birthday: birthday.present ? birthday.value : this.birthday,
     address: address.present ? address.value : this.address,
     referrer: referrer.present ? referrer.value : this.referrer,
+    referrerId: referrerId.present ? referrerId.value : this.referrerId,
     points: points ?? this.points,
     qr: qr.present ? qr.value : this.qr,
   );
@@ -838,6 +915,9 @@ class Member extends DataClass implements Insertable<Member> {
       birthday: data.birthday.present ? data.birthday.value : this.birthday,
       address: data.address.present ? data.address.value : this.address,
       referrer: data.referrer.present ? data.referrer.value : this.referrer,
+      referrerId: data.referrerId.present
+          ? data.referrerId.value
+          : this.referrerId,
       points: data.points.present ? data.points.value : this.points,
       qr: data.qr.present ? data.qr.value : this.qr,
     );
@@ -855,6 +935,7 @@ class Member extends DataClass implements Insertable<Member> {
           ..write('birthday: $birthday, ')
           ..write('address: $address, ')
           ..write('referrer: $referrer, ')
+          ..write('referrerId: $referrerId, ')
           ..write('points: $points, ')
           ..write('qr: $qr')
           ..write(')'))
@@ -872,6 +953,7 @@ class Member extends DataClass implements Insertable<Member> {
     birthday,
     address,
     referrer,
+    referrerId,
     points,
     qr,
   );
@@ -888,6 +970,7 @@ class Member extends DataClass implements Insertable<Member> {
           other.birthday == this.birthday &&
           other.address == this.address &&
           other.referrer == this.referrer &&
+          other.referrerId == this.referrerId &&
           other.points == this.points &&
           other.qr == this.qr);
 }
@@ -902,6 +985,7 @@ class MembersCompanion extends UpdateCompanion<Member> {
   final Value<String?> birthday;
   final Value<String?> address;
   final Value<String?> referrer;
+  final Value<int?> referrerId;
   final Value<int> points;
   final Value<String?> qr;
   const MembersCompanion({
@@ -914,6 +998,7 @@ class MembersCompanion extends UpdateCompanion<Member> {
     this.birthday = const Value.absent(),
     this.address = const Value.absent(),
     this.referrer = const Value.absent(),
+    this.referrerId = const Value.absent(),
     this.points = const Value.absent(),
     this.qr = const Value.absent(),
   });
@@ -927,6 +1012,7 @@ class MembersCompanion extends UpdateCompanion<Member> {
     this.birthday = const Value.absent(),
     this.address = const Value.absent(),
     this.referrer = const Value.absent(),
+    this.referrerId = const Value.absent(),
     this.points = const Value.absent(),
     this.qr = const Value.absent(),
   });
@@ -940,6 +1026,7 @@ class MembersCompanion extends UpdateCompanion<Member> {
     Expression<String>? birthday,
     Expression<String>? address,
     Expression<String>? referrer,
+    Expression<int>? referrerId,
     Expression<int>? points,
     Expression<String>? qr,
   }) {
@@ -953,6 +1040,7 @@ class MembersCompanion extends UpdateCompanion<Member> {
       if (birthday != null) 'birthday': birthday,
       if (address != null) 'address': address,
       if (referrer != null) 'referrer': referrer,
+      if (referrerId != null) 'referrer_id': referrerId,
       if (points != null) 'points': points,
       if (qr != null) 'qr': qr,
     });
@@ -968,6 +1056,7 @@ class MembersCompanion extends UpdateCompanion<Member> {
     Value<String?>? birthday,
     Value<String?>? address,
     Value<String?>? referrer,
+    Value<int?>? referrerId,
     Value<int>? points,
     Value<String?>? qr,
   }) {
@@ -981,6 +1070,7 @@ class MembersCompanion extends UpdateCompanion<Member> {
       birthday: birthday ?? this.birthday,
       address: address ?? this.address,
       referrer: referrer ?? this.referrer,
+      referrerId: referrerId ?? this.referrerId,
       points: points ?? this.points,
       qr: qr ?? this.qr,
     );
@@ -1016,6 +1106,9 @@ class MembersCompanion extends UpdateCompanion<Member> {
     if (referrer.present) {
       map['referrer'] = Variable<String>(referrer.value);
     }
+    if (referrerId.present) {
+      map['referrer_id'] = Variable<int>(referrerId.value);
+    }
     if (points.present) {
       map['points'] = Variable<int>(points.value);
     }
@@ -1037,6 +1130,7 @@ class MembersCompanion extends UpdateCompanion<Member> {
           ..write('birthday: $birthday, ')
           ..write('address: $address, ')
           ..write('referrer: $referrer, ')
+          ..write('referrerId: $referrerId, ')
           ..write('points: $points, ')
           ..write('qr: $qr')
           ..write(')'))
@@ -1071,6 +1165,17 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, Sale> {
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _buyerIdMeta = const VerificationMeta(
+    'buyerId',
+  );
+  @override
+  late final GeneratedColumn<int> buyerId = GeneratedColumn<int>(
+    'buyer_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _itemNameMeta = const VerificationMeta(
     'itemName',
   );
@@ -1092,6 +1197,16 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, Sale> {
     false,
     type: DriftSqlType.int,
     requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pointsMeta = const VerificationMeta('points');
+  @override
+  late final GeneratedColumn<int> points = GeneratedColumn<int>(
+    'points',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
   );
   static const VerificationMeta _priceMeta = const VerificationMeta('price');
   @override
@@ -1119,8 +1234,10 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, Sale> {
   List<GeneratedColumn> get $columns => [
     id,
     itemId,
+    buyerId,
     itemName,
     quantity,
+    points,
     price,
     timestamp,
   ];
@@ -1147,6 +1264,12 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, Sale> {
     } else if (isInserting) {
       context.missing(_itemIdMeta);
     }
+    if (data.containsKey('buyer_id')) {
+      context.handle(
+        _buyerIdMeta,
+        buyerId.isAcceptableOrUnknown(data['buyer_id']!, _buyerIdMeta),
+      );
+    }
     if (data.containsKey('item_name')) {
       context.handle(
         _itemNameMeta,
@@ -1162,6 +1285,12 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, Sale> {
       );
     } else if (isInserting) {
       context.missing(_quantityMeta);
+    }
+    if (data.containsKey('points')) {
+      context.handle(
+        _pointsMeta,
+        points.isAcceptableOrUnknown(data['points']!, _pointsMeta),
+      );
     }
     if (data.containsKey('price')) {
       context.handle(
@@ -1192,6 +1321,10 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, Sale> {
         DriftSqlType.int,
         data['${effectivePrefix}item_id'],
       )!,
+      buyerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}buyer_id'],
+      ),
       itemName: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}item_name'],
@@ -1199,6 +1332,10 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, Sale> {
       quantity: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}quantity'],
+      )!,
+      points: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}points'],
       )!,
       price: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
@@ -1220,15 +1357,19 @@ class $SalesTable extends Sales with TableInfo<$SalesTable, Sale> {
 class Sale extends DataClass implements Insertable<Sale> {
   final int id;
   final int itemId;
+  final int? buyerId;
   final String itemName;
   final int quantity;
+  final int points;
   final int price;
   final DateTime timestamp;
   const Sale({
     required this.id,
     required this.itemId,
+    this.buyerId,
     required this.itemName,
     required this.quantity,
+    required this.points,
     required this.price,
     required this.timestamp,
   });
@@ -1237,8 +1378,12 @@ class Sale extends DataClass implements Insertable<Sale> {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
     map['item_id'] = Variable<int>(itemId);
+    if (!nullToAbsent || buyerId != null) {
+      map['buyer_id'] = Variable<int>(buyerId);
+    }
     map['item_name'] = Variable<String>(itemName);
     map['quantity'] = Variable<int>(quantity);
+    map['points'] = Variable<int>(points);
     map['price'] = Variable<int>(price);
     map['timestamp'] = Variable<DateTime>(timestamp);
     return map;
@@ -1248,8 +1393,12 @@ class Sale extends DataClass implements Insertable<Sale> {
     return SalesCompanion(
       id: Value(id),
       itemId: Value(itemId),
+      buyerId: buyerId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(buyerId),
       itemName: Value(itemName),
       quantity: Value(quantity),
+      points: Value(points),
       price: Value(price),
       timestamp: Value(timestamp),
     );
@@ -1263,8 +1412,10 @@ class Sale extends DataClass implements Insertable<Sale> {
     return Sale(
       id: serializer.fromJson<int>(json['id']),
       itemId: serializer.fromJson<int>(json['itemId']),
+      buyerId: serializer.fromJson<int?>(json['buyerId']),
       itemName: serializer.fromJson<String>(json['itemName']),
       quantity: serializer.fromJson<int>(json['quantity']),
+      points: serializer.fromJson<int>(json['points']),
       price: serializer.fromJson<int>(json['price']),
       timestamp: serializer.fromJson<DateTime>(json['timestamp']),
     );
@@ -1275,8 +1426,10 @@ class Sale extends DataClass implements Insertable<Sale> {
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
       'itemId': serializer.toJson<int>(itemId),
+      'buyerId': serializer.toJson<int?>(buyerId),
       'itemName': serializer.toJson<String>(itemName),
       'quantity': serializer.toJson<int>(quantity),
+      'points': serializer.toJson<int>(points),
       'price': serializer.toJson<int>(price),
       'timestamp': serializer.toJson<DateTime>(timestamp),
     };
@@ -1285,15 +1438,19 @@ class Sale extends DataClass implements Insertable<Sale> {
   Sale copyWith({
     int? id,
     int? itemId,
+    Value<int?> buyerId = const Value.absent(),
     String? itemName,
     int? quantity,
+    int? points,
     int? price,
     DateTime? timestamp,
   }) => Sale(
     id: id ?? this.id,
     itemId: itemId ?? this.itemId,
+    buyerId: buyerId.present ? buyerId.value : this.buyerId,
     itemName: itemName ?? this.itemName,
     quantity: quantity ?? this.quantity,
+    points: points ?? this.points,
     price: price ?? this.price,
     timestamp: timestamp ?? this.timestamp,
   );
@@ -1301,8 +1458,10 @@ class Sale extends DataClass implements Insertable<Sale> {
     return Sale(
       id: data.id.present ? data.id.value : this.id,
       itemId: data.itemId.present ? data.itemId.value : this.itemId,
+      buyerId: data.buyerId.present ? data.buyerId.value : this.buyerId,
       itemName: data.itemName.present ? data.itemName.value : this.itemName,
       quantity: data.quantity.present ? data.quantity.value : this.quantity,
+      points: data.points.present ? data.points.value : this.points,
       price: data.price.present ? data.price.value : this.price,
       timestamp: data.timestamp.present ? data.timestamp.value : this.timestamp,
     );
@@ -1313,8 +1472,10 @@ class Sale extends DataClass implements Insertable<Sale> {
     return (StringBuffer('Sale(')
           ..write('id: $id, ')
           ..write('itemId: $itemId, ')
+          ..write('buyerId: $buyerId, ')
           ..write('itemName: $itemName, ')
           ..write('quantity: $quantity, ')
+          ..write('points: $points, ')
           ..write('price: $price, ')
           ..write('timestamp: $timestamp')
           ..write(')'))
@@ -1322,16 +1483,26 @@ class Sale extends DataClass implements Insertable<Sale> {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, itemId, itemName, quantity, price, timestamp);
+  int get hashCode => Object.hash(
+    id,
+    itemId,
+    buyerId,
+    itemName,
+    quantity,
+    points,
+    price,
+    timestamp,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is Sale &&
           other.id == this.id &&
           other.itemId == this.itemId &&
+          other.buyerId == this.buyerId &&
           other.itemName == this.itemName &&
           other.quantity == this.quantity &&
+          other.points == this.points &&
           other.price == this.price &&
           other.timestamp == this.timestamp);
 }
@@ -1339,23 +1510,29 @@ class Sale extends DataClass implements Insertable<Sale> {
 class SalesCompanion extends UpdateCompanion<Sale> {
   final Value<int> id;
   final Value<int> itemId;
+  final Value<int?> buyerId;
   final Value<String> itemName;
   final Value<int> quantity;
+  final Value<int> points;
   final Value<int> price;
   final Value<DateTime> timestamp;
   const SalesCompanion({
     this.id = const Value.absent(),
     this.itemId = const Value.absent(),
+    this.buyerId = const Value.absent(),
     this.itemName = const Value.absent(),
     this.quantity = const Value.absent(),
+    this.points = const Value.absent(),
     this.price = const Value.absent(),
     this.timestamp = const Value.absent(),
   });
   SalesCompanion.insert({
     this.id = const Value.absent(),
     required int itemId,
+    this.buyerId = const Value.absent(),
     required String itemName,
     required int quantity,
+    this.points = const Value.absent(),
     this.price = const Value.absent(),
     this.timestamp = const Value.absent(),
   }) : itemId = Value(itemId),
@@ -1364,16 +1541,20 @@ class SalesCompanion extends UpdateCompanion<Sale> {
   static Insertable<Sale> custom({
     Expression<int>? id,
     Expression<int>? itemId,
+    Expression<int>? buyerId,
     Expression<String>? itemName,
     Expression<int>? quantity,
+    Expression<int>? points,
     Expression<int>? price,
     Expression<DateTime>? timestamp,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
       if (itemId != null) 'item_id': itemId,
+      if (buyerId != null) 'buyer_id': buyerId,
       if (itemName != null) 'item_name': itemName,
       if (quantity != null) 'quantity': quantity,
+      if (points != null) 'points': points,
       if (price != null) 'price': price,
       if (timestamp != null) 'timestamp': timestamp,
     });
@@ -1382,16 +1563,20 @@ class SalesCompanion extends UpdateCompanion<Sale> {
   SalesCompanion copyWith({
     Value<int>? id,
     Value<int>? itemId,
+    Value<int?>? buyerId,
     Value<String>? itemName,
     Value<int>? quantity,
+    Value<int>? points,
     Value<int>? price,
     Value<DateTime>? timestamp,
   }) {
     return SalesCompanion(
       id: id ?? this.id,
       itemId: itemId ?? this.itemId,
+      buyerId: buyerId ?? this.buyerId,
       itemName: itemName ?? this.itemName,
       quantity: quantity ?? this.quantity,
+      points: points ?? this.points,
       price: price ?? this.price,
       timestamp: timestamp ?? this.timestamp,
     );
@@ -1406,11 +1591,17 @@ class SalesCompanion extends UpdateCompanion<Sale> {
     if (itemId.present) {
       map['item_id'] = Variable<int>(itemId.value);
     }
+    if (buyerId.present) {
+      map['buyer_id'] = Variable<int>(buyerId.value);
+    }
     if (itemName.present) {
       map['item_name'] = Variable<String>(itemName.value);
     }
     if (quantity.present) {
       map['quantity'] = Variable<int>(quantity.value);
+    }
+    if (points.present) {
+      map['points'] = Variable<int>(points.value);
     }
     if (price.present) {
       map['price'] = Variable<int>(price.value);
@@ -1426,8 +1617,10 @@ class SalesCompanion extends UpdateCompanion<Sale> {
     return (StringBuffer('SalesCompanion(')
           ..write('id: $id, ')
           ..write('itemId: $itemId, ')
+          ..write('buyerId: $buyerId, ')
           ..write('itemName: $itemName, ')
           ..write('quantity: $quantity, ')
+          ..write('points: $points, ')
           ..write('price: $price, ')
           ..write('timestamp: $timestamp')
           ..write(')'))
@@ -1452,6 +1645,7 @@ typedef $$ItemsTableCreateCompanionBuilder =
     ItemsCompanion Function({
       Value<int> id,
       required String name,
+      Value<int> points,
       Value<String?> category,
       Value<int> stock,
       Value<DateTime?> lastUpdated,
@@ -1461,6 +1655,7 @@ typedef $$ItemsTableUpdateCompanionBuilder =
     ItemsCompanion Function({
       Value<int> id,
       Value<String> name,
+      Value<int> points,
       Value<String?> category,
       Value<int> stock,
       Value<DateTime?> lastUpdated,
@@ -1482,6 +1677,11 @@ class $$ItemsTableFilterComposer extends Composer<_$AppDb, $ItemsTable> {
 
   ColumnFilters<String> get name => $composableBuilder(
     column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get points => $composableBuilder(
+    column: $table.points,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1524,6 +1724,11 @@ class $$ItemsTableOrderingComposer extends Composer<_$AppDb, $ItemsTable> {
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get points => $composableBuilder(
+    column: $table.points,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get category => $composableBuilder(
     column: $table.category,
     builder: (column) => ColumnOrderings(column),
@@ -1558,6 +1763,9 @@ class $$ItemsTableAnnotationComposer extends Composer<_$AppDb, $ItemsTable> {
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<int> get points =>
+      $composableBuilder(column: $table.points, builder: (column) => column);
 
   GeneratedColumn<String> get category =>
       $composableBuilder(column: $table.category, builder: (column) => column);
@@ -1604,6 +1812,7 @@ class $$ItemsTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 Value<String> name = const Value.absent(),
+                Value<int> points = const Value.absent(),
                 Value<String?> category = const Value.absent(),
                 Value<int> stock = const Value.absent(),
                 Value<DateTime?> lastUpdated = const Value.absent(),
@@ -1611,6 +1820,7 @@ class $$ItemsTableTableManager
               }) => ItemsCompanion(
                 id: id,
                 name: name,
+                points: points,
                 category: category,
                 stock: stock,
                 lastUpdated: lastUpdated,
@@ -1620,6 +1830,7 @@ class $$ItemsTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 required String name,
+                Value<int> points = const Value.absent(),
                 Value<String?> category = const Value.absent(),
                 Value<int> stock = const Value.absent(),
                 Value<DateTime?> lastUpdated = const Value.absent(),
@@ -1627,6 +1838,7 @@ class $$ItemsTableTableManager
               }) => ItemsCompanion.insert(
                 id: id,
                 name: name,
+                points: points,
                 category: category,
                 stock: stock,
                 lastUpdated: lastUpdated,
@@ -1665,6 +1877,7 @@ typedef $$MembersTableCreateCompanionBuilder =
       Value<String?> birthday,
       Value<String?> address,
       Value<String?> referrer,
+      Value<int?> referrerId,
       Value<int> points,
       Value<String?> qr,
     });
@@ -1679,6 +1892,7 @@ typedef $$MembersTableUpdateCompanionBuilder =
       Value<String?> birthday,
       Value<String?> address,
       Value<String?> referrer,
+      Value<int?> referrerId,
       Value<int> points,
       Value<String?> qr,
     });
@@ -1733,6 +1947,11 @@ class $$MembersTableFilterComposer extends Composer<_$AppDb, $MembersTable> {
 
   ColumnFilters<String> get referrer => $composableBuilder(
     column: $table.referrer,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get referrerId => $composableBuilder(
+    column: $table.referrerId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1800,6 +2019,11 @@ class $$MembersTableOrderingComposer extends Composer<_$AppDb, $MembersTable> {
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get referrerId => $composableBuilder(
+    column: $table.referrerId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get points => $composableBuilder(
     column: $table.points,
     builder: (column) => ColumnOrderings(column),
@@ -1849,6 +2073,11 @@ class $$MembersTableAnnotationComposer
   GeneratedColumn<String> get referrer =>
       $composableBuilder(column: $table.referrer, builder: (column) => column);
 
+  GeneratedColumn<int> get referrerId => $composableBuilder(
+    column: $table.referrerId,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<int> get points =>
       $composableBuilder(column: $table.points, builder: (column) => column);
 
@@ -1893,6 +2122,7 @@ class $$MembersTableTableManager
                 Value<String?> birthday = const Value.absent(),
                 Value<String?> address = const Value.absent(),
                 Value<String?> referrer = const Value.absent(),
+                Value<int?> referrerId = const Value.absent(),
                 Value<int> points = const Value.absent(),
                 Value<String?> qr = const Value.absent(),
               }) => MembersCompanion(
@@ -1905,6 +2135,7 @@ class $$MembersTableTableManager
                 birthday: birthday,
                 address: address,
                 referrer: referrer,
+                referrerId: referrerId,
                 points: points,
                 qr: qr,
               ),
@@ -1919,6 +2150,7 @@ class $$MembersTableTableManager
                 Value<String?> birthday = const Value.absent(),
                 Value<String?> address = const Value.absent(),
                 Value<String?> referrer = const Value.absent(),
+                Value<int?> referrerId = const Value.absent(),
                 Value<int> points = const Value.absent(),
                 Value<String?> qr = const Value.absent(),
               }) => MembersCompanion.insert(
@@ -1931,6 +2163,7 @@ class $$MembersTableTableManager
                 birthday: birthday,
                 address: address,
                 referrer: referrer,
+                referrerId: referrerId,
                 points: points,
                 qr: qr,
               ),
@@ -1960,8 +2193,10 @@ typedef $$SalesTableCreateCompanionBuilder =
     SalesCompanion Function({
       Value<int> id,
       required int itemId,
+      Value<int?> buyerId,
       required String itemName,
       required int quantity,
+      Value<int> points,
       Value<int> price,
       Value<DateTime> timestamp,
     });
@@ -1969,8 +2204,10 @@ typedef $$SalesTableUpdateCompanionBuilder =
     SalesCompanion Function({
       Value<int> id,
       Value<int> itemId,
+      Value<int?> buyerId,
       Value<String> itemName,
       Value<int> quantity,
+      Value<int> points,
       Value<int> price,
       Value<DateTime> timestamp,
     });
@@ -1993,6 +2230,11 @@ class $$SalesTableFilterComposer extends Composer<_$AppDb, $SalesTable> {
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get buyerId => $composableBuilder(
+    column: $table.buyerId,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get itemName => $composableBuilder(
     column: $table.itemName,
     builder: (column) => ColumnFilters(column),
@@ -2000,6 +2242,11 @@ class $$SalesTableFilterComposer extends Composer<_$AppDb, $SalesTable> {
 
   ColumnFilters<int> get quantity => $composableBuilder(
     column: $table.quantity,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get points => $composableBuilder(
+    column: $table.points,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2032,6 +2279,11 @@ class $$SalesTableOrderingComposer extends Composer<_$AppDb, $SalesTable> {
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get buyerId => $composableBuilder(
+    column: $table.buyerId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get itemName => $composableBuilder(
     column: $table.itemName,
     builder: (column) => ColumnOrderings(column),
@@ -2039,6 +2291,11 @@ class $$SalesTableOrderingComposer extends Composer<_$AppDb, $SalesTable> {
 
   ColumnOrderings<int> get quantity => $composableBuilder(
     column: $table.quantity,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get points => $composableBuilder(
+    column: $table.points,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -2067,11 +2324,17 @@ class $$SalesTableAnnotationComposer extends Composer<_$AppDb, $SalesTable> {
   GeneratedColumn<int> get itemId =>
       $composableBuilder(column: $table.itemId, builder: (column) => column);
 
+  GeneratedColumn<int> get buyerId =>
+      $composableBuilder(column: $table.buyerId, builder: (column) => column);
+
   GeneratedColumn<String> get itemName =>
       $composableBuilder(column: $table.itemName, builder: (column) => column);
 
   GeneratedColumn<int> get quantity =>
       $composableBuilder(column: $table.quantity, builder: (column) => column);
+
+  GeneratedColumn<int> get points =>
+      $composableBuilder(column: $table.points, builder: (column) => column);
 
   GeneratedColumn<int> get price =>
       $composableBuilder(column: $table.price, builder: (column) => column);
@@ -2110,15 +2373,19 @@ class $$SalesTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 Value<int> itemId = const Value.absent(),
+                Value<int?> buyerId = const Value.absent(),
                 Value<String> itemName = const Value.absent(),
                 Value<int> quantity = const Value.absent(),
+                Value<int> points = const Value.absent(),
                 Value<int> price = const Value.absent(),
                 Value<DateTime> timestamp = const Value.absent(),
               }) => SalesCompanion(
                 id: id,
                 itemId: itemId,
+                buyerId: buyerId,
                 itemName: itemName,
                 quantity: quantity,
+                points: points,
                 price: price,
                 timestamp: timestamp,
               ),
@@ -2126,15 +2393,19 @@ class $$SalesTableTableManager
               ({
                 Value<int> id = const Value.absent(),
                 required int itemId,
+                Value<int?> buyerId = const Value.absent(),
                 required String itemName,
                 required int quantity,
+                Value<int> points = const Value.absent(),
                 Value<int> price = const Value.absent(),
                 Value<DateTime> timestamp = const Value.absent(),
               }) => SalesCompanion.insert(
                 id: id,
                 itemId: itemId,
+                buyerId: buyerId,
                 itemName: itemName,
                 quantity: quantity,
+                points: points,
                 price: price,
                 timestamp: timestamp,
               ),

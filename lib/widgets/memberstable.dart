@@ -1,3 +1,4 @@
+// ...existing code...
 import 'package:flutter/material.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
@@ -38,6 +39,7 @@ class MembersTableState extends State<MembersTable> {
       if (e == 'member_added' ||
           e == 'member_imported' ||
           e == 'member_deleted' ||
+          e == 'member_updated' ||
           e == 'item_updated') {
         _loadMembers();
       }
@@ -146,7 +148,7 @@ class MembersTableState extends State<MembersTable> {
                 ),
               ),
               const SizedBox(width: 8),
-              CustomElevatedButton(
+                  CustomElevatedButton(
                 icon: Icon(Icons.person_add, color: Theme.of(context).colorScheme.onPrimary),
                 label: const Text(
                   "Add Member",
@@ -178,15 +180,16 @@ class MembersTableState extends State<MembersTable> {
                   ),
                 ),
                 backgroundColor: Colors.grey[700],
+                // ignore: use_build_context_synchronously
                 onPressed: () async {
+                  final safeContext = context; // capture before any awaits
                   final csv = await repository.exportMembersCsvString();
-                  final suggested =
-                      'members_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+                  final suggested = 'members_export_${DateTime.now().millisecondsSinceEpoch}.csv';
                   try {
                     final fs.FileSaveLocation? loc = await fs.getSaveLocation(
                       suggestedName: suggested,
                     );
-                    if (loc != null) {
+                      if (loc != null) {
                       final xfile = fs.XFile.fromData(
                         Uint8List.fromList(csv.codeUnits),
                         mimeType: 'text/csv',
@@ -194,7 +197,8 @@ class MembersTableState extends State<MembersTable> {
                       );
                       await xfile.saveTo(loc.path);
                       if (!mounted) return;
-                      ScaffoldMessenger.of(this.context).showSnackBar(
+                      // ignore: use_build_context_synchronously
+                      ScaffoldMessenger.of(safeContext).showSnackBar(
                         SnackBar(content: Text('Exported to ${loc.path}')),
                       );
                       return;
@@ -207,7 +211,8 @@ class MembersTableState extends State<MembersTable> {
                     final file = File(savePath);
                     await file.writeAsString(csv);
                     if (!mounted) return;
-                    ScaffoldMessenger.of(this.context).showSnackBar(
+                    // ignore: use_build_context_synchronously
+                    ScaffoldMessenger.of(safeContext).showSnackBar(
                       SnackBar(content: Text('Exported to $savePath')),
                     );
                   }
@@ -225,6 +230,8 @@ class MembersTableState extends State<MembersTable> {
                 ),
                 backgroundColor: Colors.grey[700],
                 onPressed: () async {
+                  // capture the BuildContext before any await to avoid using context across async gaps
+                  final localCtx = context;
                   final files = await fs.openFiles(
                     acceptedTypeGroups: [
                       fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
@@ -247,8 +254,11 @@ class MembersTableState extends State<MembersTable> {
                   final expected = ['id', 'lastname', 'firstname', 'middlename', 'role', 'phonenumber', 'birthday', 'address', 'referrer', 'points'];
                   final missing = findMissingHeaders(headers.cast<String>(), expected);
                   if (missing.isNotEmpty) {
+                    if (!mounted) return;
+                    // ignore: use_build_context_synchronously
+                    // Safe: using captured `localCtx` which was taken before async work and checked mounted.
                     await showDialog<void>(
-                      context: this.context,
+                      context: localCtx,
                       builder: (ctx) => AlertDialog(
                         title: const Text('Invalid CSV'),
                         content: Text('This file does not look like a Members export. Missing headers: ${missing.join(', ')}'),
@@ -257,65 +267,95 @@ class MembersTableState extends State<MembersTable> {
                     );
                     return;
                   }
-                  // ignore: use_build_context_synchronously
-                  final confirm = await showImportPreviewDialog(
-                    this.context,
-                    headers,
-                    rows,
-                  );
-                  if (confirm != true) return;
-                  final count = await repository.importMembersCsv(content);
+                  // show interactive preview with per-row selection
+                  // Bulk-existence optimization: fetch existing IDs and name keys once
+                  final existingRows = await repository.fetchMembers();
+                  final existingIds = <int>{};
+                  final existingNames = <String>{};
+                  for (final m in existingRows) {
+                    existingIds.add(m.id);
+                    final key = ('${m.firstName ?? ''}||${m.lastName ?? ''}').trim().toLowerCase();
+                    existingNames.add(key);
+                  }
+
+                  bool fastExists(Map<String, String> map) {
+                    final idStr = (map['id'] ?? '').trim();
+                    if (idStr.isNotEmpty) {
+                      final id = int.tryParse(idStr);
+                      if (id != null && existingIds.contains(id)) return true;
+                    }
+                    final lastName = (map['lastName'] ?? '').trim();
+                    final firstName = (map['firstName'] ?? '').trim();
+                    if (lastName.isEmpty && firstName.isEmpty) return false;
+                    final key = ('$firstName||$lastName').trim().toLowerCase();
+                    return existingNames.contains(key);
+                  }
+
                   if (!mounted) return;
                   // ignore: use_build_context_synchronously
-                  ScaffoldMessenger.of(this.context).showSnackBar(
-                    SnackBar(
-                      content: Text('Imported $count rows from ${xfile.name}'),
-                    ),
+                  // Safe: preview dialog uses `localCtx` captured earlier and we validated mounted.
+                  final sel = await showImportPreviewDialogWithSelection(
+                    localCtx,
+                    headers,
+                    rows,
+                    exists: (m) async => fastExists(m),
                   );
-                },
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: SizedBox(
-            width: double.infinity,
+                  if (sel == null || sel.isEmpty) return; // cancelled or nothing selected
+
+                  // Call the repository bulk-import API directly with parsed rows to avoid reparsing CSV
+                  final rowsToImport = sel.map((i) => rows[i]).toList();
+                  final selectedCount = rowsToImport.length;
+                  final skippedCount = rows.length - selectedCount;
+                  final inserted = await repository.importMembersFromRows(headers.cast<String>(), rowsToImport);
+                  if (!mounted) return;
+                  // ignore: use_build_context_synchronously
+                  // Safe: showing snackbar with `localCtx` captured before async work and mounted checked.
+                  final messenger = ScaffoldMessenger.of(localCtx);
+                  messenger.showSnackBar(SnackBar(
+                    content: Text('Selected $selectedCount, skipped $skippedCount existing rows — inserted $inserted new members'),
+                  ));
+                  }, // end onPressed
+                ), // end Import button
+              ], // end Row children
+            ), // end Row
+          ), // end Padding
+          Expanded(
+            child: SizedBox(
+              width: double.infinity,
               child: Theme(
-              data: Theme.of(context).copyWith(
-                cardTheme: CardThemeData(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(color: Colors.grey.shade300, width: 1),
+                data: Theme.of(context).copyWith(
+                  cardTheme: CardThemeData(
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(color: Colors.grey.shade300, width: 1),
+                    ),
+                    color: Theme.of(context).cardColor,
                   ),
-                  color: Theme.of(context).cardColor,
                 ),
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  // reserve some space for header/footer and controls, then estimate rows
-                  final reserved = 140.0; // header + pagination controls approx
-                  var available = constraints.maxHeight - reserved;
-                  if (available < 56) available = 56; // at least one row height
-                  var estimated = (available ~/ 56).clamp(1, 7);
-                  return SingleChildScrollView(
-                    child: PaginatedDataTable(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final reserved = 140.0;
+                    var available = constraints.maxHeight - reserved;
+                    if (available < 56) available = 56;
+                    var estimated = (available ~/ 56).clamp(1, 7);
+                    return PaginatedDataTable(
                       columnSpacing: 40,
                       rowsPerPage: estimated,
                       columns: const [
-                        DataColumn(label: Text('Last Name')),
-                        DataColumn(label: Text('First Name')),
-                        DataColumn(label: Text('Middle Name')),
-                        DataColumn(label: Text('Role')),
-                        DataColumn(label: Text('Contact No.')),
-                        DataColumn(label: Text('Birthday')),
-                        DataColumn(label: Text('Address')),
-                      ],
-                      source: _MembersDataSource(
-                        filteredMembers,
-                        widget.onRowSelected,
-                        context,
-                      ),
+                      DataColumn(label: Text('Last Name')),
+                      DataColumn(label: Text('First Name')),
+                      DataColumn(label: Text('Middle Name')),
+                      DataColumn(label: Text('Role')),
+                      DataColumn(label: Text('Contact No.')),
+                      DataColumn(label: Text('Birthday')),
+                      DataColumn(label: Text('Address')),
+                      DataColumn(label: Text('Points')),
+                    ],
+                    source: _MembersDataSource(
+                      filteredMembers,
+                      widget.onRowSelected,
+                      context,
                     ),
                   );
                 },
@@ -360,6 +400,7 @@ class _MembersDataSource extends DataTableSource {
         DataCell(Text(member["contactNo"] ?? "")),
         DataCell(Text(member["birthday"] ?? "")),
         DataCell(Text(member["address"] ?? "")),
+        DataCell(Text((member["points"] ?? 0).toString())),
       ],
     );
   }

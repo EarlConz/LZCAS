@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+// ...existing code...
 import 'package:flutter/material.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:lzcas/db/db.dart';

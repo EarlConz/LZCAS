@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously
+// ...existing code...
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:csv/csv.dart';
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import '../db/csv_header_utils.dart';
+import '../dialogs/sale_cart_editor.dart';
 
 class TransactionsTable extends StatefulWidget {
   const TransactionsTable({super.key});
@@ -50,9 +51,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      final s = (await repository.fetchSales())
-          .where((sale) => sale.price > 0)
-          .toList();
+    final s = (await repository.fetchSales()).toList();
       if (!mounted) return;
       setState(() {
         _sales = s.reversed.toList(); // show recent first
@@ -105,27 +104,28 @@ class _TransactionsTableState extends State<TransactionsTable> {
               const SizedBox(width: 8),
               // Export Sales button
               CustomElevatedButton(
-                onPressed: () async {
-                  final safeContext = context; // capture early
-                  final csv = await repository.exportSalesCsvString();
-                  final suggested = 'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv';
-                  try {
-                    final fs.FileSaveLocation? loc = await fs.getSaveLocation(suggestedName: suggested);
-                    if (loc != null) {
-                      final xfile = fs.XFile.fromData(Uint8List.fromList(csv.codeUnits), mimeType: 'text/csv', name: suggested);
-                      await xfile.saveTo(loc.path);
+        onPressed: () async {
+          // capture context before awaits
+                    final localCtx = context;
+                    final csv = await repository.exportSalesCsvString();
+                    final suggested = 'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+                    try {
+                      final fs.FileSaveLocation? loc = await fs.getSaveLocation(suggestedName: suggested);
+                        if (loc != null) {
+                        final xfile = fs.XFile.fromData(Uint8List.fromList(csv.codeUnits), mimeType: 'text/csv', name: suggested);
+                        await xfile.saveTo(loc.path);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(localCtx).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+                      }
+                    } catch (e) {
+                      final dir = Directory.current.path;
+                      final savePath = p.join(dir, suggested);
+                      final file = File(savePath);
+                      await file.writeAsString(csv);
                       if (!mounted) return;
-                      ScaffoldMessenger.of(safeContext).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+                      ScaffoldMessenger.of(localCtx).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
                     }
-                  } catch (e) {
-                    final dir = Directory.current.path;
-                    final savePath = p.join(dir, suggested);
-                    final file = File(savePath);
-                    await file.writeAsString(csv);
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(safeContext).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
-                  }
-                },
+                  },
                 icon: const Icon(Icons.upload_file),
                 label: const Text('Export'),
                 backgroundColor: Colors.grey[700],
@@ -135,7 +135,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
               // Import Sales button with preview
               CustomElevatedButton(
                 onPressed: () async {
-                  final safeContext = context; // capture before any awaits to keep analyzer happy
+                  final localCtx = context;
                   final files = await fs.openFiles(acceptedTypeGroups: [fs.XTypeGroup(label: 'CSV', extensions: ['csv'])]);
                   if (files.isEmpty) return;
                   final xfile = files.first;
@@ -148,12 +148,14 @@ class _TransactionsTableState extends State<TransactionsTable> {
                   final headers = parsed.first.map((e) => e.toString()).toList();
                   final rows = parsed.sublist(1).map((r) => r.map((c) => c?.toString() ?? '').toList()).toList();
                   if (!mounted) return;
-                  final expected = ['id', 'itemid', 'itemname', 'quantity', 'price', 'createdat'];
+                  final expected = ['id', 'itemid', 'itemname', 'quantity', 'price', 'createdat', 'points'];
                   final missing = findMissingHeaders(headers.cast<String>(), expected);
                   if (missing.isNotEmpty) {
                     if (!mounted) return;
+                    // ignore: use_build_context_synchronously
+                    // Safe: using `localCtx` captured before async work and validated via mounted.
                     await showDialog<void>(
-                      context: safeContext,
+                      context: localCtx,
                       builder: (ctx) => AlertDialog(
                         title: const Text('Invalid CSV'),
                         content: Text('This file does not look like a Sales export. Missing headers: ${missing.join(', ')}'),
@@ -163,12 +165,16 @@ class _TransactionsTableState extends State<TransactionsTable> {
                     return;
                   }
                   if (!mounted) return;
-                  final confirm = await showImportPreviewDialog(safeContext, headers, rows);
+                  // ignore: use_build_context_synchronously
+                  // Safe: preview dialog uses `localCtx` captured earlier and we validated mounted.
+                  final confirm = await showImportPreviewDialog(localCtx, headers, rows);
                   if (confirm != true) return;
 
                   final count = await repository.importSalesCsv(content);
-                  final messenger = ScaffoldMessenger.of(safeContext);
-                  messenger.showSnackBar(SnackBar(content: Text('Imported $count sales from ${xfile.name}')));
+                  if (!mounted) return;
+                  // ignore: use_build_context_synchronously
+                  // Safe: using `localCtx` captured before async work and validated mounted.
+                  ScaffoldMessenger.of(localCtx).showSnackBar(SnackBar(content: Text('Imported $count sales from ${xfile.name}')));
                 },
                 icon: const Icon(Icons.download),
                 label: const Text('Import'),
@@ -214,10 +220,63 @@ class _TransactionsTableState extends State<TransactionsTable> {
                               DataColumn(label: Text('Quantity')),
                               DataColumn(label: Text('Price')),
                               DataColumn(label: Text('Date')),
+                              DataColumn(label: Text('Txn')),
                               DataColumn(label: Text('Sale ID')),
                               DataColumn(label: Text('Actions')),
                             ],
-                            source: _TransactionsDataSource(filteredSales, context),
+                            source: _TransactionsDataSource(
+                              filteredSales,
+                              context,
+                              onDelete: (sale) async {
+                                final localActionCtx = context;
+                                if (!mounted) return;
+                                final ok = await showDialog<bool>(
+                                  context: localActionCtx,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Delete sale'),
+                                    content: const Text('Are you sure you want to delete this sale?'),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                      ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+                                    ],
+                                  ),
+                                );
+                                if (ok != true) return;
+                                try {
+                                  final res = await repository.deleteSaleById(sale.id);
+                                  if (!mounted) return;
+                                  if (res == -1) {
+                                    await showDialog<void>(
+                                      context: localActionCtx,
+                                      builder: (ctx) => AlertDialog(
+                                        title: const Text('Delete failed'),
+                                        content: const Text('Cannot delete sale because the buyer does not have enough points to reverse the award.'),
+                                        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  await showDialog<void>(
+                                    context: localActionCtx,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Delete failed'),
+                                      content: Text('Failed to delete sale: $e'),
+                                      actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+                                    ),
+                                  );
+                                }
+                              },
+                              onEdit: (sale) async {
+                                final localActionCtx = context;
+                                if (!mounted) return;
+                                await showDialog<bool?>(
+                                  context: localActionCtx,
+                                  builder: (ctx) => SaleCartEditor(seedSale: sale),
+                                );
+                                // SaleCartEditor will trigger repository.changes on success
+                              },
+                            ),
                           ),
                         );
                       },
@@ -233,8 +292,10 @@ class _TransactionsTableState extends State<TransactionsTable> {
 class _TransactionsDataSource extends DataTableSource {
   final List<Sale> _sales;
   final BuildContext _context;
+  final Future<void> Function(Sale)? onDelete;
+  final Future<void> Function(Sale)? onEdit;
 
-  _TransactionsDataSource(this._sales, this._context);
+  _TransactionsDataSource(this._sales, this._context, {this.onDelete, this.onEdit});
 
   @override
   DataRow getRow(int index) {
@@ -252,7 +313,8 @@ class _TransactionsDataSource extends DataTableSource {
         DataCell(Text(sale.quantity.toString())),
         DataCell(Text('₱${sale.price}')),
         DataCell(Text(DateFormat.yMMMd().add_jm().format(sale.timestamp))),
-        DataCell(Text('ID:${sale.id}')),
+  DataCell(Text('ID:${sale.id}')),
+  DataCell(Text(sale.timestamp.toLocal().toIso8601String())),
         DataCell(_buildActionsCell(_context, sale)),
       ],
     );
@@ -262,47 +324,9 @@ class _TransactionsDataSource extends DataTableSource {
     return PopupMenuButton<String>(
       onSelected: (value) async {
         if (value == 'delete') {
-          final ok = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Delete sale'),
-              content: const Text('Are you sure you want to delete this sale?'),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
-              ],
-            ),
-          );
-          if (ok == true) {
-            await repository.deleteSaleById(sale.id);
-          }
-  } else if (value == 'edit') {
-          // show a simple edit dialog for quantity and price
-          final qtyCtrl = TextEditingController(text: sale.quantity.toString());
-          final priceCtrl = TextEditingController(text: sale.price.toString());
-          final result = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Edit Sale'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(controller: qtyCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Quantity')),
-                  TextField(controller: priceCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Price')),
-                ],
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
-              ],
-            ),
-          );
-          if (result == true) {
-            final newQty = int.tryParse(qtyCtrl.text.trim()) ?? sale.quantity;
-            final newPrice = int.tryParse(priceCtrl.text.trim()) ?? sale.price;
-            final updated = sale.copyWith(quantity: newQty, price: newPrice);
-            await repository.updateSale(updated);
-          }
+          if (onDelete != null) await onDelete!(sale);
+        } else if (value == 'edit') {
+          if (onEdit != null) await onEdit!(sale);
         }
       },
       itemBuilder: (ctx) => const [

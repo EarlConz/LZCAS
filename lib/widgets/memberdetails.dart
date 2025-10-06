@@ -1,5 +1,7 @@
+// ignore_for_file: unnecessary_underscores
 import 'package:flutter/material.dart';
 import 'memberqr.dart';
+import 'package:lzcas/db/db.dart';
 
 class MemberDetailsCard extends StatelessWidget {
   final Map<String, dynamic> member;
@@ -57,10 +59,10 @@ class MemberDetailsCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text("Role: ${member['role']}"),
-                    Text("Points: ${member['points']}"),
+                    Expanded(child: Text("Role: ${member['role']}")),
+                    const SizedBox(width: 12),
+                    Text("Points: ${member['points']}", style: const TextStyle(fontWeight: FontWeight.w600)),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -74,6 +76,42 @@ class MemberDetailsCard extends StatelessWidget {
                       ? "Referrer: ${member['referrer']}"
                       : "Referrer: None",
                   style: const TextStyle(fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          // Transactions column on the right (referred members' transactions)
+          SizedBox(
+            width: 320,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Member\'s Transaction History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                FutureBuilder<List<Sale>>(
+                  future: repository.fetchSalesForReferrer((member['id'] ?? 0) as int),
+                  builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting) return const SizedBox(height:100, child: Center(child:CircularProgressIndicator()));
+                    if (!snap.hasData || snap.data!.isEmpty) return const Text('No transactions found for referred members.');
+                    final sales = snap.data!;
+                    return SizedBox(
+                      height: 160,
+                      child: ListView.separated(
+                        itemCount: sales.length.clamp(0, 6),
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final s = sales[i];
+                          return ListTile(
+                            dense: true,
+                            title: Text(s.itemName),
+                            subtitle: Text('qty: ${s.quantity}  price: ${s.price} pts: ${s.points}'),
+                            trailing: Text(s.timestamp.toIso8601String().split('T').first),
+                          );
+                        },
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

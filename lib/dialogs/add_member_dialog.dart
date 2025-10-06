@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/db/db.dart' show repository, Member;
 
 class AddMemberDialog extends StatefulWidget {
   final Function(Map<String, dynamic>) onMemberAdded;
@@ -17,6 +18,23 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final birthdayController = TextEditingController();
   final addressController = TextEditingController();
   final referrerController = TextEditingController();
+  List<Member> _members = [];
+  int? _selectedReferrerId;
+  String _selectedReferrerName = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMembers();
+  }
+
+  Future<void> _loadMembers() async {
+    final rows = await repository.fetchMembers();
+    if (!mounted) return;
+    setState(() {
+      _members = rows;
+    });
+  }
 
   @override
   void dispose() {
@@ -69,9 +87,24 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               decoration: const InputDecoration(labelText: "Address"),
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: referrerController,
-              decoration: const InputDecoration(labelText: "Referrer"),
+            // Referrer picker (None or an existing member)
+            DropdownButtonFormField<int?>(
+              initialValue: _selectedReferrerId,
+              decoration: const InputDecoration(labelText: "Referrer (optional)"),
+              items: [
+                const DropdownMenuItem<int?>(value: null, child: Text('None')),
+                ..._members.map((m) {
+                  final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
+                  return DropdownMenuItem<int?>(value: m.id, child: Text(label.isEmpty ? 'ID:${m.id}' : label));
+                })
+              ],
+              onChanged: (v) {
+                setState(() {
+                  _selectedReferrerId = v;
+                  final sel = _members.firstWhere((m) => m.id == v, orElse: () => Member(id: 0, lastName: null, firstName: null, middleName: null, role: null, contactNo: null, birthday: null, address: null, referrer: null, points: 0, qr: null));
+                  _selectedReferrerName = sel.id == 0 ? '' : '${sel.firstName ?? ''} ${sel.lastName ?? ''}'.trim();
+                });
+              },
             ),
           ],
         ),
@@ -122,6 +155,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               return;
             }
 
+            final refText = _selectedReferrerName;
+            final referrerId = _selectedReferrerId;
+
             final newMember = {
               "lastName": lastNameController.text,
               "firstName": firstNameController.text,
@@ -131,7 +167,8 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                   : contactController.text,
               "birthday": birthdayController.text,
               "address": addressController.text,
-              "referrer": referrerController.text,
+              "referrer": refText,
+              "referrerId": referrerId,
               "points": 0, // default
               "role": "Member", // default
             };

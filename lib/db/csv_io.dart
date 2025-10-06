@@ -20,12 +20,13 @@ Future<String> exportItemsToCsvFile(AppDb db) async {
 Future<String> exportItemsToCsvString(AppDb db) async {
   final rows = await db.getAllItems();
   final fields = [
-    ['id', 'name', 'category', 'stock', 'lastUpdated', 'status']
+    ['id', 'name', 'points', 'category', 'stock', 'lastUpdated', 'status']
   ];
   for (final r in rows) {
     fields.add([
       r.id.toString(),
       r.name,
+      r.points.toString(),
       r.category ?? '',
       r.stock.toString(),
       r.lastUpdated?.toIso8601String() ?? '',
@@ -35,6 +36,8 @@ Future<String> exportItemsToCsvString(AppDb db) async {
   final csv = const ListToCsvConverter().convert(fields);
   return csv;
 }
+
+// ignore_for_file: prefer_is_empty
 
 Future<int> importItemsFromCsvString(AppDb db, String csv) async {
   final converter = const CsvToListConverter(eol: '\n');
@@ -51,6 +54,7 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
     }
   final name = (map['name'] ?? '').trim();
   if (name.isEmpty) continue;
+  final points = int.tryParse((map['points'] ?? '').trim()) ?? 0;
   final category = (map['category'] ?? '').trim();
   final stock = int.tryParse((map['stock'] ?? '').trim()) ?? 0;
   final lastUpdated = (map['lastUpdated'] != null && map['lastUpdated']!.trim().isNotEmpty)
@@ -89,6 +93,7 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
     }
     if (byName != null) {
       final updated = byName.copyWith(
+  points: points,
   category: Value(category),
   stock: stock,
   lastUpdated: Value(lastUpdated),
@@ -103,6 +108,7 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
     // Insert new
     final companion = ItemsCompanion.insert(
       name: name,
+      points: Value(points),
       category: Value(category.isEmpty ? null : category),
       stock: Value(stock),
       lastUpdated: Value(lastUpdated),
@@ -113,6 +119,7 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
   }
   return inserted;
 }
+
 
 Future<String> exportMembersToCsvFile(AppDb db) async {
   final csv = await exportMembersToCsvString(db);
@@ -228,6 +235,27 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
   return inserted;
 }
 
+/// Parse the `transactions` column for a single member CSV row and return a list
+/// of simple parsed maps (itemName, quantity, price, points, timestamp).
+List<Map<String, dynamic>> parseMemberTransactionsColumn(String txRaw) {
+  final List<Map<String, dynamic>> entries = [];
+  if (txRaw.trim().isEmpty) return entries;
+  final txs = txRaw.split(';');
+  for (final e in txs) {
+    final parts = e.split('|');
+    if (parts.isEmpty) continue;
+    final itemName = parts.length > 0 ? parts[0].trim() : '';
+    final quantity = parts.length > 1 ? int.tryParse(parts[1].trim()) ?? 0 : 0;
+    final price = parts.length > 2 ? int.tryParse(parts[2].trim()) ?? 0 : 0;
+    final points = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
+    DateTime? ts;
+    if (parts.length > 4) ts = DateTime.tryParse(parts[4].trim());
+    if (itemName.isEmpty) continue;
+    entries.add({'itemName': itemName, 'quantity': quantity, 'price': price, 'points': points, 'timestamp': ts});
+  }
+  return entries;
+}
+
 Future<String> exportSalesToCsvFile(AppDb db) async {
   final csv = await exportSalesToCsvString(db);
 
@@ -241,7 +269,7 @@ Future<String> exportSalesToCsvFile(AppDb db) async {
 Future<String> exportSalesToCsvString(AppDb db) async {
   final rows = await db.getAllSales();
   final fields = [
-    ['id', 'itemId', 'itemName', 'quantity', 'price', 'createdAt']
+    ['id', 'itemId', 'itemName', 'quantity', 'price', 'points', 'createdAt']
   ];
   for (final r in rows) {
     fields.add([
@@ -250,6 +278,7 @@ Future<String> exportSalesToCsvString(AppDb db) async {
       r.itemName,
       r.quantity.toString(),
       r.price.toString(),
+      r.points.toString(),
       r.timestamp.toIso8601String(),
     ]);
   }
@@ -273,6 +302,7 @@ Future<int> importSalesFromCsvString(AppDb db, String csv) async {
     final itemName = map['itemName'] ?? '';
     final quantity = int.tryParse(map['quantity'] ?? '') ?? 0;
     final price = int.tryParse(map['price'] ?? '') ?? 0;
+  final points = int.tryParse(map['points'] ?? '') ?? 0;
 
     if (itemName.isEmpty) continue;
 
@@ -303,6 +333,7 @@ Future<int> importSalesFromCsvString(AppDb db, String csv) async {
       itemName: Value(itemName),
       quantity: Value(quantity),
       price: Value(price),
+      points: Value(points),
       timestamp: ts != null ? Value(ts) : const Value.absent(),
     );
     await db.insertSale(companion);

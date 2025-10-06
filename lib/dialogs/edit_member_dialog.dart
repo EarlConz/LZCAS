@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/db/db.dart' show repository, Member;
 
 class EditMemberDialog extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -24,6 +25,9 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   late final TextEditingController addressController;
   late final TextEditingController pointsController;
   late final TextEditingController referrerController;
+  List<Member> _members = [];
+  int? _selectedReferrerId;
+
 
   @override
   void initState() {
@@ -45,6 +49,16 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
       text: widget.member["points"].toString(),
     );
     referrerController = TextEditingController(text: widget.member["referrer"]);
+    _selectedReferrerId = widget.member["referrerId"] as int?;
+    _loadMembers();
+  }
+
+  Future<void> _loadMembers() async {
+    final rows = await repository.fetchMembers();
+    if (!mounted) return;
+    setState(() {
+      _members = rows;
+    });
   }
 
   @override
@@ -118,9 +132,23 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: referrerController,
-              decoration: const InputDecoration(labelText: "Referrer"),
+            DropdownButtonFormField<int?>(
+              initialValue: _selectedReferrerId,
+              decoration: const InputDecoration(labelText: "Referrer (optional)"),
+              items: [
+                const DropdownMenuItem<int?>(value: null, child: Text('None')),
+                ..._members.map((m) {
+                  final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
+                  return DropdownMenuItem<int?>(value: m.id, child: Text(label.isEmpty ? 'ID:${m.id}' : label));
+                })
+              ],
+              onChanged: (v) {
+                setState(() {
+                  _selectedReferrerId = v;
+                  final sel = _members.firstWhere((m) => m.id == v, orElse: () => Member(id: 0, lastName: null, firstName: null, middleName: null, role: null, contactNo: null, birthday: null, address: null, referrer: null, points: 0, qr: null));
+                  referrerController.text = sel.id == 0 ? '' : '${sel.firstName ?? ''} ${sel.lastName ?? ''}'.trim();
+                });
+              },
             ),
           ],
         ),
@@ -151,6 +179,12 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               return;
             }
 
+            final refText = referrerController.text.trim();
+            int? referrerId;
+            if (refText.isNotEmpty && RegExp(r'^\d+\$').hasMatch(refText)) {
+              referrerId = int.tryParse(refText);
+            }
+
             final updatedMember = {
               "firstName": firstNameController.text,
               "middleName": middleNameController.text,
@@ -162,7 +196,8 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               "birthday": birthdayController.text,
               "address": addressController.text,
               "points": int.tryParse(pointsController.text) ?? 0,
-              "referrer": referrerController.text,
+              "referrer": refText,
+              "referrerId": referrerId,
             };
 
             widget.onMemberUpdated(updatedMember);

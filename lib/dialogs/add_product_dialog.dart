@@ -13,6 +13,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
   final nameController = TextEditingController();
   final categoryController = TextEditingController();
   final stockController = TextEditingController(text: '0');
+  final pointsController = TextEditingController(text: '0');
 
   @override
   void dispose() {
@@ -43,6 +44,12 @@ class _AddProductDialogState extends State<AddProductDialog> {
             TextField(
               controller: stockController,
               decoration: const InputDecoration(hintText: 'Initial Stock'),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: pointsController,
+              decoration: const InputDecoration(labelText: 'Points per item'),
               keyboardType: TextInputType.number,
             ),
           ],
@@ -78,10 +85,12 @@ class _AddProductDialogState extends State<AddProductDialog> {
             }
 
             final stock = int.tryParse(stockController.text) ?? 0;
+            final points = int.tryParse(pointsController.text) ?? 0;
             widget.onProductAdded({
               'name': name,
               'category': category,
               'stock': stock,
+              'points': points,
               'lastUpdated': '${DateTime.now().toLocal()}'.split('.')[0],
               'status': stock <= 0
                   ? 'Out of Stock'

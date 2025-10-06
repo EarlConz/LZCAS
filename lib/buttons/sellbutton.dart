@@ -1,4 +1,3 @@
-// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:drift/drift.dart' show Value;
@@ -72,15 +71,13 @@ class _SellDialog extends StatefulWidget {
 
 class _SellDialogState extends State<_SellDialog> {
   String? selectedItem;
-  String? selectedMember = 'Non Member';
+  int? selectedBuyerId;
   int quantity = 1;
   List<Map<String, dynamic>> cart = [];
 
   final TextEditingController _qtyController = TextEditingController(text: '1');
-  final TextEditingController _memberSearchController = TextEditingController();
   final TextEditingController _itemSearchController = TextEditingController();
   final FocusNode _qtyFocusNode = FocusNode();
-  final FocusNode _memberFocusNode = FocusNode();
   final FocusNode _itemFocusNode = FocusNode();
 
   @override
@@ -94,10 +91,8 @@ class _SellDialogState extends State<_SellDialog> {
   @override
   void dispose() {
     _qtyController.dispose();
-    _memberSearchController.dispose();
     _itemSearchController.dispose();
     _qtyFocusNode.dispose();
-    _memberFocusNode.dispose();
     _itemFocusNode.dispose();
     for (var entry in cart) {
       (entry['priceController'] as TextEditingController?)?.dispose();
@@ -127,70 +122,37 @@ class _SellDialogState extends State<_SellDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final totalPoints = cart.fold<int>(0, (acc, e) => acc + ((e['points'] as int? ?? 0) * (e['quantity'] as int? ?? 0)));
+    final totalPrice = cart.fold<int>(0, (acc, e) {
+      final priceStr = (e['price'] ?? '').toString();
+      final p = int.tryParse(priceStr) ?? 0;
+      final q = e['quantity'] as int? ?? 0;
+      return acc + (p * q);
+    });
+
     return AlertDialog(
       title: const Text('Sell Items'),
       content: SizedBox(
-        width: 450,
-        child: SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+        width: 650,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+          child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Member search
-                FocusScope(
-                  child: Focus(
-                    focusNode: _memberFocusNode,
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: _memberSearchController,
-                          decoration: const InputDecoration(
-                            labelText: 'Search Member',
-                            hintText: 'Type to search or leave blank for Non Member',
-                            prefixIcon: Icon(Icons.search),
-                          ),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                        if (_memberFocusNode.hasFocus || _memberSearchController.text.isNotEmpty)
-                          Container(
-                            constraints: const BoxConstraints(maxHeight: 200),
-                            margin: const EdgeInsets.only(top: 4),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).cardColor,
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Builder(builder: (context) {
-                              final List<String> memberNames = ['Non Member'] + widget.members.map((m) {
-                                final lastName = m['lastName'] ?? '';
-                                final firstName = m['firstName'] ?? '';
-                                return '$firstName $lastName'.trim();
-                              }).toList();
-
-                              return ListView(
-                                shrinkWrap: true,
-                                children: memberNames
-                                    .where((m) {
-                                      final query = _memberSearchController.text.toLowerCase();
-                                      return query.isEmpty || m.toLowerCase().contains(query);
-                                    })
-                                    .map((m) => ListTile(
-                                          title: Text(m),
-                                          onTap: () {
-                                            setState(() {
-                                              selectedMember = m;
-                                              _memberSearchController.text = m;
-                                              _memberFocusNode.unfocus();
-                                            });
-                                          },
-                                        ))
-                                    .toList(),
-                              );
-                            }),
-                          ),
-                      ],
-                    ),
+                // Buyer picker (member-picker) - Option 2: prefer numeric referrerId when awarding points
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                      child: DropdownButtonFormField<int?>(
+                    decoration: const InputDecoration(labelText: 'Buyer'),
+                    initialValue: selectedBuyerId,
+                    items: [
+                      ...widget.members.map((m) => DropdownMenuItem<int?>(
+                            value: m['id'] as int?,
+                            child: Text('${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'.trim()),
+                          )),
+                    ],
+                    onChanged: (v) => setState(() => selectedBuyerId = v),
                   ),
                 ),
 
@@ -247,101 +209,124 @@ class _SellDialogState extends State<_SellDialog> {
 
                 const SizedBox(height: 16),
 
-                // Quantity
+                // quick add row
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Quantity:'),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Item'),
+                         initialValue: selectedItem,
+                        items: widget.items.map((i) => DropdownMenuItem(value: i, child: Text(i))).toList(),
+                        onChanged: (v) => setState(() => selectedItem = v),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
                     SizedBox(
-                      width: 80,
+                      width: 100,
                       child: TextField(
                         controller: _qtyController,
                         focusNode: _qtyFocusNode,
                         keyboardType: TextInputType.number,
                         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                        decoration: const InputDecoration(
-                          hintText: 'Enter Quantity',
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                        ),
-                        onChanged: (value) {
-                          if (value.isEmpty) {
-                            setState(() => quantity = 0);
-                            return;
-                          }
-                          final normalized = int.parse(value).toString();
-                          setState(() {
-                            quantity = int.tryParse(normalized) ?? 1;
-                            _qtyController.text = quantity.toString();
-                            _qtyController.selection = TextSelection.fromPosition(TextPosition(offset: _qtyController.text.length));
-                          });
-                        },
+                        decoration: const InputDecoration(labelText: 'Qty'),
+                        onChanged: (v) => setState(() => quantity = int.tryParse(v) ?? 1),
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                        onPressed: () {
+                          if (selectedItem == null) {
+                            _showError('Please select an item');
+                            return;
+                          }
+                          final matched = widget.items.contains(selectedItem);
+                          if (!matched) {
+                            _showError('Invalid item');
+                            return;
+                          }
+                          // fetch item to get points and default price (non-blocking best-effort)
+                          repository.fetchItems().then((rows) {
+              final found = inventoryItemsFromRows(rows).firstWhere(
+                (r) => r['name'] == selectedItem,
+                orElse: () => <String, Object>{});
+                            final pts = (found['points'] as int?) ?? 0;
+                            setState(() {
+                              cart.add({
+                                'item': selectedItem,
+                                'quantity': quantity,
+                                'points': pts,
+                                'price': '',
+                                'priceController': TextEditingController(),
+                              });
+                            });
+                          });
+                        },
+                        child: const Text('Add')),
                   ],
-                ),
-
-                const SizedBox(height: 12),
-
-                // Add to list
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    if (selectedItem != null) {
-                      final itemObj = (await repository.fetchItems()).firstWhere((r) => r.name == selectedItem);
-                      if (itemObj.stock <= 0 || itemObj.stock < quantity) {
-                        _showError('Not enough stock');
-                        return;
-                      }
-
-                      setState(() {
-                        cart.add({
-                          'item': selectedItem!,
-                          'quantity': quantity,
-                          'price': '',
-                          'priceController': TextEditingController(),
-                        });
-                        selectedItem = null;
-                        _itemSearchController.clear();
-                        quantity = 1;
-                        _qtyController.text = '1';
-                      });
-                    }
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add to List'),
                 ),
 
                 const SizedBox(height: 16),
 
+                // cart list
                 if (cart.isNotEmpty)
                   SizedBox(
-                    height: 200,
+                    height: 240,
                     child: ListView.builder(
                       itemCount: cart.length,
                       itemBuilder: (context, index) {
                         final entry = cart[index];
-                        return Row(
-                          children: [
-                            Expanded(
-                              child: ListTile(
-                                title: Text(entry['item']),
-                                subtitle: Text('Qty: ${entry['quantity']}'),
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: ListTile(
+                                  title: Text(entry['item']),
+                                  subtitle: Text('Qty: ${entry['quantity']}   Pts: ${entry['points']}'),
+                                ),
                               ),
-                            ),
-                            SizedBox(
-                              width: 100,
-                              child: TextField(
-                                controller: entry['priceController'],
-                                keyboardType: TextInputType.number,
-                                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                decoration: const InputDecoration(labelText: 'Price', hintText: 'Enter Price', isDense: true),
-                                onChanged: (val) => setState(() => entry['price'] = val),
+                              SizedBox(
+                                width: 120,
+                                child: TextField(
+                                  controller: entry['priceController'],
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                  decoration: const InputDecoration(labelText: 'Price', hintText: 'Enter Price', isDense: true),
+                                  onChanged: (val) => setState(() => entry['price'] = val),
+                                ),
                               ),
-                            ),
-                            IconButton(icon: const Icon(Icons.delete, color: Colors.red), onPressed: () => setState(() => cart.removeAt(index))),
-                          ],
+                              const SizedBox(width: 8),
+                              IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                onPressed: () => setState(() => cart.removeAt(index)),
+                              ),
+                            ],
+                          ),
                         );
                       },
+                    ),
+                  ),
+
+                // totals area placed under list
+                if (cart.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0),
+                    child: Row(
+                      children: [
+                        // left: points to receive
+                        Expanded(
+                          child: Text(
+                            'Points to receive: $totalPoints',
+                            style: TextStyle(fontStyle: FontStyle.italic, color: Theme.of(context).textTheme.bodyMedium?.color),
+                          ),
+                        ),
+                        // right: total price (we'll also show above confirm)
+                        Text(
+                          'Total Price: $totalPrice',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
                     ),
                   ),
               ],
@@ -351,24 +336,51 @@ class _SellDialogState extends State<_SellDialog> {
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        ElevatedButton(
-      onPressed: isCartValid()
-        ? () async {
-          for (var entry in cart) {
-                    final dbItem = (await repository.fetchItems()).firstWhere((r) => r.name == entry['item']);
-                    final q = entry['quantity'] as int;
-                    final newStock = dbItem.stock - q;
-                    final newStatus = statusFromStock(newStock);
-                    final updated = dbItem.copyWith(stock: newStock, lastUpdated: Value(DateTime.now()), status: Value(newStatus));
-                    await repository.updateItem(updated);
+        if (cart.isNotEmpty) Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0),
+          child: Text('Total: ₱$totalPrice', style: const TextStyle(fontWeight: FontWeight.bold)),
+        ),
+                ElevatedButton(
+          onPressed: isCartValid()
+                ? () async {
+                    final safeContext = context; // capture before awaits
+                    // persist sales and update stock
+                    final transactionTs = DateTime.now();
+                    for (var entry in cart) {
+                      final dbItem = (await repository.fetchItems()).firstWhere((r) => r.name == entry['item']);
+                      final q = entry['quantity'] as int;
+                      final newStock = dbItem.stock - q;
+                      final newStatus = statusFromStock(newStock);
+                      final updated = dbItem.copyWith(stock: newStock, lastUpdated: Value(DateTime.now()), status: Value(newStatus));
+                      await repository.updateItem(updated);
 
-                    final priceStr = (entry['price'] ?? '').toString();
-                    final price = int.tryParse(priceStr) ?? 0;
-                    await repository.addSale(itemId: dbItem.id, itemName: dbItem.name, quantity: q, price: price);
-                  }
-                  widget.onSaleConfirmed();
-                  if (mounted) Navigator.pop(context, cart);
-                  cart.clear();
+                      final priceStr = (entry['price'] ?? '').toString();
+                      final price = int.tryParse(priceStr) ?? 0;
+                      final ptsPerUnit = entry['points'] as int? ?? 0;
+                      final totalForSale = ptsPerUnit * q;
+                      await repository.addSale(itemId: dbItem.id, itemName: dbItem.name, quantity: q, price: price, points: totalForSale, timestamp: transactionTs, buyerId: selectedBuyerId);
+                    }
+
+                    // Award points to the buyer (points per product * quantity) if selected
+                    if (selectedBuyerId != null && totalPoints > 0) {
+                      try {
+                        final buyer = await repository.getMemberById(selectedBuyerId!);
+                        if (buyer != null) {
+                          final updatedBuyer = buyer.copyWith(points: buyer.points + totalPoints);
+                          await repository.updateMember(updatedBuyer);
+                        }
+                      } catch (e) {
+                        // ignore failures but log for debugging
+                        // ignore: avoid_print
+                        print('Failed to award points to buyer: $e');
+                      }
+                    }
+
+                    widget.onSaleConfirmed();
+                    if (!mounted) return; // ensure safe to use Navigator
+                    // ignore: use_build_context_synchronously
+                    Navigator.pop(safeContext, cart);
+                    cart.clear();
                 }
               : null,
           child: const Text('Confirm'),

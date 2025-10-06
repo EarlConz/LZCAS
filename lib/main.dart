@@ -10,6 +10,13 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final db = await initDb();
   repository = DbRepository(db);
+  // Run a one-off points consistency migration at startup. This is idempotent.
+  try {
+    await repository.ensurePointsConsistency();
+  } catch (e) {
+    // ignore: avoid_print
+    print('ensurePointsConsistency failed: $e');
+  }
   // If you need initial data, use CSV import helpers on the repository
   // e.g. `await repository.importItemsCsv(csvString)` or use your own seed script.
 

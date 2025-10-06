@@ -9,6 +9,7 @@ List<Map<String, dynamic>> inventoryItemsFromRows(List<Item> rows) {
   return rows.map((r) => {
         'id': r.id,
         'name': r.name,
+    'points': r.points,
         'category': r.category ?? '',
         'stock': r.stock,
         'lastUpdated': r.lastUpdated?.toString() ?? '',
@@ -26,7 +27,8 @@ List<Map<String, dynamic>> membersFromRows(List<Member> rows) {
         'contactNo': m.contactNo ?? '',
         'birthday': m.birthday ?? '',
         'address': m.address ?? '',
-        'referrer': m.referrer ?? '',
+  'referrer': m.referrer ?? '',
+  'referrerId': m.referrerId,
         'points': m.points,
         'qr': m.qr ?? '',
       }).toList();

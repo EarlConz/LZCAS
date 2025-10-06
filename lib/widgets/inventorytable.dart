@@ -159,6 +159,9 @@ class _InventoryTableState extends State<InventoryTable> {
                       onProductAdded: (p) async {
                         await repository.addItem(
                           name: p['name']?.toString() ?? '',
+                          points: (p['points'] ?? 0) is int
+                              ? p['points']
+                              : int.tryParse(p['points']?.toString() ?? '0') ?? 0,
                           category: p['category']?.toString(),
                           stock: (p['stock'] ?? 0) is int
                               ? p['stock']
@@ -256,7 +259,8 @@ class _InventoryTableState extends State<InventoryTable> {
                       .toList();
                   if (!mounted) return;
                   // validate headers using flexible synonyms so common variants are accepted
-                  final expected = ['id', 'name', 'category', 'stock', 'lastupdated', 'status'];
+                  // include 'points' (and synonyms) as a required column for item imports
+                  final expected = ['id', 'name', 'points', 'category', 'stock', 'lastupdated', 'status'];
                   final missing = findMissingHeaders(headers.cast<String>(), expected);
                   if (missing.isNotEmpty) {
                     await showDialog<void>(
