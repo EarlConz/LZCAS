@@ -1,12 +1,53 @@
 // ignore_for_file: unnecessary_underscores
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'interactive_member_avatar.dart';
+import '../utils/formatters.dart';
 import 'package:lzcas/db/db.dart';
 
-class MemberDetailsCard extends StatelessWidget {
+class MemberDetailsCard extends StatefulWidget {
   final Map<String, dynamic> member;
 
   const MemberDetailsCard({super.key, required this.member});
+
+  @override
+  State<MemberDetailsCard> createState() => _MemberDetailsCardState();
+}
+
+class _MemberDetailsCardState extends State<MemberDetailsCard> {
+  late Map<String, dynamic> member;
+  @override
+  void initState() {
+    super.initState();
+    member = widget.member;
+  }
+
+  @override
+  void didUpdateWidget(covariant MemberDetailsCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    member = widget.member;
+  }
+
+  late final StreamSubscription<String> _sub;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Listen for sale/member changes so we can rebuild the sales FutureBuilder
+    // when imports/edits/deletes occur elsewhere in the app.
+    _sub = repository.changes.listen((e) {
+      if (e == 'sale_added' || e == 'sale_imported' || e == 'sale_updated' || e == 'sale_deleted' || e == 'member_transactions_committed') {
+        if (mounted) setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    try {
+      _sub.cancel();
+    } catch (_) {}
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -96,7 +137,7 @@ class MemberDetailsCard extends StatelessWidget {
                   // Show transactions for the member (buyer) themselves instead of transactions
                   // of members they referred. This makes the Member Details card display the
                   // member's own purchase history.
-                  future: repository.fetchSalesForMember((member['id'] ?? 0) as int),
+                      future: repository.fetchSalesForMember((member['id'] ?? 0) as int),
                   builder: (context, snap) {
                     if (snap.connectionState == ConnectionState.waiting) return const SizedBox(height:100, child: Center(child:CircularProgressIndicator()));
                     if (!snap.hasData || snap.data!.isEmpty) return const Text('No transactions found for this member.');
@@ -108,11 +149,21 @@ class MemberDetailsCard extends StatelessWidget {
                         separatorBuilder: (_, __) => const Divider(height: 1),
                         itemBuilder: (context, i) {
                           final s = sales[i];
+                          // Prefer the canonical sale.id as displayed in Sales tab.
+                          final saleId = s.id;
                           return ListTile(
                             dense: true,
                             title: Text(s.itemName),
                             subtitle: Text('qty: ${s.quantity}  price: ${s.price} pts: ${s.points}'),
-                            trailing: Text(s.timestamp.toIso8601String().split('T').first),
+                            trailing: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(formatDisplayDate(s.timestamp)),
+                                const SizedBox(height: 4),
+                                Text('ID:${saleId}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                              ],
+                            ),
                           );
                         },
                       ),

@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lzcas/buttons/inventoryfilterbutton.dart';
@@ -153,8 +154,9 @@ class _InventoryTableState extends State<InventoryTable> {
                 ),
                 backgroundColor: Colors.blue[700],
                 onPressed: () {
+                  final parentCtx = context;
                   showDialog(
-                    context: context,
+                    context: parentCtx,
                     builder: (context) => AddProductDialog(
                       onProductAdded: (p) async {
                         await repository.addItem(
@@ -170,7 +172,7 @@ class _InventoryTableState extends State<InventoryTable> {
                         );
                         await _loadItems();
                         if (!mounted) return;
-                        ScaffoldMessenger.of(this.context).showSnackBar(
+                        ScaffoldMessenger.of(parentCtx).showSnackBar(
                           const SnackBar(content: Text('Product added')),
                         );
                       },
@@ -190,6 +192,7 @@ class _InventoryTableState extends State<InventoryTable> {
                 ),
                 backgroundColor: Colors.grey[700],
                 onPressed: () async {
+                  final parentCtx = context;
                   final csv = await repository.exportItemsCsvString();
                   final suggested =
                       'items_export_${DateTime.now().millisecondsSinceEpoch}.csv';
@@ -198,7 +201,7 @@ class _InventoryTableState extends State<InventoryTable> {
                     final fs.FileSaveLocation? loc = await fs.getSaveLocation(
                       suggestedName: suggested,
                     );
-                    if (loc != null) {
+                      if (loc != null) {
                       final xfile = fs.XFile.fromData(
                         Uint8List.fromList(csv.codeUnits),
                         mimeType: 'text/csv',
@@ -206,7 +209,7 @@ class _InventoryTableState extends State<InventoryTable> {
                       );
                       await xfile.saveTo(loc.path);
                       if (!mounted) return;
-                      ScaffoldMessenger.of(this.context).showSnackBar(
+                      ScaffoldMessenger.of(parentCtx).showSnackBar(
                         SnackBar(content: Text('Exported to ${loc.path}')),
                       );
                       return;
@@ -220,7 +223,7 @@ class _InventoryTableState extends State<InventoryTable> {
                     final file = File(savePath);
                     await file.writeAsString(csv);
                     if (!mounted) return;
-                    ScaffoldMessenger.of(this.context).showSnackBar(
+                    ScaffoldMessenger.of(parentCtx).showSnackBar(
                       SnackBar(content: Text('Exported to $savePath')),
                     );
                   }
@@ -238,6 +241,7 @@ class _InventoryTableState extends State<InventoryTable> {
                 ),
                 backgroundColor: Colors.grey[700],
                 onPressed: () async {
+                  final localCtx = context;
                   final files = await fs.openFiles(
                     acceptedTypeGroups: [
                       fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
@@ -264,7 +268,7 @@ class _InventoryTableState extends State<InventoryTable> {
                   final missing = findMissingHeaders(headers.cast<String>(), expected);
                   if (missing.isNotEmpty) {
                     await showDialog<void>(
-                      context: this.context,
+                      context: localCtx,
                       builder: (ctx) => AlertDialog(
                         title: const Text('Invalid CSV'),
                         content: Text('This file does not look like an Items export. Missing headers: ${missing.join(', ')}'),
@@ -273,19 +277,34 @@ class _InventoryTableState extends State<InventoryTable> {
                     );
                     return;
                   }
-                  // context is checked above; show import preview immediately
-                  // ignore: use_build_context_synchronously
-                  final confirm = await showImportPreviewDialog(
-                    this.context,
+                  // Show the selection preview (allows selecting which rows to import)
+                  final sel = await showImportPreviewDialogWithSelection(
+                    localCtx,
                     headers,
                     rows,
+                    exists: (m) async {
+                      // Fast existence check: match by id or by normalized name
+                      final idStr = (m['id'] ?? '').trim();
+                      if (idStr.isNotEmpty) {
+                        final id = int.tryParse(idStr);
+                        if (id != null) {
+                          final all = await repository.fetchItems();
+                          if (all.any((it) => it.id == id)) return true;
+                        }
+                      }
+                      final name = (m['name'] ?? '').trim();
+                      if (name.isEmpty) return false;
+                      final all = await repository.fetchItems();
+                      return all.any((it) => it.name.trim().toLowerCase() == name.toLowerCase());
+                    },
                   );
-                  if (confirm != true) return;
-                  final count = await repository.importItemsCsv(content);
+                  if (sel == null || sel.isEmpty) return;
+                  final rowsToImport = sel.map((i) => rows[i]).toList();
+                  final selectedCsv = const ListToCsvConverter().convert([headers, ...rowsToImport]);
+                  final count = await repository.importItemsCsv(selectedCsv);
                   if (!mounted) return;
-                  // context was verified before showing the dialog; still guard and then use it
-                  // ignore: use_build_context_synchronously
-                  ScaffoldMessenger.of(this.context).showSnackBar(
+                  await _loadItems();
+                  ScaffoldMessenger.of(localCtx).showSnackBar(
                     SnackBar(
                       content: Text('Imported $count rows from ${xfile.name}'),
                     ),

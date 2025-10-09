@@ -302,7 +302,9 @@ class MembersTableState extends State<MembersTable> {
                   final rowsToImport = sel.map((i) => rows[i]).toList();
                   final inserted = await repository.importMembersFromRows(headers.cast<String>(), rowsToImport);
                   if (!mounted) return;
-                  // Only report how many were actually inserted (not how many were selected)
+                  // Immediately refresh members view so imported rows appear without waiting
+                  // for repository change stream listeners.
+                  await _loadMembers();
                   final messenger = ScaffoldMessenger.of(localCtx);
                   messenger.showSnackBar(SnackBar(
                     content: Text('Inserted $inserted new member${inserted == 1 ? '' : 's'}'),

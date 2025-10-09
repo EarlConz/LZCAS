@@ -1,7 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 // ...existing code...
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import '../utils/formatters.dart';
 import 'dart:async';
 import '../db/db.dart' show Sale, repository;
 import '../widgets/search.dart';
@@ -196,8 +196,12 @@ class _TransactionsTableState extends State<TransactionsTable> {
                   final rowsToImport = sel.map((i) => rows[i]).toList();
                   // Rebuild CSV content for selected rows only
                   final selectedCsv = const ListToCsvConverter().convert([headers, ...rowsToImport]);
+                  // Import as historical by default (do not deduct stock or
+                  // award points during import). The repository will recompute
+                  // points after import and UI will reload.
                   final inserted = await repository.importSalesCsv(selectedCsv);
                   if (!mounted) return;
+                  await _loadSales();
                   ScaffoldMessenger.of(localCtx).showSnackBar(SnackBar(content: Text('Inserted $inserted new sale${inserted == 1 ? '' : 's'}')));
                 },
                 icon: const Icon(Icons.download),
@@ -336,9 +340,9 @@ class _TransactionsDataSource extends DataTableSource {
         DataCell(Text(sale.itemName)),
         DataCell(Text(sale.quantity.toString())),
         DataCell(Text('₱${sale.price}')),
-        DataCell(Text(DateFormat.yMMMd().add_jm().format(sale.timestamp))),
+  DataCell(Text(formatDisplayDate(sale.timestamp))),
+  DataCell(Text(sale.points.toString())),
   DataCell(Text('ID:${sale.id}')),
-  DataCell(Text(sale.timestamp.toLocal().toIso8601String())),
         DataCell(_buildActionsCell(_context, sale)),
       ],
     );

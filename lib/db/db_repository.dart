@@ -39,17 +39,32 @@ class DbRepository {
   /// to run at startup; it updates rows in a transaction.
   Future<void> ensurePointsConsistency() async {
     await db.transaction(() async {
-      final allSales = await db.getAllSales();
+      // Read sales using a raw select so we can handle cases where the
+      // timestamp column is stored as an ISO string (legacy) or as an
+      // integer milliseconds value. Using generated mappers (db.getAllSales)
+      // may fail if the stored format doesn't match Drift's expectation.
+      final rows = await db.customSelect('SELECT id, item_id, buyer_id, quantity, points FROM sales').get();
       final Map<int, int> memberTotals = {};
-      for (final s in allSales) {
-        final item = await db.getItemById(s.itemId);
-        final computed = item != null ? (item.points * s.quantity).toInt() : s.points;
-        if (computed != s.points) {
-          final updated = s.copyWith(points: computed);
-          await db.update(db.sales).replace(updated);
+      for (final row in rows) {
+        final saleId = row.read<int>('id');
+        final itemId = row.read<int>('item_id');
+        final buyerId = row.read<int?>('buyer_id');
+        final quantity = row.read<int>('quantity');
+        final existingPoints = row.read<int>('points');
+
+        final item = await db.getItemById(itemId);
+        final computed = item != null ? (item.points * quantity).toInt() : existingPoints;
+
+        if (computed != existingPoints) {
+          try {
+            await db.customStatement('UPDATE sales SET points = $computed WHERE id = $saleId');
+          } catch (_) {
+            // ignore update failures
+          }
         }
-        if (s.buyerId != null) {
-          memberTotals[s.buyerId!] = (memberTotals[s.buyerId!] ?? 0) + computed;
+
+        if (buyerId != null) {
+          memberTotals[buyerId] = (memberTotals[buyerId] ?? 0) + computed;
         }
       }
 
@@ -140,60 +155,32 @@ class DbRepository {
 
       final memberId = await db.insertMember(companion);
 
-      // If the imported row includes a referrer, attempt to award 15 points to that referrer
-      final refRaw = (map['referrer'] ?? '').trim();
-      if (refRaw.isNotEmpty) {
-        try {
-          Member? refMember;
-          final parsed = int.tryParse(refRaw);
-          if (parsed != null) {
-            if (parsed != memberId) refMember = await db.getMemberById(parsed);
-          } else {
-            final all = await db.getAllMembers();
-            try {
-              final target = refRaw.toLowerCase();
-              refMember = all.firstWhere((m) {
-                final name = ('${m.firstName ?? ''} ${m.lastName ?? ''}').trim().toLowerCase();
-                return name == target;
-              });
-              if (refMember.id == memberId) refMember = null;
-            } catch (_) {
-              refMember = null;
-            }
-          }
-          if (refMember != null) {
-            final updated = refMember.copyWith(points: refMember.points + 15);
-            await db.update(db.members).replace(updated);
-            _changes.add('member_updated');
-            _changes.add('member_points_awarded');
-          }
-        } catch (_) {
-          // ignore failures here
-        }
-      }
+      // NOTE: Do not auto-award referrer points when importing members via CSV.
+      // Awarding points on import can lead to accidental double-awards if the
+      // same data is re-imported. The interactive addMember() path still
+      // awards referrer points for members added through the UI.
 
-      // parse transactions field (if any)
+      // parse transactions field (if any) using shared parser to ensure
+      // timestamp formats (ISO or epoch) are handled consistently
       final txRaw = (map['transactions'] ?? '').trim();
       final List<MemberTransactionEntry> entries = [];
       if (txRaw.isNotEmpty) {
-        final txs = txRaw.split(';');
-        for (final e in txs) {
-          final parts = e.split('|');
-          if (parts.isEmpty) continue;
-          final itemName = parts.isNotEmpty ? parts[0].trim() : '';
-          final quantity = parts.length > 1 ? int.tryParse(parts[1].trim()) ?? 0 : 0;
-          final price = parts.length > 2 ? int.tryParse(parts[2].trim()) ?? 0 : 0;
-          final points = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
-          DateTime? ts;
-          if (parts.length > 4) ts = DateTime.tryParse(parts[4].trim());
-          if (itemName.isEmpty) continue;
-          entries.add(MemberTransactionEntry(itemId: 0, itemName: itemName, quantity: quantity, price: price, points: points, timestamp: ts));
+        final parsed = parseMemberTransactionsColumn(txRaw);
+        for (final p in parsed) {
+          entries.add(MemberTransactionEntry(
+            itemId: p['itemId'] as int? ?? 0,
+            itemName: p['itemName'] as String? ?? '',
+            quantity: p['quantity'] as int? ?? 0,
+            price: p['price'] as int? ?? 0,
+            points: p['points'] as int? ?? 0,
+            timestamp: p['timestamp'] as DateTime?,
+          ));
         }
       }
 
       // If there are parsed transactions, commit them atomically. If commit fails, continue but log.
       if (entries.isNotEmpty) {
-        final err = await commitMemberTransactions(memberId, entries);
+        final err = await commitMemberTransactions(memberId, entries, applyEffects: false);
         if (err != null) {
           // Log the error and continue importing other members
           // ignore: avoid_print
@@ -211,7 +198,7 @@ class DbRepository {
   /// Small DTO for parsed transaction entries coming from member CSV import.
   /// itemId is optional; itemName should be provided.
   /// timestamp may be null to use current time.
-  Future<String?> commitMemberTransactions(int memberId, List<MemberTransactionEntry> entries) async {
+  Future<String?> commitMemberTransactions(int memberId, List<MemberTransactionEntry> entries, {bool applyEffects = true}) async {
     return await db.transaction(() async {
       // Validate member exists
       final buyer = await db.getMemberById(memberId);
@@ -239,8 +226,9 @@ class DbRepository {
         if (item.stock < e.quantity) return 'Insufficient stock for ${item.name}';
       }
 
-      final now = DateTime.now();
-      int totalPoints = 0;
+  final now = DateTime.now();
+      // Load existing sales once to avoid inserting duplicates
+      final existingSales = await db.getAllSales();
 
       // Apply each transaction: insert sale and adjust stock and audit
       for (final e in entries) {
@@ -248,6 +236,15 @@ class DbRepository {
 
         // Compute points based on product's configured points per unit
         final computedPoints = (item.points * e.quantity).toInt();
+        // Avoid duplicate inserts: check existing by core fields + timestamp
+        final duplicate = existingSales.any((s) {
+          final sameCore = s.itemId == item.id && s.itemName == e.itemName && s.quantity == e.quantity && s.price == e.price && (s.buyerId == memberId);
+          if (!sameCore) return false;
+          if (e.timestamp != null) return s.timestamp.toIso8601String() == e.timestamp!.toIso8601String();
+          return true;
+        });
+        if (duplicate) continue;
+
         final saleComp = SalesCompanion.insert(
           itemId: item.id,
           buyerId: Value(memberId),
@@ -257,40 +254,48 @@ class DbRepository {
           points: Value(computedPoints),
           timestamp: Value(e.timestamp ?? now),
         );
-        await db.insertSale(saleComp);
+        final insertedId = await db.insertSale(saleComp);
 
-        // decrement stock
-        final updatedItem = item.copyWith(stock: item.stock - e.quantity, lastUpdated: Value(now));
-        await db.update(db.items).replace(updatedItem);
+        // decrement stock only when applyEffects is true. When importing
+        // historical transactions via CSV we skip mutating stock here to
+        // avoid double-decrementing.
+        if (applyEffects) {
+          final updatedItem = item.copyWith(stock: item.stock - e.quantity, lastUpdated: Value(now));
+          await db.update(db.items).replace(updatedItem);
+        }
 
         // write audit row into member_transactions table (raw SQL using variables)
         try {
+          final tsVal = (e.timestamp ?? now).millisecondsSinceEpoch;
           await db.customInsert(
-            'INSERT INTO member_transactions (member_id, item_id, item_name, quantity, price, points, timestamp) VALUES (?,?,?,?,?,?,?)',
+            'INSERT INTO member_transactions (member_id, sale_id, item_id, item_name, quantity, price, points, timestamp) VALUES (?,?,?,?,?,?,?,?)',
             variables: [
               Variable.withInt(memberId),
+              Variable.withInt(insertedId),
               Variable.withInt(item.id),
               Variable.withString(e.itemName),
               Variable.withInt(e.quantity),
               Variable.withInt(e.price),
               Variable.withInt(e.points),
-              Variable.withString((e.timestamp ?? now).toIso8601String()),
+              Variable.withInt(tsVal),
             ],
           );
         } catch (_) {
           // ignore audit failures
         }
 
-        totalPoints += computedPoints;
+  // totalPoints intentionally not accumulated here; points are
+  // recomputed centrally by ensurePointsConsistency().
+  // add to existingSales so subsequent duplicate checks catch it
+  // (we can't get the inserted id easily here, but fields are sufficient)
+  // create a minimal Sale-like map by adding a synthetic entry via existingSales.add is not possible because it's typed; instead rely on duplicate checks that inspect DB on next import if necessary
       }
+      // NOTE: Do NOT directly award points to the buyer here. Points are
+      // maintained as the sum of sale.points per business rule. The repository
+      //-level import methods will call `ensurePointsConsistency()` after
+      //imports to recompute member.points from sales (avoids double-awards).
 
-      // Award totalPoints to the buyer (the member who bought)
-      if (totalPoints > 0) {
-        final updatedBuyer = buyer.copyWith(points: buyer.points + totalPoints);
-        await db.update(db.members).replace(updatedBuyer);
-      }
-
-      // notify listeners
+      // notify listeners about created transactions and item updates
       _changes.add('member_transactions_committed');
       _changes.add('sale_added');
       _changes.add('item_updated');
@@ -307,8 +312,13 @@ class DbRepository {
 
   /// Import sales from CSV string; returns number of rows inserted.
   Future<int> importSalesCsv(String csv) async {
-    final count = await importSalesFromCsvString(db, csv);
-    if (count > 0) _changes.add('sale_imported');
+    // Default import: treat sales as historical (do not apply stock/points).
+    final count = await importSalesFromCsvString(db, csv, applyEffects: false);
+    if (count > 0) {
+      // Recompute points from sales (safe idempotent operation) and notify.
+      await ensurePointsConsistency();
+      _changes.add('sale_imported');
+    }
     return count;
   }
 

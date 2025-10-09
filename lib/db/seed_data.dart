@@ -2,6 +2,7 @@
 // NOTE: in-memory seed lists were removed. Use CSV import helpers on the repository
 // (e.g. `repository.importItemsCsv(...)`) or an external seed script if initial data is needed.
 import 'package:lzcas/db/app_db.dart' show Item, Member;
+import '../utils/formatters.dart';
 
 // Seed lists removed: this module now only exposes helper mappers and utilities.
 
@@ -12,7 +13,7 @@ List<Map<String, dynamic>> inventoryItemsFromRows(List<Item> rows) {
     'points': r.points,
         'category': r.category ?? '',
         'stock': r.stock,
-        'lastUpdated': r.lastUpdated?.toString() ?? '',
+    'lastUpdated': formatDisplayDate(r.lastUpdated),
         'status': r.status ?? statusFromStock(r.stock),
       }).toList();
 }

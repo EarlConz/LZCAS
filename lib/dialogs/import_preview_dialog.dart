@@ -1,5 +1,24 @@
 // ...existing code...
 import 'package:flutter/material.dart';
+import '../utils/formatters.dart';
+
+DateTime? _parseMaybeTimestamp(String s) {
+  if (s.trim().isEmpty) return null;
+  // Try parse as int (milliseconds or microseconds)
+  final numStr = s.trim();
+  final intVal = int.tryParse(numStr);
+  if (intVal != null) {
+    // Heuristic: if value looks like microseconds (too big), treat accordingly
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (intVal > nowMs * 100) {
+      return DateTime.fromMillisecondsSinceEpoch(intVal ~/ 1000);
+    }
+    return DateTime.fromMillisecondsSinceEpoch(intVal);
+  }
+  // Fallback to ISO parsing
+  final dt = DateTime.tryParse(s.trim());
+  return dt;
+}
 
 Future<bool?> showImportPreviewDialog(
   BuildContext context,
@@ -94,10 +113,14 @@ Future<List<int>?> showImportPreviewDialogWithSelection(
 
   // ignore: use_build_context_synchronously
   return showDialog<List<int>>(context: context, builder: (ctx) {
-  final displayRows = rows.take(previewRows).toList();
+  // When only previewing a slice we must keep the selected[] array indexed
+  // against the original rows list. Build an index map for the displayed
+  // rows so UI controls refer to the correct original indices.
+  final displayCount = rows.length < previewRows ? rows.length : previewRows;
+  final displayIndices = List<int>.generate(displayCount, (i) => i);
   return StatefulBuilder(builder: (ctx2, setState) {
-      final selectedCount = selected.where((s) => s).length;
-      return AlertDialog(
+    final selectedCount = selected.where((s) => s).length;
+    return AlertDialog(
         title: const Text('Import preview'),
         content: SizedBox(
           width: double.maxFinite,
@@ -124,9 +147,9 @@ Future<List<int>?> showImportPreviewDialogWithSelection(
                       for (final h in headers) DataColumn(label: Text(h)),
                       const DataColumn(label: Text('Reason')),
                     ],
-                      rows: List.generate(displayRows.length, (i) {
-                      final globalIndex = i;
-                      final r = displayRows[i];
+                      rows: List.generate(displayIndices.length, (rowPos) {
+                      final globalIndex = displayIndices[rowPos];
+                      final r = rows[globalIndex];
                       final cells = <DataCell>[];
                       cells.add(DataCell(Checkbox(
                         value: selected[globalIndex],
@@ -136,7 +159,19 @@ Future<List<int>?> showImportPreviewDialogWithSelection(
                           });
                         },
                       )));
-                      cells.addAll([for (final c in r) DataCell(Text(c))]);
+                              // Format timestamp-like columns for readability
+                              final formattedCells = <DataCell>[];
+                              for (var i = 0; i < r.length; i++) {
+                                final h = headers.length > i ? headers[i].toString().toLowerCase() : '';
+                                final raw = r[i];
+                                if (h.contains('time') || h.contains('date') || h.contains('timestamp') || h.contains('createdat') || h.contains('lastupdated')) {
+                                  final dt = _parseMaybeTimestamp(raw.toString());
+                                  formattedCells.add(DataCell(Text(formatDisplayDate(dt))));
+                                } else {
+                                  formattedCells.add(DataCell(Text(raw)));
+                                }
+                              }
+                              cells.addAll(formattedCells);
                       final reason = reasons[globalIndex];
                       cells.add(DataCell(reason.isEmpty ? const SizedBox.shrink() : Chip(label: Text(reason))));
                       return DataRow(cells: cells);
@@ -145,7 +180,7 @@ Future<List<int>?> showImportPreviewDialogWithSelection(
                 ),
               ),
               const SizedBox(height: 8),
-              Text('${rows.length} total rows — showing ${displayRows.length} rows — $selectedCount selected'),
+              Text('${rows.length} total rows — showing ${displayIndices.length} rows — $selectedCount selected'),
             ],
           ),
         ),

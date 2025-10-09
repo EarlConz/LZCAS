@@ -65,6 +65,7 @@ Future<AppDb> initDb() async {
       CREATE TABLE IF NOT EXISTS member_transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         member_id INTEGER NOT NULL,
+        sale_id INTEGER,
         item_id INTEGER,
         item_name TEXT,
         quantity INTEGER DEFAULT 0,
@@ -99,6 +100,14 @@ Future<AppDb> initDb() async {
   // Defensive migration: add referrer_id to members if missing (nullable)
   try {
     await appDb.customStatement('ALTER TABLE members ADD COLUMN referrer_id INTEGER;');
+  } catch (_) {
+    // ignore: avoid_print
+    // Column probably already exists or ALTER not applicable — safe to continue.
+  }
+
+  // Defensive migration: add sale_id to member_transactions if missing (nullable)
+  try {
+    await appDb.customStatement('ALTER TABLE member_transactions ADD COLUMN sale_id INTEGER;');
   } catch (_) {
     // ignore: avoid_print
     // Column probably already exists — safe to continue.

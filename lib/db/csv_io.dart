@@ -3,6 +3,7 @@ import 'package:csv/csv.dart';
 import 'package:path/path.dart' as p;
 import 'package:drift/drift.dart' show Value, Variable;
 import 'app_db.dart';
+import 'csv_header_utils.dart';
 
 // Simple QR token generator for CSV import path (keeps tokens stable when imported)
 String _generateMemberQrToken() {
@@ -13,6 +14,32 @@ String _generateMemberQrToken() {
 
 // Core CSV flows for Items and Members. These functions operate on the canonical
 // AppDb instance (lib/db) and only deal with data-level conversions.
+
+// Parse a timestamp string from CSV. Accepts ISO strings or integer epoch
+// values (seconds, milliseconds, microseconds) and returns a DateTime.
+DateTime? _parseCsvTimestamp(String? s) {
+  if (s == null) return null;
+  final raw = s.trim();
+  if (raw.isEmpty) return null;
+  // Try integer parse first (epoch in seconds/ms/us)
+  final intVal = int.tryParse(raw);
+  if (intVal != null) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    // Heuristic: if value is tiny assume seconds
+    if (intVal < 10000000000) {
+      // seconds -> ms
+      return DateTime.fromMillisecondsSinceEpoch(intVal * 1000);
+    }
+    // if value is extremely large, it may be microseconds
+    if (intVal > nowMs * 100) {
+      return DateTime.fromMillisecondsSinceEpoch(intVal ~/ 1000);
+    }
+    // otherwise assume milliseconds
+    return DateTime.fromMillisecondsSinceEpoch(intVal);
+  }
+  // Fallback to ISO parsing
+  return DateTime.tryParse(raw);
+}
 
 Future<String> exportItemsToCsvFile(AppDb db) async {
   final csv = await exportItemsToCsvString(db);
@@ -258,35 +285,11 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
     memberId = createdId;
     inserted++;
     
-    // If the imported row includes a referrer, attempt to award 15 points to that referrer
-    final refRaw = (map['referrer'] ?? '').trim();
-    if (refRaw.isNotEmpty) {
-      try {
-        Member? refMember;
-        final parsed = int.tryParse(refRaw);
-        if (parsed != null) {
-          if (parsed != memberId) refMember = await db.getMemberById(parsed);
-        } else {
-          final allMembers = await db.getAllMembers();
-          try {
-            final target = refRaw.toLowerCase();
-            refMember = allMembers.firstWhere((m) {
-              final name = ('${m.firstName ?? ''} ${m.lastName ?? ''}').trim().toLowerCase();
-              return name == target;
-            });
-            if (refMember.id == memberId) refMember = null;
-          } catch (_) {
-            refMember = null;
-          }
-        }
-        if (refMember != null) {
-          final updated = refMember.copyWith(points: refMember.points + 15);
-          await db.update(db.members).replace(updated);
-        }
-      } catch (_) {
-        // ignore failures here
-      }
-    }
+    // NOTE: During CSV import we intentionally do NOT auto-award referrer
+    // points. Awarding points on imports can easily double-award when the same
+    // data is re-imported (for example after a DB clear). The interactive UI
+    // flow (DbRepository.addMember) still awards referrer points when creating
+    // a member through the app.
     
     // If there are parsed transactions in the CSV, insert them as sales and update stock/points
     final txRaw = (map['transactions'] ?? '').trim();
@@ -296,7 +299,7 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
         // load current items and sales to make decisions
         final allItems = await db.getAllItems();
         final existingSales = await db.getAllSales();
-        int totalPointsForMember = 0;
+  // points are not tracked here; they will be recomputed centrally
         final now = DateTime.now();
         for (final e in parsedTx) {
           final itemName = e['itemName'] as String? ?? '';
@@ -333,20 +336,13 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
           );
           await db.insertSale(saleComp);
 
-          // decrement stock and update item
-          final updatedItem = item.copyWith(stock: item.stock - quantity, lastUpdated: Value(ts));
-          await db.update(db.items).replace(updatedItem);
-
-          totalPointsForMember += computedPoints;
+          // Treat member-imported transactions as historical by default.
+          // Do NOT decrement stock or award points here to avoid double
+          // applying side-effects when importing previously recorded sales.
+          // Points will be recomputed centrally by the repository after imports.
         }
-        // award computed points to member
-        if (totalPointsForMember > 0) {
-          final m = await db.getMemberById(memberId);
-          if (m != null) {
-            final updatedM = m.copyWith(points: m.points + totalPointsForMember);
-            await db.update(db.members).replace(updatedM);
-          }
-        }
+        // Do not directly award points when importing via CSV here. Points
+        // will be recomputed centrally after import to avoid double-awards.
       }
     }
   }
@@ -379,13 +375,13 @@ List<Map<String, dynamic>> parseMemberTransactionsColumn(String txRaw) {
       quantity = parts.length > 2 ? int.tryParse(parts[2].trim()) ?? 0 : 0;
       price = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
       points = parts.length > 4 ? int.tryParse(parts[4].trim()) ?? 0 : 0;
-      if (parts.length > 5) ts = DateTime.tryParse(parts[5].trim());
+  if (parts.length > 5) ts = _parseCsvTimestamp(parts[5].trim());
     } else {
       itemName = parts.length > 0 ? parts[0].trim() : '';
       quantity = parts.length > 1 ? int.tryParse(parts[1].trim()) ?? 0 : 0;
       price = parts.length > 2 ? int.tryParse(parts[2].trim()) ?? 0 : 0;
       points = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
-      if (parts.length > 4) ts = DateTime.tryParse(parts[4].trim());
+  if (parts.length > 4) ts = _parseCsvTimestamp(parts[4].trim());
     }
 
     if (itemName.isEmpty && itemId == null) continue;
@@ -425,7 +421,7 @@ Future<String> exportSalesToCsvString(AppDb db) async {
   return const ListToCsvConverter().convert(fields);
 }
 
-Future<int> importSalesFromCsvString(AppDb db, String csv) async {
+Future<int> importSalesFromCsvString(AppDb db, String csv, {bool applyEffects = false}) async {
   final converter = const CsvToListConverter(eol: '\n');
   final list = converter.convert(csv);
   if (list.isEmpty) return 0;
@@ -435,28 +431,33 @@ Future<int> importSalesFromCsvString(AppDb db, String csv) async {
   int maxImportedId = 0;
   for (final row in rows) {
     final map = <String, String>{};
+    final norm = <String, String>{};
     for (var i = 0; i < headers.length && i < row.length; i++) {
-      map[headers[i]] = row[i]?.toString() ?? '';
+      final key = headers[i];
+      final val = row[i]?.toString() ?? '';
+      map[key] = val;
+      // normalized header -> value
+      norm[normalizeHeader(key)] = val;
     }
-    final id = int.tryParse(map['id'] ?? '');
-    final itemId = int.tryParse(map['itemId'] ?? '') ?? 0;
-    final buyerId = int.tryParse(map['buyerId'] ?? '') ;
-    final itemName = map['itemName'] ?? '';
-    final quantity = int.tryParse(map['quantity'] ?? '') ?? 0;
-    final price = int.tryParse(map['price'] ?? '') ?? 0;
-  final points = int.tryParse(map['points'] ?? '') ?? 0;
+    final id = int.tryParse(norm['id'] ?? '');
+    final itemId = int.tryParse(norm['itemid'] ?? '') ?? 0;
+    final buyerId = int.tryParse(norm['buyerid'] ?? '');
+    final itemName = norm['itemname'] ?? '';
+    final quantity = int.tryParse(norm['quantity'] ?? '') ?? 0;
+    final price = int.tryParse(norm['price'] ?? '') ?? 0;
+    final points = int.tryParse(norm['points'] ?? '') ?? 0;
 
     if (itemName.isEmpty) continue;
 
     // parse timestamp if provided (supports header 'createdAt' or 'timestamp')
     DateTime? ts;
-    final tsStr = (map['createdAt'] ?? map['timestamp'])?.trim();
-    if (tsStr != null && tsStr.isNotEmpty) {
-      ts = DateTime.tryParse(tsStr);
+    final tsRaw = (norm['createdat'] ?? norm['timestamp'])?.trim();
+    if (tsRaw != null && tsRaw.isNotEmpty) {
+      ts = _parseCsvTimestamp(tsRaw);
     }
 
     // If an explicit id is provided, prefer inserting with that id (preserve ids).
-    if (id != null) {
+  if (id != null) {
       // Skip if a sale with this id already exists
       final existingById = await db.getSaleById(id);
       if (existingById != null) continue;
@@ -473,27 +474,44 @@ Future<int> importSalesFromCsvString(AppDb db, String csv) async {
       });
       if (alreadyExists) continue;
 
-      try {
-        // Use NULLIF(?, -1) so we can pass -1 to indicate NULL for buyer_id
-        await db.customInsert(
-          'INSERT INTO sales (id, item_id, buyer_id, item_name, quantity, price, points, timestamp) VALUES (?,?,NULLIF(?, -1),?,?,?,?,?)',
-          variables: [
-            Variable.withInt(id),
-            Variable.withInt(itemId),
-            Variable.withInt(buyerId ?? -1),
-            Variable.withString(itemName),
-            Variable.withInt(quantity),
-            Variable.withInt(price),
-            Variable.withInt(points),
-            Variable.withString((ts ?? DateTime.now()).toIso8601String()),
-          ],
-        );
-        if (id > maxImportedId) maxImportedId = id;
-        inserted++;
-      } catch (_) {
-        // ignore insertion failures for explicit ids
-        continue;
-      }
+        try {
+          // Use NULLIF(?, -1) so we can pass -1 to indicate NULL for buyer_id
+          final tsVal = (ts ?? DateTime.now()).millisecondsSinceEpoch;
+          await db.customInsert(
+            'INSERT INTO sales (id, item_id, buyer_id, item_name, quantity, price, points, timestamp) VALUES (?,?,NULLIF(?, -1),?,?,?,?,?)',
+            variables: [
+              Variable.withInt(id),
+              Variable.withInt(itemId),
+              Variable.withInt(buyerId ?? -1),
+              Variable.withString(itemName),
+              Variable.withInt(quantity),
+              Variable.withInt(price),
+              Variable.withInt(points),
+              Variable.withInt(tsVal),
+            ],
+          );
+
+          // After inserting the sale: optionally adjust item stock. When
+          // `applyEffects` is false we treat the import as historical and do
+          // not mutate stock or member points to avoid side-effects.
+          if (applyEffects) {
+            try {
+              final item = await db.getItemById(itemId);
+              if (item != null) {
+                final updatedItem = item.copyWith(stock: item.stock - quantity, lastUpdated: Value(ts ?? DateTime.now()));
+                await db.update(db.items).replace(updatedItem);
+              }
+            } catch (_) {
+              // ignore stock update failures
+            }
+          }
+
+          if (id > maxImportedId) maxImportedId = id;
+          inserted++;
+        } catch (_) {
+          // ignore insertion failures for explicit ids
+          continue;
+        }
     } else {
       // No explicit id provided — fallback to semantic duplicate detection and normal insert
       final existing = await db.getAllSales();
@@ -516,7 +534,19 @@ Future<int> importSalesFromCsvString(AppDb db, String csv) async {
         points: Value(points),
         timestamp: ts != null ? Value(ts) : const Value.absent(),
       );
-      await db.insertSale(companion);
+  await db.insertSale(companion);
+      // update stock only when applyEffects==true
+      if (applyEffects) {
+        try {
+          final item = await db.getItemById(itemId);
+          if (item != null) {
+            final updatedItem = item.copyWith(stock: item.stock - quantity, lastUpdated: Value(ts ?? DateTime.now()));
+            await db.update(db.items).replace(updatedItem);
+          }
+        } catch (_) {
+          // ignore
+        }
+      }
       inserted++;
     }
   }
