@@ -18,7 +18,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
-  bool _isSidebarOpen = true; 
+  bool _isSidebarOpen = false; 
 
   @override
   void initState() {
@@ -62,9 +62,28 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       body: Row(
         children: [
-          if (_isSidebarOpen)
-            Sidebar(selectedIndex: _selectedIndex, onItemSelected: _onItemTapped),
           
+          // if (_isSidebarOpen)
+          //   Sidebar(selectedIndex: _selectedIndex, onItemSelected: _onItemTapped),
+          
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            width: _isSidebarOpen ? 250 : 0,
+            child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: _isSidebarOpen ? 1.0 : 0.0,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: SizedBox(
+                    width: 250,
+                    child: Sidebar(selectedIndex: _selectedIndex, onItemSelected: _onItemTapped),
+                  ),
+                )
+              ),
+          ),
+
           Expanded(
             child: Column(
               children: [
