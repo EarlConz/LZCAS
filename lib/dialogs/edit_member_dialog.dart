@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member;
 
 class EditMemberDialog extends StatefulWidget {
@@ -28,6 +29,16 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   List<Member> _members = [];
   int? _selectedReferrerId;
 
+  Future<void> _pickBirthday() async {
+    final birthday = await showBirthdayPickerDialog(
+      context,
+      initialValue: birthdayController.text,
+    );
+    if (birthday == null || !mounted) return;
+    setState(() {
+      birthdayController.text = birthday;
+    });
+  }
 
   @override
   void initState() {
@@ -118,7 +129,12 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
             const SizedBox(height: 16),
             TextField(
               controller: birthdayController,
-              decoration: const InputDecoration(labelText: "Birthday"),
+              readOnly: true,
+              onTap: _pickBirthday,
+              decoration: const InputDecoration(
+                labelText: "Birthday",
+                suffixIcon: Icon(Icons.calendar_month_outlined),
+              ),
             ),
             const SizedBox(height: 16),
             TextField(

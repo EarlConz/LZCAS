@@ -2,12 +2,22 @@ import 'package:flutter/material.dart';
 import 'pages/homepage.dart';
 import 'theme.dart';
 import 'data/db_init.dart';
+import 'data/supabase_config.dart';
 import 'package:lzcas/db/db.dart';
 
 late final DbRepository repository;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final supabaseEnabled = await initSupabase();
+  if (supabaseEnabled) {
+    // ignore: avoid_print
+    print('Supabase initialized');
+  } else {
+    // ignore: avoid_print
+    print('Supabase not configured; running in local SQLite mode');
+  }
+
   final db = await initDb();
   repository = DbRepository(db);
   // Run a one-off points consistency migration at startup. This is idempotent.
