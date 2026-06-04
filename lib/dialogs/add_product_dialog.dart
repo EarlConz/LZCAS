@@ -20,6 +20,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
     nameController.dispose();
     categoryController.dispose();
     stockController.dispose();
+    pointsController.dispose();
     super.dispose();
   }
 
@@ -97,9 +98,6 @@ class _AddProductDialogState extends State<AddProductDialog> {
                   : (stock < 50 ? 'Low Stock' : 'Good'),
             });
             Navigator.pop(context);
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('Product added')));
           },
           child: const Text('Add'),
         ),

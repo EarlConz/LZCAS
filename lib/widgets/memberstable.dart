@@ -27,6 +27,7 @@ class MembersTable extends StatefulWidget {
 class MembersTableState extends State<MembersTable> {
   String searchTerm = "";
   List<Map<String, dynamic>> members = [];
+  final Set<int> _selectedMemberIds = {};
 
   late final StreamSubscription<String> _changesSub;
 
@@ -51,6 +52,21 @@ class MembersTableState extends State<MembersTable> {
     final rows = await repository.fetchMembers();
     setState(() {
       members = membersFromRows(rows);
+      final currentIds = members
+          .map((member) => member['id'])
+          .whereType<int>()
+          .toSet();
+      _selectedMemberIds.removeWhere((id) => !currentIds.contains(id));
+    });
+  }
+
+  void _setMemberSelected(int id, bool selected) {
+    setState(() {
+      if (selected) {
+        _selectedMemberIds.add(id);
+      } else {
+        _selectedMemberIds.remove(id);
+      }
     });
   }
 
@@ -350,6 +366,8 @@ class MembersTableState extends State<MembersTable> {
                     source: _MembersDataSource(
                       filteredMembers,
                       widget.onRowSelected,
+                      _selectedMemberIds,
+                      _setMemberSelected,
                       context,
                     ),
                   );
@@ -372,30 +390,45 @@ class MembersTableState extends State<MembersTable> {
 class _MembersDataSource extends DataTableSource {
   final List<Map<String, dynamic>> members;
   final Function(Map<String, dynamic>) onRowSelected;
+  final Set<int> selectedMemberIds;
+  final void Function(int id, bool selected) onSelectionChanged;
   final BuildContext _context;
 
-  _MembersDataSource(this.members, this.onRowSelected, this._context);
+  _MembersDataSource(
+    this.members,
+    this.onRowSelected,
+    this.selectedMemberIds,
+    this.onSelectionChanged,
+    this._context,
+  );
 
   @override
   DataRow getRow(int index) {
     if (index >= members.length) return const DataRow(cells: []);
     final member = members[index];
+    final id = member['id'] as int?;
     final isEven = index % 2 == 0;
     return DataRow(
+      selected: id != null && selectedMemberIds.contains(id),
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
         if (isEven) return Theme.of(_context).colorScheme.surfaceContainerHighest;
         return null;
       }),
-      onSelectChanged: (_) => onRowSelected(member),
+      onSelectChanged: id == null
+          ? null
+          : (selected) => onSelectionChanged(id, selected ?? false),
       cells: [
-        DataCell(Text(member["lastName"] ?? "")),
-        DataCell(Text(member["firstName"] ?? "")),
-        DataCell(Text(member["middleName"] ?? "")),
-        DataCell(Text(member["role"] ?? "")),
-        DataCell(Text(member["contactNo"] ?? "")),
-        DataCell(Text(member["birthday"] ?? "")),
-        DataCell(Text(member["address"] ?? "")),
-        DataCell(Text((member["points"] ?? 0).toString())),
+        DataCell(Text(member["lastName"] ?? ""), onTap: () => onRowSelected(member)),
+        DataCell(Text(member["firstName"] ?? ""), onTap: () => onRowSelected(member)),
+        DataCell(Text(member["middleName"] ?? ""), onTap: () => onRowSelected(member)),
+        DataCell(Text(member["role"] ?? ""), onTap: () => onRowSelected(member)),
+        DataCell(Text(member["contactNo"] ?? ""), onTap: () => onRowSelected(member)),
+        DataCell(Text(member["birthday"] ?? ""), onTap: () => onRowSelected(member)),
+        DataCell(Text(member["address"] ?? ""), onTap: () => onRowSelected(member)),
+        DataCell(
+          Text((member["points"] ?? 0).toString()),
+          onTap: () => onRowSelected(member),
+        ),
       ],
     );
   }
@@ -407,5 +440,5 @@ class _MembersDataSource extends DataTableSource {
   int get rowCount => members.length;
 
   @override
-  int get selectedRowCount => 0;
+  int get selectedRowCount => selectedMemberIds.length;
 }
