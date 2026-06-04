@@ -18,15 +18,13 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
-
-  // pages are built dynamically via _buildPages()
+  bool _isSidebarOpen = true; 
 
   @override
   void initState() {
     super.initState();
   }
 
-  // Build pages in build() so SettingsPage receives updated `isDark` when theme changes
   List<Widget> _buildPages() => [
         const DashboardPage(),
         const InventoryPage(),
@@ -34,6 +32,7 @@ class _HomePageState extends State<HomePage> {
         const TransactionPage(),
         SettingsPage(onToggle: widget.onToggleTheme, initialDark: widget.isDark),
       ];
+
   final List<String> _titles = [
     "Dashboard",
     "Inventory",
@@ -48,6 +47,12 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _toggleSidebar() {
+    setState(() {
+      _isSidebarOpen = !_isSidebarOpen;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -57,7 +62,9 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       body: Row(
         children: [
-          Sidebar(selectedIndex: _selectedIndex, onItemSelected: _onItemTapped),
+          if (_isSidebarOpen)
+            Sidebar(selectedIndex: _selectedIndex, onItemSelected: _onItemTapped),
+          
           Expanded(
             child: Column(
               children: [
@@ -66,13 +73,11 @@ class _HomePageState extends State<HomePage> {
                   child: Container(
                     decoration: BoxDecoration(
                       color: appBarTheme.backgroundColor ?? colorScheme.surface,
-                      boxShadow:
-                          (appBarTheme.elevation != null &&
+                      boxShadow: (appBarTheme.elevation != null &&
                               appBarTheme.elevation! > 0)
                           ? [
                               BoxShadow(
-                                color:
-                                    appBarTheme.shadowColor ??
+                                color: appBarTheme.shadowColor ??
                                     Colors.black.withAlpha((0.1 * 255).round()),
                                 blurRadius: 20,
                                 offset: const Offset(0, 8),
@@ -80,16 +85,28 @@ class _HomePageState extends State<HomePage> {
                             ]
                           : null,
                     ),
-                    padding: const EdgeInsets.fromLTRB(24.0, 20.0, 24.0, 0.0),
+                    padding: const EdgeInsets.fromLTRB(16.0, 20.0, 24.0, 12.0), 
                     alignment: Alignment.centerLeft,
-                    child: Text(
-                      _titles[_selectedIndex],
-                      style:
-                          appBarTheme.titleTextStyle ??
-                          theme.textTheme.headlineMedium?.copyWith(
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            _isSidebarOpen ? Icons.menu_open_rounded : Icons.menu_rounded,
                             color: colorScheme.onSurface,
-                            fontWeight: FontWeight.w600,
                           ),
+                          tooltip: _isSidebarOpen ? "Hide Sidebar" : "Show Sidebar",
+                          onPressed: _toggleSidebar,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          _titles[_selectedIndex],
+                          style: appBarTheme.titleTextStyle ??
+                              theme.textTheme.headlineMedium?.copyWith(
+                                color: colorScheme.onSurface,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

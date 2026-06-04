@@ -2,21 +2,17 @@
 
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:drift/native.dart';
 import 'package:lzcas/db/app_db.dart';
 
-/// Initialize a NativeDatabase stored under the project's `lib/data` folder.
-///
-/// NOTE: Writing into the source tree is fine for local development but may
-/// be read-only when the app is packaged/installed. This follows your
-/// request to keep the DB physically under `lib/data`.
+/// Initialize a NativeDatabase stored in the app's private writable folder.
 Future<AppDb> initDb() async {
-  // Use current working directory (project root) and place DB under lib/data
-  final cwd = Directory.current.path;
-  final dbDir = Directory(p.join(cwd, 'lib', 'data'));
+  final appDir = await getApplicationSupportDirectory();
+  final dbDir = Directory(p.join(appDir.path, 'data'));
   if (!await dbDir.exists()) await dbDir.create(recursive: true);
   final file = File(p.join(dbDir.path, 'app.db'));
-  // Log the DB path so runtime uses are easy to trace
+  // Log the DB path so runtime uses are easy to trace.
   // ignore: avoid_print
   print('initDb: opening database at ${file.path}');
 

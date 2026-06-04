@@ -65,68 +65,89 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Row with Summary Cards
-          Row(
-            children: [
-              Expanded(
-                child: InfoCard(
-                  title: "Total Products",
-                  value: totalProducts.toString(),
-                  description: "Total number of products in inventory",
-                  icon: Icons.inventory_2_rounded,
-                  contentColor: const Color(0xFF4CAF50),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: InfoCard(
-                  title: "Low Stock Items",
-                  value: lowStockItems.toString(),
-                  description: "Number of items that are running low",
-                  icon: Icons.warning_amber_rounded,
-                  contentColor: const Color(0xFFFFB74D),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: InfoCard(
-                  title: "Out of Stock Items",
-                  value: outOfStockItems.toString(),
-                  description: "Count of items currently out of stock",
-                  icon: Icons.remove_shopping_cart_rounded,
-                  contentColor: const Color(0xFFE57373),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
+Widget build(BuildContext context) {
+  return SingleChildScrollView(
+    padding: const EdgeInsets.all(16),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isMobile = constraints.maxWidth < 600;
 
-          // Weekly Sales Section
-          SalesChart(
-            title: "Top Sales This Week",
-            salesData: weekly,
-            maxYOffset: 20,
-            barColor: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(height: 10),
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (isMobile)
+              Column(
+                children: [
+                  _buildCard("Total Products", totalProducts.toString(), "Total number of products in inventory", Icons.inventory_2_rounded, const Color(0xFF4CAF50)),
+                  const SizedBox(height: 16),
+                  _buildCard("Low Stock Items", lowStockItems.toString(), "Number of items that are running low", Icons.warning_amber_rounded, const Color(0xFFFFB74D)),
+                  const SizedBox(height: 16),
+                  _buildCard("Out of Stock Items", outOfStockItems.toString(), "Count of items currently out of stock", Icons.remove_shopping_cart_rounded, const Color(0xFFE57373)),
+                ],
+              )
+            else
+              Row(
+                children: [
+                  Expanded(child: _buildCard("Total Products", totalProducts.toString(), "Total number of products in inventory", Icons.inventory_2_rounded, const Color(0xFF4CAF50))),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildCard("Low Stock Items", lowStockItems.toString(), "Number of items that are running low", Icons.warning_amber_rounded, const Color(0xFFFFB74D))),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildCard("Out of Stock Items", outOfStockItems.toString(), "Count of items currently out of stock", Icons.remove_shopping_cart_rounded, const Color(0xFFE57373))),
+                ],
+              ),
+            
+            const SizedBox(height: 24),
 
-          // Monthly Sales Section
-          SalesChart(
-            title:
-                "Top Sales This Month (${DateFormat.MMMM().format(DateTime.now())})",
-            salesData: monthly,
-            maxYOffset: 50,
-            barColor: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(height: 10),
-        ],
-      ),
-    );
-  }
+            if (isMobile)
+              Column(
+                children: [
+                  _buildWeeklyChart(context),
+                  const SizedBox(height: 16),
+                  _buildMonthlyChart(context),
+                ],
+              )
+            else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildWeeklyChart(context)),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildMonthlyChart(context)),
+                ],
+              ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+Widget _buildCard(String title, String value, String description, IconData icon, Color color) {
+  return InfoCard(
+    title: title,
+    value: value,
+    description: description,
+    icon: icon,
+    contentColor: color,
+  );
+}
+
+Widget _buildWeeklyChart(BuildContext context) {
+  return SalesChart(
+    title: "Top Sales This Week",
+    salesData: weekly,
+    maxYOffset: 20,
+    barColor: Theme.of(context).colorScheme.primary,
+  );
+}
+
+Widget _buildMonthlyChart(BuildContext context) {
+  return SalesChart(
+    title: "Top Sales This Month (${DateFormat.MMMM().format(DateTime.now())})",
+    salesData: monthly,
+    maxYOffset: 50,
+    barColor: Theme.of(context).colorScheme.primary,
+  );
+}
+
 }
