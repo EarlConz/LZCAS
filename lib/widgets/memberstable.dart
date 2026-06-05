@@ -270,9 +270,6 @@ class MembersTableState extends State<MembersTable> {
 
   @override
   Widget build(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isDesktop = screenWidth >= 780;
-
     final filteredMembers = members.where((member) {
       final search = searchTerm.toLowerCase();
       return member.values.any(
@@ -280,127 +277,134 @@ class MembersTableState extends State<MembersTable> {
       );
     }).toList();
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: isDesktop
-              ? Row(
-                  children: [
-                    Expanded(
-                      child: SearchBarWidget(
-                        onChanged: (value) =>
-                            setState(() => searchTerm = value),
-                        hintText: "Search members...",
-                        borderRadius: 12,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 16,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      icon: Icon(
-                        Icons.person_add,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                      label: const Text(
-                        "Add Member",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      backgroundColor: Colors.blue[700],
-                      onPressed: _onAddMemberPressed,
-                    ),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      icon: Icon(
-                        Icons.upload_file,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                      label: const Text(
-                        'Export CSV',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      backgroundColor: Colors.grey[700],
-                      onPressed: () => _onExportCsvPressed(context),
-                    ),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      icon: Icon(
-                        Icons.download,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                      label: const Text(
-                        'Import CSV',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      backgroundColor: Colors.grey[700],
-                      onPressed: () => _onImportCsvPressed(context),
-                    ),
-                  ],
-                )
-              : Column(
-                  children: [
-                    SearchBarWidget(
-                      onChanged: (value) => setState(() => searchTerm = value),
-                      hintText: "Search members...",
-                      borderRadius: 12,
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 8,
-                        horizontal: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isDesktop = constraints.maxWidth >= 900;
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: isDesktop
+                  ? Row(
                       children: [
-                        IconButton.filled(
-                          tooltip: 'Add Member',
-                          icon: const Icon(Icons.person_add),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.blue[700],
+                        Expanded(
+                          child: SearchBarWidget(
+                            onChanged: (value) =>
+                                setState(() => searchTerm = value),
+                            hintText: "Search members...",
+                            borderRadius: 12,
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 16,
+                            ),
                           ),
+                        ),
+                        const SizedBox(width: 8),
+                        CustomElevatedButton(
+                          icon: Icon(
+                            Icons.person_add,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                          ),
+                          label: const Text(
+                            "Add Member",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          backgroundColor: Colors.blue[700],
                           onPressed: _onAddMemberPressed,
                         ),
                         const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: 'Export CSV',
-                          icon: const Icon(Icons.upload_file),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.grey[700],
+                        CustomElevatedButton(
+                          icon: Icon(
+                            Icons.upload_file,
+                            color: Theme.of(context).colorScheme.onPrimary,
                           ),
+                          label: const Text(
+                            'Export CSV',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          backgroundColor: Colors.grey[700],
                           onPressed: () => _onExportCsvPressed(context),
                         ),
                         const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: 'Import CSV',
-                          icon: const Icon(Icons.download),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.grey[700],
+                        CustomElevatedButton(
+                          icon: Icon(
+                            Icons.download,
+                            color: Theme.of(context).colorScheme.onPrimary,
                           ),
+                          label: const Text(
+                            'Import CSV',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          backgroundColor: Colors.grey[700],
                           onPressed: () => _onImportCsvPressed(context),
                         ),
                       ],
+                    )
+                  : Column(
+                      children: [
+                        SearchBarWidget(
+                          onChanged: (value) =>
+                              setState(() => searchTerm = value),
+                          hintText: "Search members...",
+                          borderRadius: 12,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            IconButton.filled(
+                              tooltip: 'Add Member',
+                              icon: const Icon(Icons.person_add),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.blue[700],
+                              ),
+                              onPressed: _onAddMemberPressed,
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filled(
+                              tooltip: 'Export CSV',
+                              icon: const Icon(Icons.upload_file),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                              ),
+                              onPressed: () => _onExportCsvPressed(context),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filled(
+                              tooltip: 'Import CSV',
+                              icon: const Icon(Icons.download),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                              ),
+                              onPressed: () => _onImportCsvPressed(context),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-        ),
-        Expanded(
-          child: isDesktop
-              ? _buildMembersTable(context, filteredMembers)
-              : _buildMembersList(context, filteredMembers),
-        ),
-      ],
+            ),
+            Expanded(
+              child: isDesktop
+                  ? _buildMembersTable(context, filteredMembers)
+                  : _buildMembersList(context, filteredMembers),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -427,31 +431,34 @@ class MembersTableState extends State<MembersTable> {
             var available = constraints.maxHeight - reserved;
             if (available < 56) available = 56;
             final estimated = (available ~/ 56).clamp(1, 7);
+            final tableWidth = constraints.hasBoundedWidth
+                ? constraints.maxWidth
+                : (constraints.minWidth.isFinite && constraints.minWidth > 0
+                      ? constraints.minWidth
+                      : MediaQuery.sizeOf(context).width);
 
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                child: PaginatedDataTable(
-                  columnSpacing: 40,
-                  rowsPerPage: estimated,
-                  columns: const [
-                    DataColumn(label: Text('Last Name')),
-                    DataColumn(label: Text('First Name')),
-                    DataColumn(label: Text('Middle Name')),
-                    DataColumn(label: Text('Role')),
-                    DataColumn(label: Text('Contact No.')),
-                    DataColumn(label: Text('Birthday')),
-                    DataColumn(label: Text('Address')),
-                    DataColumn(label: Text('Points')),
-                  ],
-                  source: _MembersDataSource(
-                    filteredMembers,
-                    widget.onRowSelected,
-                    _selectedMemberIds,
-                    _setMemberSelected,
-                    context,
-                  ),
+            return SizedBox(
+              width: tableWidth,
+              child: PaginatedDataTable(
+                horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
+                columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
+                rowsPerPage: estimated,
+                columns: const [
+                  DataColumn(label: Text('Last Name')),
+                  DataColumn(label: Text('First Name')),
+                  DataColumn(label: Text('Middle Name')),
+                  DataColumn(label: Text('Role')),
+                  DataColumn(label: Text('Contact No.')),
+                  DataColumn(label: Text('Birthday')),
+                  DataColumn(label: Text('Address')),
+                  DataColumn(label: Text('Points')),
+                ],
+                source: _MembersDataSource(
+                  filteredMembers,
+                  widget.onRowSelected,
+                  _selectedMemberIds,
+                  _setMemberSelected,
+                  context,
                 ),
               ),
             );

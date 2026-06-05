@@ -33,6 +33,16 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Local secrets and exported app data
+.env
+.env.*
+!.env.example
+supabase.local.json
+*.db
+*.sqlite
+*.sqlite3
+*_export_*.csv
+
 # Symbolication related
 app.*.symbols
 

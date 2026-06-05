@@ -22,12 +22,12 @@ class _HomePageState extends State<HomePage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   List<Widget> _buildPages() => [
-        const DashboardPage(),
-        const InventoryPage(),
-        const MembersPage(),
-        const TransactionPage(),
-        SettingsPage(onToggle: widget.onToggleTheme, initialDark: widget.isDark),
-      ];
+    const DashboardPage(),
+    const InventoryPage(),
+    const MembersPage(),
+    const TransactionPage(),
+    SettingsPage(onToggle: widget.onToggleTheme, initialDark: widget.isDark),
+  ];
 
   final List<String> _titles = [
     "Dashboard",
@@ -56,58 +56,125 @@ class _HomePageState extends State<HomePage> {
     final theme = Theme.of(context);
     final appBarTheme = theme.appBarTheme;
     final colorScheme = theme.colorScheme;
+    final isDesktop = MediaQuery.sizeOf(context).width >= 900;
+    final pages = _buildPages();
 
     return Scaffold(
-      key: _scaffoldKey, 
+      key: _scaffoldKey,
+      drawer: isDesktop
+          ? null
+          : Sidebar(
+              selectedIndex: _selectedIndex,
+              onItemSelected: _onItemTapped,
+            ),
 
-      drawer: Sidebar(
-        selectedIndex: _selectedIndex, 
-        onItemSelected: _onItemTapped
-      ),
-
-      body: Column(
+      body: Row(
         children: [
-          SafeArea(
-            top: true,
-            child: Container(
-              decoration: BoxDecoration(
-                color: appBarTheme.backgroundColor ?? colorScheme.surface,
-                boxShadow: (appBarTheme.elevation != null && appBarTheme.elevation! > 0)
-                    ? [
-                        BoxShadow(
-                          color: appBarTheme.shadowColor ?? Colors.black.withAlpha((0.1 * 255).round()),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
-                        ),
-                      ]
-                    : null,
-              ),
-              padding: const EdgeInsets.fromLTRB(16.0, 20.0, 24.0, 12.0),
-              alignment: Alignment.centerLeft,
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.menu_rounded),
-                    tooltip: "Toggle Sidebar",
-                    onPressed: _toggleSidebar,
+          if (isDesktop)
+            SafeArea(
+              right: false,
+              child: NavigationRail(
+                selectedIndex: _selectedIndex,
+                onDestinationSelected: _onItemTapped,
+                minWidth: 82,
+                labelType: NavigationRailLabelType.all,
+                leading: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  child: Text(
+                    'LZCAS',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  Text(
-                    _titles[_selectedIndex],
-                    style: appBarTheme.titleTextStyle ??
-                        theme.textTheme.headlineMedium?.copyWith(
-                          color: colorScheme.onSurface,
-                          fontWeight: FontWeight.w600,
-                        ),
+                ),
+                destinations: const [
+                  NavigationRailDestination(
+                    icon: Icon(Icons.dashboard_rounded),
+                    label: Text('Dashboard'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.inventory_2_rounded),
+                    label: Text('Inventory'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.people_alt_rounded),
+                    label: Text('Members'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.card_giftcard_rounded),
+                    label: Text('Transactions'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.settings_rounded),
+                    label: Text('Settings'),
                   ),
                 ],
               ),
             ),
-          ),
+          if (isDesktop) const VerticalDivider(width: 1),
           Expanded(
-            child: Container(
-              color: theme.colorScheme.surface,
-              child: _buildPages()[_selectedIndex],
+            child: Column(
+              children: [
+                SafeArea(
+                  top: true,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: appBarTheme.backgroundColor ?? colorScheme.surface,
+                      boxShadow:
+                          (appBarTheme.elevation != null &&
+                              appBarTheme.elevation! > 0)
+                          ? [
+                              BoxShadow(
+                                color:
+                                    appBarTheme.shadowColor ??
+                                    Colors.black.withAlpha((0.1 * 255).round()),
+                                blurRadius: 20,
+                                offset: const Offset(0, 8),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    padding: EdgeInsets.fromLTRB(
+                      isDesktop ? 24.0 : 16.0,
+                      20.0,
+                      24.0,
+                      12.0,
+                    ),
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      children: [
+                        if (!isDesktop) ...[
+                          IconButton(
+                            icon: const Icon(Icons.menu_rounded),
+                            tooltip: "Toggle Sidebar",
+                            onPressed: _toggleSidebar,
+                          ),
+                          const SizedBox(width: 12),
+                        ],
+                        Expanded(
+                          child: Text(
+                            _titles[_selectedIndex],
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                appBarTheme.titleTextStyle ??
+                                theme.textTheme.headlineMedium?.copyWith(
+                                  color: colorScheme.onSurface,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    color: theme.colorScheme.surface,
+                    child: pages[_selectedIndex],
+                  ),
+                ),
+              ],
             ),
           ),
         ],
