@@ -4,7 +4,9 @@ import 'package:drift/drift.dart' show Value;
 import 'package:lzcas/db/db.dart';
 
 class SellButton extends StatefulWidget {
-  const SellButton({super.key});
+  final bool compact;
+
+  const SellButton({super.key, this.compact = false});
 
   @override
   State<SellButton> createState() => _SellButtonState();
@@ -24,7 +26,9 @@ class _SellButtonState extends State<SellButton> {
   Future<void> _loadItems() async {
     final rows = await repository.fetchItems();
     setState(() {
-      items = inventoryItemsFromRows(rows).map((i) => i['name'].toString()).toList();
+      items = inventoryItemsFromRows(
+        rows,
+      ).map((i) => i['name'].toString()).toList();
     });
   }
 
@@ -50,6 +54,14 @@ class _SellButtonState extends State<SellButton> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.compact) {
+      return IconButton.filled(
+        tooltip: 'Sell',
+        icon: const Icon(Icons.point_of_sale),
+        onPressed: () => _showSellDialog(context),
+      );
+    }
+
     return ElevatedButton.icon(
       icon: const Icon(Icons.point_of_sale),
       label: const Text('Sell'),
@@ -63,7 +75,11 @@ class _SellDialog extends StatefulWidget {
   final List<Map<String, dynamic>> members;
   final VoidCallback onSaleConfirmed;
 
-  const _SellDialog({required this.items, required this.members, required this.onSaleConfirmed});
+  const _SellDialog({
+    required this.items,
+    required this.members,
+    required this.onSaleConfirmed,
+  });
 
   @override
   State<_SellDialog> createState() => _SellDialogState();
@@ -84,7 +100,9 @@ class _SellDialogState extends State<_SellDialog> {
   void initState() {
     super.initState();
     _qtyFocusNode.addListener(() {
-      if (_qtyFocusNode.hasFocus && _qtyController.text == '1') _qtyController.clear();
+      if (_qtyFocusNode.hasFocus && _qtyController.text == '1') {
+        _qtyController.clear();
+      }
     });
   }
 
@@ -106,7 +124,12 @@ class _SellDialogState extends State<_SellDialog> {
       builder: (_) => AlertDialog(
         title: const Text('Error'),
         content: Text(message),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -122,7 +145,11 @@ class _SellDialogState extends State<_SellDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final totalPoints = cart.fold<int>(0, (acc, e) => acc + ((e['points'] as int? ?? 0) * (e['quantity'] as int? ?? 0)));
+    final totalPoints = cart.fold<int>(
+      0,
+      (acc, e) =>
+          acc + ((e['points'] as int? ?? 0) * (e['quantity'] as int? ?? 0)),
+    );
     final totalPrice = cart.fold<int>(0, (acc, e) {
       final priceStr = (e['price'] ?? '').toString();
       final p = int.tryParse(priceStr) ?? 0;
@@ -135,7 +162,9 @@ class _SellDialogState extends State<_SellDialog> {
       content: SizedBox(
         width: 650,
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.75,
+          ),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -143,14 +172,19 @@ class _SellDialogState extends State<_SellDialog> {
                 // Buyer picker (member-picker) - Option 2: prefer numeric referrerId when awarding points
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8.0),
-                      child: DropdownButtonFormField<int?>(
+                  child: DropdownButtonFormField<int?>(
                     decoration: const InputDecoration(labelText: 'Buyer'),
                     initialValue: selectedBuyerId,
                     items: [
-                      ...widget.members.map((m) => DropdownMenuItem<int?>(
-                            value: m['id'] as int?,
-                            child: Text('${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'.trim()),
-                          )),
+                      ...widget.members.map(
+                        (m) => DropdownMenuItem<int?>(
+                          value: m['id'] as int?,
+                          child: Text(
+                            '${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'
+                                .trim(),
+                          ),
+                        ),
+                      ),
                     ],
                     onChanged: (v) => setState(() => selectedBuyerId = v),
                   ),
@@ -173,7 +207,8 @@ class _SellDialogState extends State<_SellDialog> {
                           ),
                           onChanged: (_) => setState(() {}),
                         ),
-                        if (_itemFocusNode.hasFocus || _itemSearchController.text.isNotEmpty)
+                        if (_itemFocusNode.hasFocus ||
+                            _itemSearchController.text.isNotEmpty)
                           Container(
                             constraints: const BoxConstraints(maxHeight: 200),
                             margin: const EdgeInsets.only(top: 4),
@@ -186,19 +221,23 @@ class _SellDialogState extends State<_SellDialog> {
                               shrinkWrap: true,
                               children: widget.items
                                   .where((i) {
-                                    final query = _itemSearchController.text.toLowerCase();
-                                    return query.isEmpty || i.toLowerCase().contains(query);
+                                    final query = _itemSearchController.text
+                                        .toLowerCase();
+                                    return query.isEmpty ||
+                                        i.toLowerCase().contains(query);
                                   })
-                                  .map((i) => ListTile(
-                                        title: Text(i),
-                                        onTap: () {
-                                          setState(() {
-                                            selectedItem = i;
-                                            _itemSearchController.text = i;
-                                            _itemFocusNode.unfocus();
-                                          });
-                                        },
-                                      ))
+                                  .map(
+                                    (i) => ListTile(
+                                      title: Text(i),
+                                      onTap: () {
+                                        setState(() {
+                                          selectedItem = i;
+                                          _itemSearchController.text = i;
+                                          _itemFocusNode.unfocus();
+                                        });
+                                      },
+                                    ),
+                                  )
                                   .toList(),
                             ),
                           ),
@@ -216,8 +255,12 @@ class _SellDialogState extends State<_SellDialog> {
                       child: DropdownButtonFormField<String>(
                         isExpanded: true,
                         decoration: const InputDecoration(labelText: 'Item'),
-                         initialValue: selectedItem,
-                        items: widget.items.map((i) => DropdownMenuItem(value: i, child: Text(i))).toList(),
+                        initialValue: selectedItem,
+                        items: widget.items
+                            .map(
+                              (i) => DropdownMenuItem(value: i, child: Text(i)),
+                            )
+                            .toList(),
                         onChanged: (v) => setState(() => selectedItem = v),
                       ),
                     ),
@@ -228,41 +271,46 @@ class _SellDialogState extends State<_SellDialog> {
                         controller: _qtyController,
                         focusNode: _qtyFocusNode,
                         keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
                         decoration: const InputDecoration(labelText: 'Qty'),
-                        onChanged: (v) => setState(() => quantity = int.tryParse(v) ?? 1),
+                        onChanged: (v) =>
+                            setState(() => quantity = int.tryParse(v) ?? 1),
                       ),
                     ),
                     const SizedBox(width: 12),
                     ElevatedButton(
-                        onPressed: () {
-                          if (selectedItem == null) {
-                            _showError('Please select an item');
-                            return;
-                          }
-                          final matched = widget.items.contains(selectedItem);
-                          if (!matched) {
-                            _showError('Invalid item');
-                            return;
-                          }
-                          // fetch item to get points and default price (non-blocking best-effort)
-                          repository.fetchItems().then((rows) {
-              final found = inventoryItemsFromRows(rows).firstWhere(
-                (r) => r['name'] == selectedItem,
-                orElse: () => <String, Object>{});
-                            final pts = (found['points'] as int?) ?? 0;
-                            setState(() {
-                              cart.add({
-                                'item': selectedItem,
-                                'quantity': quantity,
-                                'points': pts,
-                                'price': '',
-                                'priceController': TextEditingController(),
-                              });
+                      onPressed: () {
+                        if (selectedItem == null) {
+                          _showError('Please select an item');
+                          return;
+                        }
+                        final matched = widget.items.contains(selectedItem);
+                        if (!matched) {
+                          _showError('Invalid item');
+                          return;
+                        }
+                        // fetch item to get points and default price (non-blocking best-effort)
+                        repository.fetchItems().then((rows) {
+                          final found = inventoryItemsFromRows(rows).firstWhere(
+                            (r) => r['name'] == selectedItem,
+                            orElse: () => <String, Object>{},
+                          );
+                          final pts = (found['points'] as int?) ?? 0;
+                          setState(() {
+                            cart.add({
+                              'item': selectedItem,
+                              'quantity': quantity,
+                              'points': pts,
+                              'price': '',
+                              'priceController': TextEditingController(),
                             });
                           });
-                        },
-                        child: const Text('Add')),
+                        });
+                      },
+                      child: const Text('Add'),
+                    ),
                   ],
                 ),
 
@@ -283,7 +331,9 @@ class _SellDialogState extends State<_SellDialog> {
                               Expanded(
                                 child: ListTile(
                                   title: Text(entry['item']),
-                                  subtitle: Text('Qty: ${entry['quantity']}   Pts: ${entry['points']}'),
+                                  subtitle: Text(
+                                    'Qty: ${entry['quantity']}   Pts: ${entry['points']}',
+                                  ),
                                 ),
                               ),
                               SizedBox(
@@ -291,15 +341,26 @@ class _SellDialogState extends State<_SellDialog> {
                                 child: TextField(
                                   controller: entry['priceController'],
                                   keyboardType: TextInputType.number,
-                                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                  decoration: const InputDecoration(labelText: 'Price', hintText: 'Enter Price', isDense: true),
-                                  onChanged: (val) => setState(() => entry['price'] = val),
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  decoration: const InputDecoration(
+                                    labelText: 'Price',
+                                    hintText: 'Enter Price',
+                                    isDense: true,
+                                  ),
+                                  onChanged: (val) =>
+                                      setState(() => entry['price'] = val),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
-                                onPressed: () => setState(() => cart.removeAt(index)),
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.red,
+                                ),
+                                onPressed: () =>
+                                    setState(() => cart.removeAt(index)),
                               ),
                             ],
                           ),
@@ -318,7 +379,12 @@ class _SellDialogState extends State<_SellDialog> {
                         Expanded(
                           child: Text(
                             'Points to receive: $totalPoints',
-                            style: TextStyle(fontStyle: FontStyle.italic, color: Theme.of(context).textTheme.bodyMedium?.color),
+                            style: TextStyle(
+                              fontStyle: FontStyle.italic,
+                              color: Theme.of(
+                                context,
+                              ).textTheme.bodyMedium?.color,
+                            ),
                           ),
                         ),
                         // right: total price (we'll also show above confirm)
@@ -335,52 +401,77 @@ class _SellDialogState extends State<_SellDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        if (cart.isNotEmpty) Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0),
-          child: Text('Total: ₱$totalPrice', style: const TextStyle(fontWeight: FontWeight.bold)),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
         ),
-                ElevatedButton(
+        if (cart.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+            child: Text(
+              'Total: ₱$totalPrice',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ElevatedButton(
           onPressed: isCartValid()
-                ? () async {
-                    final safeContext = context; // capture before awaits
-                    // persist sales and update stock
-                    final transactionTs = DateTime.now();
-                    for (var entry in cart) {
-                      final dbItem = (await repository.fetchItems()).firstWhere((r) => r.name == entry['item']);
-                      final q = entry['quantity'] as int;
-                      final newStock = dbItem.stock - q;
-                      final newStatus = statusFromStock(newStock);
-                      final updated = dbItem.copyWith(stock: newStock, lastUpdated: Value(DateTime.now()), status: Value(newStatus));
-                      await repository.updateItem(updated);
+              ? () async {
+                  final safeContext = context; // capture before awaits
+                  // persist sales and update stock
+                  final transactionTs = DateTime.now();
+                  for (var entry in cart) {
+                    final dbItem = (await repository.fetchItems()).firstWhere(
+                      (r) => r.name == entry['item'],
+                    );
+                    final q = entry['quantity'] as int;
+                    final newStock = dbItem.stock - q;
+                    final newStatus = statusFromStock(newStock);
+                    final updated = dbItem.copyWith(
+                      stock: newStock,
+                      lastUpdated: Value(DateTime.now()),
+                      status: Value(newStatus),
+                    );
+                    await repository.updateItem(updated);
 
-                      final priceStr = (entry['price'] ?? '').toString();
-                      final price = int.tryParse(priceStr) ?? 0;
-                      final ptsPerUnit = entry['points'] as int? ?? 0;
-                      final totalForSale = ptsPerUnit * q;
-                      await repository.addSale(itemId: dbItem.id, itemName: dbItem.name, quantity: q, price: price, points: totalForSale, timestamp: transactionTs, buyerId: selectedBuyerId);
-                    }
+                    final priceStr = (entry['price'] ?? '').toString();
+                    final price = int.tryParse(priceStr) ?? 0;
+                    final ptsPerUnit = entry['points'] as int? ?? 0;
+                    final totalForSale = ptsPerUnit * q;
+                    await repository.addSale(
+                      itemId: dbItem.id,
+                      itemName: dbItem.name,
+                      quantity: q,
+                      price: price,
+                      points: totalForSale,
+                      timestamp: transactionTs,
+                      buyerId: selectedBuyerId,
+                    );
+                  }
 
-                    // Award points to the buyer (points per product * quantity) if selected
-                    if (selectedBuyerId != null && totalPoints > 0) {
-                      try {
-                        final buyer = await repository.getMemberById(selectedBuyerId!);
-                        if (buyer != null) {
-                          final updatedBuyer = buyer.copyWith(points: buyer.points + totalPoints);
-                          await repository.updateMember(updatedBuyer);
-                        }
-                      } catch (e) {
-                        // ignore failures but log for debugging
-                        // ignore: avoid_print
-                        print('Failed to award points to buyer: $e');
+                  // Award points to the buyer (points per product * quantity) if selected
+                  if (selectedBuyerId != null && totalPoints > 0) {
+                    try {
+                      final buyer = await repository.getMemberById(
+                        selectedBuyerId!,
+                      );
+                      if (buyer != null) {
+                        final updatedBuyer = buyer.copyWith(
+                          points: buyer.points + totalPoints,
+                        );
+                        await repository.updateMember(updatedBuyer);
                       }
+                    } catch (e) {
+                      // ignore failures but log for debugging
+                      // ignore: avoid_print
+                      print('Failed to award points to buyer: $e');
                     }
+                  }
 
-                    widget.onSaleConfirmed();
-                    if (!mounted) return; // ensure safe to use Navigator
-                    // ignore: use_build_context_synchronously
-                    Navigator.pop(safeContext, cart);
-                    cart.clear();
+                  widget.onSaleConfirmed();
+                  if (!mounted) return; // ensure safe to use Navigator
+                  // ignore: use_build_context_synchronously
+                  Navigator.pop(safeContext, cart);
+                  cart.clear();
                 }
               : null,
           child: const Text('Confirm'),

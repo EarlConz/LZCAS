@@ -23,7 +23,11 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     super.initState();
     member = widget.member;
     _sub = repository.changes.listen((e) {
-      if (e == 'sale_added' || e == 'sale_imported' || e == 'sale_updated' || e == 'sale_deleted' || e == 'member_transactions_committed') {
+      if (e == 'sale_added' ||
+          e == 'sale_imported' ||
+          e == 'sale_updated' ||
+          e == 'sale_deleted' ||
+          e == 'member_transactions_committed') {
         if (mounted) setState(() {});
       }
     });
@@ -44,24 +48,35 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   }
 
   void _showTransactionHistory() {
-    final fullName = [
-      member['firstName'],
-      member['middleName'],
-      member['lastName'],
-    ].where((part) => part != null && part.toString().trim().isNotEmpty).join(' ');
+    final fullName =
+        [member['firstName'], member['middleName'], member['lastName']]
+            .where((part) => part != null && part.toString().trim().isNotEmpty)
+            .join(' ');
     final memberId = (member['id'] ?? 0) as int;
 
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
         final theme = Theme.of(dialogContext);
+        final size = MediaQuery.of(dialogContext).size;
 
         return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: size.width < 480 ? 12 : 24,
+            vertical: 24,
+          ),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560),
+            constraints: BoxConstraints(
+              maxWidth: 560,
+              maxHeight: size.height * 0.85,
+            ),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+              padding: EdgeInsets.fromLTRB(
+                size.width < 480 ? 12 : 18,
+                16,
+                size.width < 480 ? 12 : 18,
+                18,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -76,11 +91,15 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
                               fullName.isEmpty ? 'Member History' : fullName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                             Text(
                               'Transaction history',
-                              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ],
                         ),
@@ -93,7 +112,11 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  _MemberTransactionHistory(memberId: memberId),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: _MemberTransactionHistory(memberId: memberId),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -106,10 +129,11 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final bool isCompact = MediaQuery.of(context).size.width < 480;
     return Container(
       width: double.infinity,
       margin: EdgeInsets.zero,
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(isCompact ? 14 : 20),
       decoration: BoxDecoration(
         color: theme.cardColor,
         borderRadius: BorderRadius.circular(8),
@@ -145,21 +169,19 @@ class _MemberProfileSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final fullName = [
-      member['firstName'],
-      member['middleName'],
-      member['lastName'],
-    ].where((part) => part != null && part.toString().trim().isNotEmpty).join(' ');
+    final fullName =
+        [member['firstName'], member['middleName'], member['lastName']]
+            .where((part) => part != null && part.toString().trim().isNotEmpty)
+            .join(' ');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         RichText(
           text: TextSpan(
-            style: DefaultTextStyle.of(context).style.copyWith(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
+            style: DefaultTextStyle.of(
+              context,
+            ).style.copyWith(fontSize: 22, fontWeight: FontWeight.bold),
             children: [
               TextSpan(text: fullName.isEmpty ? 'Unnamed Member' : fullName),
               WidgetSpan(
@@ -184,34 +206,77 @@ class _MemberProfileSection extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: [
-            _InfoPill(icon: Icons.badge_outlined, label: 'Role', value: (member['role'] ?? 'Member').toString()),
-            _InfoPill(icon: Icons.stars_outlined, label: 'Points', value: (member['points'] ?? 0).toString()),
+            _InfoPill(
+              icon: Icons.badge_outlined,
+              label: 'Role',
+              value: (member['role'] ?? 'Member').toString(),
+            ),
+            _InfoPill(
+              icon: Icons.stars_outlined,
+              label: 'Points',
+              value: (member['points'] ?? 0).toString(),
+            ),
           ],
         ),
         const SizedBox(height: 14),
-        _DetailLine(icon: Icons.phone_outlined, label: 'Contact', value: member['contactNo']),
-        _DetailLine(icon: Icons.cake_outlined, label: 'Birthday', value: member['birthday']),
-        _DetailLine(icon: Icons.home_outlined, label: 'Address', value: member['address']),
+        _DetailLine(
+          icon: Icons.phone_outlined,
+          label: 'Contact',
+          value: member['contactNo'],
+        ),
+        _DetailLine(
+          icon: Icons.cake_outlined,
+          label: 'Birthday',
+          value: member['birthday'],
+        ),
+        _DetailLine(
+          icon: Icons.home_outlined,
+          label: 'Address',
+          value: member['address'],
+        ),
         _DetailLine(
           icon: Icons.group_outlined,
           label: 'Referrer',
-          value: member['referrer'] != null && member['referrer'].toString().trim().isNotEmpty ? member['referrer'] : 'None',
+          value:
+              member['referrer'] != null &&
+                  member['referrer'].toString().trim().isNotEmpty
+              ? member['referrer']
+              : 'None',
           italic: true,
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            ElevatedButton.icon(
-              onPressed: onViewTransactions,
-              icon: const Icon(Icons.receipt_long_outlined),
-              label: const Text('View History'),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              'Opens this member\'s purchases',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow = constraints.maxWidth < 360;
+            if (isNarrow) {
+              return ElevatedButton.icon(
+                onPressed: onViewTransactions,
+                icon: const Icon(Icons.receipt_long_outlined),
+                label: const Text('View History'),
+              );
+            }
+
+            return Row(
+              children: [
+                ElevatedButton.icon(
+                  onPressed: onViewTransactions,
+                  icon: const Icon(Icons.receipt_long_outlined),
+                  label: const Text('View History'),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Opens this member\'s purchases',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -237,7 +302,9 @@ class _MemberTransactionHistory extends StatelessWidget {
             Expanded(
               child: Text(
                 'Member Transaction History',
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ],
@@ -247,15 +314,28 @@ class _MemberTransactionHistory extends StatelessWidget {
           future: repository.fetchSalesForMember(memberId),
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting) {
-              return const SizedBox(height: 180, child: Center(child: CircularProgressIndicator()));
+              return const SizedBox(
+                height: 180,
+                child: Center(child: CircularProgressIndicator()),
+              );
             }
 
-            final sales = [...?snap.data]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+            final sales = [...?snap.data]
+              ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
             if (sales.isEmpty) return const _EmptyTransactions();
 
-            final totalQuantity = sales.fold<int>(0, (sum, sale) => sum + sale.quantity);
-            final totalPoints = sales.fold<int>(0, (sum, sale) => sum + sale.points);
-            final totalPrice = sales.fold<int>(0, (sum, sale) => sum + sale.price);
+            final totalQuantity = sales.fold<int>(
+              0,
+              (sum, sale) => sum + sale.quantity,
+            );
+            final totalPoints = sales.fold<int>(
+              0,
+              (sum, sale) => sum + sale.points,
+            );
+            final totalPrice = sales.fold<int>(
+              0,
+              (sum, sale) => sum + sale.price,
+            );
             final visibleSales = sales.take(8).toList();
 
             return Column(
@@ -265,10 +345,26 @@ class _MemberTransactionHistory extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _InfoPill(icon: Icons.shopping_bag_outlined, label: 'Purchases', value: sales.length.toString()),
-                    _InfoPill(icon: Icons.inventory_2_outlined, label: 'Qty', value: totalQuantity.toString()),
-                    _InfoPill(icon: Icons.stars_outlined, label: 'Points', value: totalPoints.toString()),
-                    _InfoPill(icon: Icons.payments_outlined, label: 'Total', value: totalPrice.toString()),
+                    _InfoPill(
+                      icon: Icons.shopping_bag_outlined,
+                      label: 'Purchases',
+                      value: sales.length.toString(),
+                    ),
+                    _InfoPill(
+                      icon: Icons.inventory_2_outlined,
+                      label: 'Qty',
+                      value: totalQuantity.toString(),
+                    ),
+                    _InfoPill(
+                      icon: Icons.stars_outlined,
+                      label: 'Points',
+                      value: totalPoints.toString(),
+                    ),
+                    _InfoPill(
+                      icon: Icons.payments_outlined,
+                      label: 'Total',
+                      value: totalPrice.toString(),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -277,14 +373,17 @@ class _MemberTransactionHistory extends StatelessWidget {
                   child: ListView.separated(
                     itemCount: visibleSales.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) => _TransactionRow(sale: visibleSales[index]),
+                    itemBuilder: (context, index) =>
+                        _TransactionRow(sale: visibleSales[index]),
                   ),
                 ),
                 if (sales.length > visibleSales.length) ...[
                   const SizedBox(height: 8),
                   Text(
                     '${sales.length - visibleSales.length} more transaction${sales.length - visibleSales.length == 1 ? '' : 's'} in the Transactions page',
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ],
@@ -341,14 +440,18 @@ class _TransactionRow extends StatelessWidget {
                     sale.itemName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 3),
                   Text(
                     formatDisplayDate(sale.timestamp),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -357,9 +460,19 @@ class _TransactionRow extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text('Pts ${sale.points}', style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800)),
+                Text(
+                  'Pts ${sale.points}',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
                 const SizedBox(height: 3),
-                Text('ID ${sale.id}', style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant)),
+                Text(
+                  'ID ${sale.id}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ],
@@ -370,7 +483,11 @@ class _TransactionRow extends StatelessWidget {
 }
 
 class _InfoPill extends StatelessWidget {
-  const _InfoPill({required this.icon, required this.label, required this.value});
+  const _InfoPill({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   final IconData icon;
   final String label;
@@ -393,8 +510,18 @@ class _InfoPill extends StatelessWidget {
           children: [
             Icon(icon, size: 16, color: colorScheme.primary),
             const SizedBox(width: 6),
-            Text('$label: ', style: theme.textTheme.labelMedium?.copyWith(color: colorScheme.onSurfaceVariant)),
-            Text(value, style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800)),
+            Text(
+              '$label: ',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            Text(
+              value,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ],
         ),
       ),
@@ -403,7 +530,12 @@ class _InfoPill extends StatelessWidget {
 }
 
 class _DetailLine extends StatelessWidget {
-  const _DetailLine({required this.icon, required this.label, required this.value, this.italic = false});
+  const _DetailLine({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.italic = false,
+  });
 
   final IconData icon;
   final String label;
@@ -413,7 +545,9 @@ class _DetailLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final text = value == null || value.toString().trim().isEmpty ? 'Not set' : value.toString();
+    final text = value == null || value.toString().trim().isEmpty
+        ? 'Not set'
+        : value.toString();
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 7),
@@ -426,13 +560,17 @@ class _DetailLine extends StatelessWidget {
             width: 74,
             child: Text(
               label,
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
           Expanded(
             child: Text(
               text,
-              style: theme.textTheme.bodyMedium?.copyWith(fontStyle: italic ? FontStyle.italic : FontStyle.normal),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+              ),
             ),
           ),
         ],
@@ -458,12 +596,17 @@ class _EmptyTransactions extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 22),
         child: Row(
           children: [
-            Icon(Icons.history_outlined, color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.history_outlined,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 'No purchases recorded for this member yet.',
-                style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ],

@@ -46,6 +46,7 @@ class MembersTableState extends State<MembersTable> {
 
   Future<void> _loadMembers() async {
     final rows = await repository.fetchMembers();
+    if (!mounted) return;
     setState(() {
       members = membersFromRows(rows);
       final currentIds = members
@@ -150,7 +151,7 @@ class MembersTableState extends State<MembersTable> {
           name: suggested,
         );
         await xfile.saveTo(loc.path);
-        if (!mounted) return;
+        if (!mounted || !safeContext.mounted) return;
         ScaffoldMessenger.of(
           safeContext,
         ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
@@ -160,7 +161,7 @@ class MembersTableState extends State<MembersTable> {
       final savePath = p.join(dir, suggested);
       final file = File(savePath);
       await file.writeAsString(csv);
-      if (!mounted) return;
+      if (!mounted || !safeContext.mounted) return;
       ScaffoldMessenger.of(
         safeContext,
       ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
@@ -184,7 +185,7 @@ class MembersTableState extends State<MembersTable> {
         .sublist(1)
         .map((r) => r.map((c) => c?.toString() ?? '').toList())
         .toList();
-    if (!mounted) return;
+    if (!mounted || !localCtx.mounted) return;
 
     final expected = [
       'id',
@@ -200,7 +201,7 @@ class MembersTableState extends State<MembersTable> {
     ];
     final missing = findMissingHeaders(headers.cast<String>(), expected);
     if (missing.isNotEmpty) {
-      if (!mounted) return;
+      if (!mounted || !localCtx.mounted) return;
       await showDialog<void>(
         context: localCtx,
         builder: (ctx) => AlertDialog(
@@ -241,7 +242,7 @@ class MembersTableState extends State<MembersTable> {
       );
     }
 
-    if (!mounted) return;
+    if (!mounted || !localCtx.mounted) return;
     final sel = await showImportPreviewDialogWithSelection(
       localCtx,
       headers,
@@ -255,8 +256,9 @@ class MembersTableState extends State<MembersTable> {
       headers.cast<String>(),
       rowsToImport,
     );
-    if (!mounted) return;
+    if (!mounted || !localCtx.mounted) return;
     await _loadMembers();
+    if (!mounted || !localCtx.mounted) return;
     ScaffoldMessenger.of(localCtx).showSnackBar(
       SnackBar(
         content: Text(
@@ -269,7 +271,7 @@ class MembersTableState extends State<MembersTable> {
   @override
   Widget build(BuildContext context) {
     final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isDesktop = screenWidth >= 780; 
+    final bool isDesktop = screenWidth >= 780;
 
     final filteredMembers = members.where((member) {
       final search = searchTerm.toLowerCase();
@@ -394,63 +396,93 @@ class MembersTableState extends State<MembersTable> {
                 ),
         ),
         Expanded(
-          child: SizedBox(
-            width: double.infinity,
-            child: Theme(
-              data: Theme.of(context).copyWith(
-                cardTheme: CardThemeData(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    side: BorderSide(color: Colors.grey.shade300, width: 1),
-                  ),
-                  color: Theme.of(context).cardColor,
-                ),
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final reserved = 140.0;
-                  var available = constraints.maxHeight - reserved;
-                  if (available < 56) available = 56;
-                  var estimated = (available ~/ 56).clamp(1, 7);
-
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minWidth: constraints.maxWidth,
-                      ),
-                      child: PaginatedDataTable(
-                        columnSpacing: isDesktop
-                            ? 40
-                            : 20, 
-                        rowsPerPage: estimated,
-                        columns: const [
-                          DataColumn(label: Text('Last Name')),
-                          DataColumn(label: Text('First Name')),
-                          DataColumn(label: Text('Middle Name')),
-                          DataColumn(label: Text('Role')),
-                          DataColumn(label: Text('Contact No.')),
-                          DataColumn(label: Text('Birthday')),
-                          DataColumn(label: Text('Address')),
-                          DataColumn(label: Text('Points')),
-                        ],
-                        source: _MembersDataSource(
-                          filteredMembers,
-                          widget.onRowSelected,
-                          _selectedMemberIds,
-                          _setMemberSelected,
-                          context,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
+          child: isDesktop
+              ? _buildMembersTable(context, filteredMembers)
+              : _buildMembersList(context, filteredMembers),
         ),
       ],
+    );
+  }
+
+  Widget _buildMembersTable(
+    BuildContext context,
+    List<Map<String, dynamic>> filteredMembers,
+  ) {
+    return SizedBox(
+      width: double.infinity,
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          cardTheme: CardThemeData(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(color: Colors.grey.shade300, width: 1),
+            ),
+            color: Theme.of(context).cardColor,
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final reserved = 140.0;
+            var available = constraints.maxHeight - reserved;
+            if (available < 56) available = 56;
+            final estimated = (available ~/ 56).clamp(1, 7);
+
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: PaginatedDataTable(
+                  columnSpacing: 40,
+                  rowsPerPage: estimated,
+                  columns: const [
+                    DataColumn(label: Text('Last Name')),
+                    DataColumn(label: Text('First Name')),
+                    DataColumn(label: Text('Middle Name')),
+                    DataColumn(label: Text('Role')),
+                    DataColumn(label: Text('Contact No.')),
+                    DataColumn(label: Text('Birthday')),
+                    DataColumn(label: Text('Address')),
+                    DataColumn(label: Text('Points')),
+                  ],
+                  source: _MembersDataSource(
+                    filteredMembers,
+                    widget.onRowSelected,
+                    _selectedMemberIds,
+                    _setMemberSelected,
+                    context,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMembersList(
+    BuildContext context,
+    List<Map<String, dynamic>> filteredMembers,
+  ) {
+    if (filteredMembers.isEmpty) {
+      return const Center(child: Text('No members found'));
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+      itemCount: filteredMembers.length,
+      separatorBuilder: (_, index) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final member = filteredMembers[index];
+        return _MemberListCard(
+          member: member,
+          selected:
+              (member['id'] as int?) != null &&
+              _selectedMemberIds.contains(member['id'] as int),
+          onTap: () => widget.onRowSelected(member),
+        );
+      },
     );
   }
 
@@ -485,8 +517,9 @@ class _MembersDataSource extends DataTableSource {
     return DataRow(
       selected: id != null && selectedMemberIds.contains(id),
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
-        if (isEven)
+        if (isEven) {
           return Theme.of(_context).colorScheme.surfaceContainerHighest;
+        }
         return null;
       }),
       onSelectChanged: id == null
@@ -537,4 +570,142 @@ class _MembersDataSource extends DataTableSource {
 
   @override
   int get selectedRowCount => selectedMemberIds.length;
+}
+
+class _MemberListCard extends StatelessWidget {
+  const _MemberListCard({
+    required this.member,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> member;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final fullName =
+        [member['firstName'], member['middleName'], member['lastName']]
+            .where((part) => part != null && part.toString().trim().isNotEmpty)
+            .join(' ');
+    final contact = (member['contactNo'] ?? '').toString().trim();
+    final address = (member['address'] ?? '').toString().trim();
+
+    return Card(
+      margin: EdgeInsets.zero,
+      color: selected
+          ? colorScheme.primaryContainer
+          : colorScheme.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.45)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      fullName.isEmpty ? 'Unnamed Member' : fullName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _MemberMetaPill(
+                    icon: Icons.stars_outlined,
+                    text: (member['points'] ?? 0).toString(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _MemberMetaPill(
+                    icon: Icons.badge_outlined,
+                    text: (member['role'] ?? 'Member').toString(),
+                  ),
+                  if (contact.isNotEmpty)
+                    _MemberMetaPill(icon: Icons.phone_outlined, text: contact),
+                ],
+              ),
+              if (address.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.home_outlined,
+                      size: 16,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        address,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberMetaPill extends StatelessWidget {
+  const _MemberMetaPill({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 5),
+            Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
