@@ -26,34 +26,39 @@ class _AddProductDialogState extends State<AddProductDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.sizeOf(context).width < 500;
+
     return AlertDialog(
       title: const Text('Add Product'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(labelText: 'Product Name'),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: categoryController,
-              decoration: const InputDecoration(labelText: 'Category'),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: stockController,
-              decoration: const InputDecoration(hintText: 'Initial Stock'),
-              keyboardType: TextInputType.number,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: pointsController,
-              decoration: const InputDecoration(labelText: 'Points per item'),
-              keyboardType: TextInputType.number,
-            ),
-          ],
+      content: SizedBox(
+        width: isNarrow ? double.maxFinite : 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Product Name'),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: categoryController,
+                decoration: const InputDecoration(labelText: 'Category'),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: stockController,
+                decoration: const InputDecoration(hintText: 'Initial Stock'),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: pointsController,
+                decoration: const InputDecoration(labelText: 'Points per item'),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
         ),
       ),
       actions: [

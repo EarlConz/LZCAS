@@ -273,107 +273,115 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   @override
   Widget build(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isDesktop = screenWidth >= 840;
-
     final filteredSales = _sales.where((sale) {
       final searchTerm = _searchTerm.toLowerCase();
       return sale.itemName.toLowerCase().contains(searchTerm) ||
           sale.id.toString().contains(searchTerm);
     }).toList();
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: isDesktop
-              ? Row(
-                  children: [
-                    Expanded(
-                      child: SearchBarWidget(
-                        onChanged: (value) =>
-                            setState(() => _searchTerm = value),
-                        hintText: "Search transactions...",
-                        borderRadius: 12,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 16,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const SellButton(),
-                    const SizedBox(width: 8),
-                    const RedeemButton(),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      onPressed: () => _onExportCsvPressed(context),
-                      icon: const Icon(Icons.upload_file),
-                      label: const Text('Export'),
-                      backgroundColor: Colors.grey[700],
-                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                    ),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      onPressed: () => _onImportCsvPressed(context),
-                      icon: const Icon(Icons.download),
-                      label: const Text('Import'),
-                      backgroundColor: Colors.grey[700],
-                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                    ),
-                  ],
-                )
-              : Column(
-                  children: [
-                    SearchBarWidget(
-                      onChanged: (value) => setState(() => _searchTerm = value),
-                      hintText: "Search transactions...",
-                      borderRadius: 12,
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 8,
-                        horizontal: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isDesktop = constraints.maxWidth >= 900;
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: isDesktop
+                  ? Row(
                       children: [
-                        const SellButton(compact: true),
-                        const SizedBox(width: 8),
-                        const RedeemButton(compact: true),
-                        const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: 'Export CSV',
-                          icon: const Icon(Icons.upload_file),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.grey[700],
+                        Expanded(
+                          child: SearchBarWidget(
+                            onChanged: (value) =>
+                                setState(() => _searchTerm = value),
+                            hintText: "Search transactions...",
+                            borderRadius: 12,
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 16,
+                            ),
                           ),
-                          onPressed: () => _onExportCsvPressed(context),
                         ),
                         const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: 'Import CSV',
-                          icon: const Icon(Icons.download),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.grey[700],
-                          ),
+                        const SellButton(),
+                        const SizedBox(width: 8),
+                        const RedeemButton(),
+                        const SizedBox(width: 8),
+                        CustomElevatedButton(
+                          onPressed: () => _onExportCsvPressed(context),
+                          icon: const Icon(Icons.upload_file),
+                          label: const Text('Export'),
+                          backgroundColor: Colors.grey[700],
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onPrimary,
+                        ),
+                        const SizedBox(width: 8),
+                        CustomElevatedButton(
                           onPressed: () => _onImportCsvPressed(context),
+                          icon: const Icon(Icons.download),
+                          label: const Text('Import'),
+                          backgroundColor: Colors.grey[700],
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onPrimary,
+                        ),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        SearchBarWidget(
+                          onChanged: (value) =>
+                              setState(() => _searchTerm = value),
+                          hintText: "Search transactions...",
+                          borderRadius: 12,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            const SellButton(compact: true),
+                            const SizedBox(width: 8),
+                            const RedeemButton(compact: true),
+                            const SizedBox(width: 8),
+                            IconButton.filled(
+                              tooltip: 'Export CSV',
+                              icon: const Icon(Icons.upload_file),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                              ),
+                              onPressed: () => _onExportCsvPressed(context),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filled(
+                              tooltip: 'Import CSV',
+                              icon: const Icon(Icons.download),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                              ),
+                              onPressed: () => _onImportCsvPressed(context),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
-                ),
-        ),
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : filteredSales.isEmpty
-              ? const Center(child: Text('No transactions yet'))
-              : isDesktop
-              ? _buildTransactionsTable(context, filteredSales)
-              : _buildTransactionsList(filteredSales),
-        ),
-      ],
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : filteredSales.isEmpty
+                  ? const Center(child: Text('No transactions yet'))
+                  : isDesktop
+                  ? _buildTransactionsTable(context, filteredSales)
+                  : _buildTransactionsList(filteredSales),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -400,29 +408,32 @@ class _TransactionsTableState extends State<TransactionsTable> {
             var available = constraints.maxHeight - reserved;
             if (available < 56) available = 56;
             final estimated = (available ~/ 56).clamp(1, 10);
+            final tableWidth = constraints.hasBoundedWidth
+                ? constraints.maxWidth
+                : (constraints.minWidth.isFinite && constraints.minWidth > 0
+                      ? constraints.minWidth
+                      : MediaQuery.sizeOf(context).width);
 
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                child: PaginatedDataTable(
-                  columnSpacing: 40,
-                  rowsPerPage: estimated,
-                  columns: const [
-                    DataColumn(label: Text('Item Name')),
-                    DataColumn(label: Text('Quantity')),
-                    DataColumn(label: Text('Price')),
-                    DataColumn(label: Text('Date')),
-                    DataColumn(label: Text('Txn')),
-                    DataColumn(label: Text('Sale ID')),
-                    DataColumn(label: Text('Actions')),
-                  ],
-                  source: _TransactionsDataSource(
-                    filteredSales,
-                    context,
-                    onDelete: _deleteSale,
-                    onEdit: _editSale,
-                  ),
+            return SizedBox(
+              width: tableWidth,
+              child: PaginatedDataTable(
+                horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
+                columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
+                rowsPerPage: estimated,
+                columns: const [
+                  DataColumn(label: Text('Item Name')),
+                  DataColumn(label: Text('Quantity')),
+                  DataColumn(label: Text('Price')),
+                  DataColumn(label: Text('Date')),
+                  DataColumn(label: Text('Txn')),
+                  DataColumn(label: Text('Sale ID')),
+                  DataColumn(label: Text('Actions')),
+                ],
+                source: _TransactionsDataSource(
+                  filteredSales,
+                  context,
+                  onDelete: _deleteSale,
+                  onEdit: _editSale,
                 ),
               ),
             );
