@@ -13,28 +13,29 @@ class MembersPage extends StatefulWidget {
 
 class _MembersPageState extends State<MembersPage> {
   Map<String, dynamic>? selectedMember;
-
   final GlobalKey<MembersTableState> _tableKey = GlobalKey<MembersTableState>();
 
-  void _showMemberDetails(Map<String, dynamic> member) {
+  void _handleRowSelection(Map<String, dynamic> member, bool isDesktop) {
     setState(() {
       selectedMember = member;
     });
 
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => _MemberDetailsDialog(
-        member: member,
-        onEdit: () {
-          Navigator.pop(dialogContext);
-          _openEditDialog(member);
-        },
-        onDelete: () {
-          Navigator.pop(dialogContext);
-          _confirmDeleteMember(member);
-        },
-      ),
-    );
+    if (!isDesktop) {
+      showDialog<void>(
+        context: context,
+        builder: (dialogContext) => _MemberDetailsDialog(
+          member: member,
+          onEdit: () {
+            Navigator.pop(dialogContext);
+            _openEditDialog(member);
+          },
+          onDelete: () {
+            Navigator.pop(dialogContext);
+            _confirmDeleteMember(member);
+          },
+        ),
+      );
+    }
   }
 
   void _openEditDialog(Map<String, dynamic> member) {
@@ -59,52 +60,100 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   void _updateMember(Map<String, dynamic> oldMember, Map<String, dynamic> updatedMember) {
-    if (selectedMember != null) {
-      _tableKey.currentState?.updateMember(oldMember, updatedMember);
+    _tableKey.currentState?.updateMember(oldMember, updatedMember);
+    setState(() {
+      selectedMember = {...oldMember, ...updatedMember};
+    });
 
-      setState(() {
-        selectedMember = {...oldMember, ...updatedMember};
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Member updated successfully!")),
-      );
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Member updated successfully!")),
+    );
   }
 
   void _deleteMember(Map<String, dynamic> member) {
     _tableKey.currentState?.removeMember(member);
-
     setState(() {
       if (selectedMember?['id'] == member['id']) {
         selectedMember = null;
       }
     });
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Member deleted")));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Member deleted")),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isDesktop = screenWidth >= 850;
+
     return Scaffold(
       body: SafeArea(
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
+              flex: 3,
               child: MembersTable(
                 key: _tableKey,
-                onRowSelected: _showMemberDetails,
+                onRowSelected: (member) => _handleRowSelection(member, isDesktop),
               ),
             ),
+
+            if (isDesktop && selectedMember != null) ...[
+              const VerticalDivider(width: 1, thickness: 1),
+              Container(
+                width: 380,
+                color: Theme.of(context).colorScheme.surface,
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              "Details",
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Edit member',
+                            onPressed: () => _openEditDialog(selectedMember!),
+                            icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                          ),
+                          IconButton(
+                            tooltip: 'Delete member',
+                            onPressed: () => _confirmDeleteMember(selectedMember!),
+                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          ),
+                          IconButton(
+                            tooltip: 'Close panel',
+                            onPressed: () => setState(() => selectedMember = null),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: MemberDetailsCard(member: selectedMember!),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 }
+
 
 class _MemberDetailsDialog extends StatelessWidget {
   const _MemberDetailsDialog({
