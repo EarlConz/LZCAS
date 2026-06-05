@@ -3,7 +3,9 @@ import 'package:lzcas/db/db.dart';
 import '../dialogs/redeem_points_dialog.dart';
 
 class RedeemButton extends StatefulWidget {
-  const RedeemButton({super.key});
+  final bool compact;
+
+  const RedeemButton({super.key, this.compact = false});
 
   @override
   State<RedeemButton> createState() => _RedeemButtonState();
@@ -40,6 +42,14 @@ class _RedeemButtonState extends State<RedeemButton> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.compact) {
+      return IconButton.filled(
+        tooltip: 'Redeem Points',
+        icon: const Icon(Icons.redeem),
+        onPressed: () => _showRedeemDialog(context),
+      );
+    }
+
     return ElevatedButton.icon(
       onPressed: () => _showRedeemDialog(context),
       icon: const Icon(Icons.redeem),

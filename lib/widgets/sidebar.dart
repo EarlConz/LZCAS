@@ -15,21 +15,12 @@ class Sidebar extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Container(
+    return Drawer(
       width: 250,
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha((0.05 * 255).round()),
-            blurRadius: 12,
-            offset: const Offset(1, 0),
-          ),
-        ],
-      ),
+      backgroundColor: colorScheme.surface,
+      elevation: 16, 
       child: Column(
         children: <Widget>[
-          // Logo Section
           Container(
             padding: const EdgeInsets.symmetric(vertical: 40.0),
             child: Text(
@@ -40,29 +31,17 @@ class Sidebar extends StatelessWidget {
               ),
             ),
           ),
-          // Navigation Section
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               children: [
                 _buildNavItem(context, Icons.dashboard_rounded, "Dashboard", 0),
-                _buildNavItem(
-                  context,
-                  Icons.inventory_2_rounded,
-                  "Inventory",
-                  1,
-                ),
+                _buildNavItem(context, Icons.inventory_2_rounded, "Inventory", 1),
                 _buildNavItem(context, Icons.people_alt_rounded, "Members", 2),
-                _buildNavItem(
-                  context,
-                  Icons.card_giftcard_rounded,
-                  "Transactions",
-                  3,
-                ),
+                _buildNavItem(context, Icons.card_giftcard_rounded, "Transactions", 3),
               ],
             ),
           ),
-          // Bottom section (settings)
           Divider(
             color: colorScheme.onSurface.withAlpha((0.1 * 255).round()),
             indent: 20,
@@ -70,12 +49,7 @@ class Sidebar extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: _buildNavItem(
-              context,
-              Icons.settings_rounded,
-              "Settings",
-              4,
-            ),
+            child: _buildNavItem(context, Icons.settings_rounded, "Settings", 4),
           ),
           const SizedBox(height: 20),
         ],
@@ -94,7 +68,10 @@ class Sidebar extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     return InkWell(
-      onTap: () => onItemSelected(index),
+      onTap: () {
+        Navigator.pop(context);
+        onItemSelected(index);
+      },
       borderRadius: BorderRadius.circular(12),
       hoverColor: colorScheme.primary.withAlpha((0.05 * 255).round()),
       splashColor: colorScheme.primary.withAlpha((0.1 * 255).round()),

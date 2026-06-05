@@ -1,5 +1,3 @@
-// ignore_for_file: use_build_context_synchronously
-// ...existing code...
 import 'package:flutter/material.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
@@ -35,8 +33,6 @@ class MembersTableState extends State<MembersTable> {
   void initState() {
     super.initState();
     _loadMembers();
-    // refresh when repository reports changes (imports/adds/deletes)
-    // keep subscription so we can cancel on dispose
     _changesSub = repository.changes.listen((e) {
       if (e == 'member_added' ||
           e == 'member_imported' ||
@@ -50,6 +46,7 @@ class MembersTableState extends State<MembersTable> {
 
   Future<void> _loadMembers() async {
     final rows = await repository.fetchMembers();
+    if (!mounted) return;
     setState(() {
       members = membersFromRows(rows);
       final currentIds = members
@@ -91,7 +88,6 @@ class MembersTableState extends State<MembersTable> {
     Map<String, dynamic> oldMember,
     Map<String, dynamic> updatedMember,
   ) async {
-    // find by id if present
     final id = oldMember['id'] as int?;
     if (id == null) return;
     final row = (await repository.fetchMembers()).firstWhere((r) => r.id == id);
@@ -121,7 +117,6 @@ class MembersTableState extends State<MembersTable> {
           ? Value(updatedMember['referrer'].toString())
           : const Value.absent(),
       points: updatedMember['points'] is int ? updatedMember['points'] : null,
-    // QR field removed from UI; keep existing DB value unless updated via import.
     );
     await repository.db.updateMemberData(updated);
     await _loadMembers();
@@ -134,8 +129,150 @@ class MembersTableState extends State<MembersTable> {
     await _loadMembers();
   }
 
+  void _onAddMemberPressed() {
+    showDialog(
+      context: context,
+      builder: (context) => AddMemberDialog(onMemberAdded: addMember),
+    );
+  }
+
+  Future<void> _onExportCsvPressed(BuildContext safeContext) async {
+    final csv = await repository.exportMembersCsvString();
+    final suggested =
+        'members_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+    try {
+      final fs.FileSaveLocation? loc = await fs.getSaveLocation(
+        suggestedName: suggested,
+      );
+      if (loc != null) {
+        final xfile = fs.XFile.fromData(
+          Uint8List.fromList(csv.codeUnits),
+          mimeType: 'text/csv',
+          name: suggested,
+        );
+        await xfile.saveTo(loc.path);
+        if (!mounted || !safeContext.mounted) return;
+        ScaffoldMessenger.of(
+          safeContext,
+        ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+      }
+    } catch (e) {
+      final dir = Directory.current.path;
+      final savePath = p.join(dir, suggested);
+      final file = File(savePath);
+      await file.writeAsString(csv);
+      if (!mounted || !safeContext.mounted) return;
+      ScaffoldMessenger.of(
+        safeContext,
+      ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+    }
+  }
+
+  Future<void> _onImportCsvPressed(BuildContext localCtx) async {
+    final files = await fs.openFiles(
+      acceptedTypeGroups: [
+        fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
+      ],
+    );
+    if (files.isEmpty) return;
+    final xfile = files.first;
+    final content = await xfile.readAsString();
+    final conv = const CsvToListConverter();
+    final parsed = conv.convert(content);
+    if (parsed.isEmpty) return;
+    final headers = parsed.first.map((e) => e.toString()).toList();
+    final rows = parsed
+        .sublist(1)
+        .map((r) => r.map((c) => c?.toString() ?? '').toList())
+        .toList();
+    if (!mounted || !localCtx.mounted) return;
+
+    final expected = [
+      'id',
+      'lastname',
+      'firstname',
+      'middlename',
+      'role',
+      'phonenumber',
+      'birthday',
+      'address',
+      'referrer',
+      'points',
+    ];
+    final missing = findMissingHeaders(headers.cast<String>(), expected);
+    if (missing.isNotEmpty) {
+      if (!mounted || !localCtx.mounted) return;
+      await showDialog<void>(
+        context: localCtx,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Invalid CSV'),
+          content: Text('Missing headers: ${missing.join(', ')}'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final existingRows = await repository.fetchMembers();
+    final existingIds = <int>{};
+    final existingNames = <String>{};
+    for (final m in existingRows) {
+      existingIds.add(m.id);
+      existingNames.add(
+        ('${m.firstName ?? ''}||${m.lastName ?? ''}').trim().toLowerCase(),
+      );
+    }
+
+    bool fastExists(Map<String, String> map) {
+      final idStr = (map['id'] ?? '').trim();
+      if (idStr.isNotEmpty) {
+        final id = int.tryParse(idStr);
+        if (id != null && existingIds.contains(id)) return true;
+      }
+      final lastName = (map['lastName'] ?? '').trim();
+      final firstName = (map['firstName'] ?? '').trim();
+      if (lastName.isEmpty && firstName.isEmpty) return false;
+      return existingNames.contains(
+        ('$firstName||$lastName').trim().toLowerCase(),
+      );
+    }
+
+    if (!mounted || !localCtx.mounted) return;
+    final sel = await showImportPreviewDialogWithSelection(
+      localCtx,
+      headers,
+      rows,
+      exists: (m) async => fastExists(m),
+    );
+    if (sel == null || sel.isEmpty) return;
+
+    final rowsToImport = sel.map((i) => rows[i]).toList();
+    final inserted = await repository.importMembersFromRows(
+      headers.cast<String>(),
+      rowsToImport,
+    );
+    if (!mounted || !localCtx.mounted) return;
+    await _loadMembers();
+    if (!mounted || !localCtx.mounted) return;
+    ScaffoldMessenger.of(localCtx).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Inserted $inserted new member${inserted == 1 ? '' : 's'}',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isDesktop = screenWidth >= 780;
+
     final filteredMembers = members.where((member) {
       final search = searchTerm.toLowerCase();
       return member.values.any(
@@ -147,236 +284,205 @@ class MembersTableState extends State<MembersTable> {
       children: [
         Padding(
           padding: const EdgeInsets.all(8.0),
-          child: Row(
-            children: [
-              Expanded(
-                child: SearchBarWidget(
-                  onChanged: (value) {
-                    setState(() {
-                      searchTerm = value;
-                    });
-                  },
-                  hintText: "Search members...",
-                  borderRadius: 12,
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: 8,
-                    horizontal: 16,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-                  CustomElevatedButton(
-                icon: Icon(Icons.person_add, color: Theme.of(context).colorScheme.onPrimary),
-                label: const Text(
-                  "Add Member",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                // stronger background color to be more visible
-                // uses primary color from theme if not provided
-                // we'll provide a darker blue for better contrast
-                backgroundColor: Colors.blue[700],
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) =>
-                        AddMemberDialog(onMemberAdded: addMember),
-                  );
-                },
-              ),
-              const SizedBox(width: 8),
-              CustomElevatedButton(
-                icon: Icon(Icons.upload_file, color: Theme.of(context).colorScheme.onPrimary),
-                label: const Text(
-                  'Export CSV',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                backgroundColor: Colors.grey[700],
-                onPressed: () async {
-                  final safeContext = context; // capture before any awaits
-                  final csv = await repository.exportMembersCsvString();
-                  final suggested = 'members_export_${DateTime.now().millisecondsSinceEpoch}.csv';
-                  try {
-                    final fs.FileSaveLocation? loc = await fs.getSaveLocation(
-                      suggestedName: suggested,
-                    );
-                      if (loc != null) {
-                      final xfile = fs.XFile.fromData(
-                        Uint8List.fromList(csv.codeUnits),
-                        mimeType: 'text/csv',
-                        name: suggested,
-                      );
-                      await xfile.saveTo(loc.path);
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(safeContext).showSnackBar(
-                        SnackBar(content: Text('Exported to ${loc.path}')),
-                      );
-                      return;
-                    }
-                    return;
-                  } catch (e) {
-                    // fallback to writing in project root
-                    final dir = Directory.current.path;
-                    final savePath = p.join(dir, suggested);
-                    final file = File(savePath);
-                    await file.writeAsString(csv);
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(safeContext).showSnackBar(
-                      SnackBar(content: Text('Exported to $savePath')),
-                    );
-                  }
-                },
-              ),
-              const SizedBox(width: 8),
-              CustomElevatedButton(
-                icon: Icon(Icons.download, color: Theme.of(context).colorScheme.onPrimary),
-                label: const Text(
-                  'Import CSV',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                backgroundColor: Colors.grey[700],
-                onPressed: () async {
-                  // capture the BuildContext before any await to avoid using context across async gaps
-                  final localCtx = context;
-                  final files = await fs.openFiles(
-                    acceptedTypeGroups: [
-                      fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
-                    ],
-                  );
-                  if (files.isEmpty) return;
-                  final xfile = files.first;
-                  final content = await xfile.readAsString();
-                  final conv = const CsvToListConverter();
-                  final parsed = conv.convert(content);
-                  if (parsed.isEmpty) return;
-                  final headers = parsed.first
-                      .map((e) => e.toString())
-                      .toList();
-                  final rows = parsed
-                      .sublist(1)
-                      .map((r) => r.map((c) => c?.toString() ?? '').toList())
-                      .toList();
-                  if (!mounted) return;
-                  final expected = ['id', 'lastname', 'firstname', 'middlename', 'role', 'phonenumber', 'birthday', 'address', 'referrer', 'points'];
-                  final missing = findMissingHeaders(headers.cast<String>(), expected);
-                  if (missing.isNotEmpty) {
-                    if (!mounted) return;
-                    // Safe: using captured `localCtx` which was taken before async work and checked mounted.
-                    await showDialog<void>(
-                      context: localCtx,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Invalid CSV'),
-                        content: Text('This file does not look like a Members export. Missing headers: ${missing.join(', ')}'),
-                        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+          child: isDesktop
+              ? Row(
+                  children: [
+                    Expanded(
+                      child: SearchBarWidget(
+                        onChanged: (value) =>
+                            setState(() => searchTerm = value),
+                        hintText: "Search members...",
+                        borderRadius: 12,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 8,
+                          horizontal: 16,
+                        ),
                       ),
-                    );
-                    return;
-                  }
-                  // show interactive preview with per-row selection
-                  // Bulk-existence optimization: fetch existing IDs and name keys once
-                  final existingRows = await repository.fetchMembers();
-                  final existingIds = <int>{};
-                  final existingNames = <String>{};
-                  for (final m in existingRows) {
-                    existingIds.add(m.id);
-                    final key = ('${m.firstName ?? ''}||${m.lastName ?? ''}').trim().toLowerCase();
-                    existingNames.add(key);
-                  }
-
-                  bool fastExists(Map<String, String> map) {
-                    final idStr = (map['id'] ?? '').trim();
-                    if (idStr.isNotEmpty) {
-                      final id = int.tryParse(idStr);
-                      if (id != null && existingIds.contains(id)) return true;
-                    }
-                    final lastName = (map['lastName'] ?? '').trim();
-                    final firstName = (map['firstName'] ?? '').trim();
-                    if (lastName.isEmpty && firstName.isEmpty) return false;
-                    final key = ('$firstName||$lastName').trim().toLowerCase();
-                    return existingNames.contains(key);
-                  }
-
-                  if (!mounted) return;
-                  // Safe: preview dialog uses `localCtx` captured earlier and we validated mounted.
-                  final sel = await showImportPreviewDialogWithSelection(
-                    localCtx,
-                    headers,
-                    rows,
-                    exists: (m) async => fastExists(m),
-                  );
-                  if (sel == null || sel.isEmpty) return; // cancelled or nothing selected
-
-                  // Call the repository bulk-import API directly with parsed rows to avoid reparsing CSV
-                  final rowsToImport = sel.map((i) => rows[i]).toList();
-                  final inserted = await repository.importMembersFromRows(headers.cast<String>(), rowsToImport);
-                  if (!mounted) return;
-                  // Immediately refresh members view so imported rows appear without waiting
-                  // for repository change stream listeners.
-                  await _loadMembers();
-                  final messenger = ScaffoldMessenger.of(localCtx);
-                  messenger.showSnackBar(SnackBar(
-                    content: Text('Inserted $inserted new member${inserted == 1 ? '' : 's'}'),
-                  ));
-                  }, // end onPressed
-                ), // end Import button
-              ], // end Row children
-            ), // end Row
-          ), // end Padding
-          Expanded(
-            child: SizedBox(
-              width: double.infinity,
-              child: Theme(
-                data: Theme.of(context).copyWith(
-                  cardTheme: CardThemeData(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      side: BorderSide(color: Colors.grey.shade300, width: 1),
                     ),
-                    color: Theme.of(context).cardColor,
-                  ),
+                    const SizedBox(width: 8),
+                    CustomElevatedButton(
+                      icon: Icon(
+                        Icons.person_add,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                      ),
+                      label: const Text(
+                        "Add Member",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      backgroundColor: Colors.blue[700],
+                      onPressed: _onAddMemberPressed,
+                    ),
+                    const SizedBox(width: 8),
+                    CustomElevatedButton(
+                      icon: Icon(
+                        Icons.upload_file,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                      ),
+                      label: const Text(
+                        'Export CSV',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      backgroundColor: Colors.grey[700],
+                      onPressed: () => _onExportCsvPressed(context),
+                    ),
+                    const SizedBox(width: 8),
+                    CustomElevatedButton(
+                      icon: Icon(
+                        Icons.download,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                      ),
+                      label: const Text(
+                        'Import CSV',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      backgroundColor: Colors.grey[700],
+                      onPressed: () => _onImportCsvPressed(context),
+                    ),
+                  ],
+                )
+              : Column(
+                  children: [
+                    SearchBarWidget(
+                      onChanged: (value) => setState(() => searchTerm = value),
+                      hintText: "Search members...",
+                      borderRadius: 12,
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 8,
+                        horizontal: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton.filled(
+                          tooltip: 'Add Member',
+                          icon: const Icon(Icons.person_add),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.blue[700],
+                          ),
+                          onPressed: _onAddMemberPressed,
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.filled(
+                          tooltip: 'Export CSV',
+                          icon: const Icon(Icons.upload_file),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.grey[700],
+                          ),
+                          onPressed: () => _onExportCsvPressed(context),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.filled(
+                          tooltip: 'Import CSV',
+                          icon: const Icon(Icons.download),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.grey[700],
+                          ),
+                          onPressed: () => _onImportCsvPressed(context),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final reserved = 140.0;
-                    var available = constraints.maxHeight - reserved;
-                    if (available < 56) available = 56;
-                    var estimated = (available ~/ 56).clamp(1, 7);
-                    return PaginatedDataTable(
-                      columnSpacing: 40,
-                      rowsPerPage: estimated,
-                      columns: const [
-                      DataColumn(label: Text('Last Name')),
-                      DataColumn(label: Text('First Name')),
-                      DataColumn(label: Text('Middle Name')),
-                      DataColumn(label: Text('Role')),
-                      DataColumn(label: Text('Contact No.')),
-                      DataColumn(label: Text('Birthday')),
-                      DataColumn(label: Text('Address')),
-                      DataColumn(label: Text('Points')),
-                    ],
-                    source: _MembersDataSource(
-                      filteredMembers,
-                      widget.onRowSelected,
-                      _selectedMemberIds,
-                      _setMemberSelected,
-                      context,
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
+        ),
+        Expanded(
+          child: isDesktop
+              ? _buildMembersTable(context, filteredMembers)
+              : _buildMembersList(context, filteredMembers),
         ),
       ],
+    );
+  }
+
+  Widget _buildMembersTable(
+    BuildContext context,
+    List<Map<String, dynamic>> filteredMembers,
+  ) {
+    return SizedBox(
+      width: double.infinity,
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          cardTheme: CardThemeData(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(color: Colors.grey.shade300, width: 1),
+            ),
+            color: Theme.of(context).cardColor,
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final reserved = 140.0;
+            var available = constraints.maxHeight - reserved;
+            if (available < 56) available = 56;
+            final estimated = (available ~/ 56).clamp(1, 7);
+
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: PaginatedDataTable(
+                  columnSpacing: 40,
+                  rowsPerPage: estimated,
+                  columns: const [
+                    DataColumn(label: Text('Last Name')),
+                    DataColumn(label: Text('First Name')),
+                    DataColumn(label: Text('Middle Name')),
+                    DataColumn(label: Text('Role')),
+                    DataColumn(label: Text('Contact No.')),
+                    DataColumn(label: Text('Birthday')),
+                    DataColumn(label: Text('Address')),
+                    DataColumn(label: Text('Points')),
+                  ],
+                  source: _MembersDataSource(
+                    filteredMembers,
+                    widget.onRowSelected,
+                    _selectedMemberIds,
+                    _setMemberSelected,
+                    context,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMembersList(
+    BuildContext context,
+    List<Map<String, dynamic>> filteredMembers,
+  ) {
+    if (filteredMembers.isEmpty) {
+      return const Center(child: Text('No members found'));
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+      itemCount: filteredMembers.length,
+      separatorBuilder: (_, index) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final member = filteredMembers[index];
+        return _MemberListCard(
+          member: member,
+          selected:
+              (member['id'] as int?) != null &&
+              _selectedMemberIds.contains(member['id'] as int),
+          onTap: () => widget.onRowSelected(member),
+        );
+      },
     );
   }
 
@@ -411,20 +517,43 @@ class _MembersDataSource extends DataTableSource {
     return DataRow(
       selected: id != null && selectedMemberIds.contains(id),
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
-        if (isEven) return Theme.of(_context).colorScheme.surfaceContainerHighest;
+        if (isEven) {
+          return Theme.of(_context).colorScheme.surfaceContainerHighest;
+        }
         return null;
       }),
       onSelectChanged: id == null
           ? null
           : (selected) => onSelectionChanged(id, selected ?? false),
       cells: [
-        DataCell(Text(member["lastName"] ?? ""), onTap: () => onRowSelected(member)),
-        DataCell(Text(member["firstName"] ?? ""), onTap: () => onRowSelected(member)),
-        DataCell(Text(member["middleName"] ?? ""), onTap: () => onRowSelected(member)),
-        DataCell(Text(member["role"] ?? ""), onTap: () => onRowSelected(member)),
-        DataCell(Text(member["contactNo"] ?? ""), onTap: () => onRowSelected(member)),
-        DataCell(Text(member["birthday"] ?? ""), onTap: () => onRowSelected(member)),
-        DataCell(Text(member["address"] ?? ""), onTap: () => onRowSelected(member)),
+        DataCell(
+          Text(member["lastName"] ?? ""),
+          onTap: () => onRowSelected(member),
+        ),
+        DataCell(
+          Text(member["firstName"] ?? ""),
+          onTap: () => onRowSelected(member),
+        ),
+        DataCell(
+          Text(member["middleName"] ?? ""),
+          onTap: () => onRowSelected(member),
+        ),
+        DataCell(
+          Text(member["role"] ?? ""),
+          onTap: () => onRowSelected(member),
+        ),
+        DataCell(
+          Text(member["contactNo"] ?? ""),
+          onTap: () => onRowSelected(member),
+        ),
+        DataCell(
+          Text(member["birthday"] ?? ""),
+          onTap: () => onRowSelected(member),
+        ),
+        DataCell(
+          Text(member["address"] ?? ""),
+          onTap: () => onRowSelected(member),
+        ),
         DataCell(
           Text((member["points"] ?? 0).toString()),
           onTap: () => onRowSelected(member),
@@ -441,4 +570,142 @@ class _MembersDataSource extends DataTableSource {
 
   @override
   int get selectedRowCount => selectedMemberIds.length;
+}
+
+class _MemberListCard extends StatelessWidget {
+  const _MemberListCard({
+    required this.member,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> member;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final fullName =
+        [member['firstName'], member['middleName'], member['lastName']]
+            .where((part) => part != null && part.toString().trim().isNotEmpty)
+            .join(' ');
+    final contact = (member['contactNo'] ?? '').toString().trim();
+    final address = (member['address'] ?? '').toString().trim();
+
+    return Card(
+      margin: EdgeInsets.zero,
+      color: selected
+          ? colorScheme.primaryContainer
+          : colorScheme.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.45)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      fullName.isEmpty ? 'Unnamed Member' : fullName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _MemberMetaPill(
+                    icon: Icons.stars_outlined,
+                    text: (member['points'] ?? 0).toString(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _MemberMetaPill(
+                    icon: Icons.badge_outlined,
+                    text: (member['role'] ?? 'Member').toString(),
+                  ),
+                  if (contact.isNotEmpty)
+                    _MemberMetaPill(icon: Icons.phone_outlined, text: contact),
+                ],
+              ),
+              if (address.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.home_outlined,
+                      size: 16,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        address,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MemberMetaPill extends StatelessWidget {
+  const _MemberMetaPill({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 5),
+            Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
