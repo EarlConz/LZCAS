@@ -8,6 +8,7 @@ class SalesChart extends StatelessWidget {
   final List<Map<String, dynamic>> salesData;
   final double maxYOffset;
   final Color barColor;
+  final bool showTitle;
 
   const SalesChart({
     super.key,
@@ -15,10 +16,14 @@ class SalesChart extends StatelessWidget {
     required this.salesData,
     required this.maxYOffset,
     required this.barColor,
+    this.showTitle = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isMobile = screenWidth < 750;
+
     // Sort sales descending (highest on left)
     salesData.sort((a, b) => (b["sales"] as int).compareTo(a["sales"] as int));
 
@@ -32,14 +37,21 @@ class SalesChart extends StatelessWidget {
           border: Border.all(color: theme.dividerColor),
           borderRadius: BorderRadius.circular(appRadius),
         ),
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+        padding: EdgeInsets.fromLTRB(
+          isMobile ? 12 : 16,
+          isMobile ? 10 : 14,
+          isMobile ? 12 : 16,
+          isMobile ? 8 : 12,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: theme.textTheme.titleLarge),
-            const SizedBox(height: 14),
+            if (showTitle) ...[
+              Text(title, style: theme.textTheme.titleLarge),
+              const SizedBox(height: 14),
+            ],
             SizedBox(
-              height: 220,
+              height: isMobile ? 180 : 220,
               child: salesData.isEmpty
                   ? Center(
                       child: Text(
@@ -72,16 +84,16 @@ class SalesChart extends StatelessWidget {
                           bottomTitles: AxisTitles(
                             sideTitles: SideTitles(
                               showTitles: true,
-                              reservedSize: 44,
+                              reservedSize: isMobile ? 38 : 44,
                               getTitlesWidget: (value, meta) {
                                 int index = value.toInt();
                                 if (index < 0 || index >= salesData.length) {
                                   return const SizedBox.shrink();
                                 }
                                 return Padding(
-                                  padding: const EdgeInsets.only(top: 8),
+                                  padding: const EdgeInsets.only(top: 6),
                                   child: SizedBox(
-                                    width: 76,
+                                    width: isMobile ? 50 : 76,
                                     child: Text(
                                       salesData[index]["product"] as String,
                                       maxLines: 2,
@@ -89,8 +101,8 @@ class SalesChart extends StatelessWidget {
                                       textAlign: TextAlign.center,
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
-                                            color:
-                                                colorScheme.onSurfaceVariant,
+                                            color: colorScheme.onSurfaceVariant,
+                                            fontSize: isMobile ? 10 : null,
                                           ),
                                     ),
                                   ),
@@ -117,17 +129,15 @@ class SalesChart extends StatelessWidget {
                               BarChartRodData(
                                 toY: sales.toDouble(),
                                 color: barColor,
-                                width: 18,
+                                width: isMobile ? 12 : 18,
                                 borderRadius: BorderRadius.circular(5),
-                                backDrawRodData:
-                                    BackgroundBarChartRodData(
-                                      show: true,
-                                      toY:
-                                          (salesData.first["sales"] as int) +
-                                          maxYOffset,
-                                      color:
-                                          colorScheme.surfaceContainerHighest,
-                                    ),
+                                backDrawRodData: BackgroundBarChartRodData(
+                                  show: true,
+                                  toY:
+                                      (salesData.first["sales"] as int) +
+                                      maxYOffset,
+                                  color: colorScheme.surfaceContainerHighest,
+                                ),
                               ),
                             ],
                           );
