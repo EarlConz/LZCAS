@@ -5,6 +5,7 @@ import 'memberspage.dart';
 import 'transactionpage.dart';
 import 'settingspage.dart';
 import '../widgets/sidebar.dart';
+import '../theme.dart';
 
 class HomePage extends StatefulWidget {
   final void Function(bool)? onToggleTheme;
@@ -61,6 +62,7 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       key: _scaffoldKey,
+      backgroundColor: theme.scaffoldBackgroundColor,
       drawer: isDesktop
           ? null
           : Sidebar(
@@ -73,43 +75,82 @@ class _HomePageState extends State<HomePage> {
           if (isDesktop)
             SafeArea(
               right: false,
-              child: NavigationRail(
-                selectedIndex: _selectedIndex,
-                onDestinationSelected: _onItemTapped,
-                minWidth: 82,
-                labelType: NavigationRailLabelType.all,
-                leading: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  child: Text(
-                    'LZCAS',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w800,
+              child: Container(
+                color: colorScheme.surface,
+                child: NavigationRail(
+                  selectedIndex: _selectedIndex,
+                  onDestinationSelected: _onItemTapped,
+                  minWidth: 88,
+                  groupAlignment: -0.84,
+                  labelType: NavigationRailLabelType.all,
+                  backgroundColor: colorScheme.surface,
+                  indicatorColor: colorScheme.primary.withAlpha(
+                    (0.12 * 255).round(),
+                  ),
+                  selectedIconTheme: IconThemeData(color: colorScheme.primary),
+                  unselectedIconTheme: IconThemeData(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  selectedLabelTextStyle: theme.textTheme.labelMedium?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  unselectedLabelTextStyle: theme.textTheme.labelMedium
+                      ?.copyWith(color: colorScheme.onSurfaceVariant),
+                  leading: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: colorScheme.primary,
+                            borderRadius: BorderRadius.circular(appRadius),
+                          ),
+                          child: Text(
+                            'L',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              color: colorScheme.onPrimary,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'LZCAS',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  destinations: const [
+                    NavigationRailDestination(
+                      icon: Icon(Icons.dashboard_rounded),
+                      label: Text('Dashboard'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.inventory_2_rounded),
+                      label: Text('Inventory'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.people_alt_rounded),
+                      label: Text('Members'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.receipt_long_rounded),
+                      label: Text('Transactions'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.settings_rounded),
+                      label: Text('Settings'),
+                    ),
+                  ],
                 ),
-                destinations: const [
-                  NavigationRailDestination(
-                    icon: Icon(Icons.dashboard_rounded),
-                    label: Text('Dashboard'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.inventory_2_rounded),
-                    label: Text('Inventory'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.people_alt_rounded),
-                    label: Text('Members'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.card_giftcard_rounded),
-                    label: Text('Transactions'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.settings_rounded),
-                    label: Text('Settings'),
-                  ),
-                ],
               ),
             ),
           if (isDesktop) const VerticalDivider(width: 1),
@@ -120,26 +161,16 @@ class _HomePageState extends State<HomePage> {
                   top: true,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: appBarTheme.backgroundColor ?? colorScheme.surface,
-                      boxShadow:
-                          (appBarTheme.elevation != null &&
-                              appBarTheme.elevation! > 0)
-                          ? [
-                              BoxShadow(
-                                color:
-                                    appBarTheme.shadowColor ??
-                                    Colors.black.withAlpha((0.1 * 255).round()),
-                                blurRadius: 20,
-                                offset: const Offset(0, 8),
-                              ),
-                            ]
-                          : null,
+                        color: appBarTheme.backgroundColor ?? colorScheme.surface,
+                      border: Border(
+                        bottom: BorderSide(color: theme.dividerColor),
+                      ),
                     ),
                     padding: EdgeInsets.fromLTRB(
                       isDesktop ? 24.0 : 16.0,
-                      20.0,
+                      14.0,
                       24.0,
-                      12.0,
+                      14.0,
                     ),
                     alignment: Alignment.centerLeft,
                     child: Row(
@@ -170,7 +201,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 Expanded(
                   child: Container(
-                    color: theme.colorScheme.surface,
+                    color: theme.scaffoldBackgroundColor,
                     child: pages[_selectedIndex],
                   ),
                 ),

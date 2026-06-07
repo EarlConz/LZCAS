@@ -128,17 +128,16 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
     if (loading) return const Center(child: CircularProgressIndicator());
     final size = MediaQuery.sizeOf(context);
 
+    final isNarrow = size.width < 520;
+
     return AlertDialog(
       title: Text(
         'Edit Sale (Cart) — ${widget.seedSale.timestamp.toLocal().toIso8601String()}',
       ),
-      content: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: size.width < 760 ? double.infinity : 700,
-          maxHeight: size.height * 0.72,
-        ),
+      content: SizedBox(
+        width: size.width < 760 ? double.infinity : 700,
+        height: size.height * 0.72,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
             // Buyer picker
             Padding(
@@ -160,136 +159,126 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                 onChanged: (v) => setState(() => _selectedBuyerId = v),
               ),
             ),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: lines.length,
-                itemBuilder: (ctx, idx) {
-                  final line = lines[idx];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    child: Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final isNarrow = constraints.maxWidth < 520;
-                          final halfWidth = (constraints.maxWidth - 8) / 2;
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  children: List.generate(lines.length, (idx) {
+                    final line = lines[idx];
+                    final halfWidth = (isNarrow ? 300 : 400 - 16) / 2;
 
-                          return Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              SizedBox(
-                                width: isNarrow
-                                    ? constraints.maxWidth
-                                    : constraints.maxWidth - 316,
-                                child: DropdownButtonFormField<String>(
-                                  initialValue: line.itemName.isEmpty
-                                      ? null
-                                      : line.itemName,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Item',
-                                  ),
-                                  items: _items
-                                      .map(
-                                        (i) => DropdownMenuItem(
-                                          value: i['name'].toString(),
-                                          child: Text(i['name'].toString()),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (v) {
-                                    if (v == null) return;
-                                    final selected = _items.firstWhere(
-                                      (it) => it['name'] == v,
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: isNarrow ? 300 : 400,
+                              child: DropdownButtonFormField<String>(
+                                initialValue: line.itemName.isEmpty
+                                    ? null
+                                    : line.itemName,
+                                decoration: const InputDecoration(
+                                  labelText: 'Item',
+                                ),
+                                items: _items
+                                    .map(
+                                      (i) => DropdownMenuItem(
+                                        value: i['name'].toString(),
+                                        child: Text(i['name'].toString()),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (v) {
+                                  if (v == null) return;
+                                  final selected = _items.firstWhere(
+                                    (it) => it['name'] == v,
+                                    orElse: () => <String, Object>{},
+                                  );
+                                  final perUnit =
+                                      (selected['points'] as int?) ?? 0;
+                                  final id = (selected['id'] as int?) ?? 0;
+                                  final qty = lines[idx].quantity > 0
+                                      ? lines[idx].quantity
+                                      : 1;
+                                  final totalPts = perUnit * qty;
+                                  setState(
+                                    () => lines[idx] = lines[idx].copyWith(
+                                      itemName: v,
+                                      itemId: id,
+                                      points: totalPts,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            SizedBox(
+                              width: isNarrow ? halfWidth : 120,
+                              child: TextFormField(
+                                initialValue: line.quantity.toString(),
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                decoration: const InputDecoration(
+                                  labelText: 'Qty',
+                                ),
+                                onChanged: (v) {
+                                  final newQ = int.tryParse(v) ?? 1;
+                                  int perUnit = 0;
+                                  try {
+                                    final match = _items.firstWhere(
+                                      (it) =>
+                                          (it['id'] as int?) ==
+                                          lines[idx].itemId,
                                       orElse: () => <String, Object>{},
                                     );
-                                    final perUnit =
-                                        (selected['points'] as int?) ?? 0;
-                                    final id = (selected['id'] as int?) ?? 0;
-                                    final qty = lines[idx].quantity > 0
-                                        ? lines[idx].quantity
-                                        : 1;
-                                    final totalPts = perUnit * qty;
-                                    setState(
-                                      () => lines[idx] = lines[idx].copyWith(
-                                        itemName: v,
-                                        itemId: id,
-                                        points: totalPts,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                              SizedBox(
-                                width: isNarrow ? halfWidth : 120,
-                                child: TextFormField(
-                                  initialValue: line.quantity.toString(),
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  decoration: const InputDecoration(
-                                    labelText: 'Qty',
-                                  ),
-                                  onChanged: (v) {
-                                    final newQ = int.tryParse(v) ?? 1;
-                                    int perUnit = 0;
-                                    try {
-                                      final match = _items.firstWhere(
-                                        (it) =>
-                                            (it['id'] as int?) ==
-                                            lines[idx].itemId,
-                                        orElse: () => <String, Object>{},
-                                      );
-                                      perUnit = (match['points'] as int?) ?? 0;
-                                    } catch (_) {
-                                      perUnit = 0;
-                                    }
-                                    final totalPts = perUnit * newQ;
-                                    setState(
-                                      () => lines[idx] = lines[idx].copyWith(
-                                        quantity: newQ,
-                                        points: totalPts,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                              SizedBox(
-                                width: isNarrow ? halfWidth : 140,
-                                child: TextFormField(
-                                  initialValue: line.price.toString(),
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  decoration: const InputDecoration(
-                                    labelText: 'Price',
-                                  ),
-                                  onChanged: (v) => setState(
+                                    perUnit = (match['points'] as int?) ?? 0;
+                                  } catch (_) {
+                                    perUnit = 0;
+                                  }
+                                  final totalPts = perUnit * newQ;
+                                  setState(
                                     () => lines[idx] = lines[idx].copyWith(
-                                      price: int.tryParse(v) ?? 0,
+                                      quantity: newQ,
+                                      points: totalPts,
                                     ),
+                                  );
+                                },
+                              ),
+                            ),
+                            SizedBox(
+                              width: isNarrow ? halfWidth : 140,
+                              child: TextFormField(
+                                initialValue: line.price.toString(),
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly,
+                                ],
+                                decoration: const InputDecoration(
+                                  labelText: 'Price',
+                                ),
+                                onChanged: (v) => setState(
+                                  () => lines[idx] = lines[idx].copyWith(
+                                    price: int.tryParse(v) ?? 0,
                                   ),
                                 ),
                               ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete,
-                                  color: Colors.red,
-                                ),
-                                onPressed: () =>
-                                    setState(() => lines.removeAt(idx)),
-                              ),
-                            ],
-                          );
-                        },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () =>
+                                  setState(() => lines.removeAt(idx)),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  }),
+                ),
               ),
             ),
             const SizedBox(height: 8),

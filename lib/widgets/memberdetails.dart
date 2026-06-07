@@ -7,8 +7,15 @@ import 'package:lzcas/db/db.dart';
 
 class MemberDetailsCard extends StatefulWidget {
   final Map<String, dynamic> member;
+  final bool showHeader;
+  final bool showCardStyling;
 
-  const MemberDetailsCard({super.key, required this.member});
+  const MemberDetailsCard({
+    super.key,
+    required this.member,
+    this.showHeader = true,
+    this.showCardStyling = true,
+  });
 
   @override
   State<MemberDetailsCard> createState() => _MemberDetailsCardState();
@@ -130,6 +137,20 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bool isCompact = MediaQuery.of(context).size.width < 480;
+
+    if (!widget.showCardStyling) {
+      // No card styling - used when part of a larger panel
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return _MemberProfileSection(
+            member: widget.member,
+            onViewTransactions: _showTransactionHistory,
+            showHeader: widget.showHeader,
+          );
+        },
+      );
+    }
+
     return Container(
       width: double.infinity,
       margin: EdgeInsets.zero,
@@ -148,8 +169,9 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           return _MemberProfileSection(
-            member: member,
+            member: widget.member,
             onViewTransactions: _showTransactionHistory,
+            showHeader: widget.showHeader,
           );
         },
       ),
@@ -161,10 +183,12 @@ class _MemberProfileSection extends StatelessWidget {
   const _MemberProfileSection({
     required this.member,
     required this.onViewTransactions,
+    this.showHeader = true,
   });
 
   final Map<String, dynamic> member;
   final VoidCallback onViewTransactions;
+  final bool showHeader;
 
   @override
   Widget build(BuildContext context) {
@@ -177,31 +201,33 @@ class _MemberProfileSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        RichText(
-          text: TextSpan(
-            style: DefaultTextStyle.of(
-              context,
-            ).style.copyWith(fontSize: 22, fontWeight: FontWeight.bold),
-            children: [
-              TextSpan(text: fullName.isEmpty ? 'Unnamed Member' : fullName),
-              WidgetSpan(
-                alignment: PlaceholderAlignment.middle,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 8.0),
-                  child: InteractiveMemberAvatar(
-                    memberId: member['id'] as int?,
-                    lastName: (member['lastName'] ?? '').toString(),
-                    firstName: (member['firstName'] ?? '').toString(),
-                    middleName: (member['middleName'] ?? '').toString(),
-                    imageUrl: (member['image'] ?? '').toString(),
-                    size: 36,
+        if (showHeader) ...[
+          RichText(
+            text: TextSpan(
+              style: DefaultTextStyle.of(
+                context,
+              ).style.copyWith(fontSize: 22, fontWeight: FontWeight.bold),
+              children: [
+                TextSpan(text: fullName.isEmpty ? 'Unnamed Member' : fullName),
+                WidgetSpan(
+                  alignment: PlaceholderAlignment.middle,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8.0),
+                    child: InteractiveMemberAvatar(
+                      memberId: member['id'] as int?,
+                      lastName: (member['lastName'] ?? '').toString(),
+                      firstName: (member['firstName'] ?? '').toString(),
+                      middleName: (member['middleName'] ?? '').toString(),
+                      imageUrl: (member['image'] ?? '').toString(),
+                      size: 36,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
+          const SizedBox(height: 14),
+        ],
         Wrap(
           spacing: 8,
           runSpacing: 8,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../utils/formatters.dart';
 import 'dart:async';
+import 'dart:convert';
 import '../db/db.dart' show Sale, repository;
 import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
@@ -14,6 +15,7 @@ import 'package:csv/csv.dart';
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import '../db/csv_header_utils.dart';
 import '../dialogs/sale_cart_editor.dart';
+import '../theme.dart';
 
 class TransactionsTable extends StatefulWidget {
   const TransactionsTable({super.key});
@@ -70,34 +72,57 @@ class _TransactionsTableState extends State<TransactionsTable> {
   }
 
   Future<void> _onExportCsvPressed(BuildContext safeContext) async {
-    final csv = await repository.exportSalesCsvString();
-    final suggested =
-        'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+    if (!safeContext.mounted) return;
+
+    // Show loading dialog
+    showDialog(
+      context: safeContext,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+
     try {
-      final fs.FileSaveLocation? loc = await fs.getSaveLocation(
-        suggestedName: suggested,
-      );
-      if (loc != null) {
-        final xfile = fs.XFile.fromData(
-          Uint8List.fromList(csv.codeUnits),
-          mimeType: 'text/csv',
-          name: suggested,
+      final csv = await repository.exportSalesCsvString();
+      final suggested =
+          'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+
+      if (!mounted || !safeContext.mounted) return;
+      Navigator.pop(safeContext); // Close loading dialog
+
+      try {
+        final fs.FileSaveLocation? loc = await fs.getSaveLocation(
+          suggestedName: suggested,
         );
-        await xfile.saveTo(loc.path);
+        if (loc != null) {
+          // Use UTF-8 encoding instead of codeUnits for better compatibility
+          final csvBytes = utf8.encode(csv);
+          final xfile = fs.XFile.fromData(
+            csvBytes,
+            mimeType: 'text/csv',
+            name: suggested,
+          );
+          await xfile.saveTo(loc.path);
+          if (!mounted || !safeContext.mounted) return;
+          ScaffoldMessenger.of(
+            safeContext,
+          ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+        }
+      } catch (e) {
+        final dir = Directory.current.path;
+        final savePath = p.join(dir, suggested);
+        final file = File(savePath);
+        await file.writeAsString(csv);
         if (!mounted || !safeContext.mounted) return;
         ScaffoldMessenger.of(
           safeContext,
-        ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+        ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
       }
     } catch (e) {
-      final dir = Directory.current.path;
-      final savePath = p.join(dir, suggested);
-      final file = File(savePath);
-      await file.writeAsString(csv);
       if (!mounted || !safeContext.mounted) return;
+      Navigator.pop(safeContext); // Close loading dialog
       ScaffoldMessenger.of(
         safeContext,
-      ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+      ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
     }
   }
 
@@ -286,7 +311,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(8.0),
+              padding: const EdgeInsets.all(appSpacing),
               child: isDesktop
                   ? Row(
                       children: [
@@ -396,8 +421,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
           cardTheme: CardThemeData(
             elevation: 0,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(color: Colors.grey.shade300, width: 1),
+              borderRadius: BorderRadius.circular(appRadius),
+              side: BorderSide(color: Theme.of(context).dividerColor, width: 1),
             ),
             color: Theme.of(context).colorScheme.surface,
           ),
@@ -420,6 +445,10 @@ class _TransactionsTableState extends State<TransactionsTable> {
                 horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
                 columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
                 rowsPerPage: estimated,
+                headingRowHeight: 42,
+                dataRowMinHeight: 44,
+                dataRowMaxHeight: 52,
+                showCheckboxColumn: false,
                 columns: const [
                   DataColumn(label: Text('Item Name')),
                   DataColumn(label: Text('Quantity')),
@@ -615,8 +644,13 @@ class _TransactionsDataSource extends DataTableSource {
 
     return DataRow(
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+        if (states.contains(WidgetState.hovered)) {
+          return Theme.of(_context).colorScheme.primary.withAlpha(18);
+        }
         if (isEven) {
-          return Theme.of(_context).colorScheme.surfaceContainerHighest;
+          return Theme.of(
+            _context,
+          ).colorScheme.surfaceContainerHighest.withAlpha(90);
         }
         return null;
       }),

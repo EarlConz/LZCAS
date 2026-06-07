@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import 'package:csv/csv.dart';
 import '../db/csv_header_utils.dart';
+import '../theme.dart';
 
 class InventoryTable extends StatefulWidget {
   const InventoryTable({super.key});
@@ -124,7 +125,7 @@ class _InventoryTableState extends State<InventoryTable> {
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(12.0),
+              padding: const EdgeInsets.all(appSpacing),
               child: isMobile
                   ? _buildMobileActionBar(context)
                   : _buildDesktopActionBar(context, isTablet),
@@ -149,13 +150,13 @@ class _InventoryTableState extends State<InventoryTable> {
                               cardTheme: CardThemeData(
                                 elevation: 0,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
+                                  borderRadius: BorderRadius.circular(appRadius),
                                   side: BorderSide(
-                                    color: Colors.grey.shade300,
+                                    color: Theme.of(context).dividerColor,
                                     width: 1,
                                   ),
                                 ),
-                                color: Theme.of(context).cardColor,
+                                color: Theme.of(context).colorScheme.surface,
                               ),
                             ),
                             child: SingleChildScrollView(
@@ -168,6 +169,10 @@ class _InventoryTableState extends State<InventoryTable> {
                                   rowsPerPage: rowsPerPage,
                                   horizontalMargin: isTablet ? 12 : 16,
                                   columnSpacing: isTablet ? 20 : 36,
+                                  headingRowHeight: 42,
+                                  dataRowMinHeight: 44,
+                                  dataRowMaxHeight: 52,
+                                  showCheckboxColumn: false,
                                   columns: const [
                                     DataColumn(label: Text("Item Name")),
                                     DataColumn(label: Text("Category")),
@@ -543,7 +548,7 @@ class _InventoryListCard extends StatelessWidget {
       margin: EdgeInsets.zero,
       color: colorScheme.surfaceContainerLowest,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.45)),
       ),
       child: Padding(
@@ -697,8 +702,13 @@ class _InventoryDataSource extends DataTableSource {
 
     return DataRow(
       color: WidgetStateProperty.resolveWith<Color?>((states) {
+        if (states.contains(WidgetState.hovered)) {
+          return Theme.of(_context).colorScheme.primary.withAlpha(18);
+        }
         if (isEven) {
-          return Theme.of(_context).colorScheme.surfaceContainerHighest;
+          return Theme.of(
+            _context,
+          ).colorScheme.surfaceContainerHighest.withAlpha(90);
         }
         return null;
       }),
