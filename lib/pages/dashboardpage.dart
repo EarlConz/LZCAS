@@ -705,7 +705,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final theme = Theme.of(context);
 
     return SizedBox(
-      height: isMobile ? 220 : 240,
+      height: isMobile ? 240 : 240,
       child: legendItems.isEmpty
           ? Center(
               child: Text(
@@ -718,7 +718,7 @@ class _DashboardPageState extends State<DashboardPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 SizedBox(
-                  height: 120,
+                  height: 160,
                   child: PieChart(
                     PieChartData(
                       sectionsSpace: 2,
@@ -729,25 +729,30 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 28),
                 Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
+                  spacing: 8,
+                  runSpacing: 8,
                   alignment: WrapAlignment.center,
                   children: legendItems,
                 ),
               ],
             )
           : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: PieChart(
-                    PieChartData(
-                      sectionsSpace: 4,
-                      centerSpaceRadius: 50,
-                      sections: sections,
-                      pieTouchData:
-                          pieTouchData ?? PieTouchData(enabled: false),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: double.infinity,
+                    child: PieChart(
+                      PieChartData(
+                        sectionsSpace: 4,
+                        centerSpaceRadius: 50,
+                        sections: sections,
+                        pieTouchData:
+                            pieTouchData ?? PieTouchData(enabled: false),
+                      ),
                     ),
                   ),
                 ),
