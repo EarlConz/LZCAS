@@ -11,16 +11,35 @@ class MembersPage extends StatefulWidget {
   State<MembersPage> createState() => _MembersPageState();
 }
 
-class _MembersPageState extends State<MembersPage> {
+class _MembersPageState extends State<MembersPage>
+    with SingleTickerProviderStateMixin {
   Map<String, dynamic>? selectedMember;
   final GlobalKey<MembersTableState> _tableKey = GlobalKey<MembersTableState>();
+  late AnimationController _panelAnimationController;
+
+  @override
+  void initState() {
+    super.initState();
+    _panelAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+  }
+
+  @override
+  void dispose() {
+    _panelAnimationController.dispose();
+    super.dispose();
+  }
 
   void _handleRowSelection(Map<String, dynamic> member, bool isDesktop) {
     setState(() {
       selectedMember = member;
     });
 
-    if (!isDesktop) {
+    if (isDesktop) {
+      _panelAnimationController.forward();
+    } else {
       showDialog<void>(
         context: context,
         builder: (dialogContext) => _MemberDetailsDialog(
@@ -87,10 +106,19 @@ class _MembersPageState extends State<MembersPage> {
     ).showSnackBar(const SnackBar(content: Text("Member deleted")));
   }
 
+  void _closeMemberPanel() {
+    _panelAnimationController.reverse().then((_) {
+      setState(() {
+        selectedMember = null;
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isDesktop = screenWidth >= 850;
+    final panelWidth = screenWidth < 1200 ? 400.0 : 450.0;
 
     return Scaffold(
       body: SafeArea(
@@ -106,61 +134,146 @@ class _MembersPageState extends State<MembersPage> {
               ),
             ),
 
-            if (isDesktop && selectedMember != null) ...[
-              const VerticalDivider(width: 1, thickness: 1),
-              Container(
-                width: 380,
-                color: Theme.of(context).colorScheme.surface,
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              "Details",
-                              style: Theme.of(context).textTheme.titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Edit member',
-                            onPressed: () => _openEditDialog(selectedMember!),
-                            icon: const Icon(
-                              Icons.edit_outlined,
-                              color: Colors.blue,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Delete member',
-                            onPressed: () =>
-                                _confirmDeleteMember(selectedMember!),
-                            icon: const Icon(
-                              Icons.delete_outline,
-                              color: Colors.red,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Close panel',
-                            onPressed: () =>
-                                setState(() => selectedMember = null),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
+            if (isDesktop)
+              SlideTransition(
+                position:
+                    Tween<Offset>(
+                      begin: const Offset(1, 0),
+                      end: Offset.zero,
+                    ).animate(
+                      CurvedAnimation(
+                        parent: _panelAnimationController,
+                        curve: Curves.easeOutCubic,
                       ),
                     ),
-                    const Divider(),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: MemberDetailsCard(member: selectedMember!),
+                child: AnimatedBuilder(
+                  animation: _panelAnimationController,
+                  builder: (context, child) {
+                    return Opacity(
+                      opacity: _panelAnimationController.value,
+                      child: child,
+                    );
+                  },
+                  child: Container(
+                    width: panelWidth,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surface,
+                      border: Border(
+                        left: BorderSide(
+                          color: Theme.of(context).dividerColor,
+                          width: 1,
+                        ),
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 8,
+                          offset: const Offset(-2, 0),
+                        ),
+                      ],
                     ),
-                  ],
+                    child: selectedMember != null
+                        ? Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  20,
+                                  16,
+                                  12,
+                                  12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            "Details",
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .labelMedium
+                                                ?.copyWith(
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurfaceVariant,
+                                                  letterSpacing: 0.5,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            [
+                                                  selectedMember!['firstName'],
+                                                  selectedMember!['lastName'],
+                                                ]
+                                                .where(
+                                                  (part) =>
+                                                      part != null &&
+                                                      part
+                                                          .toString()
+                                                          .trim()
+                                                          .isNotEmpty,
+                                                )
+                                                .join(' '),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleLarge
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Edit member',
+                                      onPressed: () =>
+                                          _openEditDialog(selectedMember!),
+                                      icon: const Icon(
+                                        Icons.edit_outlined,
+                                        color: Colors.blue,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Delete member',
+                                      onPressed: () =>
+                                          _confirmDeleteMember(selectedMember!),
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Close panel',
+                                      onPressed: _closeMemberPanel,
+                                      icon: const Icon(Icons.close),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Divider(height: 1),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  child: MemberDetailsCard(
+                                    member: selectedMember!,
+                                    showHeader: false,
+                                    showCardStyling: false,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        : const SizedBox.shrink(),
+                  ),
                 ),
               ),
-            ],
           ],
         ),
       ),
@@ -240,7 +353,11 @@ class _MemberDetailsDialog extends StatelessWidget {
               const SizedBox(height: 8),
               Flexible(
                 child: SingleChildScrollView(
-                  child: MemberDetailsCard(member: member),
+                  child: MemberDetailsCard(
+                    member: member,
+                    showHeader: false,
+                    showCardStyling: false,
+                  ),
                 ),
               ),
             ],

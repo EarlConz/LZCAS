@@ -19,27 +19,15 @@ class CustomElevatedButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor:
-            backgroundColor ??
-            theme.elevatedButtonTheme.style?.backgroundColor?.resolve({
-              WidgetState.selected,
-            }),
-        foregroundColor:
-            foregroundColor ??
-            theme.elevatedButtonTheme.style?.foregroundColor?.resolve({
-              WidgetState.selected,
-            }),
-        shape: theme.elevatedButtonTheme.style?.shape?.resolve({
-          WidgetState.selected,
-        }),
-        padding: theme.elevatedButtonTheme.style?.padding?.resolve({
-          WidgetState.selected,
-        }),
-        textStyle: theme.elevatedButtonTheme.style?.textStyle?.resolve({
-          WidgetState.selected,
-        }),
+        elevation: 0,
+        backgroundColor: backgroundColor ?? colorScheme.primary,
+        foregroundColor: foregroundColor ?? colorScheme.onPrimary,
+        shape: theme.elevatedButtonTheme.style?.shape?.resolve({}),
+        padding: theme.elevatedButtonTheme.style?.padding?.resolve({}),
+        textStyle: theme.elevatedButtonTheme.style?.textStyle?.resolve({}),
       ),
       onPressed: onPressed,
       child: icon != null
