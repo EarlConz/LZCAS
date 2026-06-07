@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-const appRadius = 8.0;
-const appSpacing = 16.0;
+const appRadius = 16.0;
+const appSpacing = 20.0;
 
 final appTheme = ThemeData(
   colorScheme: ColorScheme.fromSeed(
