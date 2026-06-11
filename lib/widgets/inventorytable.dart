@@ -150,7 +150,9 @@ class _InventoryTableState extends State<InventoryTable> {
                               cardTheme: CardThemeData(
                                 elevation: 0,
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(appRadius),
+                                  borderRadius: BorderRadius.circular(
+                                    appRadius,
+                                  ),
                                   side: BorderSide(
                                     color: Theme.of(context).dividerColor,
                                     width: 1,
@@ -355,6 +357,9 @@ class _InventoryTableState extends State<InventoryTable> {
             stock: (p['stock'] ?? 0) is int
                 ? p['stock']
                 : int.tryParse(p['stock']?.toString() ?? '0') ?? 0,
+            lastUpdated: p['lastUpdated'] is DateTime
+                ? p['lastUpdated'] as DateTime
+                : null,
           );
           await _loadItems();
           if (!mounted) return;
@@ -548,7 +553,7 @@ class _InventoryListCard extends StatelessWidget {
       margin: EdgeInsets.zero,
       color: colorScheme.surfaceContainerLowest,
       shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.45)),
       ),
       child: Padding(

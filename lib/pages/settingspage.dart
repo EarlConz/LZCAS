@@ -33,6 +33,82 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
+    // ── Confirmation dialog with record counts ──────────────────
+    final items = await repository.fetchItems();
+    final members = await repository.fetchMembers();
+    final sales = await repository.fetchSales();
+
+    final isEmpty = items.isEmpty && members.isEmpty && sales.isEmpty;
+
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sync to Cloud'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This will overwrite the cloud snapshot with your local data.',
+            ),
+            const SizedBox(height: 12),
+            Text('• ${items.length} items'),
+            Text('• ${members.length} members'),
+            Text('• ${sales.length} sales'),
+            if (isEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.error.withAlpha(30),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.error.withAlpha(80),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: Theme.of(context).colorScheme.error,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Your local database is empty. Syncing now '
+                        'will DELETE all cloud data.',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: isEmpty
+                ? ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Colors.white,
+                  )
+                : null,
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isEmpty ? 'Sync Anyway' : 'Sync'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
     setState(() => _syncing = true);
     try {
       final syncService = SupabaseSyncService(
@@ -205,12 +281,45 @@ class _SettingsPageState extends State<SettingsPage> {
                     content: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'This will permanently delete all records from the local database.',
+                      children: [
+                        const Text(
+                          'This will permanently delete all records from '
+                          'the local database.',
                         ),
-                        SizedBox(height: 8),
-                        Text(
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              ctx,
+                            ).colorScheme.error.withAlpha(30),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Theme.of(
+                                ctx,
+                              ).colorScheme.error.withAlpha(80),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.red,
+                                size: 20,
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Do NOT sync to cloud after clearing — '
+                                  'it will wipe your cloud data too.',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
                           'Please export your data before proceeding.',
                           style: TextStyle(fontStyle: FontStyle.italic),
                         ),
@@ -243,7 +352,14 @@ class _SettingsPageState extends State<SettingsPage> {
                     await repository.clearAllData();
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Database cleared')),
+                      const SnackBar(
+                        content: Text(
+                          '⚠ Database cleared. Do NOT sync to cloud '
+                          'or cloud data will be lost.',
+                        ),
+                        duration: Duration(seconds: 8),
+                        backgroundColor: Colors.red,
+                      ),
                     );
                   } catch (e) {
                     if (!context.mounted) return;
