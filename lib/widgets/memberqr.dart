@@ -34,10 +34,14 @@ class MemberQr extends StatelessWidget {
       qr.make();
       return CustomPaint(
         size: Size.square(size),
-        painter: _QrPainterFromMatrix(qr: qr, color: Theme.of(context).colorScheme.onSurface),
+        painter: _QrPainterFromMatrix(
+          qr: qr,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
       );
     } catch (_) {
-      final initials = '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}';
+      final initials =
+          '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}';
       return CircleAvatar(child: Text(initials.toUpperCase()));
     }
   }
@@ -51,7 +55,13 @@ class MemberQrWithName extends StatelessWidget {
   final String middleName;
   final int? id;
 
-  const MemberQrWithName({super.key, required this.lastName, required this.firstName, required this.middleName, this.id});
+  const MemberQrWithName({
+    super.key,
+    required this.lastName,
+    required this.firstName,
+    required this.middleName,
+    this.id,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +69,13 @@ class MemberQrWithName extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        MemberQr(lastName: lastName, firstName: firstName, middleName: middleName, id: id, size: 160),
+        MemberQr(
+          lastName: lastName,
+          firstName: firstName,
+          middleName: middleName,
+          id: id,
+          size: 160,
+        ),
         const SizedBox(height: 8),
         Text(fullName, style: Theme.of(context).textTheme.titleMedium),
       ],
@@ -81,7 +97,10 @@ class _QrPainterFromMatrix extends CustomPainter {
     for (var x = 0; x < moduleCount; x++) {
       for (var y = 0; y < moduleCount; y++) {
         if (qr.isDark(y, x)) {
-          canvas.drawRect(Rect.fromLTWH(x * cellSize, y * cellSize, cellSize, cellSize), paint);
+          canvas.drawRect(
+            Rect.fromLTWH(x * cellSize, y * cellSize, cellSize, cellSize),
+            paint,
+          );
         }
       }
     }

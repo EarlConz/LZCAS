@@ -726,6 +726,69 @@ class DbRepository {
     }
   }
 
+  /// Delete all sales that share the given [timestamp] and [buyerId] as a
+  /// single transaction group. Restores stock for every item and reverses
+  /// the total points awarded to the buyer. Returns the number of rows
+  /// deleted, or -1 if the buyer lacks enough points to reverse.
+  Future<int> deleteSaleGroup(DateTime timestamp, {int? buyerId}) async {
+    return await db.transaction(() async {
+      final allSales = await db.getAllSales();
+      final group = allSales.where((s) {
+        final sameTime =
+            s.timestamp.millisecondsSinceEpoch ==
+            timestamp.millisecondsSinceEpoch;
+        final buyerMatch = s.buyerId == buyerId;
+        return sameTime && buyerMatch;
+      }).toList();
+
+      if (group.isEmpty) return 0;
+
+      // Restore stock for each item
+      final now = DateTime.now();
+      for (final sale in group) {
+        final item = await db.getItemById(sale.itemId);
+        if (item != null) {
+          final updated = item.copyWith(
+            stock: item.stock + sale.quantity,
+            lastUpdated: Value(now),
+          );
+          await db.update(db.items).replace(updated);
+        }
+      }
+
+      // Reverse points from buyer
+      if (buyerId != null) {
+        final buyer = await db.getMemberById(buyerId);
+        if (buyer != null) {
+          int totalPoints = 0;
+          for (final sale in group) {
+            final item = await db.getItemById(sale.itemId);
+            totalPoints += item != null
+                ? (item.points * sale.quantity).toInt()
+                : sale.points;
+          }
+          if (totalPoints > 0) {
+            if (buyer.points < totalPoints) return -1;
+            final updated = buyer.copyWith(points: buyer.points - totalPoints);
+            await db.update(db.members).replace(updated);
+          }
+        }
+      }
+
+      // Delete all sales in the group
+      int deleted = 0;
+      for (final sale in group) {
+        final res = await (db.delete(
+          db.sales,
+        )..where((t) => t.id.equals(sale.id))).go();
+        deleted += res;
+      }
+
+      if (deleted > 0) _changes.add('sale_deleted');
+      return deleted;
+    });
+  }
+
   /// Update a sale record and notify listeners.
   Future<bool> updateSale(Sale sale) async {
     final res = await db.update(db.sales).replace(sale);

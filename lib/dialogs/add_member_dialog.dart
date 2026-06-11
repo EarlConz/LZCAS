@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member;
+import 'package:lzcas/utils/phone_formatter.dart';
 
 class AddMemberDialog extends StatefulWidget {
   final Function(Map<String, dynamic>) onMemberAdded;
@@ -18,10 +19,13 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final contactController = TextEditingController();
   final birthdayController = TextEditingController();
   final addressController = TextEditingController();
-  final referrerController = TextEditingController();
   List<Member> _members = [];
   int? _selectedReferrerId;
   String _selectedReferrerName = '';
+
+  final _lastNameKey = GlobalKey<FormFieldState>();
+  final _firstNameKey = GlobalKey<FormFieldState>();
+  final _contactKey = GlobalKey<FormFieldState>();
 
   Future<void> _pickBirthday() async {
     final birthday = await showBirthdayPickerDialog(
@@ -56,150 +60,273 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     contactController.dispose();
     birthdayController.dispose();
     addressController.dispose();
-    referrerController.dispose();
     super.dispose();
+  }
+
+  bool _validateAll() {
+    bool valid = true;
+    if (lastNameController.text.trim().isEmpty) {
+      _lastNameKey.currentState?.validate();
+      valid = false;
+    }
+    if (firstNameController.text.trim().isEmpty) {
+      _firstNameKey.currentState?.validate();
+      valid = false;
+    }
+    // Contact: optional, but if filled must be digits only
+    final contact = contactController.text.trim();
+    if (contact.isNotEmpty && !RegExp(r'^[0-9 ]+$').hasMatch(contact)) {
+      _contactKey.currentState?.validate();
+      valid = false;
+    }
+    return valid;
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isNarrow = MediaQuery.sizeOf(context).width < 500;
+
+    final inputBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+    );
+
     return AlertDialog(
-      title: const Text("Add New Member"),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: lastNameController,
-              decoration: const InputDecoration(labelText: "Last Name"),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: [
+          Icon(Icons.person_add_rounded, color: colorScheme.primary, size: 28),
+          const SizedBox(width: 10),
+          Text(
+            'Add New Member',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: firstNameController,
-              decoration: const InputDecoration(labelText: "First Name"),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: middleNameController,
-              decoration: const InputDecoration(labelText: "Middle Name"),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: contactController,
-              decoration: const InputDecoration(labelText: "Contact No."),
-              keyboardType: TextInputType.phone,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: birthdayController,
-              readOnly: true,
-              onTap: _pickBirthday,
-              decoration: const InputDecoration(
-                labelText: "Birthday",
-                suffixIcon: Icon(Icons.calendar_month_outlined),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: isNarrow ? double.maxFinite : 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Name section ──────────────────────────────
+              _sectionLabel('Name', theme, colorScheme),
+              const SizedBox(height: 10),
+              TextFormField(
+                key: _lastNameKey,
+                controller: lastNameController,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+                decoration: InputDecoration(
+                  labelText: 'Last Name',
+                  hintText: 'e.g. Dela Cruz',
+                  prefixIcon: const Icon(Icons.badge_outlined),
+                  border: inputBorder,
+                ),
+                textInputAction: TextInputAction.next,
               ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: addressController,
-              decoration: const InputDecoration(labelText: "Address"),
-            ),
-            const SizedBox(height: 16),
-            // Referrer picker (None or an existing member)
-            DropdownButtonFormField<int?>(
-              initialValue: _selectedReferrerId,
-              decoration: const InputDecoration(labelText: "Referrer (optional)"),
-              items: [
-                const DropdownMenuItem<int?>(value: null, child: Text('None')),
-                ..._members.map((m) {
-                  final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
-                  return DropdownMenuItem<int?>(value: m.id, child: Text(label.isEmpty ? 'ID:${m.id}' : label));
-                })
-              ],
-              onChanged: (v) {
-                setState(() {
-                  _selectedReferrerId = v;
-                  final sel = _members.firstWhere((m) => m.id == v, orElse: () => Member(id: 0, lastName: null, firstName: null, middleName: null, role: null, contactNo: null, birthday: null, address: null, referrer: null, points: 0, qr: null));
-                  _selectedReferrerName = sel.id == 0 ? '' : '${sel.firstName ?? ''} ${sel.lastName ?? ''}'.trim();
-                });
-              },
-            ),
-          ],
+              const SizedBox(height: 14),
+              TextFormField(
+                key: _firstNameKey,
+                controller: firstNameController,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+                decoration: InputDecoration(
+                  labelText: 'First Name',
+                  hintText: 'e.g. Juan',
+                  prefixIcon: const Icon(Icons.person_outline),
+                  border: inputBorder,
+                ),
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: middleNameController,
+                decoration: InputDecoration(
+                  labelText: 'Middle Name',
+                  hintText: 'Optional',
+                  prefixIcon: const Icon(Icons.person_outline),
+                  border: inputBorder,
+                ),
+                textInputAction: TextInputAction.next,
+              ),
+
+              const SizedBox(height: 20),
+              // ── Contact section ───────────────────────────
+              _sectionLabel('Contact', theme, colorScheme),
+              const SizedBox(height: 10),
+              TextFormField(
+                key: _contactKey,
+                controller: contactController,
+                validator: (v) {
+                  if (v != null &&
+                      v.trim().isNotEmpty &&
+                      !RegExp(r'^[0-9 ]+$').hasMatch(v.trim())) {
+                    return 'Numbers only';
+                  }
+                  return null;
+                },
+                inputFormatters: [PhilippinePhoneFormatter()],
+                decoration: InputDecoration(
+                  labelText: 'Contact No.',
+                  hintText: '0912 345 6789',
+                  prefixIcon: const Icon(Icons.phone_outlined),
+                  border: inputBorder,
+                ),
+                keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: birthdayController,
+                readOnly: true,
+                onTap: _pickBirthday,
+                decoration: InputDecoration(
+                  labelText: 'Birthday',
+                  hintText: 'Tap to pick',
+                  prefixIcon: const Icon(Icons.cake_outlined),
+                  suffixIcon: const Icon(Icons.calendar_month_outlined),
+                  border: inputBorder,
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: addressController,
+                decoration: InputDecoration(
+                  labelText: 'Address',
+                  hintText: 'Optional',
+                  prefixIcon: const Icon(Icons.home_outlined),
+                  border: inputBorder,
+                ),
+                textInputAction: TextInputAction.next,
+              ),
+
+              const SizedBox(height: 20),
+              // ── Referrer section ──────────────────────────
+              _sectionLabel('Referral', theme, colorScheme),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<int?>(
+                initialValue: _selectedReferrerId,
+                decoration: InputDecoration(
+                  labelText: 'Referrer',
+                  prefixIcon: const Icon(Icons.group_outlined),
+                  border: inputBorder,
+                ),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('None'),
+                  ),
+                  ..._members.map((m) {
+                    final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                        .trim();
+                    return DropdownMenuItem<int?>(
+                      value: m.id,
+                      child: Text(
+                        label.isEmpty ? 'ID:${m.id}' : label,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }),
+                ],
+                onChanged: (v) {
+                  setState(() {
+                    _selectedReferrerId = v;
+                    final sel = _members.firstWhere(
+                      (m) => m.id == v,
+                      orElse: () => Member(
+                        id: 0,
+                        lastName: null,
+                        firstName: null,
+                        middleName: null,
+                        role: null,
+                        contactNo: null,
+                        birthday: null,
+                        address: null,
+                        referrer: null,
+                        points: 0,
+                        qr: null,
+                      ),
+                    );
+                    _selectedReferrerName = sel.id == 0
+                        ? ''
+                        : '${sel.firstName ?? ''} ${sel.lastName ?? ''}'.trim();
+                  });
+                },
+              ),
+            ],
+          ),
         ),
       ),
+      actionsPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       actions: [
-        TextButton(
+        OutlinedButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text("Cancel"),
+          style: OutlinedButton.styleFrom(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: const Text('Cancel'),
         ),
-        ElevatedButton(
-          onPressed: () {
-            // ✅ Validation check for name
-            if (lastNameController.text.trim().isEmpty ||
-                firstNameController.text.trim().isEmpty ||
-                middleNameController.text.trim().isEmpty) {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text("Error"),
-                  content: const Text("Must put full name"),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text("OK"),
-                    ),
-                  ],
-                ),
-              );
-              return;
-            }
+        const SizedBox(width: 10),
+        FilledButton.icon(
+          onPressed: _submit,
+          icon: const Icon(Icons.person_add, size: 18),
+          label: const Text('Add Member'),
+          style: FilledButton.styleFrom(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
-            // ✅ Contact No. check: allow empty, but validate numbers if not empty
-            if (contactController.text.trim().isNotEmpty &&
-                !RegExp(r'^[0-9]+$').hasMatch(contactController.text)) {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text("Error"),
-                  content: const Text("Contact No. must be numbers only"),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text("OK"),
-                    ),
-                  ],
-                ),
-              );
-              return;
-            }
+  void _submit() {
+    if (!_validateAll()) return;
 
-            final refText = _selectedReferrerName;
-            final referrerId = _selectedReferrerId;
+    final newMember = {
+      'lastName': lastNameController.text.trim(),
+      'firstName': firstNameController.text.trim(),
+      'middleName': middleNameController.text.trim(),
+      'contactNo': contactController.text.trim().isEmpty
+          ? null
+          : contactController.text.replaceAll(' ', '').trim(),
+      'birthday': birthdayController.text.trim(),
+      'address': addressController.text.trim(),
+      'referrer': _selectedReferrerName,
+      'referrerId': _selectedReferrerId,
+      'points': 0,
+      'role': 'Member',
+    };
 
-            final newMember = {
-              "lastName": lastNameController.text,
-              "firstName": firstNameController.text,
-              "middleName": middleNameController.text,
-              "contactNo": contactController.text.isEmpty
-                  ? null
-                  : contactController.text,
-              "birthday": birthdayController.text,
-              "address": addressController.text,
-              "referrer": refText,
-              "referrerId": referrerId,
-              "points": 0, // default
-              "role": "Member", // default
-            };
+    widget.onMemberAdded(newMember);
+    Navigator.pop(context);
+  }
 
-            widget.onMemberAdded(newMember);
-            Navigator.pop(context);
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Member added successfully!")),
-              );
-            }
-          },
-          child: const Text("Confirm"),
+  Widget _sectionLabel(String text, ThemeData theme, ColorScheme colorScheme) {
+    return Row(
+      children: [
+        Text(
+          text.toUpperCase(),
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: colorScheme.primary,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Divider(
+            color: colorScheme.outline.withValues(alpha: 0.3),
+            endIndent: 4,
+          ),
         ),
       ],
     );
