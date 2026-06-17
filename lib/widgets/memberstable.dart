@@ -13,6 +13,7 @@ import 'package:csv/csv.dart';
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import '../db/csv_header_utils.dart';
 import '../theme.dart';
+import 'memberqr.dart';
 
 class MembersTable extends StatefulWidget {
   final Function(Map<String, dynamic>) onRowSelected;
@@ -69,7 +70,7 @@ class MembersTableState extends State<MembersTable> {
   }
 
   Future<void> addMember(Map<String, dynamic> newMember) async {
-    await repository.addMember(
+    final memberId = await repository.addMember(
       lastName: newMember['lastName']?.toString(),
       firstName: newMember['firstName']?.toString(),
       middleName: newMember['middleName']?.toString(),
@@ -83,6 +84,67 @@ class MembersTableState extends State<MembersTable> {
           : int.tryParse(newMember['points']?.toString() ?? '0') ?? 0,
     );
     await _loadMembers();
+
+    // Show QR code dialog for the newly created member
+    if (!mounted) return;
+    final created = await repository.getMemberById(memberId);
+    if (created != null && mounted) {
+      _showMemberQrDialog(created);
+    }
+  }
+
+  void _showMemberQrDialog(Member member) {
+    final fullName =
+        '${member.firstName ?? ''} ${member.middleName ?? ''} ${member.lastName ?? ''}'
+            .trim();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.qr_code, color: Theme.of(ctx).colorScheme.primary),
+            const SizedBox(width: 10),
+            const Text('Member QR Code'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Share this QR code with $fullName',
+              textAlign: TextAlign.center,
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            MemberQr(
+              lastName: member.lastName ?? '',
+              firstName: member.firstName ?? '',
+              middleName: member.middleName ?? '',
+              contactNo: member.contactNo ?? '',
+              birthday: member.birthday ?? '',
+              address: member.address ?? '',
+              referrer: member.referrer ?? '',
+              qrToken: member.qr,
+              size: 200,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              fullName,
+              style: Theme.of(
+                ctx,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> updateMember(

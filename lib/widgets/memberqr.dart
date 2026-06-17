@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:qr/qr.dart';
 import 'dart:convert'; // Required for jsonEncode
 
@@ -13,6 +12,11 @@ class MemberQr extends StatelessWidget {
   final String referrer;
   final double size;
 
+  /// Optional DB qr token. When provided, the QR encodes only this token
+  /// (compact, scannable for member lookup). When null, encodes the full
+  /// member JSON profile (backward compatible).
+  final String? qrToken;
+
   const MemberQr({
     super.key,
     required this.lastName,
@@ -23,10 +27,16 @@ class MemberQr extends StatelessWidget {
     required this.address,
     required this.referrer,
     this.size = 160,
+    this.qrToken,
   });
 
   String _payload() {
-    // Standardizes all properties into a clean JSON structure
+    // If a DB qr token is provided, encode just the token so the scanner
+    // can look up the member directly via the members.qr column.
+    if (qrToken != null && qrToken!.isNotEmpty) {
+      return qrToken!;
+    }
+    // Fallback: encode the full member JSON profile
     final qrDataMap = {
       'lastName': lastName,
       'firstName': firstName,
@@ -70,6 +80,7 @@ class MemberQrWithName extends StatelessWidget {
   final String birthday;
   final String address;
   final String referrer;
+  final String? qrToken;
 
   const MemberQrWithName({
     super.key,
@@ -80,6 +91,7 @@ class MemberQrWithName extends StatelessWidget {
     this.birthday = '',
     this.address = '',
     this.referrer = '',
+    this.qrToken,
   });
 
   @override
@@ -96,6 +108,7 @@ class MemberQrWithName extends StatelessWidget {
           birthday: birthday,
           address: address,
           referrer: referrer,
+          qrToken: qrToken,
           size: 160,
         ),
         const SizedBox(height: 8),
