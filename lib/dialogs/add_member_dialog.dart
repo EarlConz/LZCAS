@@ -1,7 +1,12 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member;
 import 'package:lzcas/utils/phone_formatter.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 class AddMemberDialog extends StatefulWidget {
   final Function(Map<String, dynamic>) onMemberAdded;
@@ -19,13 +24,31 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final contactController = TextEditingController();
   final birthdayController = TextEditingController();
   final addressController = TextEditingController();
+  final idNumberController = TextEditingController();
   List<Member> _members = [];
   int? _selectedReferrerId;
   String _selectedReferrerName = '';
+  String? _selectedIdType;
+  String? _selectedIdImagePath;
 
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
   final _contactKey = GlobalKey<FormFieldState>();
+
+  static const _idTypes = [
+    'Driver\'s License',
+    'National ID (PhilSys)',
+    'Passport',
+    'UMID',
+    'SSS ID',
+    'GSIS eCard',
+    'PhilHealth ID',
+    'PRC License',
+    'Postal ID',
+    'Voter\'s ID',
+    'Senior Citizen ID',
+    'Other',
+  ];
 
   Future<void> _pickBirthday() async {
     final birthday = await showBirthdayPickerDialog(
@@ -36,6 +59,41 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     setState(() {
       birthdayController.text = birthday;
     });
+  }
+
+  Future<void> _pickIdImage() async {
+    final files = await fs.openFiles(
+      acceptedTypeGroups: [
+        const fs.XTypeGroup(
+          label: 'Images',
+          extensions: ['jpg', 'jpeg', 'png'],
+        ),
+      ],
+    );
+    if (files.isEmpty || !mounted) return;
+
+    final sourcePath = files.first.path;
+    if (sourcePath == null) return;
+
+    // Copy to app documents directory for local persistence
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final memberIdDir = Directory(p.join(docsDir.path, 'member_ids'));
+      if (!await memberIdDir.exists()) {
+        await memberIdDir.create(recursive: true);
+      }
+      // Use a temp name; real name will be set with memberId after creation
+      final destPath = p.join(
+        memberIdDir.path,
+        'new_${DateTime.now().millisecondsSinceEpoch}${p.extension(sourcePath)}',
+      );
+      await File(sourcePath).copy(destPath);
+
+      setState(() => _selectedIdImagePath = destPath);
+    } catch (_) {
+      // Fall back to using the original path
+      setState(() => _selectedIdImagePath = sourcePath);
+    }
   }
 
   @override
@@ -60,6 +118,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     contactController.dispose();
     birthdayController.dispose();
     addressController.dispose();
+    idNumberController.dispose();
     super.dispose();
   }
 
@@ -206,6 +265,75 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               ),
 
               const SizedBox(height: 20),
+              // ── ID Verification section ────────────────────
+              _sectionLabel('Verification ID', theme, colorScheme),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue:
+                    _selectedIdType != null &&
+                        _selectedIdType!.isNotEmpty &&
+                        _idTypes.contains(_selectedIdType)
+                    ? _selectedIdType
+                    : null,
+                decoration: InputDecoration(
+                  labelText: 'ID Type',
+                  hintText: 'Select ID type (optional)',
+                  prefixIcon: const Icon(Icons.credit_card_outlined),
+                  border: inputBorder,
+                ),
+                items: _idTypes
+                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                    .toList(),
+                onChanged: (v) => setState(() => _selectedIdType = v),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: idNumberController,
+                decoration: InputDecoration(
+                  labelText: 'ID Number',
+                  hintText: 'Optional',
+                  prefixIcon: const Icon(Icons.numbers_outlined),
+                  border: inputBorder,
+                ),
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 14),
+              InkWell(
+                onTap: _pickIdImage,
+                borderRadius: BorderRadius.circular(10),
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'ID Photo',
+                    hintText: 'Tap to upload',
+                    prefixIcon: const Icon(Icons.camera_alt_outlined),
+                    border: inputBorder,
+                  ),
+                  child: _selectedIdImagePath != null
+                      ? Row(
+                          children: [
+                            Icon(
+                              Icons.check_circle,
+                              size: 18,
+                              color: colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                p.basename(_selectedIdImagePath!),
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        )
+                      : const Text(
+                          'Tap to select ID photo',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
               // ── Referrer section ──────────────────────────
               _sectionLabel('Referral', theme, colorScheme),
               const SizedBox(height: 10),
@@ -304,6 +432,11 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
       'referrerId': _selectedReferrerId,
       'points': 0,
       'role': 'Member',
+      'idType': _selectedIdType,
+      'idNumber': idNumberController.text.trim().isEmpty
+          ? null
+          : idNumberController.text.trim(),
+      'idImagePath': _selectedIdImagePath,
     };
 
     widget.onMemberAdded(newMember);

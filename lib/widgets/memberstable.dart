@@ -70,11 +70,21 @@ class MembersTableState extends State<MembersTable> {
   }
 
   Future<void> addMember(Map<String, dynamic> newMember) async {
+    // Handle renaming the ID image from temp name to member-id-based name
+    final rawImagePath = newMember['idImagePath']?.toString();
+    String? finalImagePath = rawImagePath;
+
+    // Auto-verify if an ID photo was uploaded
+    final hasId = (newMember['idImagePath']?.toString() ?? '').isNotEmpty;
+    final role = hasId
+        ? 'Verified Reseller'
+        : (newMember['role']?.toString() ?? 'Member');
+
     final memberId = await repository.addMember(
       lastName: newMember['lastName']?.toString(),
       firstName: newMember['firstName']?.toString(),
       middleName: newMember['middleName']?.toString(),
-      role: newMember['role']?.toString(),
+      role: role,
       contactNo: newMember['contactNo']?.toString(),
       birthday: newMember['birthday']?.toString(),
       address: newMember['address']?.toString(),
@@ -82,7 +92,36 @@ class MembersTableState extends State<MembersTable> {
       points: (newMember['points'] ?? 0) is int
           ? newMember['points']
           : int.tryParse(newMember['points']?.toString() ?? '0') ?? 0,
+      idType: newMember['idType']?.toString(),
+      idNumber: newMember['idNumber']?.toString(),
+      idImagePath: null, // set after renaming
     );
+
+    // Rename temp image file to member ID
+    if (finalImagePath != null) {
+      try {
+        final file = File(finalImagePath);
+        if (await file.exists()) {
+          final parent = file.parent;
+          final ext = p.extension(finalImagePath);
+          final renamed = p.join(parent.path, '$memberId$ext');
+          final renamedFile = await file.rename(renamed);
+          finalImagePath = renamedFile.path;
+
+          // Update the DB path
+          final created = await repository.getMemberById(memberId);
+          if (created != null) {
+            final updated = created.copyWith(
+              idImagePath: Value(finalImagePath),
+            );
+            await repository.db.updateMemberData(updated);
+          }
+        }
+      } catch (_) {
+        // Keep original path if rename fails
+      }
+    }
+
     await _loadMembers();
 
     // Show QR code dialog for the newly created member
@@ -149,6 +188,13 @@ class MembersTableState extends State<MembersTable> {
     final id = oldMember['id'] as int?;
     if (id == null) return;
     final row = (await repository.fetchMembers()).firstWhere((r) => r.id == id);
+
+    // Auto-verify if an ID photo is present
+    final newIdImagePath =
+        updatedMember['idImagePath']?.toString() ?? row.idImagePath;
+    final hasId = (newIdImagePath ?? '').isNotEmpty;
+    final newRole = hasId ? 'Verified Reseller' : (row.role ?? 'Member');
+
     final updated = row.copyWith(
       lastName: updatedMember['lastName'] != null
           ? Value(updatedMember['lastName'].toString())
@@ -159,9 +205,7 @@ class MembersTableState extends State<MembersTable> {
       middleName: updatedMember['middleName'] != null
           ? Value(updatedMember['middleName'].toString())
           : const Value.absent(),
-      role: updatedMember['role'] != null
-          ? Value(updatedMember['role'].toString())
-          : const Value.absent(),
+      role: Value(newRole),
       contactNo: updatedMember['contactNo'] != null
           ? Value(updatedMember['contactNo'].toString())
           : const Value.absent(),
@@ -175,6 +219,15 @@ class MembersTableState extends State<MembersTable> {
           ? Value(updatedMember['referrer'].toString())
           : const Value.absent(),
       points: updatedMember['points'] is int ? updatedMember['points'] : null,
+      idType: updatedMember['idType'] != null
+          ? Value(updatedMember['idType'].toString())
+          : const Value.absent(),
+      idNumber: updatedMember['idNumber'] != null
+          ? Value(updatedMember['idNumber'].toString())
+          : const Value.absent(),
+      idImagePath: updatedMember['idImagePath'] != null
+          ? Value(updatedMember['idImagePath'].toString())
+          : const Value.absent(),
     );
     await repository.db.updateMemberData(updated);
     await _loadMembers();
@@ -640,7 +693,29 @@ class _MembersDataSource extends DataTableSource {
           onTap: () => onRowSelected(member),
         ),
         DataCell(
-          Text(member["role"] ?? ""),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  (member['idImagePath']?.toString() ?? '').isNotEmpty
+                      ? 'Verified Reseller'
+                      : (member["role"] ?? ""),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if ((member['idImagePath']?.toString() ?? '').isNotEmpty ||
+                  (member["role"] ?? '') == 'Verified Reseller')
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Icon(
+                    Icons.verified_user,
+                    size: 16,
+                    color: Colors.green.shade700,
+                  ),
+                ),
+            ],
+          ),
           onTap: () => onRowSelected(member),
         ),
         DataCell(

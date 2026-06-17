@@ -579,6 +579,37 @@ class $MembersTable extends Members with TableInfo<$MembersTable, Member> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _idTypeMeta = const VerificationMeta('idType');
+  @override
+  late final GeneratedColumn<String> idType = GeneratedColumn<String>(
+    'id_type',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _idNumberMeta = const VerificationMeta(
+    'idNumber',
+  );
+  @override
+  late final GeneratedColumn<String> idNumber = GeneratedColumn<String>(
+    'id_number',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _idImagePathMeta = const VerificationMeta(
+    'idImagePath',
+  );
+  @override
+  late final GeneratedColumn<String> idImagePath = GeneratedColumn<String>(
+    'id_image_path',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -593,6 +624,9 @@ class $MembersTable extends Members with TableInfo<$MembersTable, Member> {
     referrerId,
     points,
     qr,
+    idType,
+    idNumber,
+    idImagePath,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -672,6 +706,27 @@ class $MembersTable extends Members with TableInfo<$MembersTable, Member> {
     if (data.containsKey('qr')) {
       context.handle(_qrMeta, qr.isAcceptableOrUnknown(data['qr']!, _qrMeta));
     }
+    if (data.containsKey('id_type')) {
+      context.handle(
+        _idTypeMeta,
+        idType.isAcceptableOrUnknown(data['id_type']!, _idTypeMeta),
+      );
+    }
+    if (data.containsKey('id_number')) {
+      context.handle(
+        _idNumberMeta,
+        idNumber.isAcceptableOrUnknown(data['id_number']!, _idNumberMeta),
+      );
+    }
+    if (data.containsKey('id_image_path')) {
+      context.handle(
+        _idImagePathMeta,
+        idImagePath.isAcceptableOrUnknown(
+          data['id_image_path']!,
+          _idImagePathMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -729,6 +784,18 @@ class $MembersTable extends Members with TableInfo<$MembersTable, Member> {
         DriftSqlType.string,
         data['${effectivePrefix}qr'],
       ),
+      idType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id_type'],
+      ),
+      idNumber: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id_number'],
+      ),
+      idImagePath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id_image_path'],
+      ),
     );
   }
 
@@ -751,6 +818,9 @@ class Member extends DataClass implements Insertable<Member> {
   final int? referrerId;
   final int points;
   final String? qr;
+  final String? idType;
+  final String? idNumber;
+  final String? idImagePath;
   const Member({
     required this.id,
     this.lastName,
@@ -764,6 +834,9 @@ class Member extends DataClass implements Insertable<Member> {
     this.referrerId,
     required this.points,
     this.qr,
+    this.idType,
+    this.idNumber,
+    this.idImagePath,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -800,6 +873,15 @@ class Member extends DataClass implements Insertable<Member> {
     if (!nullToAbsent || qr != null) {
       map['qr'] = Variable<String>(qr);
     }
+    if (!nullToAbsent || idType != null) {
+      map['id_type'] = Variable<String>(idType);
+    }
+    if (!nullToAbsent || idNumber != null) {
+      map['id_number'] = Variable<String>(idNumber);
+    }
+    if (!nullToAbsent || idImagePath != null) {
+      map['id_image_path'] = Variable<String>(idImagePath);
+    }
     return map;
   }
 
@@ -833,6 +915,15 @@ class Member extends DataClass implements Insertable<Member> {
           : Value(referrerId),
       points: Value(points),
       qr: qr == null && nullToAbsent ? const Value.absent() : Value(qr),
+      idType: idType == null && nullToAbsent
+          ? const Value.absent()
+          : Value(idType),
+      idNumber: idNumber == null && nullToAbsent
+          ? const Value.absent()
+          : Value(idNumber),
+      idImagePath: idImagePath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(idImagePath),
     );
   }
 
@@ -854,6 +945,9 @@ class Member extends DataClass implements Insertable<Member> {
       referrerId: serializer.fromJson<int?>(json['referrerId']),
       points: serializer.fromJson<int>(json['points']),
       qr: serializer.fromJson<String?>(json['qr']),
+      idType: serializer.fromJson<String?>(json['idType']),
+      idNumber: serializer.fromJson<String?>(json['idNumber']),
+      idImagePath: serializer.fromJson<String?>(json['idImagePath']),
     );
   }
   @override
@@ -872,6 +966,9 @@ class Member extends DataClass implements Insertable<Member> {
       'referrerId': serializer.toJson<int?>(referrerId),
       'points': serializer.toJson<int>(points),
       'qr': serializer.toJson<String?>(qr),
+      'idType': serializer.toJson<String?>(idType),
+      'idNumber': serializer.toJson<String?>(idNumber),
+      'idImagePath': serializer.toJson<String?>(idImagePath),
     };
   }
 
@@ -888,6 +985,9 @@ class Member extends DataClass implements Insertable<Member> {
     Value<int?> referrerId = const Value.absent(),
     int? points,
     Value<String?> qr = const Value.absent(),
+    Value<String?> idType = const Value.absent(),
+    Value<String?> idNumber = const Value.absent(),
+    Value<String?> idImagePath = const Value.absent(),
   }) => Member(
     id: id ?? this.id,
     lastName: lastName.present ? lastName.value : this.lastName,
@@ -901,6 +1001,9 @@ class Member extends DataClass implements Insertable<Member> {
     referrerId: referrerId.present ? referrerId.value : this.referrerId,
     points: points ?? this.points,
     qr: qr.present ? qr.value : this.qr,
+    idType: idType.present ? idType.value : this.idType,
+    idNumber: idNumber.present ? idNumber.value : this.idNumber,
+    idImagePath: idImagePath.present ? idImagePath.value : this.idImagePath,
   );
   Member copyWithCompanion(MembersCompanion data) {
     return Member(
@@ -920,6 +1023,11 @@ class Member extends DataClass implements Insertable<Member> {
           : this.referrerId,
       points: data.points.present ? data.points.value : this.points,
       qr: data.qr.present ? data.qr.value : this.qr,
+      idType: data.idType.present ? data.idType.value : this.idType,
+      idNumber: data.idNumber.present ? data.idNumber.value : this.idNumber,
+      idImagePath: data.idImagePath.present
+          ? data.idImagePath.value
+          : this.idImagePath,
     );
   }
 
@@ -937,7 +1045,10 @@ class Member extends DataClass implements Insertable<Member> {
           ..write('referrer: $referrer, ')
           ..write('referrerId: $referrerId, ')
           ..write('points: $points, ')
-          ..write('qr: $qr')
+          ..write('qr: $qr, ')
+          ..write('idType: $idType, ')
+          ..write('idNumber: $idNumber, ')
+          ..write('idImagePath: $idImagePath')
           ..write(')'))
         .toString();
   }
@@ -956,6 +1067,9 @@ class Member extends DataClass implements Insertable<Member> {
     referrerId,
     points,
     qr,
+    idType,
+    idNumber,
+    idImagePath,
   );
   @override
   bool operator ==(Object other) =>
@@ -972,7 +1086,10 @@ class Member extends DataClass implements Insertable<Member> {
           other.referrer == this.referrer &&
           other.referrerId == this.referrerId &&
           other.points == this.points &&
-          other.qr == this.qr);
+          other.qr == this.qr &&
+          other.idType == this.idType &&
+          other.idNumber == this.idNumber &&
+          other.idImagePath == this.idImagePath);
 }
 
 class MembersCompanion extends UpdateCompanion<Member> {
@@ -988,6 +1105,9 @@ class MembersCompanion extends UpdateCompanion<Member> {
   final Value<int?> referrerId;
   final Value<int> points;
   final Value<String?> qr;
+  final Value<String?> idType;
+  final Value<String?> idNumber;
+  final Value<String?> idImagePath;
   const MembersCompanion({
     this.id = const Value.absent(),
     this.lastName = const Value.absent(),
@@ -1001,6 +1121,9 @@ class MembersCompanion extends UpdateCompanion<Member> {
     this.referrerId = const Value.absent(),
     this.points = const Value.absent(),
     this.qr = const Value.absent(),
+    this.idType = const Value.absent(),
+    this.idNumber = const Value.absent(),
+    this.idImagePath = const Value.absent(),
   });
   MembersCompanion.insert({
     this.id = const Value.absent(),
@@ -1015,6 +1138,9 @@ class MembersCompanion extends UpdateCompanion<Member> {
     this.referrerId = const Value.absent(),
     this.points = const Value.absent(),
     this.qr = const Value.absent(),
+    this.idType = const Value.absent(),
+    this.idNumber = const Value.absent(),
+    this.idImagePath = const Value.absent(),
   });
   static Insertable<Member> custom({
     Expression<int>? id,
@@ -1029,6 +1155,9 @@ class MembersCompanion extends UpdateCompanion<Member> {
     Expression<int>? referrerId,
     Expression<int>? points,
     Expression<String>? qr,
+    Expression<String>? idType,
+    Expression<String>? idNumber,
+    Expression<String>? idImagePath,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -1043,6 +1172,9 @@ class MembersCompanion extends UpdateCompanion<Member> {
       if (referrerId != null) 'referrer_id': referrerId,
       if (points != null) 'points': points,
       if (qr != null) 'qr': qr,
+      if (idType != null) 'id_type': idType,
+      if (idNumber != null) 'id_number': idNumber,
+      if (idImagePath != null) 'id_image_path': idImagePath,
     });
   }
 
@@ -1059,6 +1191,9 @@ class MembersCompanion extends UpdateCompanion<Member> {
     Value<int?>? referrerId,
     Value<int>? points,
     Value<String?>? qr,
+    Value<String?>? idType,
+    Value<String?>? idNumber,
+    Value<String?>? idImagePath,
   }) {
     return MembersCompanion(
       id: id ?? this.id,
@@ -1073,6 +1208,9 @@ class MembersCompanion extends UpdateCompanion<Member> {
       referrerId: referrerId ?? this.referrerId,
       points: points ?? this.points,
       qr: qr ?? this.qr,
+      idType: idType ?? this.idType,
+      idNumber: idNumber ?? this.idNumber,
+      idImagePath: idImagePath ?? this.idImagePath,
     );
   }
 
@@ -1115,6 +1253,15 @@ class MembersCompanion extends UpdateCompanion<Member> {
     if (qr.present) {
       map['qr'] = Variable<String>(qr.value);
     }
+    if (idType.present) {
+      map['id_type'] = Variable<String>(idType.value);
+    }
+    if (idNumber.present) {
+      map['id_number'] = Variable<String>(idNumber.value);
+    }
+    if (idImagePath.present) {
+      map['id_image_path'] = Variable<String>(idImagePath.value);
+    }
     return map;
   }
 
@@ -1132,7 +1279,10 @@ class MembersCompanion extends UpdateCompanion<Member> {
           ..write('referrer: $referrer, ')
           ..write('referrerId: $referrerId, ')
           ..write('points: $points, ')
-          ..write('qr: $qr')
+          ..write('qr: $qr, ')
+          ..write('idType: $idType, ')
+          ..write('idNumber: $idNumber, ')
+          ..write('idImagePath: $idImagePath')
           ..write(')'))
         .toString();
   }
@@ -1880,6 +2030,9 @@ typedef $$MembersTableCreateCompanionBuilder =
       Value<int?> referrerId,
       Value<int> points,
       Value<String?> qr,
+      Value<String?> idType,
+      Value<String?> idNumber,
+      Value<String?> idImagePath,
     });
 typedef $$MembersTableUpdateCompanionBuilder =
     MembersCompanion Function({
@@ -1895,6 +2048,9 @@ typedef $$MembersTableUpdateCompanionBuilder =
       Value<int?> referrerId,
       Value<int> points,
       Value<String?> qr,
+      Value<String?> idType,
+      Value<String?> idNumber,
+      Value<String?> idImagePath,
     });
 
 class $$MembersTableFilterComposer extends Composer<_$AppDb, $MembersTable> {
@@ -1962,6 +2118,21 @@ class $$MembersTableFilterComposer extends Composer<_$AppDb, $MembersTable> {
 
   ColumnFilters<String> get qr => $composableBuilder(
     column: $table.qr,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get idType => $composableBuilder(
+    column: $table.idType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get idNumber => $composableBuilder(
+    column: $table.idNumber,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get idImagePath => $composableBuilder(
+    column: $table.idImagePath,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -2033,6 +2204,21 @@ class $$MembersTableOrderingComposer extends Composer<_$AppDb, $MembersTable> {
     column: $table.qr,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get idType => $composableBuilder(
+    column: $table.idType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get idNumber => $composableBuilder(
+    column: $table.idNumber,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get idImagePath => $composableBuilder(
+    column: $table.idImagePath,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$MembersTableAnnotationComposer
@@ -2083,6 +2269,17 @@ class $$MembersTableAnnotationComposer
 
   GeneratedColumn<String> get qr =>
       $composableBuilder(column: $table.qr, builder: (column) => column);
+
+  GeneratedColumn<String> get idType =>
+      $composableBuilder(column: $table.idType, builder: (column) => column);
+
+  GeneratedColumn<String> get idNumber =>
+      $composableBuilder(column: $table.idNumber, builder: (column) => column);
+
+  GeneratedColumn<String> get idImagePath => $composableBuilder(
+    column: $table.idImagePath,
+    builder: (column) => column,
+  );
 }
 
 class $$MembersTableTableManager
@@ -2125,6 +2322,9 @@ class $$MembersTableTableManager
                 Value<int?> referrerId = const Value.absent(),
                 Value<int> points = const Value.absent(),
                 Value<String?> qr = const Value.absent(),
+                Value<String?> idType = const Value.absent(),
+                Value<String?> idNumber = const Value.absent(),
+                Value<String?> idImagePath = const Value.absent(),
               }) => MembersCompanion(
                 id: id,
                 lastName: lastName,
@@ -2138,6 +2338,9 @@ class $$MembersTableTableManager
                 referrerId: referrerId,
                 points: points,
                 qr: qr,
+                idType: idType,
+                idNumber: idNumber,
+                idImagePath: idImagePath,
               ),
           createCompanionCallback:
               ({
@@ -2153,6 +2356,9 @@ class $$MembersTableTableManager
                 Value<int?> referrerId = const Value.absent(),
                 Value<int> points = const Value.absent(),
                 Value<String?> qr = const Value.absent(),
+                Value<String?> idType = const Value.absent(),
+                Value<String?> idNumber = const Value.absent(),
+                Value<String?> idImagePath = const Value.absent(),
               }) => MembersCompanion.insert(
                 id: id,
                 lastName: lastName,
@@ -2166,6 +2372,9 @@ class $$MembersTableTableManager
                 referrerId: referrerId,
                 points: points,
                 qr: qr,
+                idType: idType,
+                idNumber: idNumber,
+                idImagePath: idImagePath,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

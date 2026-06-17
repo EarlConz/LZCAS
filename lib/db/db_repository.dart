@@ -99,6 +99,23 @@ class DbRepository {
     _changes.add('points_migrated');
   }
 
+  /// One-time fix: upgrade any member with an ID photo from "Member" to
+  /// "Verified Reseller". Safe to run at startup — idempotent.
+  Future<void> ensureVerifiedResellerConsistency() async {
+    final all = await db.getAllMembers();
+    for (final m in all) {
+      final hasId = (m.idImagePath ?? '').isNotEmpty;
+      if (hasId && m.role != 'Verified Reseller') {
+        final updated = m.copyWith(role: const Value('Verified Reseller'));
+        await db.updateMemberData(updated);
+      }
+    }
+    if (all.any((m) =>
+        (m.idImagePath ?? '').isNotEmpty && m.role != 'Verified Reseller')) {
+      _changes.add('member_updated');
+    }
+  }
+
   /// Bulk import helper that accepts parsed headers and rows (each row is a list of strings aligned to headers).
   /// Returns number of newly created members.
   Future<int> importMembersFromRows(
@@ -249,6 +266,21 @@ class DbRepository {
         ),
         points: Value(int.tryParse((map['points'] ?? '').trim()) ?? 0),
         qr: Value(_generateMemberQr()),
+        idType: Value(
+          (map['idType'] ?? '').trim().isEmpty
+              ? null
+              : (map['idType'] ?? '').trim(),
+        ),
+        idNumber: Value(
+          (map['idNumber'] ?? '').trim().isEmpty
+              ? null
+              : (map['idNumber'] ?? '').trim(),
+        ),
+        idImagePath: Value(
+          (map['idImagePath'] ?? '').trim().isEmpty
+              ? null
+              : (map['idImagePath'] ?? '').trim(),
+        ),
       );
 
       final memberId = await db.insertMember(companion);
@@ -561,6 +593,9 @@ class DbRepository {
     String? address,
     String? referrer,
     int points = 0,
+    String? idType,
+    String? idNumber,
+    String? idImagePath,
   }) async {
     final companion = MembersCompanion.insert(
       lastName: Value(lastName == null || lastName.isEmpty ? null : lastName),
@@ -579,6 +614,11 @@ class DbRepository {
       referrer: Value(referrer == null || referrer.isEmpty ? null : referrer),
       points: Value(points),
       qr: Value(_generateMemberQr()),
+      idType: Value(idType == null || idType.isEmpty ? null : idType),
+      idNumber: Value(idNumber == null || idNumber.isEmpty ? null : idNumber),
+      idImagePath: Value(
+        idImagePath == null || idImagePath.isEmpty ? null : idImagePath,
+      ),
     );
     final id = await db.insertMember(companion);
 
@@ -623,6 +663,20 @@ class DbRepository {
 
     _changes.add('member_added');
     return id;
+  }
+
+  /// Verify a member as a reseller by setting their role to "Verified Reseller".
+  /// Does nothing if the member doesn't exist or is already verified.
+  Future<bool> verifyAsReseller(int memberId) async {
+    final member = await db.getMemberById(memberId);
+    if (member == null) return false;
+    if (member.role == 'Verified Reseller') return true; // already verified
+
+    final updated = member.copyWith(role: const Value('Verified Reseller'));
+    await db.updateMemberData(updated);
+    _changes.add('member_updated');
+    _changes.add('member_verified');
+    return true;
   }
 
   /// Export members CSV content as string

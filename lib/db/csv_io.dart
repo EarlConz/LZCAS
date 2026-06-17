@@ -46,7 +46,12 @@ Future<String> exportItemsToCsvFile(AppDb db) async {
 
   final exportDir = Directory(p.join('lib', 'data', 'exports'));
   if (!await exportDir.exists()) await exportDir.create(recursive: true);
-  final file = File(p.join(exportDir.path, 'items_export_${DateTime.now().millisecondsSinceEpoch}.csv'));
+  final file = File(
+    p.join(
+      exportDir.path,
+      'items_export_${DateTime.now().millisecondsSinceEpoch}.csv',
+    ),
+  );
   await file.writeAsString(csv);
   return file.path;
 }
@@ -54,7 +59,7 @@ Future<String> exportItemsToCsvFile(AppDb db) async {
 Future<String> exportItemsToCsvString(AppDb db) async {
   final rows = await db.getAllItems();
   final fields = [
-    ['id', 'name', 'points', 'category', 'stock', 'lastUpdated', 'status']
+    ['id', 'name', 'points', 'category', 'stock', 'lastUpdated', 'status'],
   ];
   for (final r in rows) {
     fields.add([
@@ -64,7 +69,7 @@ Future<String> exportItemsToCsvString(AppDb db) async {
       r.category ?? '',
       r.stock.toString(),
       r.lastUpdated?.toIso8601String() ?? '',
-      r.status ?? ''
+      r.status ?? '',
     ]);
   }
   final csv = const ListToCsvConverter().convert(fields);
@@ -86,15 +91,16 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
     for (var i = 0; i < headers.length && i < row.length; i++) {
       map[headers[i]] = row[i]?.toString() ?? '';
     }
-  final name = (map['name'] ?? '').trim();
-  if (name.isEmpty) continue;
-  final points = int.tryParse((map['points'] ?? '').trim()) ?? 0;
-  final category = (map['category'] ?? '').trim();
-  final stock = int.tryParse((map['stock'] ?? '').trim()) ?? 0;
-  final lastUpdated = (map['lastUpdated'] != null && map['lastUpdated']!.trim().isNotEmpty)
-    ? DateTime.tryParse(map['lastUpdated']!.trim())
-    : null;
-  final status = (map['status'] ?? '').trim();
+    final name = (map['name'] ?? '').trim();
+    if (name.isEmpty) continue;
+    final points = int.tryParse((map['points'] ?? '').trim()) ?? 0;
+    final category = (map['category'] ?? '').trim();
+    final stock = int.tryParse((map['stock'] ?? '').trim()) ?? 0;
+    final lastUpdated =
+        (map['lastUpdated'] != null && map['lastUpdated']!.trim().isNotEmpty)
+        ? DateTime.tryParse(map['lastUpdated']!.trim())
+        : null;
+    final status = (map['status'] ?? '').trim();
 
     // Upsert logic: prefer id match, then name match, else insert
     final idStr = map['id'];
@@ -127,15 +133,15 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
     }
     if (byName != null) {
       final updated = byName.copyWith(
-  points: points,
-  category: Value(category),
-  stock: stock,
-  lastUpdated: Value(lastUpdated),
-  status: Value(status),
+        points: points,
+        category: Value(category),
+        stock: stock,
+        lastUpdated: Value(lastUpdated),
+        status: Value(status),
       );
       await db.updateItemData(updated);
       inserted++;
-      
+
       continue;
     }
 
@@ -154,13 +160,17 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
   return inserted;
 }
 
-
 Future<String> exportMembersToCsvFile(AppDb db) async {
   final csv = await exportMembersToCsvString(db);
 
   final exportDir = Directory(p.join('lib', 'data', 'exports'));
   if (!await exportDir.exists()) await exportDir.create(recursive: true);
-  final file = File(p.join(exportDir.path, 'members_export_${DateTime.now().millisecondsSinceEpoch}.csv'));
+  final file = File(
+    p.join(
+      exportDir.path,
+      'members_export_${DateTime.now().millisecondsSinceEpoch}.csv',
+    ),
+  );
   await file.writeAsString(csv);
   return file.path;
 }
@@ -168,19 +178,37 @@ Future<String> exportMembersToCsvFile(AppDb db) async {
 Future<String> exportMembersToCsvString(AppDb db) async {
   final rows = await db.getAllMembers();
   final fields = [
-    ['id', 'lastName', 'firstName', 'middleName', 'role', 'contactNo', 'birthday', 'address', 'referrer', 'points', 'qr', 'transactions']
+    [
+      'id',
+      'lastName',
+      'firstName',
+      'middleName',
+      'role',
+      'contactNo',
+      'birthday',
+      'address',
+      'referrer',
+      'points',
+      'qr',
+      'idType',
+      'idNumber',
+      'idImagePath',
+      'transactions',
+    ],
   ];
   for (final r in rows) {
-  // Serialize transactions: itemName|quantity|price|points|timestamp;... using sales for this member
-  final allSales = await db.getAllSales();
-  final sales = allSales.where((s) => s.buyerId == r.id).toList();
+    // Serialize transactions: itemName|quantity|price|points|timestamp;... using sales for this member
+    final allSales = await db.getAllSales();
+    final sales = allSales.where((s) => s.buyerId == r.id).toList();
     final txParts = <String>[];
     for (final s in sales) {
       final ts = s.timestamp.toIso8601String();
       // Include itemId as the first field so imports can match items reliably.
       // Format (with id): itemId|itemName|quantity|price|points|timestamp
       // Format (without id): itemName|quantity|price|points|timestamp (still supported by parser)
-      txParts.add('${s.itemId}|${s.itemName}|${s.quantity}|${s.price}|${s.points}|$ts');
+      txParts.add(
+        '${s.itemId}|${s.itemName}|${s.quantity}|${s.price}|${s.points}|$ts',
+      );
     }
     final txField = txParts.join(';');
 
@@ -196,6 +224,9 @@ Future<String> exportMembersToCsvString(AppDb db) async {
       r.referrer ?? '',
       r.points.toString(),
       r.qr ?? '',
+      r.idType ?? '',
+      r.idNumber ?? '',
+      r.idImagePath ?? '',
       txField,
     ]);
   }
@@ -230,12 +261,36 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
         final updated = existing.copyWith(
           lastName: Value(lastName.isEmpty ? null : lastName),
           firstName: Value(firstName.isEmpty ? null : firstName),
-          middleName: Value((map['middleName'] ?? '').trim().isEmpty ? null : (map['middleName'] ?? '').trim()),
-          role: Value((map['role'] ?? '').trim().isEmpty ? null : (map['role'] ?? '').trim()),
-          contactNo: Value((map['contactNo'] ?? '').trim().isEmpty ? null : (map['contactNo'] ?? '').trim()),
-          birthday: Value((map['birthday'] ?? '').trim().isEmpty ? null : (map['birthday'] ?? '').trim()),
-          address: Value((map['address'] ?? '').trim().isEmpty ? null : (map['address'] ?? '').trim()),
-          referrer: Value((map['referrer'] ?? '').trim().isEmpty ? null : (map['referrer'] ?? '').trim()),
+          middleName: Value(
+            (map['middleName'] ?? '').trim().isEmpty
+                ? null
+                : (map['middleName'] ?? '').trim(),
+          ),
+          role: Value(
+            (map['role'] ?? '').trim().isEmpty
+                ? null
+                : (map['role'] ?? '').trim(),
+          ),
+          contactNo: Value(
+            (map['contactNo'] ?? '').trim().isEmpty
+                ? null
+                : (map['contactNo'] ?? '').trim(),
+          ),
+          birthday: Value(
+            (map['birthday'] ?? '').trim().isEmpty
+                ? null
+                : (map['birthday'] ?? '').trim(),
+          ),
+          address: Value(
+            (map['address'] ?? '').trim().isEmpty
+                ? null
+                : (map['address'] ?? '').trim(),
+          ),
+          referrer: Value(
+            (map['referrer'] ?? '').trim().isEmpty
+                ? null
+                : (map['referrer'] ?? '').trim(),
+          ),
           points: int.tryParse((map['points'] ?? '').trim()) ?? 0,
         );
         await db.updateMemberData(updated);
@@ -249,18 +304,46 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
     try {
       final targetLast = lastName.toLowerCase();
       final targetFirst = firstName.toLowerCase();
-      byName = all.firstWhere((r) => (r.lastName ?? '').trim().toLowerCase() == targetLast && (r.firstName ?? '').trim().toLowerCase() == targetFirst);
+      byName = all.firstWhere(
+        (r) =>
+            (r.lastName ?? '').trim().toLowerCase() == targetLast &&
+            (r.firstName ?? '').trim().toLowerCase() == targetFirst,
+      );
     } catch (e) {
       byName = null;
     }
     if (byName != null) {
       final updated = byName.copyWith(
-        middleName: Value((map['middleName'] ?? '').trim().isEmpty ? null : (map['middleName'] ?? '').trim()),
-        role: Value((map['role'] ?? '').trim().isEmpty ? null : (map['role'] ?? '').trim()),
-        contactNo: Value((map['contactNo'] ?? '').trim().isEmpty ? null : (map['contactNo'] ?? '').trim()),
-        birthday: Value((map['birthday'] ?? '').trim().isEmpty ? null : (map['birthday'] ?? '').trim()),
-        address: Value((map['address'] ?? '').trim().isEmpty ? null : (map['address'] ?? '').trim()),
-        referrer: Value((map['referrer'] ?? '').trim().isEmpty ? null : (map['referrer'] ?? '').trim()),
+        middleName: Value(
+          (map['middleName'] ?? '').trim().isEmpty
+              ? null
+              : (map['middleName'] ?? '').trim(),
+        ),
+        role: Value(
+          (map['role'] ?? '').trim().isEmpty
+              ? null
+              : (map['role'] ?? '').trim(),
+        ),
+        contactNo: Value(
+          (map['contactNo'] ?? '').trim().isEmpty
+              ? null
+              : (map['contactNo'] ?? '').trim(),
+        ),
+        birthday: Value(
+          (map['birthday'] ?? '').trim().isEmpty
+              ? null
+              : (map['birthday'] ?? '').trim(),
+        ),
+        address: Value(
+          (map['address'] ?? '').trim().isEmpty
+              ? null
+              : (map['address'] ?? '').trim(),
+        ),
+        referrer: Value(
+          (map['referrer'] ?? '').trim().isEmpty
+              ? null
+              : (map['referrer'] ?? '').trim(),
+        ),
         points: int.tryParse((map['points'] ?? '').trim()) ?? 0,
       );
       await db.updateMemberData(updated);
@@ -272,25 +355,66 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
     final companion = MembersCompanion.insert(
       lastName: Value(lastName.isEmpty ? null : lastName),
       firstName: Value(firstName.isEmpty ? null : firstName),
-      middleName: Value((map['middleName'] ?? '').trim().isEmpty ? null : (map['middleName'] ?? '').trim()),
-      role: Value((map['role'] ?? '').trim().isEmpty ? null : (map['role'] ?? '').trim()),
-      contactNo: Value((map['contactNo'] ?? '').trim().isEmpty ? null : (map['contactNo'] ?? '').trim()),
-      birthday: Value((map['birthday'] ?? '').trim().isEmpty ? null : (map['birthday'] ?? '').trim()),
-      address: Value((map['address'] ?? '').trim().isEmpty ? null : (map['address'] ?? '').trim()),
-      referrer: Value((map['referrer'] ?? '').trim().isEmpty ? null : (map['referrer'] ?? '').trim()),
+      middleName: Value(
+        (map['middleName'] ?? '').trim().isEmpty
+            ? null
+            : (map['middleName'] ?? '').trim(),
+      ),
+      role: Value(
+        (map['role'] ?? '').trim().isEmpty ? null : (map['role'] ?? '').trim(),
+      ),
+      contactNo: Value(
+        (map['contactNo'] ?? '').trim().isEmpty
+            ? null
+            : (map['contactNo'] ?? '').trim(),
+      ),
+      birthday: Value(
+        (map['birthday'] ?? '').trim().isEmpty
+            ? null
+            : (map['birthday'] ?? '').trim(),
+      ),
+      address: Value(
+        (map['address'] ?? '').trim().isEmpty
+            ? null
+            : (map['address'] ?? '').trim(),
+      ),
+      referrer: Value(
+        (map['referrer'] ?? '').trim().isEmpty
+            ? null
+            : (map['referrer'] ?? '').trim(),
+      ),
       points: Value(int.tryParse((map['points'] ?? '').trim()) ?? 0),
-      qr: Value((map['qr'] ?? '').trim().isEmpty ? _generateMemberQrToken() : (map['qr'] ?? '').trim()),
+      qr: Value(
+        (map['qr'] ?? '').trim().isEmpty
+            ? _generateMemberQrToken()
+            : (map['qr'] ?? '').trim(),
+      ),
+      idType: Value(
+        (map['idType'] ?? '').trim().isEmpty
+            ? null
+            : (map['idType'] ?? '').trim(),
+      ),
+      idNumber: Value(
+        (map['idNumber'] ?? '').trim().isEmpty
+            ? null
+            : (map['idNumber'] ?? '').trim(),
+      ),
+      idImagePath: Value(
+        (map['idImagePath'] ?? '').trim().isEmpty
+            ? null
+            : (map['idImagePath'] ?? '').trim(),
+      ),
     );
     final createdId = await db.insertMember(companion);
     memberId = createdId;
     inserted++;
-    
+
     // NOTE: During CSV import we intentionally do NOT auto-award referrer
     // points. Awarding points on imports can easily double-award when the same
     // data is re-imported (for example after a DB clear). The interactive UI
     // flow (DbRepository.addMember) still awards referrer points when creating
     // a member through the app.
-    
+
     // If there are parsed transactions in the CSV, insert them as sales and update stock/points
     final txRaw = (map['transactions'] ?? '').trim();
     if (txRaw.isNotEmpty) {
@@ -299,7 +423,7 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
         // load current items and sales to make decisions
         final allItems = await db.getAllItems();
         final existingSales = await db.getAllSales();
-  // points are not tracked here; they will be recomputed centrally
+        // points are not tracked here; they will be recomputed centrally
         final now = DateTime.now();
         for (final e in parsedTx) {
           final itemName = e['itemName'] as String? ?? '';
@@ -311,7 +435,10 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
           // find item by exact name match
           Item? item;
           try {
-            item = allItems.firstWhere((it) => it.name.trim().toLowerCase() == itemName.trim().toLowerCase());
+            item = allItems.firstWhere(
+              (it) =>
+                  it.name.trim().toLowerCase() == itemName.trim().toLowerCase(),
+            );
           } catch (_) {
             item = null;
           }
@@ -320,7 +447,12 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
           // Avoid duplicate sales: check existing by core fields
           final iid = item.id;
           final duplicate = existingSales.any((s) {
-            return s.buyerId == memberId && s.itemId == iid && s.itemName == itemName && s.quantity == quantity && s.price == price && s.timestamp.toIso8601String() == ts.toIso8601String();
+            return s.buyerId == memberId &&
+                s.itemId == iid &&
+                s.itemName == itemName &&
+                s.quantity == quantity &&
+                s.price == price &&
+                s.timestamp.toIso8601String() == ts.toIso8601String();
           });
           if (duplicate) continue;
 
@@ -375,17 +507,24 @@ List<Map<String, dynamic>> parseMemberTransactionsColumn(String txRaw) {
       quantity = parts.length > 2 ? int.tryParse(parts[2].trim()) ?? 0 : 0;
       price = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
       points = parts.length > 4 ? int.tryParse(parts[4].trim()) ?? 0 : 0;
-  if (parts.length > 5) ts = _parseCsvTimestamp(parts[5].trim());
+      if (parts.length > 5) ts = _parseCsvTimestamp(parts[5].trim());
     } else {
       itemName = parts.length > 0 ? parts[0].trim() : '';
       quantity = parts.length > 1 ? int.tryParse(parts[1].trim()) ?? 0 : 0;
       price = parts.length > 2 ? int.tryParse(parts[2].trim()) ?? 0 : 0;
       points = parts.length > 3 ? int.tryParse(parts[3].trim()) ?? 0 : 0;
-  if (parts.length > 4) ts = _parseCsvTimestamp(parts[4].trim());
+      if (parts.length > 4) ts = _parseCsvTimestamp(parts[4].trim());
     }
 
     if (itemName.isEmpty && itemId == null) continue;
-    entries.add({'itemId': itemId, 'itemName': itemName, 'quantity': quantity, 'price': price, 'points': points, 'timestamp': ts});
+    entries.add({
+      'itemId': itemId,
+      'itemName': itemName,
+      'quantity': quantity,
+      'price': price,
+      'points': points,
+      'timestamp': ts,
+    });
   }
   return entries;
 }
@@ -395,7 +534,12 @@ Future<String> exportSalesToCsvFile(AppDb db) async {
 
   final exportDir = Directory(p.join('lib', 'data', 'exports'));
   if (!await exportDir.exists()) await exportDir.create(recursive: true);
-  final file = File(p.join(exportDir.path, 'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv'));
+  final file = File(
+    p.join(
+      exportDir.path,
+      'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv',
+    ),
+  );
   await file.writeAsString(csv);
   return file.path;
 }
@@ -404,7 +548,16 @@ Future<String> exportSalesToCsvString(AppDb db) async {
   final rows = await db.getAllSales();
   // Include buyerId in exports so sales can be associated with the buyer on import.
   final fields = [
-    ['id', 'itemId', 'buyerId', 'itemName', 'quantity', 'price', 'points', 'createdAt']
+    [
+      'id',
+      'itemId',
+      'buyerId',
+      'itemName',
+      'quantity',
+      'price',
+      'points',
+      'createdAt',
+    ],
   ];
   for (final r in rows) {
     fields.add([
@@ -421,7 +574,11 @@ Future<String> exportSalesToCsvString(AppDb db) async {
   return const ListToCsvConverter().convert(fields);
 }
 
-Future<int> importSalesFromCsvString(AppDb db, String csv, {bool applyEffects = false}) async {
+Future<int> importSalesFromCsvString(
+  AppDb db,
+  String csv, {
+  bool applyEffects = false,
+}) async {
   final converter = const CsvToListConverter(eol: '\n');
   final list = converter.convert(csv);
   if (list.isEmpty) return 0;
@@ -457,7 +614,7 @@ Future<int> importSalesFromCsvString(AppDb db, String csv, {bool applyEffects = 
     }
 
     // If an explicit id is provided, prefer inserting with that id (preserve ids).
-  if (id != null) {
+    if (id != null) {
       // Skip if a sale with this id already exists
       final existingById = await db.getSaleById(id);
       if (existingById != null) continue;
@@ -465,7 +622,12 @@ Future<int> importSalesFromCsvString(AppDb db, String csv, {bool applyEffects = 
       // Avoid duplicate semantic rows even if id differs: check existing by core fields
       final existing = await db.getAllSales();
       bool alreadyExists = existing.any((s) {
-        final sameCore = s.itemId == itemId && s.itemName == itemName && s.quantity == quantity && s.price == price && (buyerId == null ? (s.buyerId == null) : s.buyerId == buyerId);
+        final sameCore =
+            s.itemId == itemId &&
+            s.itemName == itemName &&
+            s.quantity == quantity &&
+            s.price == price &&
+            (buyerId == null ? (s.buyerId == null) : s.buyerId == buyerId);
         if (!sameCore) return false;
         if (ts != null) {
           return s.timestamp.toIso8601String() == ts.toIso8601String();
@@ -474,49 +636,57 @@ Future<int> importSalesFromCsvString(AppDb db, String csv, {bool applyEffects = 
       });
       if (alreadyExists) continue;
 
-        try {
-          // Use NULLIF(?, -1) so we can pass -1 to indicate NULL for buyer_id
-          final tsVal = (ts ?? DateTime.now()).millisecondsSinceEpoch;
-          await db.customInsert(
-            'INSERT INTO sales (id, item_id, buyer_id, item_name, quantity, price, points, timestamp) VALUES (?,?,NULLIF(?, -1),?,?,?,?,?)',
-            variables: [
-              Variable.withInt(id),
-              Variable.withInt(itemId),
-              Variable.withInt(buyerId ?? -1),
-              Variable.withString(itemName),
-              Variable.withInt(quantity),
-              Variable.withInt(price),
-              Variable.withInt(points),
-              Variable.withInt(tsVal),
-            ],
-          );
+      try {
+        // Use NULLIF(?, -1) so we can pass -1 to indicate NULL for buyer_id
+        final tsVal = (ts ?? DateTime.now()).millisecondsSinceEpoch;
+        await db.customInsert(
+          'INSERT INTO sales (id, item_id, buyer_id, item_name, quantity, price, points, timestamp) VALUES (?,?,NULLIF(?, -1),?,?,?,?,?)',
+          variables: [
+            Variable.withInt(id),
+            Variable.withInt(itemId),
+            Variable.withInt(buyerId ?? -1),
+            Variable.withString(itemName),
+            Variable.withInt(quantity),
+            Variable.withInt(price),
+            Variable.withInt(points),
+            Variable.withInt(tsVal),
+          ],
+        );
 
-          // After inserting the sale: optionally adjust item stock. When
-          // `applyEffects` is false we treat the import as historical and do
-          // not mutate stock or member points to avoid side-effects.
-          if (applyEffects) {
-            try {
-              final item = await db.getItemById(itemId);
-              if (item != null) {
-                final updatedItem = item.copyWith(stock: item.stock - quantity, lastUpdated: Value(ts ?? DateTime.now()));
-                await db.update(db.items).replace(updatedItem);
-              }
-            } catch (_) {
-              // ignore stock update failures
+        // After inserting the sale: optionally adjust item stock. When
+        // `applyEffects` is false we treat the import as historical and do
+        // not mutate stock or member points to avoid side-effects.
+        if (applyEffects) {
+          try {
+            final item = await db.getItemById(itemId);
+            if (item != null) {
+              final updatedItem = item.copyWith(
+                stock: item.stock - quantity,
+                lastUpdated: Value(ts ?? DateTime.now()),
+              );
+              await db.update(db.items).replace(updatedItem);
             }
+          } catch (_) {
+            // ignore stock update failures
           }
-
-          if (id > maxImportedId) maxImportedId = id;
-          inserted++;
-        } catch (_) {
-          // ignore insertion failures for explicit ids
-          continue;
         }
+
+        if (id > maxImportedId) maxImportedId = id;
+        inserted++;
+      } catch (_) {
+        // ignore insertion failures for explicit ids
+        continue;
+      }
     } else {
       // No explicit id provided — fallback to semantic duplicate detection and normal insert
       final existing = await db.getAllSales();
       bool alreadyExists = existing.any((s) {
-        final sameCore = s.itemId == itemId && s.itemName == itemName && s.quantity == quantity && s.price == price && (buyerId == null ? (s.buyerId == null) : s.buyerId == buyerId);
+        final sameCore =
+            s.itemId == itemId &&
+            s.itemName == itemName &&
+            s.quantity == quantity &&
+            s.price == price &&
+            (buyerId == null ? (s.buyerId == null) : s.buyerId == buyerId);
         if (!sameCore) return false;
         if (ts != null) {
           return s.timestamp.toIso8601String() == ts.toIso8601String();
@@ -534,13 +704,16 @@ Future<int> importSalesFromCsvString(AppDb db, String csv, {bool applyEffects = 
         points: Value(points),
         timestamp: ts != null ? Value(ts) : const Value.absent(),
       );
-  await db.insertSale(companion);
+      await db.insertSale(companion);
       // update stock only when applyEffects==true
       if (applyEffects) {
         try {
           final item = await db.getItemById(itemId);
           if (item != null) {
-            final updatedItem = item.copyWith(stock: item.stock - quantity, lastUpdated: Value(ts ?? DateTime.now()));
+            final updatedItem = item.copyWith(
+              stock: item.stock - quantity,
+              lastUpdated: Value(ts ?? DateTime.now()),
+            );
             await db.update(db.items).replace(updatedItem);
           }
         } catch (_) {
@@ -553,7 +726,9 @@ Future<int> importSalesFromCsvString(AppDb db, String csv, {bool applyEffects = 
   // If we imported explicit ids, ensure sqlite_sequence for sales at least matches the max id
   if (maxImportedId > 0) {
     try {
-      await db.customStatement("UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM sales) WHERE name='sales';");
+      await db.customStatement(
+        "UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM sales) WHERE name='sales';",
+      );
     } catch (_) {
       // ignore if sqlite_sequence update fails
     }

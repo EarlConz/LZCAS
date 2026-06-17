@@ -1,6 +1,9 @@
 // ignore_for_file: unnecessary_underscores
-import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+
 import 'interactive_member_avatar.dart';
 import '../utils/formatters.dart';
 import 'package:lzcas/db/db.dart';
@@ -34,7 +37,9 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
           e == 'sale_imported' ||
           e == 'sale_updated' ||
           e == 'sale_deleted' ||
-          e == 'member_transactions_committed') {
+          e == 'member_transactions_committed' ||
+          e == 'member_updated' ||
+          e == 'member_verified') {
         if (mounted) setState(() {});
       }
     });
@@ -133,6 +138,34 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     );
   }
 
+  void _showIdImagePreview(String imagePath) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.8,
+            maxWidth: MediaQuery.of(ctx).size.width * 0.9,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Expanded(
+                child: InteractiveViewer(
+                  child: Image.file(File(imagePath), fit: BoxFit.contain),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -146,6 +179,12 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             member: widget.member,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
+            onIdImageTap: () {
+              final path = widget.member['idImagePath']?.toString();
+              if (path != null && path.isNotEmpty) {
+                _showIdImagePreview(path);
+              }
+            },
           );
         },
       );
@@ -172,6 +211,12 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             member: widget.member,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
+            onIdImageTap: () {
+              final path = widget.member['idImagePath']?.toString();
+              if (path != null && path.isNotEmpty) {
+                _showIdImagePreview(path);
+              }
+            },
           );
         },
       ),
@@ -184,11 +229,13 @@ class _MemberProfileSection extends StatelessWidget {
     required this.member,
     required this.onViewTransactions,
     this.showHeader = true,
+    this.onIdImageTap,
   });
 
   final Map<String, dynamic> member;
   final VoidCallback onViewTransactions;
   final bool showHeader;
+  final VoidCallback? onIdImageTap;
 
   @override
   Widget build(BuildContext context) {
@@ -236,7 +283,9 @@ class _MemberProfileSection extends StatelessWidget {
             _InfoPill(
               icon: Icons.badge_outlined,
               label: 'Role',
-              value: (member['role'] ?? 'Member').toString(),
+              value: (member['idImagePath']?.toString() ?? '').isNotEmpty
+                  ? 'Verified Reseller'
+                  : (member['role'] ?? 'Member').toString(),
             ),
             _InfoPill(
               icon: Icons.stars_outlined,
@@ -271,6 +320,80 @@ class _MemberProfileSection extends StatelessWidget {
               : 'None',
           italic: true,
         ),
+        // ── ID Verification section ────────────────────────
+        if ((member['idImagePath']?.toString() ?? '').isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.verified_user,
+                        size: 18,
+                        color: Colors.green.shade700,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Verified Reseller',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _DetailLine(
+                    icon: Icons.credit_card_outlined,
+                    label: 'ID Type',
+                    value: member['idType'],
+                  ),
+                  if ((member['idNumber']?.toString() ?? '').isNotEmpty)
+                    _DetailLine(
+                      icon: Icons.numbers_outlined,
+                      label: 'ID Number',
+                      value: member['idNumber'],
+                    ),
+                  if ((member['idImagePath']?.toString() ?? '').isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: GestureDetector(
+                        onTap: () => onIdImageTap?.call(),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.file(
+                            File(member['idImagePath'].toString()),
+                            height: 120,
+                            width: double.infinity,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => Container(
+                              height: 60,
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              child: Center(
+                                child: Text(
+                                  'Image not available',
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
         const SizedBox(height: 8),
         LayoutBuilder(
           builder: (context, constraints) {
