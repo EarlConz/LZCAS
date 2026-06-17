@@ -112,9 +112,11 @@ class MembersTableState extends State<MembersTable> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Share this QR code with $fullName',
+              fullName,
+              style: Theme.of(
+                ctx,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               textAlign: TextAlign.center,
-              style: Theme.of(ctx).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
             MemberQr(
@@ -127,13 +129,6 @@ class MembersTableState extends State<MembersTable> {
               referrer: member.referrer ?? '',
               qrToken: member.qr,
               size: 200,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              fullName,
-              style: Theme.of(
-                ctx,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -542,6 +537,7 @@ class MembersTableState extends State<MembersTable> {
                   DataColumn(label: Text('Birthday')),
                   DataColumn(label: Text('Address')),
                   DataColumn(label: Text('Points')),
+                  DataColumn(label: Text('QR')),
                 ],
                 source: _MembersDataSource(
                   filteredMembers,
@@ -663,6 +659,7 @@ class _MembersDataSource extends DataTableSource {
           Text((member["points"] ?? 0).toString()),
           onTap: () => onRowSelected(member),
         ),
+        DataCell(_QrIconButton(member: member)),
       ],
     );
   }
@@ -734,6 +731,8 @@ class _MemberListCard extends StatelessWidget {
                     icon: Icons.stars_outlined,
                     text: (member['points'] ?? 0).toString(),
                   ),
+                  const SizedBox(width: 4),
+                  _QrIconButton(member: member),
                 ],
               ),
               const SizedBox(height: 8),
@@ -811,6 +810,74 @@ class _MemberMetaPill extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Small icon button that opens a dialog showing the member's QR code.
+class _QrIconButton extends StatelessWidget {
+  final Map<String, dynamic> member;
+
+  const _QrIconButton({required this.member});
+
+  void _showQrDialog(BuildContext context) {
+    final fullName = [
+      member['firstName'],
+      member['middleName'],
+      member['lastName'],
+    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.qr_code, color: Theme.of(ctx).colorScheme.primary),
+            const SizedBox(width: 10),
+            const Text('Member QR Code'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              fullName,
+              style: Theme.of(
+                ctx,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            MemberQr(
+              lastName: (member['lastName'] ?? '').toString(),
+              firstName: (member['firstName'] ?? '').toString(),
+              middleName: (member['middleName'] ?? '').toString(),
+              contactNo: (member['contactNo'] ?? '').toString(),
+              birthday: (member['birthday'] ?? '').toString(),
+              address: (member['address'] ?? '').toString(),
+              referrer: (member['referrer'] ?? '').toString(),
+              qrToken: (member['qr'] ?? '').toString(),
+              size: 200,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: 'Show QR code',
+      icon: Icon(Icons.qr_code, color: Theme.of(context).colorScheme.primary),
+      onPressed: () => _showQrDialog(context),
     );
   }
 }
