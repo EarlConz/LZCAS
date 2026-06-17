@@ -110,8 +110,9 @@ class DbRepository {
         await db.updateMemberData(updated);
       }
     }
-    if (all.any((m) =>
-        (m.idImagePath ?? '').isNotEmpty && m.role != 'Verified Reseller')) {
+    if (all.any(
+      (m) => (m.idImagePath ?? '').isNotEmpty && m.role != 'Verified Reseller',
+    )) {
       _changes.add('member_updated');
     }
   }

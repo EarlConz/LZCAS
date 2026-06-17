@@ -47,7 +47,8 @@ class SupabaseSyncService {
       // Upload each member's ID image to Storage and update remote
       // id_image_path to the public URL
       for (final m in members) {
-        if ((m.idImagePath ?? '').isNotEmpty && File(m.idImagePath!).existsSync()) {
+        if ((m.idImagePath ?? '').isNotEmpty &&
+            File(m.idImagePath!).existsSync()) {
           final url = await uploadIdImage(
             memberId: m.id,
             localFilePath: m.idImagePath!,
@@ -110,7 +111,10 @@ class SupabaseSyncService {
         final ext = uri != null
             ? p.extension(uri.path)
             : p.extension(remotePath);
-        final localPath = p.join(memberIdDir.path, '$id${ext.isEmpty ? '.jpg' : ext}');
+        final localPath = p.join(
+          memberIdDir.path,
+          '$id${ext.isEmpty ? '.jpg' : ext}',
+        );
 
         final downloaded = await downloadIdImage(
           memberId: id,
