@@ -1,9 +1,22 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import 'windows_qr_scanner_dialog.dart';
+
 /// A full-screen dialog that opens the device camera and scans a QR code.
 /// Returns the decoded QR string, or null if the user cancels.
+///
+/// Automatically routes to the platform-appropriate scanner:
+/// - **Windows / Linux** → periodic capture via [camera] + [zxing2] decoder
+/// - **Android / iOS / macOS / Web** → real-time via [mobile_scanner]
 Future<String?> showQrScannerDialog(BuildContext context) {
+  // Windows and Linux use camera + zxing2 instead of mobile_scanner
+  if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) {
+    return showWindowsQrScannerDialog(context);
+  }
   return showDialog<String>(
     context: context,
     barrierDismissible: false,
