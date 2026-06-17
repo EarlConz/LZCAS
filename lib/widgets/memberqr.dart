@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qr_flutter/qr_flutter.dart';
+import 'package:qr/qr.dart';
 import 'dart:convert'; // Required for jsonEncode
 
 class MemberQr extends StatelessWidget {
@@ -42,13 +42,15 @@ class MemberQr extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     try {
-      final qr = QrCode(4, QrErrorCorrectLevel.L);
-      qr.addData(payload);
-      qr.make();
+      final qr = QrCode.fromData(
+        data: _payload(),
+        errorCorrectLevel: QrErrorCorrectLevel.L,
+      );
+      final qrImage = QrImage(qr);
       return CustomPaint(
         size: Size.square(size),
         painter: _QrPainterFromMatrix(
-          qr: qr,
+          qrImage: qrImage,
           color: Theme.of(context).colorScheme.onSurface,
         ),
       );
@@ -74,7 +76,10 @@ class MemberQrWithName extends StatelessWidget {
     required this.lastName,
     required this.firstName,
     required this.middleName,
-    this.id,
+    this.contactNo = '',
+    this.birthday = '',
+    this.address = '',
+    this.referrer = '',
   });
 
   @override
@@ -87,7 +92,10 @@ class MemberQrWithName extends StatelessWidget {
           lastName: lastName,
           firstName: firstName,
           middleName: middleName,
-          id: id,
+          contactNo: contactNo,
+          birthday: birthday,
+          address: address,
+          referrer: referrer,
           size: 160,
         ),
         const SizedBox(height: 8),
@@ -98,19 +106,19 @@ class MemberQrWithName extends StatelessWidget {
 }
 
 class _QrPainterFromMatrix extends CustomPainter {
-  final QrCode qr;
+  final QrImage qrImage;
   final Color color;
 
-  _QrPainterFromMatrix({required this.qr, required this.color});
+  _QrPainterFromMatrix({required this.qrImage, required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..color = color;
-    final moduleCount = qr.moduleCount;
+    final moduleCount = qrImage.moduleCount;
     final cellSize = size.width / moduleCount;
     for (var x = 0; x < moduleCount; x++) {
       for (var y = 0; y < moduleCount; y++) {
-        if (qr.isDark(y, x)) {
+        if (qrImage.isDark(y, x)) {
           canvas.drawRect(
             Rect.fromLTWH(x * cellSize, y * cellSize, cellSize, cellSize),
             paint,

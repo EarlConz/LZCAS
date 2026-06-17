@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-import 'dart:convert';
+import 'memberqr.dart';
 
 class QrGenerator extends StatelessWidget {
   final String lastName;
@@ -25,21 +24,7 @@ class QrGenerator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Create a map of all parameters
-    final qrDataMap = {
-      'lastName': lastName,
-      'firstName': firstName,
-      'middleName': middleName,
-      'contactNo': contactNo,
-      'birthday': birthday,
-      'address': address,
-      'referrer': referrer,
-    };
-
-    // 2. Encode to a serialized string for the QR code
-    final qrString = jsonEncode(qrDataMap);
-    
-    // 3. String to copy to clipboard
+    // String to copy to clipboard
     final clipboardText = '$lastName, $firstName $middleName';
 
     return Center(
@@ -52,24 +37,35 @@ class QrGenerator extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               // 4. Generate QR Image
-              QrImageView(
-                data: qrString,
-                version: QrVersions.auto,
-                size: 200.0,
-                backgroundColor: Colors.white,
+              MemberQr(
+                lastName: lastName,
+                firstName: firstName,
+                middleName: middleName,
+                contactNo: contactNo,
+                birthday: birthday,
+                address: address,
+                referrer: referrer,
+                size: 200,
               ),
               const SizedBox(height: 16),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Flexible(child: Text(clipboardText, style: const TextStyle(fontWeight: FontWeight.w500))),
+                  Flexible(
+                    child: Text(
+                      clipboardText,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
                   const SizedBox(width: 12),
                   IconButton(
                     icon: const Icon(Icons.copy),
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: clipboardText));
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Name Copied to Clipboard')),
+                        const SnackBar(
+                          content: Text('Name Copied to Clipboard'),
+                        ),
                       );
                     },
                   ),
