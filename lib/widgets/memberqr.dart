@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:qr/qr.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'dart:convert'; // Required for jsonEncode
 
-// Lightweight deterministic QR-like grid painter used as a visual QR for members.
-// Not a real QR standard; intended for quick visual identification and printing.
 class MemberQr extends StatelessWidget {
   final String lastName;
   final String firstName;
   final String middleName;
-  final int? id;
+  final String contactNo;
+  final String birthday;
+  final String address;
+  final String referrer;
   final double size;
 
   const MemberQr({
@@ -15,19 +18,29 @@ class MemberQr extends StatelessWidget {
     required this.lastName,
     required this.firstName,
     required this.middleName,
-    this.id,
-    this.size = 120,
+    required this.contactNo,
+    required this.birthday,
+    required this.address,
+    required this.referrer,
+    this.size = 160,
   });
 
   String _payload() {
-    if (id != null) return '{"id":$id}';
-    final name = ('$firstName $middleName $lastName').trim();
-    return '{"name":"${name.replaceAll('"', '\\"')}"}';
+    // Standardizes all properties into a clean JSON structure
+    final qrDataMap = {
+      'lastName': lastName,
+      'firstName': firstName,
+      'middleName': middleName,
+      'contactNo': contactNo,
+      'birthday': birthday,
+      'address': address,
+      'referrer': referrer,
+    };
+    return jsonEncode(qrDataMap);
   }
 
   @override
   Widget build(BuildContext context) {
-    final payload = _payload();
     try {
       final qr = QrCode(4, QrErrorCorrectLevel.L);
       qr.addData(payload);
@@ -47,13 +60,14 @@ class MemberQr extends StatelessWidget {
   }
 }
 
-// legacy painter removed — using qr_flutter for real QR rendering
-
 class MemberQrWithName extends StatelessWidget {
   final String lastName;
   final String firstName;
   final String middleName;
-  final int? id;
+  final String contactNo;
+  final String birthday;
+  final String address;
+  final String referrer;
 
   const MemberQrWithName({
     super.key,

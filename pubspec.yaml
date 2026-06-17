@@ -43,8 +43,8 @@ dependencies:
   camera_windows: ^0.2.1+7
   # zxing2, qr_bar_code_scanner_dialog, camera removed
   dropdown_search: ^6.0.1
-  qr_flutter: ^4.0.0
-  qr: ^2.1.0
+  qr_flutter: ^4.1.0
+  qr: ^3.0.2
 
 
   cupertino_icons: ^1.0.8
