@@ -13,6 +13,7 @@ import 'package:csv/csv.dart';
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import '../db/csv_header_utils.dart';
 import '../theme.dart';
+import 'memberqr.dart';
 
 class MembersTable extends StatefulWidget {
   final Function(Map<String, dynamic>) onRowSelected;
@@ -69,7 +70,7 @@ class MembersTableState extends State<MembersTable> {
   }
 
   Future<void> addMember(Map<String, dynamic> newMember) async {
-    await repository.addMember(
+    final memberId = await repository.addMember(
       lastName: newMember['lastName']?.toString(),
       firstName: newMember['firstName']?.toString(),
       middleName: newMember['middleName']?.toString(),
@@ -83,6 +84,62 @@ class MembersTableState extends State<MembersTable> {
           : int.tryParse(newMember['points']?.toString() ?? '0') ?? 0,
     );
     await _loadMembers();
+
+    // Show QR code dialog for the newly created member
+    if (!mounted) return;
+    final created = await repository.getMemberById(memberId);
+    if (created != null && mounted) {
+      _showMemberQrDialog(created);
+    }
+  }
+
+  void _showMemberQrDialog(Member member) {
+    final fullName =
+        '${member.firstName ?? ''} ${member.middleName ?? ''} ${member.lastName ?? ''}'
+            .trim();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.qr_code, color: Theme.of(ctx).colorScheme.primary),
+            const SizedBox(width: 10),
+            const Text('Member QR Code'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              fullName,
+              style: Theme.of(
+                ctx,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            MemberQr(
+              lastName: member.lastName ?? '',
+              firstName: member.firstName ?? '',
+              middleName: member.middleName ?? '',
+              contactNo: member.contactNo ?? '',
+              birthday: member.birthday ?? '',
+              address: member.address ?? '',
+              referrer: member.referrer ?? '',
+              qrToken: member.qr,
+              size: 200,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> updateMember(
@@ -480,6 +537,7 @@ class MembersTableState extends State<MembersTable> {
                   DataColumn(label: Text('Birthday')),
                   DataColumn(label: Text('Address')),
                   DataColumn(label: Text('Points')),
+                  DataColumn(label: Text('QR')),
                 ],
                 source: _MembersDataSource(
                   filteredMembers,
@@ -601,6 +659,7 @@ class _MembersDataSource extends DataTableSource {
           Text((member["points"] ?? 0).toString()),
           onTap: () => onRowSelected(member),
         ),
+        DataCell(_QrIconButton(member: member)),
       ],
     );
   }
@@ -672,6 +731,8 @@ class _MemberListCard extends StatelessWidget {
                     icon: Icons.stars_outlined,
                     text: (member['points'] ?? 0).toString(),
                   ),
+                  const SizedBox(width: 4),
+                  _QrIconButton(member: member),
                 ],
               ),
               const SizedBox(height: 8),
@@ -749,6 +810,74 @@ class _MemberMetaPill extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Small icon button that opens a dialog showing the member's QR code.
+class _QrIconButton extends StatelessWidget {
+  final Map<String, dynamic> member;
+
+  const _QrIconButton({required this.member});
+
+  void _showQrDialog(BuildContext context) {
+    final fullName = [
+      member['firstName'],
+      member['middleName'],
+      member['lastName'],
+    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.qr_code, color: Theme.of(ctx).colorScheme.primary),
+            const SizedBox(width: 10),
+            const Text('Member QR Code'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              fullName,
+              style: Theme.of(
+                ctx,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            MemberQr(
+              lastName: (member['lastName'] ?? '').toString(),
+              firstName: (member['firstName'] ?? '').toString(),
+              middleName: (member['middleName'] ?? '').toString(),
+              contactNo: (member['contactNo'] ?? '').toString(),
+              birthday: (member['birthday'] ?? '').toString(),
+              address: (member['address'] ?? '').toString(),
+              referrer: (member['referrer'] ?? '').toString(),
+              qrToken: (member['qr'] ?? '').toString(),
+              size: 200,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: 'Show QR code',
+      icon: Icon(Icons.qr_code, color: Theme.of(context).colorScheme.primary),
+      onPressed: () => _showQrDialog(context),
     );
   }
 }

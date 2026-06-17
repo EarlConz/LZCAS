@@ -12,6 +12,7 @@ class InteractiveMemberAvatar extends StatefulWidget {
   final String referrer;
   final String? imageUrl; // optional member image path or network url
   final double size;
+  final String? qrToken;
 
   const InteractiveMemberAvatar({
     super.key,
@@ -25,6 +26,7 @@ class InteractiveMemberAvatar extends StatefulWidget {
     this.referrer = '',
     this.imageUrl,
     this.size = 56,
+    this.qrToken,
   });
 
   @override
@@ -59,6 +61,7 @@ class _InteractiveMemberAvatarState extends State<InteractiveMemberAvatar> {
                   birthday: widget.birthday,
                   address: widget.address,
                   referrer: widget.referrer,
+                  qrToken: widget.qrToken,
                 ),
                 const SizedBox(height: 12),
                 TextButton(
@@ -120,6 +123,7 @@ class _InteractiveMemberAvatarState extends State<InteractiveMemberAvatar> {
                           birthday: widget.birthday,
                           address: widget.address,
                           referrer: widget.referrer,
+                          qrToken: widget.qrToken,
                           size: widget.size * 0.9,
                         ),
                       ),
