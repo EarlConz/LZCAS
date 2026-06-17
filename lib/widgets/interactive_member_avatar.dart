@@ -6,13 +6,30 @@ class InteractiveMemberAvatar extends StatefulWidget {
   final String lastName;
   final String firstName;
   final String middleName;
+  final String contactNo;
+  final String birthday;
+  final String address;
+  final String referrer;
   final String? imageUrl; // optional member image path or network url
   final double size;
 
-  const InteractiveMemberAvatar({super.key, this.memberId, required this.lastName, required this.firstName, required this.middleName, this.imageUrl, this.size = 56});
+  const InteractiveMemberAvatar({
+    super.key,
+    this.memberId,
+    required this.lastName,
+    required this.firstName,
+    required this.middleName,
+    this.contactNo = '',
+    this.birthday = '',
+    this.address = '',
+    this.referrer = '',
+    this.imageUrl,
+    this.size = 56,
+  });
 
   @override
-  State<InteractiveMemberAvatar> createState() => _InteractiveMemberAvatarState();
+  State<InteractiveMemberAvatar> createState() =>
+      _InteractiveMemberAvatarState();
 }
 
 class _InteractiveMemberAvatarState extends State<InteractiveMemberAvatar> {
@@ -24,8 +41,11 @@ class _InteractiveMemberAvatarState extends State<InteractiveMemberAvatar> {
       builder: (ctx) {
         final dialogTheme = Theme.of(ctx).dialogTheme;
         return Dialog(
-          backgroundColor: dialogTheme.backgroundColor ?? Theme.of(ctx).cardColor,
-          shape: dialogTheme.shape ?? RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          backgroundColor:
+              dialogTheme.backgroundColor ?? Theme.of(ctx).cardColor,
+          shape:
+              dialogTheme.shape ??
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: Padding(
             padding: const EdgeInsets.all(20.0),
             child: Column(
@@ -35,10 +55,16 @@ class _InteractiveMemberAvatarState extends State<InteractiveMemberAvatar> {
                   lastName: widget.lastName,
                   firstName: widget.firstName,
                   middleName: widget.middleName,
-                  id: widget.memberId,
+                  contactNo: widget.contactNo,
+                  birthday: widget.birthday,
+                  address: widget.address,
+                  referrer: widget.referrer,
                 ),
                 const SizedBox(height: 12),
-                TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close')),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Close'),
+                ),
               ],
             ),
           ),
@@ -49,11 +75,19 @@ class _InteractiveMemberAvatarState extends State<InteractiveMemberAvatar> {
 
   @override
   Widget build(BuildContext context) {
-  final avatar = widget.imageUrl != null && widget.imageUrl!.isNotEmpty
-    ? CircleAvatar(radius: widget.size / 2, backgroundImage: AssetImage(widget.imageUrl!))
-    : CircleAvatar(radius: widget.size / 2, child: Text('${widget.firstName.isNotEmpty ? widget.firstName[0] : ''}${widget.lastName.isNotEmpty ? widget.lastName[0] : ''}'.toUpperCase()));
+    final avatar = widget.imageUrl != null && widget.imageUrl!.isNotEmpty
+        ? CircleAvatar(
+            radius: widget.size / 2,
+            backgroundImage: AssetImage(widget.imageUrl!),
+          )
+        : CircleAvatar(
+            radius: widget.size / 2,
+            child: Text(
+              '${widget.firstName.isNotEmpty ? widget.firstName[0] : ''}${widget.lastName.isNotEmpty ? widget.lastName[0] : ''}'
+                  .toUpperCase(),
+            ),
+          );
 
-    
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
@@ -82,7 +116,10 @@ class _InteractiveMemberAvatarState extends State<InteractiveMemberAvatar> {
                           lastName: widget.lastName,
                           firstName: widget.firstName,
                           middleName: widget.middleName,
-                          id: widget.memberId,
+                          contactNo: widget.contactNo,
+                          birthday: widget.birthday,
+                          address: widget.address,
+                          referrer: widget.referrer,
                           size: widget.size * 0.9,
                         ),
                       ),

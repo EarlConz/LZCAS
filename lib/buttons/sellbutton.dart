@@ -492,7 +492,7 @@ class _SellDialogState extends State<_SellDialog> {
                     final first = (m['firstName'] ?? '').toString().trim();
                     final last = (m['lastName'] ?? '').toString().trim();
                     buyerName = '$first $last'.trim();
-                    if (buyerName!.isEmpty) buyerName = null;
+                    if (buyerName.isEmpty) buyerName = null;
                   }
 
                   // Show receipt, only pop sell dialog after receipt is dismissed
