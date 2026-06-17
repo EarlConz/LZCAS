@@ -219,6 +219,7 @@ class _MemberProfileSection extends StatelessWidget {
                       firstName: (member['firstName'] ?? '').toString(),
                       middleName: (member['middleName'] ?? '').toString(),
                       imageUrl: (member['image'] ?? '').toString(),
+                      qrToken: (member['qr'] ?? '').toString(),
                       size: 36,
                     ),
                   ),

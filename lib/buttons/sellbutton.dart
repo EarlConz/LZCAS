@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/receipt_dialog.dart';
+import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
 
 class SellButton extends StatefulWidget {
   final bool compact;
@@ -144,6 +145,43 @@ class _SellDialogState extends State<_SellDialog> {
     return true;
   }
 
+  Future<void> _scanBuyerQr(BuildContext context) async {
+    final scanned = await showQrScannerDialog(context);
+    if (scanned == null || scanned.isEmpty) return;
+    if (!mounted) return;
+
+    // Try to find a member whose qr token matches the scanned value
+    final memberRow = widget.members.cast<Map<String, dynamic>?>().firstWhere(
+      (m) => (m?['qr'] ?? '').toString() == scanned,
+      orElse: () => null,
+    );
+
+    if (memberRow != null) {
+      setState(() {
+        selectedBuyerId = memberRow['id'] as int?;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Buyer set to ${memberRow['firstName'] ?? ''} ${memberRow['lastName'] ?? ''}',
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No member matches this QR code'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final totalPoints = cart.fold<int>(
@@ -170,24 +208,36 @@ class _SellDialogState extends State<_SellDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Buyer picker (member-picker) - Option 2: prefer numeric referrerId when awarding points
+                // Buyer picker (member-picker) with QR scan
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8.0),
-                  child: DropdownButtonFormField<int?>(
-                    decoration: const InputDecoration(labelText: 'Buyer'),
-                    initialValue: selectedBuyerId,
-                    items: [
-                      ...widget.members.map(
-                        (m) => DropdownMenuItem<int?>(
-                          value: m['id'] as int?,
-                          child: Text(
-                            '${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'
-                                .trim(),
-                          ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<int?>(
+                          decoration: const InputDecoration(labelText: 'Buyer'),
+                          initialValue: selectedBuyerId,
+                          items: [
+                            ...widget.members.map(
+                              (m) => DropdownMenuItem<int?>(
+                                value: m['id'] as int?,
+                                child: Text(
+                                  '${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'
+                                      .trim(),
+                                ),
+                              ),
+                            ),
+                          ],
+                          onChanged: (v) => setState(() => selectedBuyerId = v),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: 'Scan member QR',
+                        icon: const Icon(Icons.qr_code_scanner),
+                        onPressed: () => _scanBuyerQr(context),
+                      ),
                     ],
-                    onChanged: (v) => setState(() => selectedBuyerId = v),
                   ),
                 ),
 

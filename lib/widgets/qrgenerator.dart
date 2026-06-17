@@ -10,6 +10,7 @@ class QrGenerator extends StatelessWidget {
   final String birthday;
   final String address;
   final String referrer;
+  final String? qrToken;
 
   const QrGenerator({
     super.key,
@@ -20,6 +21,7 @@ class QrGenerator extends StatelessWidget {
     required this.birthday,
     required this.address,
     required this.referrer,
+    this.qrToken,
   });
 
   @override
@@ -45,6 +47,7 @@ class QrGenerator extends StatelessWidget {
                 birthday: birthday,
                 address: address,
                 referrer: referrer,
+                qrToken: qrToken,
                 size: 200,
               ),
               const SizedBox(height: 16),

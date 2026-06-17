@@ -1,15 +1,26 @@
-// QR scanning has been removed. This button provides a manual QR lookup
-// to search for a member by QR code without requiring the mobile_scanner package.
-// It avoids platform camera dependencies and keeps the UI functional on desktop.
-//
-// If you later reintroduce scanning, replace this with a platform-aware
-// implementation that conditionally imports mobile_scanner.
+// QR scanning button with camera-based QR code scanning via mobile_scanner.
+// Falls back to manual text-paste lookup if the camera is unavailable.
 
 import 'package:flutter/material.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
 
 class QRScanButton extends StatelessWidget {
-  const QRScanButton({super.key});
+  /// Optional callback invoked after a member is found via QR scan.
+  /// Receives the found [Member] row. When provided, the default info
+  /// dialog is skipped so the caller can handle the result.
+  final void Function(Member member)? onMemberFound;
+
+  const QRScanButton({super.key, this.onMemberFound});
+
+  Future<void> _scanAndLookup(BuildContext context) async {
+    final scanned = await showQrScannerDialog(context);
+
+    if (scanned == null || scanned.isEmpty) return;
+    if (!context.mounted) return;
+
+    await _lookupByQr(context, scanned);
+  }
 
   Future<void> _manualLookup(BuildContext context) async {
     final tc = TextEditingController();
@@ -23,18 +34,28 @@ class QRScanButton extends StatelessWidget {
           autofocus: true,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, tc.text.trim()), child: const Text('Find')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, tc.text.trim()),
+            child: const Text('Find'),
+          ),
         ],
       ),
     );
 
     if (result == null || result.isEmpty) return;
 
+    await _lookupByQr(context, result);
+  }
+
+  Future<void> _lookupByQr(BuildContext context, String qrValue) async {
     final rows = await repository.fetchMembers();
     Member? memberRow;
     try {
-      memberRow = rows.firstWhere((r) => r.qr == result);
+      memberRow = rows.firstWhere((r) => r.qr == qrValue);
     } catch (_) {
       memberRow = null;
     }
@@ -43,6 +64,13 @@ class QRScanButton extends StatelessWidget {
 
     if (memberRow != null) {
       final m = memberRow;
+
+      // If a callback was provided, invoke it and skip the detail dialog
+      if (onMemberFound != null) {
+        onMemberFound!(m);
+        return;
+      }
+
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
@@ -51,7 +79,9 @@ class QRScanButton extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Name: ${m.firstName ?? ''} ${m.middleName ?? ''} ${m.lastName ?? ''}'),
+              Text(
+                'Name: ${m.firstName ?? ''} ${m.middleName ?? ''} ${m.lastName ?? ''}',
+              ),
               Text('Role: ${m.role ?? ''}'),
               Text('Contact: ${m.contactNo ?? ''}'),
               Text('Birthday: ${m.birthday ?? ''}'),
@@ -60,7 +90,12 @@ class QRScanButton extends StatelessWidget {
               Text('Points: ${m.points}'),
             ],
           ),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
         ),
       );
     } else {
@@ -68,8 +103,13 @@ class QRScanButton extends StatelessWidget {
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Not Found'),
-          content: Text('No member matches QR: $result'),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+          content: Text('No member matches QR: $qrValue'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
         ),
       );
     }
@@ -77,10 +117,38 @@ class QRScanButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton.icon(
-      icon: const Icon(Icons.qr_code),
-      label: const Text('Find by QR'),
-      onPressed: () => _manualLookup(context),
+    return PopupMenuButton<String>(
+      tooltip: 'Find by QR',
+      icon: const Icon(Icons.qr_code_scanner),
+      onSelected: (action) {
+        if (action == 'scan') {
+          _scanAndLookup(context);
+        } else if (action == 'paste') {
+          _manualLookup(context);
+        }
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'scan',
+          child: ListTile(
+            leading: Icon(Icons.camera_alt),
+            title: Text('Scan QR'),
+            subtitle: Text('Use camera'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'paste',
+          child: ListTile(
+            leading: Icon(Icons.paste),
+            title: Text('Paste QR'),
+            subtitle: Text('Manual entry'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
     );
   }
 }
