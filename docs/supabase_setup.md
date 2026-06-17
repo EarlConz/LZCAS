@@ -16,14 +16,15 @@ In Supabase:
 
 1. Open Project Settings.
 2. Open API.
-3. Copy the Project URL.
+3. Copy the Project URL, for example `https://your-project-ref.supabase.co`.
 4. Copy the anon public key.
 
 Do not put the service role key in the Flutter app.
+Do not use the REST endpoint URL ending in `/rest/v1` as `SUPABASE_URL`.
 
 ## 3. Run Flutter With Supabase Enabled
 
-Use `--dart-define` so secrets are not hardcoded:
+Option A: use `--dart-define`:
 
 ```powershell
 flutter run `
@@ -31,7 +32,44 @@ flutter run `
   --dart-define=SUPABASE_ANON_KEY=your-anon-key
 ```
 
-If those values are not provided, the app still runs using local SQLite only.
+Option A2: use the local mobile run helper:
+
+1. Copy `supabase.local.example.json` to `supabase.local.json`.
+2. Fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+3. Run:
+
+```powershell
+.\tools\run_mobile.ps1
+```
+
+If PowerShell blocks scripts on your machine, use:
+
+```powershell
+.\run_mobile.bat
+```
+
+To target a specific device:
+
+```powershell
+.\tools\run_mobile.ps1 -DeviceId your-device-id
+```
+
+`supabase.local.json` is ignored by Git so your local key is not committed.
+
+Option B: for mobile builds/runs, fill in `assets/supabase_config.json`:
+
+```json
+{
+  "url": "https://your-project-ref.supabase.co",
+  "anonKey": "your-anon-key"
+}
+```
+
+The anon key is public client configuration. Do not put the service role key in
+the Flutter app.
+
+If neither `--dart-define` nor `assets/supabase_config.json` is configured, the
+app still runs using local SQLite only.
 
 ## 4. Upload Current Local Data
 

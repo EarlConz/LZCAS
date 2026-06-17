@@ -5,6 +5,7 @@ import 'package:lzcas/dialogs/add_member_dialog.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'dart:typed_data';
 import 'dart:io';
+import 'dart:convert';
 import 'package:drift/drift.dart' show Value;
 import 'package:lzcas/db/db.dart';
 import 'package:path/path.dart' as p;
@@ -12,6 +13,7 @@ import 'dart:async';
 import 'package:csv/csv.dart';
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import '../db/csv_header_utils.dart';
+import '../theme.dart';
 
 class MembersTable extends StatefulWidget {
   final Function(Map<String, dynamic>) onRowSelected;
@@ -137,34 +139,57 @@ class MembersTableState extends State<MembersTable> {
   }
 
   Future<void> _onExportCsvPressed(BuildContext safeContext) async {
-    final csv = await repository.exportMembersCsvString();
-    final suggested =
-        'members_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+    if (!safeContext.mounted) return;
+
+    // Show loading dialog
+    showDialog(
+      context: safeContext,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+
     try {
-      final fs.FileSaveLocation? loc = await fs.getSaveLocation(
-        suggestedName: suggested,
-      );
-      if (loc != null) {
-        final xfile = fs.XFile.fromData(
-          Uint8List.fromList(csv.codeUnits),
-          mimeType: 'text/csv',
-          name: suggested,
+      final csv = await repository.exportMembersCsvString();
+      final suggested =
+          'members_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+
+      if (!mounted || !safeContext.mounted) return;
+      Navigator.pop(safeContext); // Close loading dialog
+
+      try {
+        final fs.FileSaveLocation? loc = await fs.getSaveLocation(
+          suggestedName: suggested,
         );
-        await xfile.saveTo(loc.path);
+        if (loc != null) {
+          // Use UTF-8 encoding instead of codeUnits for better compatibility
+          final csvBytes = utf8.encode(csv);
+          final xfile = fs.XFile.fromData(
+            csvBytes,
+            mimeType: 'text/csv',
+            name: suggested,
+          );
+          await xfile.saveTo(loc.path);
+          if (!mounted || !safeContext.mounted) return;
+          ScaffoldMessenger.of(
+            safeContext,
+          ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+        }
+      } catch (e) {
+        final dir = Directory.current.path;
+        final savePath = p.join(dir, suggested);
+        final file = File(savePath);
+        await file.writeAsString(csv);
         if (!mounted || !safeContext.mounted) return;
         ScaffoldMessenger.of(
           safeContext,
-        ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+        ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
       }
     } catch (e) {
-      final dir = Directory.current.path;
-      final savePath = p.join(dir, suggested);
-      final file = File(savePath);
-      await file.writeAsString(csv);
       if (!mounted || !safeContext.mounted) return;
+      Navigator.pop(safeContext); // Close loading dialog
       ScaffoldMessenger.of(
         safeContext,
-      ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+      ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
     }
   }
 
@@ -270,9 +295,6 @@ class MembersTableState extends State<MembersTable> {
 
   @override
   Widget build(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isDesktop = screenWidth >= 780;
-
     final filteredMembers = members.where((member) {
       final search = searchTerm.toLowerCase();
       return member.values.any(
@@ -280,127 +302,134 @@ class MembersTableState extends State<MembersTable> {
       );
     }).toList();
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: isDesktop
-              ? Row(
-                  children: [
-                    Expanded(
-                      child: SearchBarWidget(
-                        onChanged: (value) =>
-                            setState(() => searchTerm = value),
-                        hintText: "Search members...",
-                        borderRadius: 12,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 16,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      icon: Icon(
-                        Icons.person_add,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                      label: const Text(
-                        "Add Member",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      backgroundColor: Colors.blue[700],
-                      onPressed: _onAddMemberPressed,
-                    ),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      icon: Icon(
-                        Icons.upload_file,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                      label: const Text(
-                        'Export CSV',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      backgroundColor: Colors.grey[700],
-                      onPressed: () => _onExportCsvPressed(context),
-                    ),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      icon: Icon(
-                        Icons.download,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                      ),
-                      label: const Text(
-                        'Import CSV',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      backgroundColor: Colors.grey[700],
-                      onPressed: () => _onImportCsvPressed(context),
-                    ),
-                  ],
-                )
-              : Column(
-                  children: [
-                    SearchBarWidget(
-                      onChanged: (value) => setState(() => searchTerm = value),
-                      hintText: "Search members...",
-                      borderRadius: 12,
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 8,
-                        horizontal: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isDesktop = constraints.maxWidth >= 900;
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(appSpacing),
+              child: isDesktop
+                  ? Row(
                       children: [
-                        IconButton.filled(
-                          tooltip: 'Add Member',
-                          icon: const Icon(Icons.person_add),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.blue[700],
+                        Expanded(
+                          child: SearchBarWidget(
+                            onChanged: (value) =>
+                                setState(() => searchTerm = value),
+                            hintText: "Search members...",
+                            borderRadius: 12,
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 16,
+                            ),
                           ),
+                        ),
+                        const SizedBox(width: 8),
+                        CustomElevatedButton(
+                          icon: Icon(
+                            Icons.person_add,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                          ),
+                          label: const Text(
+                            "Add Member",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          backgroundColor: Colors.blue[700],
                           onPressed: _onAddMemberPressed,
                         ),
                         const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: 'Export CSV',
-                          icon: const Icon(Icons.upload_file),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.grey[700],
+                        CustomElevatedButton(
+                          icon: Icon(
+                            Icons.upload_file,
+                            color: Theme.of(context).colorScheme.onPrimary,
                           ),
+                          label: const Text(
+                            'Export CSV',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          backgroundColor: Colors.grey[700],
                           onPressed: () => _onExportCsvPressed(context),
                         ),
                         const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: 'Import CSV',
-                          icon: const Icon(Icons.download),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.grey[700],
+                        CustomElevatedButton(
+                          icon: Icon(
+                            Icons.download,
+                            color: Theme.of(context).colorScheme.onPrimary,
                           ),
+                          label: const Text(
+                            'Import CSV',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          backgroundColor: Colors.grey[700],
                           onPressed: () => _onImportCsvPressed(context),
                         ),
                       ],
+                    )
+                  : Column(
+                      children: [
+                        SearchBarWidget(
+                          onChanged: (value) =>
+                              setState(() => searchTerm = value),
+                          hintText: "Search members...",
+                          borderRadius: 12,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            IconButton.filled(
+                              tooltip: 'Add Member',
+                              icon: const Icon(Icons.person_add),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.blue[700],
+                              ),
+                              onPressed: _onAddMemberPressed,
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filled(
+                              tooltip: 'Export CSV',
+                              icon: const Icon(Icons.upload_file),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                              ),
+                              onPressed: () => _onExportCsvPressed(context),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filled(
+                              tooltip: 'Import CSV',
+                              icon: const Icon(Icons.download),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                              ),
+                              onPressed: () => _onImportCsvPressed(context),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-        ),
-        Expanded(
-          child: isDesktop
-              ? _buildMembersTable(context, filteredMembers)
-              : _buildMembersList(context, filteredMembers),
-        ),
-      ],
+            ),
+            Expanded(
+              child: isDesktop
+                  ? _buildMembersTable(context, filteredMembers)
+                  : _buildMembersList(context, filteredMembers),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -415,10 +444,10 @@ class MembersTableState extends State<MembersTable> {
           cardTheme: CardThemeData(
             elevation: 0,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(color: Colors.grey.shade300, width: 1),
+              borderRadius: BorderRadius.circular(appRadius),
+              side: BorderSide(color: Theme.of(context).dividerColor, width: 1),
             ),
-            color: Theme.of(context).cardColor,
+            color: Theme.of(context).colorScheme.surface,
           ),
         ),
         child: LayoutBuilder(
@@ -427,31 +456,38 @@ class MembersTableState extends State<MembersTable> {
             var available = constraints.maxHeight - reserved;
             if (available < 56) available = 56;
             final estimated = (available ~/ 56).clamp(1, 7);
+            final tableWidth = constraints.hasBoundedWidth
+                ? constraints.maxWidth
+                : (constraints.minWidth.isFinite && constraints.minWidth > 0
+                      ? constraints.minWidth
+                      : MediaQuery.sizeOf(context).width);
 
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                child: PaginatedDataTable(
-                  columnSpacing: 40,
-                  rowsPerPage: estimated,
-                  columns: const [
-                    DataColumn(label: Text('Last Name')),
-                    DataColumn(label: Text('First Name')),
-                    DataColumn(label: Text('Middle Name')),
-                    DataColumn(label: Text('Role')),
-                    DataColumn(label: Text('Contact No.')),
-                    DataColumn(label: Text('Birthday')),
-                    DataColumn(label: Text('Address')),
-                    DataColumn(label: Text('Points')),
-                  ],
-                  source: _MembersDataSource(
-                    filteredMembers,
-                    widget.onRowSelected,
-                    _selectedMemberIds,
-                    _setMemberSelected,
-                    context,
-                  ),
+            return SizedBox(
+              width: tableWidth,
+              child: PaginatedDataTable(
+                horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
+                columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
+                rowsPerPage: estimated,
+                headingRowHeight: 42,
+                dataRowMinHeight: 44,
+                dataRowMaxHeight: 52,
+                showCheckboxColumn: true,
+                columns: const [
+                  DataColumn(label: Text('Last Name')),
+                  DataColumn(label: Text('First Name')),
+                  DataColumn(label: Text('Middle Name')),
+                  DataColumn(label: Text('Role')),
+                  DataColumn(label: Text('Contact No.')),
+                  DataColumn(label: Text('Birthday')),
+                  DataColumn(label: Text('Address')),
+                  DataColumn(label: Text('Points')),
+                ],
+                source: _MembersDataSource(
+                  filteredMembers,
+                  widget.onRowSelected,
+                  _selectedMemberIds,
+                  _setMemberSelected,
+                  context,
                 ),
               ),
             );
@@ -517,8 +553,16 @@ class _MembersDataSource extends DataTableSource {
     return DataRow(
       selected: id != null && selectedMemberIds.contains(id),
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+        if (states.contains(WidgetState.selected)) {
+          return Theme.of(_context).colorScheme.primary.withAlpha(28);
+        }
+        if (states.contains(WidgetState.hovered)) {
+          return Theme.of(_context).colorScheme.primary.withAlpha(18);
+        }
         if (isEven) {
-          return Theme.of(_context).colorScheme.surfaceContainerHighest;
+          return Theme.of(
+            _context,
+          ).colorScheme.surfaceContainerHighest.withAlpha(90);
         }
         return null;
       }),

@@ -12,7 +12,8 @@ import 'csv_io.dart';
 /// (imports, exports, atomic transactions, change notifications).
 class DbRepository {
   final AppDb db;
-  final StreamController<String> _changes = StreamController<String>.broadcast();
+  final StreamController<String> _changes =
+      StreamController<String>.broadcast();
 
   DbRepository(this.db);
 
@@ -23,13 +24,23 @@ class DbRepository {
 
   Stream<String> get changes => _changes.stream;
 
+  void notifyCloudRestored() {
+    _changes.add('item_imported');
+    _changes.add('member_imported');
+    _changes.add('sale_imported');
+    _changes.add('cloud_restored');
+  }
+
   /// Import members from CSV string, return inserted count.
   Future<int> importMembersCsv(String csv) async {
     final converter = const CsvToListConverter(eol: '\n');
     final list = converter.convert(csv);
     if (list.isEmpty) return 0;
     final headers = list.first.map((e) => e.toString()).toList();
-    final rows = list.sublist(1).map((r) => r.map((c) => c?.toString() ?? '').toList()).toList();
+    final rows = list
+        .sublist(1)
+        .map((r) => r.map((c) => c?.toString() ?? '').toList())
+        .toList();
     return await importMembersFromRows(headers, rows);
   }
 
@@ -43,7 +54,11 @@ class DbRepository {
       // timestamp column is stored as an ISO string (legacy) or as an
       // integer milliseconds value. Using generated mappers (db.getAllSales)
       // may fail if the stored format doesn't match Drift's expectation.
-      final rows = await db.customSelect('SELECT id, item_id, buyer_id, quantity, points FROM sales').get();
+      final rows = await db
+          .customSelect(
+            'SELECT id, item_id, buyer_id, quantity, points FROM sales',
+          )
+          .get();
       final Map<int, int> memberTotals = {};
       for (final row in rows) {
         final saleId = row.read<int>('id');
@@ -53,11 +68,15 @@ class DbRepository {
         final existingPoints = row.read<int>('points');
 
         final item = await db.getItemById(itemId);
-        final computed = item != null ? (item.points * quantity).toInt() : existingPoints;
+        final computed = item != null
+            ? (item.points * quantity).toInt()
+            : existingPoints;
 
         if (computed != existingPoints) {
           try {
-            await db.customStatement('UPDATE sales SET points = $computed WHERE id = $saleId');
+            await db.customStatement(
+              'UPDATE sales SET points = $computed WHERE id = $saleId',
+            );
           } catch (_) {
             // ignore update failures
           }
@@ -82,7 +101,10 @@ class DbRepository {
 
   /// Bulk import helper that accepts parsed headers and rows (each row is a list of strings aligned to headers).
   /// Returns number of newly created members.
-  Future<int> importMembersFromRows(List<String> headers, List<List<String>> rows) async {
+  Future<int> importMembersFromRows(
+    List<String> headers,
+    List<List<String>> rows,
+  ) async {
     var inserted = 0;
     for (final row in rows) {
       final map = <String, String>{};
@@ -103,12 +125,36 @@ class DbRepository {
           final updated = existing.copyWith(
             lastName: Value(lastName.isEmpty ? null : lastName),
             firstName: Value(firstName.isEmpty ? null : firstName),
-            middleName: Value((map['middleName'] ?? '').trim().isEmpty ? null : (map['middleName'] ?? '').trim()),
-            role: Value((map['role'] ?? '').trim().isEmpty ? null : (map['role'] ?? '').trim()),
-            contactNo: Value((map['contactNo'] ?? '').trim().isEmpty ? null : (map['contactNo'] ?? '').trim()),
-            birthday: Value((map['birthday'] ?? '').trim().isEmpty ? null : (map['birthday'] ?? '').trim()),
-            address: Value((map['address'] ?? '').trim().isEmpty ? null : (map['address'] ?? '').trim()),
-            referrer: Value((map['referrer'] ?? '').trim().isEmpty ? null : (map['referrer'] ?? '').trim()),
+            middleName: Value(
+              (map['middleName'] ?? '').trim().isEmpty
+                  ? null
+                  : (map['middleName'] ?? '').trim(),
+            ),
+            role: Value(
+              (map['role'] ?? '').trim().isEmpty
+                  ? null
+                  : (map['role'] ?? '').trim(),
+            ),
+            contactNo: Value(
+              (map['contactNo'] ?? '').trim().isEmpty
+                  ? null
+                  : (map['contactNo'] ?? '').trim(),
+            ),
+            birthday: Value(
+              (map['birthday'] ?? '').trim().isEmpty
+                  ? null
+                  : (map['birthday'] ?? '').trim(),
+            ),
+            address: Value(
+              (map['address'] ?? '').trim().isEmpty
+                  ? null
+                  : (map['address'] ?? '').trim(),
+            ),
+            referrer: Value(
+              (map['referrer'] ?? '').trim().isEmpty
+                  ? null
+                  : (map['referrer'] ?? '').trim(),
+            ),
             points: int.tryParse((map['points'] ?? '').trim()) ?? 0,
           );
           await db.updateMemberData(updated);
@@ -122,18 +168,46 @@ class DbRepository {
       try {
         final targetLast = lastName.toLowerCase();
         final targetFirst = firstName.toLowerCase();
-        byName = all.firstWhere((r) => (r.lastName ?? '').trim().toLowerCase() == targetLast && (r.firstName ?? '').trim().toLowerCase() == targetFirst);
+        byName = all.firstWhere(
+          (r) =>
+              (r.lastName ?? '').trim().toLowerCase() == targetLast &&
+              (r.firstName ?? '').trim().toLowerCase() == targetFirst,
+        );
       } catch (e) {
         byName = null;
       }
       if (byName != null) {
         final updated = byName.copyWith(
-          middleName: Value((map['middleName'] ?? '').trim().isEmpty ? null : (map['middleName'] ?? '').trim()),
-          role: Value((map['role'] ?? '').trim().isEmpty ? null : (map['role'] ?? '').trim()),
-          contactNo: Value((map['contactNo'] ?? '').trim().isEmpty ? null : (map['contactNo'] ?? '').trim()),
-          birthday: Value((map['birthday'] ?? '').trim().isEmpty ? null : (map['birthday'] ?? '').trim()),
-          address: Value((map['address'] ?? '').trim().isEmpty ? null : (map['address'] ?? '').trim()),
-          referrer: Value((map['referrer'] ?? '').trim().isEmpty ? null : (map['referrer'] ?? '').trim()),
+          middleName: Value(
+            (map['middleName'] ?? '').trim().isEmpty
+                ? null
+                : (map['middleName'] ?? '').trim(),
+          ),
+          role: Value(
+            (map['role'] ?? '').trim().isEmpty
+                ? null
+                : (map['role'] ?? '').trim(),
+          ),
+          contactNo: Value(
+            (map['contactNo'] ?? '').trim().isEmpty
+                ? null
+                : (map['contactNo'] ?? '').trim(),
+          ),
+          birthday: Value(
+            (map['birthday'] ?? '').trim().isEmpty
+                ? null
+                : (map['birthday'] ?? '').trim(),
+          ),
+          address: Value(
+            (map['address'] ?? '').trim().isEmpty
+                ? null
+                : (map['address'] ?? '').trim(),
+          ),
+          referrer: Value(
+            (map['referrer'] ?? '').trim().isEmpty
+                ? null
+                : (map['referrer'] ?? '').trim(),
+          ),
           points: int.tryParse((map['points'] ?? '').trim()) ?? 0,
         );
         await db.updateMemberData(updated);
@@ -143,12 +217,36 @@ class DbRepository {
       final companion = MembersCompanion.insert(
         lastName: Value(lastName.isEmpty ? null : lastName),
         firstName: Value(firstName.isEmpty ? null : firstName),
-        middleName: Value((map['middleName'] ?? '').trim().isEmpty ? null : (map['middleName'] ?? '').trim()),
-        role: Value((map['role'] ?? '').trim().isEmpty ? null : (map['role'] ?? '').trim()),
-        contactNo: Value((map['contactNo'] ?? '').trim().isEmpty ? null : (map['contactNo'] ?? '').trim()),
-        birthday: Value((map['birthday'] ?? '').trim().isEmpty ? null : (map['birthday'] ?? '').trim()),
-        address: Value((map['address'] ?? '').trim().isEmpty ? null : (map['address'] ?? '').trim()),
-        referrer: Value((map['referrer'] ?? '').trim().isEmpty ? null : (map['referrer'] ?? '').trim()),
+        middleName: Value(
+          (map['middleName'] ?? '').trim().isEmpty
+              ? null
+              : (map['middleName'] ?? '').trim(),
+        ),
+        role: Value(
+          (map['role'] ?? '').trim().isEmpty
+              ? null
+              : (map['role'] ?? '').trim(),
+        ),
+        contactNo: Value(
+          (map['contactNo'] ?? '').trim().isEmpty
+              ? null
+              : (map['contactNo'] ?? '').trim(),
+        ),
+        birthday: Value(
+          (map['birthday'] ?? '').trim().isEmpty
+              ? null
+              : (map['birthday'] ?? '').trim(),
+        ),
+        address: Value(
+          (map['address'] ?? '').trim().isEmpty
+              ? null
+              : (map['address'] ?? '').trim(),
+        ),
+        referrer: Value(
+          (map['referrer'] ?? '').trim().isEmpty
+              ? null
+              : (map['referrer'] ?? '').trim(),
+        ),
         points: Value(int.tryParse((map['points'] ?? '').trim()) ?? 0),
         qr: Value(_generateMemberQr()),
       );
@@ -167,20 +265,26 @@ class DbRepository {
       if (txRaw.isNotEmpty) {
         final parsed = parseMemberTransactionsColumn(txRaw);
         for (final p in parsed) {
-          entries.add(MemberTransactionEntry(
-            itemId: p['itemId'] as int? ?? 0,
-            itemName: p['itemName'] as String? ?? '',
-            quantity: p['quantity'] as int? ?? 0,
-            price: p['price'] as int? ?? 0,
-            points: p['points'] as int? ?? 0,
-            timestamp: p['timestamp'] as DateTime?,
-          ));
+          entries.add(
+            MemberTransactionEntry(
+              itemId: p['itemId'] as int? ?? 0,
+              itemName: p['itemName'] as String? ?? '',
+              quantity: p['quantity'] as int? ?? 0,
+              price: p['price'] as int? ?? 0,
+              points: p['points'] as int? ?? 0,
+              timestamp: p['timestamp'] as DateTime?,
+            ),
+          );
         }
       }
 
       // If there are parsed transactions, commit them atomically. If commit fails, continue but log.
       if (entries.isNotEmpty) {
-        final err = await commitMemberTransactions(memberId, entries, applyEffects: false);
+        final err = await commitMemberTransactions(
+          memberId,
+          entries,
+          applyEffects: false,
+        );
         if (err != null) {
           // Log the error and continue importing other members
           // ignore: avoid_print
@@ -198,7 +302,11 @@ class DbRepository {
   /// Small DTO for parsed transaction entries coming from member CSV import.
   /// itemId is optional; itemName should be provided.
   /// timestamp may be null to use current time.
-  Future<String?> commitMemberTransactions(int memberId, List<MemberTransactionEntry> entries, {bool applyEffects = true}) async {
+  Future<String?> commitMemberTransactions(
+    int memberId,
+    List<MemberTransactionEntry> entries, {
+    bool applyEffects = true,
+  }) async {
     return await db.transaction(() async {
       // Validate member exists
       final buyer = await db.getMemberById(memberId);
@@ -216,31 +324,48 @@ class DbRepository {
           // try to find by name
           final all = await db.getAllItems();
           try {
-            item = all.firstWhere((it) => it.name.trim().toLowerCase() == e.itemName.trim().toLowerCase());
+            item = all.firstWhere(
+              (it) =>
+                  it.name.trim().toLowerCase() ==
+                  e.itemName.trim().toLowerCase(),
+            );
           } catch (_) {
             item = null;
           }
         }
         if (item == null) return 'Item ${e.itemName} not found';
         itemCache[item.id] = item;
-        if (item.stock < e.quantity) return 'Insufficient stock for ${item.name}';
+        if (item.stock < e.quantity) {
+          return 'Insufficient stock for ${item.name}';
+        }
       }
 
-  final now = DateTime.now();
+      final now = DateTime.now();
       // Load existing sales once to avoid inserting duplicates
       final existingSales = await db.getAllSales();
 
       // Apply each transaction: insert sale and adjust stock and audit
       for (final e in entries) {
-        final item = itemCache.values.firstWhere((it) => it.name.trim().toLowerCase() == e.itemName.trim().toLowerCase());
+        final item = itemCache.values.firstWhere(
+          (it) =>
+              it.name.trim().toLowerCase() == e.itemName.trim().toLowerCase(),
+        );
 
         // Compute points based on product's configured points per unit
         final computedPoints = (item.points * e.quantity).toInt();
         // Avoid duplicate inserts: check existing by core fields + timestamp
         final duplicate = existingSales.any((s) {
-          final sameCore = s.itemId == item.id && s.itemName == e.itemName && s.quantity == e.quantity && s.price == e.price && (s.buyerId == memberId);
+          final sameCore =
+              s.itemId == item.id &&
+              s.itemName == e.itemName &&
+              s.quantity == e.quantity &&
+              s.price == e.price &&
+              (s.buyerId == memberId);
           if (!sameCore) return false;
-          if (e.timestamp != null) return s.timestamp.toIso8601String() == e.timestamp!.toIso8601String();
+          if (e.timestamp != null) {
+            return s.timestamp.toIso8601String() ==
+                e.timestamp!.toIso8601String();
+          }
           return true;
         });
         if (duplicate) continue;
@@ -260,7 +385,10 @@ class DbRepository {
         // historical transactions via CSV we skip mutating stock here to
         // avoid double-decrementing.
         if (applyEffects) {
-          final updatedItem = item.copyWith(stock: item.stock - e.quantity, lastUpdated: Value(now));
+          final updatedItem = item.copyWith(
+            stock: item.stock - e.quantity,
+            lastUpdated: Value(now),
+          );
           await db.update(db.items).replace(updatedItem);
         }
 
@@ -284,11 +412,11 @@ class DbRepository {
           // ignore audit failures
         }
 
-  // totalPoints intentionally not accumulated here; points are
-  // recomputed centrally by ensurePointsConsistency().
-  // add to existingSales so subsequent duplicate checks catch it
-  // (we can't get the inserted id easily here, but fields are sufficient)
-  // create a minimal Sale-like map by adding a synthetic entry via existingSales.add is not possible because it's typed; instead rely on duplicate checks that inspect DB on next import if necessary
+        // totalPoints intentionally not accumulated here; points are
+        // recomputed centrally by ensurePointsConsistency().
+        // add to existingSales so subsequent duplicate checks catch it
+        // (we can't get the inserted id easily here, but fields are sufficient)
+        // create a minimal Sale-like map by adding a synthetic entry via existingSales.add is not possible because it's typed; instead rely on duplicate checks that inspect DB on next import if necessary
       }
       // NOTE: Do NOT directly award points to the buyer here. Points are
       // maintained as the sum of sale.points per business rule. The repository
@@ -323,7 +451,15 @@ class DbRepository {
   }
 
   // Sales helpers
-  Future<int> addSale({required int itemId, required String itemName, required int quantity, int price = 0, int points = 0, DateTime? timestamp, int? buyerId}) async {
+  Future<int> addSale({
+    required int itemId,
+    required String itemName,
+    required int quantity,
+    int price = 0,
+    int points = 0,
+    DateTime? timestamp,
+    int? buyerId,
+  }) async {
     final companion = SalesCompanion.insert(
       itemId: itemId,
       buyerId: Value(buyerId),
@@ -357,7 +493,14 @@ class DbRepository {
   Future<int> deleteItemById(int id) => db.deleteItemById(id);
 
   /// Add item helper
-  Future<int> addItem({required String name, int points = 0, String? category, int stock = 0, DateTime? lastUpdated, String? status}) async {
+  Future<int> addItem({
+    required String name,
+    int points = 0,
+    String? category,
+    int stock = 0,
+    DateTime? lastUpdated,
+    String? status,
+  }) async {
     final companion = ItemsCompanion.insert(
       name: name,
       points: Value(points),
@@ -379,7 +522,10 @@ class DbRepository {
   }
 
   /// Redeem points helper (simple wrapper) - subtract points from member if possible
-  Future<bool> redeemPoints({required int memberId, required int points}) async {
+  Future<bool> redeemPoints({
+    required int memberId,
+    required int points,
+  }) async {
     final m = await db.getMemberById(memberId);
     if (m == null) return false;
     if (m.points < points) return false;
@@ -405,13 +551,29 @@ class DbRepository {
   Future<List<Item>> fetchItems() => db.getAllItems();
 
   /// Add a member with provided fields. Returns inserted id.
-  Future<int> addMember({String? lastName, String? firstName, String? middleName, String? role, String? contactNo, String? birthday, String? address, String? referrer, int points = 0}) async {
+  Future<int> addMember({
+    String? lastName,
+    String? firstName,
+    String? middleName,
+    String? role,
+    String? contactNo,
+    String? birthday,
+    String? address,
+    String? referrer,
+    int points = 0,
+  }) async {
     final companion = MembersCompanion.insert(
       lastName: Value(lastName == null || lastName.isEmpty ? null : lastName),
-      firstName: Value(firstName == null || firstName.isEmpty ? null : firstName),
-      middleName: Value(middleName == null || middleName.isEmpty ? null : middleName),
+      firstName: Value(
+        firstName == null || firstName.isEmpty ? null : firstName,
+      ),
+      middleName: Value(
+        middleName == null || middleName.isEmpty ? null : middleName,
+      ),
       role: Value(role == null || role.isEmpty ? null : role),
-      contactNo: Value(contactNo == null || contactNo.isEmpty ? null : contactNo),
+      contactNo: Value(
+        contactNo == null || contactNo.isEmpty ? null : contactNo,
+      ),
       birthday: Value(birthday == null || birthday.isEmpty ? null : birthday),
       address: Value(address == null || address.isEmpty ? null : address),
       referrer: Value(referrer == null || referrer.isEmpty ? null : referrer),
@@ -437,7 +599,9 @@ class DbRepository {
           try {
             final target = refStr.toLowerCase();
             refMember = all.firstWhere((m) {
-              final name = ('${m.firstName ?? ''} ${m.lastName ?? ''}').trim().toLowerCase();
+              final name = ('${m.firstName ?? ''} ${m.lastName ?? ''}')
+                  .trim()
+                  .toLowerCase();
               return name == target;
             });
             if (refMember.id == id) refMember = null; // don't award to self
@@ -469,7 +633,8 @@ class DbRepository {
 
   Future<List<Sale>> fetchSales() => db.getAllSales();
 
-  Future<List<Sale>> fetchSalesBetween(DateTime start, DateTime end) => db.getSalesBetween(start, end);
+  Future<List<Sale>> fetchSalesBetween(DateTime start, DateTime end) =>
+      db.getSalesBetween(start, end);
 
   /// Return sales where buyerId == memberId
   Future<List<Sale>> fetchSalesForMember(int memberId) async {
@@ -483,7 +648,11 @@ class DbRepository {
     final allSales = await db.getAllSales();
     final List<Sale> out = [];
     final refMember = await db.getMemberById(referrerMemberId);
-    final refName = refMember != null ? '${refMember.firstName ?? ''} ${refMember.lastName ?? ''}'.trim().toLowerCase() : '';
+    final refName = refMember != null
+        ? '${refMember.firstName ?? ''} ${refMember.lastName ?? ''}'
+              .trim()
+              .toLowerCase()
+        : '';
     for (final s in allSales) {
       if (s.buyerId == null) continue;
       final buyer = await db.getMemberById(s.buyerId!);
@@ -493,7 +662,9 @@ class DbRepository {
         continue;
       }
       final refRaw = (buyer.referrer ?? '').toString();
-      if (refRaw.isNotEmpty && refName.isNotEmpty && refRaw.toLowerCase() == refName) {
+      if (refRaw.isNotEmpty &&
+          refName.isNotEmpty &&
+          refRaw.toLowerCase() == refName) {
         out.add(s);
       }
     }
@@ -510,7 +681,10 @@ class DbRepository {
     try {
       final item = await db.getItemById(sale.itemId);
       if (item != null) {
-        final updatedItem = item.copyWith(stock: (item.stock + sale.quantity).toInt(), lastUpdated: Value(DateTime.now()));
+        final updatedItem = item.copyWith(
+          stock: (item.stock + sale.quantity).toInt(),
+          lastUpdated: Value(DateTime.now()),
+        );
         await db.update(db.items).replace(updatedItem);
       }
 
@@ -520,21 +694,27 @@ class DbRepository {
         if (buyer != null) {
           // Compute points to reverse from the current item config (ensure consistent calculation)
           final itemForSale = await db.getItemById(sale.itemId);
-          final pointsToReverse = itemForSale != null ? (itemForSale.points * sale.quantity).toInt() : sale.points;
+          final pointsToReverse = itemForSale != null
+              ? (itemForSale.points * sale.quantity).toInt()
+              : sale.points;
           if (pointsToReverse > 0) {
             // Require the buyer to have enough points to reverse the award.
             if (buyer.points < pointsToReverse) {
               // indicate failure to caller (no deletion performed)
               return -1;
             }
-            final updatedBuyer = buyer.copyWith(points: (buyer.points - pointsToReverse).toInt());
+            final updatedBuyer = buyer.copyWith(
+              points: (buyer.points - pointsToReverse).toInt(),
+            );
             await db.update(db.members).replace(updatedBuyer);
           }
         }
       }
 
       // Now delete the sale (do NOT attempt to renumber primary keys) - primary keys must remain stable.
-      final res = await (db.delete(db.sales)..where((t) => t.id.equals(id))).go();
+      final res = await (db.delete(
+        db.sales,
+      )..where((t) => t.id.equals(id))).go();
       if (res > 0) {
         _changes.add('sale_deleted');
       }
@@ -544,6 +724,69 @@ class DbRepository {
       print('deleteSaleById failed: $e');
       rethrow;
     }
+  }
+
+  /// Delete all sales that share the given [timestamp] and [buyerId] as a
+  /// single transaction group. Restores stock for every item and reverses
+  /// the total points awarded to the buyer. Returns the number of rows
+  /// deleted, or -1 if the buyer lacks enough points to reverse.
+  Future<int> deleteSaleGroup(DateTime timestamp, {int? buyerId}) async {
+    return await db.transaction(() async {
+      final allSales = await db.getAllSales();
+      final group = allSales.where((s) {
+        final sameTime =
+            s.timestamp.millisecondsSinceEpoch ==
+            timestamp.millisecondsSinceEpoch;
+        final buyerMatch = s.buyerId == buyerId;
+        return sameTime && buyerMatch;
+      }).toList();
+
+      if (group.isEmpty) return 0;
+
+      // Restore stock for each item
+      final now = DateTime.now();
+      for (final sale in group) {
+        final item = await db.getItemById(sale.itemId);
+        if (item != null) {
+          final updated = item.copyWith(
+            stock: item.stock + sale.quantity,
+            lastUpdated: Value(now),
+          );
+          await db.update(db.items).replace(updated);
+        }
+      }
+
+      // Reverse points from buyer
+      if (buyerId != null) {
+        final buyer = await db.getMemberById(buyerId);
+        if (buyer != null) {
+          int totalPoints = 0;
+          for (final sale in group) {
+            final item = await db.getItemById(sale.itemId);
+            totalPoints += item != null
+                ? (item.points * sale.quantity).toInt()
+                : sale.points;
+          }
+          if (totalPoints > 0) {
+            if (buyer.points < totalPoints) return -1;
+            final updated = buyer.copyWith(points: buyer.points - totalPoints);
+            await db.update(db.members).replace(updated);
+          }
+        }
+      }
+
+      // Delete all sales in the group
+      int deleted = 0;
+      for (final sale in group) {
+        final res = await (db.delete(
+          db.sales,
+        )..where((t) => t.id.equals(sale.id))).go();
+        deleted += res;
+      }
+
+      if (deleted > 0) _changes.add('sale_deleted');
+      return deleted;
+    });
   }
 
   /// Update a sale record and notify listeners.
@@ -565,7 +808,9 @@ class DbRepository {
         try {
           // Reset sequences for sales and items only. Preserve members sequence so
           // member IDs are not reused after delete/clear operations.
-          await db.customStatement("DELETE FROM sqlite_sequence WHERE name IN ('sales','items');");
+          await db.customStatement(
+            "DELETE FROM sqlite_sequence WHERE name IN ('sales','items');",
+          );
         } catch (_) {
           // ignore if sqlite_sequence doesn't exist or fails
         }
@@ -586,17 +831,25 @@ class DbRepository {
   /// Edit a grouped sale (all sales that share the same timestamp) atomically.
   /// newLines should contain Sale objects representing the desired final state.
   /// Returns null on success or an error message string on validation failure.
-  Future<String?> editSaleGroup({required DateTime timestamp, int? buyerId, required List<Sale> newLines}) async {
+  Future<String?> editSaleGroup({
+    required DateTime timestamp,
+    int? buyerId,
+    required List<Sale> newLines,
+  }) async {
     return await db.transaction(() async {
       // Load originals in the transaction
       final allSales = await db.getAllSales();
-      final originals = allSales.where((s) => s.timestamp == timestamp).toList();
+      final originals = allSales
+          .where((s) => s.timestamp == timestamp)
+          .toList();
 
       // Recompute points using current item.points * quantity to ensure consistent business rule
       int originalPoints = 0;
       for (final o in originals) {
         final it = await db.getItemById(o.itemId);
-        originalPoints += it != null ? (it.points * o.quantity).toInt() : o.points;
+        originalPoints += it != null
+            ? (it.points * o.quantity).toInt()
+            : o.points;
       }
       int newPoints = 0;
       for (final n in newLines) {
@@ -604,7 +857,9 @@ class DbRepository {
         newPoints += it != null ? (it.points * n.quantity).toInt() : n.points;
       }
       final int delta = newPoints - originalPoints;
-      final int? originalBuyerId = originals.isNotEmpty ? originals.first.buyerId : null;
+      final int? originalBuyerId = originals.isNotEmpty
+          ? originals.first.buyerId
+          : null;
 
       // If deducting points from the buyer (delta < 0), ensure buyer has enough points
       if (delta < 0 && buyerId != null) {
@@ -632,10 +887,14 @@ class DbRepository {
       for (final itemId in {...origQty.keys, ...newQty.keys}) {
         final before = origQty[itemId] ?? 0;
         final after = newQty[itemId] ?? 0;
-        final deltaQ = after - before; // positive means we need more stock (decrease store stock)
+        final deltaQ =
+            after -
+            before; // positive means we need more stock (decrease store stock)
         final item = await db.getItemById(itemId);
         if (item == null) return 'Item id=$itemId not found';
-        if (deltaQ > 0 && item.stock < deltaQ) return 'Insufficient stock for ${item.name}';
+        if (deltaQ > 0 && item.stock < deltaQ) {
+          return 'Insufficient stock for ${item.name}';
+        }
       }
 
       // Apply stock adjustments
@@ -646,16 +905,24 @@ class DbRepository {
         final item = await db.getItemById(itemId);
         if (item == null) return 'Item id=$itemId not found';
         if (deltaQ > 0) {
-          final updated = item.copyWith(stock: item.stock - deltaQ, lastUpdated: Value(now));
+          final updated = item.copyWith(
+            stock: item.stock - deltaQ,
+            lastUpdated: Value(now),
+          );
           await db.update(db.items).replace(updated);
         } else if (deltaQ < 0) {
-          final updated = item.copyWith(stock: item.stock + -deltaQ, lastUpdated: Value(now));
+          final updated = item.copyWith(
+            stock: item.stock + -deltaQ,
+            lastUpdated: Value(now),
+          );
           await db.update(db.items).replace(updated);
         }
       }
 
       // Remove original grouped sales
-      await (db.delete(db.sales)..where((s) => s.timestamp.equals(timestamp))).go();
+      await (db.delete(
+        db.sales,
+      )..where((s) => s.timestamp.equals(timestamp))).go();
 
       // Insert new sale rows with same timestamp and buyerId
       for (final n in newLines) {
@@ -681,8 +948,12 @@ class DbRepository {
               await db.update(db.members).replace(updatedBuyer);
             } else if (delta < 0) {
               // Deduct points from buyer
-              if (buyer.points < -delta) return 'Failed to deduct points from buyer.';
-              final updatedBuyer = buyer.copyWith(points: buyer.points + delta); // delta negative
+              if (buyer.points < -delta) {
+                return 'Failed to deduct points from buyer.';
+              }
+              final updatedBuyer = buyer.copyWith(
+                points: buyer.points + delta,
+              ); // delta negative
               await db.update(db.members).replace(updatedBuyer);
             }
           }
@@ -692,8 +963,12 @@ class DbRepository {
         if (originalBuyerId != null && originalPoints > 0) {
           final originalBuyer = await db.getMemberById(originalBuyerId);
           if (originalBuyer != null) {
-            if (originalBuyer.points < originalPoints) return 'Cannot reverse points from original buyer (${originalBuyer.firstName} ${originalBuyer.lastName}) — insufficient points.';
-            final updated = originalBuyer.copyWith(points: originalBuyer.points - originalPoints);
+            if (originalBuyer.points < originalPoints) {
+              return 'Cannot reverse points from original buyer (${originalBuyer.firstName} ${originalBuyer.lastName}) — insufficient points.';
+            }
+            final updated = originalBuyer.copyWith(
+              points: originalBuyer.points - originalPoints,
+            );
             await db.update(db.members).replace(updated);
           }
         }
@@ -701,7 +976,9 @@ class DbRepository {
         if (buyerId != null && newPoints > 0) {
           final newBuyer = await db.getMemberById(buyerId);
           if (newBuyer != null) {
-            final updated = newBuyer.copyWith(points: newBuyer.points + newPoints);
+            final updated = newBuyer.copyWith(
+              points: newBuyer.points + newPoints,
+            );
             await db.update(db.members).replace(updated);
           }
         }
@@ -721,5 +998,12 @@ class MemberTransactionEntry {
   final int points;
   final DateTime? timestamp;
 
-  MemberTransactionEntry({this.itemId, required this.itemName, required this.quantity, required this.price, required this.points, this.timestamp});
+  MemberTransactionEntry({
+    this.itemId,
+    required this.itemName,
+    required this.quantity,
+    required this.price,
+    required this.points,
+    this.timestamp,
+  });
 }

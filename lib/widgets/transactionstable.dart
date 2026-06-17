@@ -1,19 +1,44 @@
 import 'package:flutter/material.dart';
 import '../utils/formatters.dart';
 import 'dart:async';
+import 'dart:convert';
 import '../db/db.dart' show Sale, repository;
 import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
 import '../buttons/redeembutton.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:lzcas/widgets/custom_elevated_button.dart';
-import 'dart:typed_data';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:csv/csv.dart';
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import '../db/csv_header_utils.dart';
-import '../dialogs/sale_cart_editor.dart';
+import '../dialogs/receipt_dialog.dart';
+import '../theme.dart';
+
+// ── Grouped transaction model ─────────────────────────────────────────
+
+/// Represents a single checkout — one or more [sales] rows that share the
+/// same timestamp and buyerId.
+class TransactionGroup {
+  final DateTime timestamp;
+  final int? buyerId;
+  final String buyerName;
+  final List<Sale> sales;
+
+  const TransactionGroup({
+    required this.timestamp,
+    required this.buyerId,
+    required this.buyerName,
+    required this.sales,
+  });
+
+  int get itemCount => sales.length;
+  int get totalPrice => sales.fold(0, (sum, s) => sum + s.price);
+  int get totalPoints => sales.fold(0, (sum, s) => sum + s.points);
+}
+
+// ── Table widget ──────────────────────────────────────────────────────
 
 class TransactionsTable extends StatefulWidget {
   const TransactionsTable({super.key});
@@ -23,7 +48,7 @@ class TransactionsTable extends StatefulWidget {
 }
 
 class _TransactionsTableState extends State<TransactionsTable> {
-  List<Sale> _sales = [];
+  List<TransactionGroup> _txnGroups = [];
   bool _loading = false;
   String _searchTerm = '';
   late final StreamSubscription<String> _sub;
@@ -31,14 +56,15 @@ class _TransactionsTableState extends State<TransactionsTable> {
   @override
   void initState() {
     super.initState();
-    _loadSales();
+    _loadData();
     _sub = repository.changes.listen((e) {
       if (e == 'sale_added' ||
           e == 'item_updated' ||
           e == 'sale_updated' ||
           e == 'sale_deleted' ||
-          e == 'sale_imported') {
-        _loadSales();
+          e == 'sale_imported' ||
+          e == 'member_updated') {
+        _loadData();
       }
     });
   }
@@ -49,55 +75,105 @@ class _TransactionsTableState extends State<TransactionsTable> {
     super.dispose();
   }
 
-  Future<void> _loadSales() async {
+  Future<void> _loadData() async {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      final s = (await repository.fetchSales()).toList();
+      final allSales = (await repository.fetchSales()).toList();
+      final allMembers = await repository.fetchMembers();
+
+      // Build member name lookup
+      final Map<int, String> memberNames = {};
+      for (final m in allMembers) {
+        final parts = [
+          m.firstName,
+          m.lastName,
+        ].where((p) => p != null && p.trim().isNotEmpty);
+        memberNames[m.id] = parts.isNotEmpty ? parts.join(' ') : 'Unnamed';
+      }
+
+      // Group sales by (timestamp ms, buyerId)
+      final Map<String, List<Sale>> groups = {};
+      for (final s in allSales) {
+        final key = '${s.timestamp.millisecondsSinceEpoch}_${s.buyerId}';
+        groups.putIfAbsent(key, () => []).add(s);
+      }
+
       if (!mounted) return;
       setState(() {
-        _sales = s;
+        _txnGroups = groups.entries.map((entry) {
+          final sales = entry.value;
+          final first = sales.first;
+          final buyerName = first.buyerId != null
+              ? (memberNames[first.buyerId] ?? 'Unknown')
+              : 'Walk-in';
+          return TransactionGroup(
+            timestamp: first.timestamp,
+            buyerId: first.buyerId,
+            buyerName: buyerName,
+            sales: sales,
+          );
+        }).toList()..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         _loading = false;
       });
     } catch (e, st) {
-      debugPrint('TransactionPage: failed to load sales: $e\n$st');
+      debugPrint('TransactionsTable: failed to load: $e\n$st');
       if (!mounted) return;
       setState(() {
-        _sales = [];
+        _txnGroups = [];
         _loading = false;
       });
     }
   }
 
+  // ── Export / Import (unchanged) ─────────────────────────────────────
+
   Future<void> _onExportCsvPressed(BuildContext safeContext) async {
-    final csv = await repository.exportSalesCsvString();
-    final suggested =
-        'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+    if (!safeContext.mounted) return;
+    showDialog(
+      context: safeContext,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
     try {
-      final fs.FileSaveLocation? loc = await fs.getSaveLocation(
-        suggestedName: suggested,
-      );
-      if (loc != null) {
-        final xfile = fs.XFile.fromData(
-          Uint8List.fromList(csv.codeUnits),
-          mimeType: 'text/csv',
-          name: suggested,
+      final csv = await repository.exportSalesCsvString();
+      final suggested =
+          'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+      if (!mounted || !safeContext.mounted) return;
+      Navigator.pop(safeContext);
+      try {
+        final fs.FileSaveLocation? loc = await fs.getSaveLocation(
+          suggestedName: suggested,
         );
-        await xfile.saveTo(loc.path);
+        if (loc != null) {
+          final csvBytes = utf8.encode(csv);
+          final xfile = fs.XFile.fromData(
+            csvBytes,
+            mimeType: 'text/csv',
+            name: suggested,
+          );
+          await xfile.saveTo(loc.path);
+          if (!mounted || !safeContext.mounted) return;
+          ScaffoldMessenger.of(
+            safeContext,
+          ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+        }
+      } catch (_) {
+        final dir = Directory.current.path;
+        final savePath = p.join(dir, suggested);
+        final file = File(savePath);
+        await file.writeAsString(csv);
         if (!mounted || !safeContext.mounted) return;
         ScaffoldMessenger.of(
           safeContext,
-        ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+        ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
       }
     } catch (e) {
-      final dir = Directory.current.path;
-      final savePath = p.join(dir, suggested);
-      final file = File(savePath);
-      await file.writeAsString(csv);
       if (!mounted || !safeContext.mounted) return;
+      Navigator.pop(safeContext);
       ScaffoldMessenger.of(
         safeContext,
-      ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+      ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
     }
   }
 
@@ -110,7 +186,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
     if (files.isEmpty) return;
     final xfile = files.first;
     final content = await xfile.readAsString();
-
     final conv = const CsvToListConverter();
     final parsed = conv.convert(content);
     if (parsed.isEmpty) return;
@@ -137,7 +212,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
         builder: (ctx) => AlertDialog(
           title: const Text('Invalid CSV'),
           content: Text(
-            'This file does not look like a Sales export. Missing headers: ${missing.join(', ')}',
+            'This file does not look like a Sales export. '
+            'Missing headers: ${missing.join(', ')}',
           ),
           actions: [
             TextButton(
@@ -187,7 +263,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
       exists: (m) async => fastExists(m),
     );
     if (sel == null || sel.isEmpty) return;
-
     final rowsToImport = sel.map((i) => rows[i]).toList();
     final selectedCsv = const ListToCsvConverter().convert([
       headers,
@@ -195,7 +270,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
     ]);
     final inserted = await repository.importSalesCsv(selectedCsv);
     if (!mounted || !localCtx.mounted) return;
-    await _loadSales();
+    await _loadData();
     if (!mounted || !localCtx.mounted) return;
     ScaffoldMessenger.of(localCtx).showSnackBar(
       SnackBar(
@@ -204,13 +279,19 @@ class _TransactionsTableState extends State<TransactionsTable> {
     );
   }
 
-  Future<void> _deleteSale(Sale sale) async {
-    final localActionCtx = context;
+  // ── Actions ─────────────────────────────────────────────────────────
+
+  Future<void> _deleteTransaction(TransactionGroup group) async {
+    final localCtx = context;
+    final itemWord = group.itemCount == 1 ? 'item' : 'items';
     final ok = await showDialog<bool>(
-      context: localActionCtx,
+      context: localCtx,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete sale'),
-        content: const Text('Are you sure you want to delete this sale?'),
+        title: const Text('Delete transaction'),
+        content: Text(
+          'Delete this transaction? ($group.itemCount $itemWord, '
+          '₱${group.totalPrice}, ${group.totalPoints} pts)',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -224,17 +305,20 @@ class _TransactionsTableState extends State<TransactionsTable> {
       ),
     );
     if (ok != true) return;
-
     try {
-      final res = await repository.deleteSaleById(sale.id);
-      if (!mounted || !localActionCtx.mounted) return;
+      final res = await repository.deleteSaleGroup(
+        group.timestamp,
+        buyerId: group.buyerId,
+      );
+      if (!mounted || !localCtx.mounted) return;
       if (res == -1) {
         await showDialog<void>(
-          context: localActionCtx,
+          context: localCtx,
           builder: (ctx) => AlertDialog(
             title: const Text('Delete failed'),
             content: const Text(
-              'Cannot delete sale because the buyer does not have enough points to reverse the award.',
+              'Cannot delete because the buyer does not have enough '
+              'points to reverse the award.',
             ),
             actions: [
               TextButton(
@@ -246,12 +330,12 @@ class _TransactionsTableState extends State<TransactionsTable> {
         );
       }
     } catch (e) {
-      if (!mounted || !localActionCtx.mounted) return;
+      if (!mounted || !localCtx.mounted) return;
       await showDialog<void>(
-        context: localActionCtx,
+        context: localCtx,
         builder: (ctx) => AlertDialog(
           title: const Text('Delete failed'),
-          content: Text('Failed to delete sale: $e'),
+          content: Text('Failed to delete transaction: $e'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
@@ -263,124 +347,139 @@ class _TransactionsTableState extends State<TransactionsTable> {
     }
   }
 
-  Future<void> _editSale(Sale sale) async {
-    final localActionCtx = context;
-    await showDialog<bool?>(
-      context: localActionCtx,
-      builder: (ctx) => SaleCartEditor(seedSale: sale),
-    );
+  Future<void> _viewReceipt(TransactionGroup group) async {
+    final localCtx = context;
+    final lineItems = group.sales.map((s) {
+      return ReceiptLineItem(
+        itemName: s.itemName,
+        quantity: s.quantity,
+        unitPrice: s.price,
+        points: s.points,
+      );
+    }).toList();
+    if (!mounted || !localCtx.mounted) return;
+    await ReceiptDialog(
+      lineItems: lineItems,
+      buyerName: group.buyerId != null ? group.buyerName : null,
+      transactionTime: group.timestamp,
+    ).show(localCtx);
   }
+
+  // ── Build ───────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isDesktop = screenWidth >= 840;
-
-    final filteredSales = _sales.where((sale) {
-      final searchTerm = _searchTerm.toLowerCase();
-      return sale.itemName.toLowerCase().contains(searchTerm) ||
-          sale.id.toString().contains(searchTerm);
+    final term = _searchTerm.toLowerCase();
+    final filtered = _txnGroups.where((g) {
+      return g.buyerName.toLowerCase().contains(term);
     }).toList();
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: isDesktop
-              ? Row(
-                  children: [
-                    Expanded(
-                      child: SearchBarWidget(
-                        onChanged: (value) =>
-                            setState(() => _searchTerm = value),
-                        hintText: "Search transactions...",
-                        borderRadius: 12,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 16,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const SellButton(),
-                    const SizedBox(width: 8),
-                    const RedeemButton(),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      onPressed: () => _onExportCsvPressed(context),
-                      icon: const Icon(Icons.upload_file),
-                      label: const Text('Export'),
-                      backgroundColor: Colors.grey[700],
-                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                    ),
-                    const SizedBox(width: 8),
-                    CustomElevatedButton(
-                      onPressed: () => _onImportCsvPressed(context),
-                      icon: const Icon(Icons.download),
-                      label: const Text('Import'),
-                      backgroundColor: Colors.grey[700],
-                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                    ),
-                  ],
-                )
-              : Column(
-                  children: [
-                    SearchBarWidget(
-                      onChanged: (value) => setState(() => _searchTerm = value),
-                      hintText: "Search transactions...",
-                      borderRadius: 12,
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 8,
-                        horizontal: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isDesktop = constraints.maxWidth >= 900;
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(appSpacing),
+              child: isDesktop
+                  ? Row(
                       children: [
-                        const SellButton(compact: true),
-                        const SizedBox(width: 8),
-                        const RedeemButton(compact: true),
-                        const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: 'Export CSV',
-                          icon: const Icon(Icons.upload_file),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.grey[700],
+                        Expanded(
+                          child: SearchBarWidget(
+                            onChanged: (v) => setState(() => _searchTerm = v),
+                            hintText: "Search by buyer…",
+                            borderRadius: 12,
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 16,
+                            ),
                           ),
-                          onPressed: () => _onExportCsvPressed(context),
                         ),
                         const SizedBox(width: 8),
-                        IconButton.filled(
-                          tooltip: 'Import CSV',
-                          icon: const Icon(Icons.download),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.grey[700],
-                          ),
+                        const SellButton(),
+                        const SizedBox(width: 8),
+                        const RedeemButton(),
+                        const SizedBox(width: 8),
+                        CustomElevatedButton(
+                          onPressed: () => _onExportCsvPressed(context),
+                          icon: const Icon(Icons.upload_file),
+                          label: const Text('Export'),
+                          backgroundColor: Colors.grey[700],
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onPrimary,
+                        ),
+                        const SizedBox(width: 8),
+                        CustomElevatedButton(
                           onPressed: () => _onImportCsvPressed(context),
+                          icon: const Icon(Icons.download),
+                          label: const Text('Import'),
+                          backgroundColor: Colors.grey[700],
+                          foregroundColor: Theme.of(
+                            context,
+                          ).colorScheme.onPrimary,
+                        ),
+                      ],
+                    )
+                  : Column(
+                      children: [
+                        SearchBarWidget(
+                          onChanged: (v) => setState(() => _searchTerm = v),
+                          hintText: "Search by buyer…",
+                          borderRadius: 12,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 8,
+                            horizontal: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            const SellButton(compact: true),
+                            const SizedBox(width: 8),
+                            const RedeemButton(compact: true),
+                            const SizedBox(width: 8),
+                            IconButton.filled(
+                              tooltip: 'Export CSV',
+                              icon: const Icon(Icons.upload_file),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                              ),
+                              onPressed: () => _onExportCsvPressed(context),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filled(
+                              tooltip: 'Import CSV',
+                              icon: const Icon(Icons.download),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.grey[700],
+                              ),
+                              onPressed: () => _onImportCsvPressed(context),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
-                ),
-        ),
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : filteredSales.isEmpty
-              ? const Center(child: Text('No transactions yet'))
-              : isDesktop
-              ? _buildTransactionsTable(context, filteredSales)
-              : _buildTransactionsList(filteredSales),
-        ),
-      ],
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : filtered.isEmpty
+                  ? const Center(child: Text('No transactions yet'))
+                  : isDesktop
+                  ? _buildTable(context, filtered)
+                  : _buildList(filtered),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildTransactionsTable(
-    BuildContext context,
-    List<Sale> filteredSales,
-  ) {
+  // ── Desktop table ───────────────────────────────────────────────────
+
+  Widget _buildTable(BuildContext context, List<TransactionGroup> filtered) {
     return SizedBox(
       width: double.infinity,
       child: Theme(
@@ -388,8 +487,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
           cardTheme: CardThemeData(
             elevation: 0,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(color: Colors.grey.shade300, width: 1),
+              borderRadius: BorderRadius.circular(appRadius),
+              side: BorderSide(color: Theme.of(context).dividerColor, width: 1),
             ),
             color: Theme.of(context).colorScheme.surface,
           ),
@@ -401,29 +500,27 @@ class _TransactionsTableState extends State<TransactionsTable> {
             if (available < 56) available = 56;
             final estimated = (available ~/ 56).clamp(1, 10);
 
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                child: PaginatedDataTable(
-                  columnSpacing: 40,
-                  rowsPerPage: estimated,
-                  columns: const [
-                    DataColumn(label: Text('Item Name')),
-                    DataColumn(label: Text('Quantity')),
-                    DataColumn(label: Text('Price')),
-                    DataColumn(label: Text('Date')),
-                    DataColumn(label: Text('Txn')),
-                    DataColumn(label: Text('Sale ID')),
-                    DataColumn(label: Text('Actions')),
-                  ],
-                  source: _TransactionsDataSource(
-                    filteredSales,
-                    context,
-                    onDelete: _deleteSale,
-                    onEdit: _editSale,
-                  ),
-                ),
+            return PaginatedDataTable(
+              horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
+              columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
+              rowsPerPage: estimated,
+              headingRowHeight: 42,
+              dataRowMinHeight: 44,
+              dataRowMaxHeight: 52,
+              showCheckboxColumn: false,
+              columns: const [
+                DataColumn(label: Text('Buyer')),
+                DataColumn(label: Text('Date')),
+                DataColumn(label: Text('Items')),
+                DataColumn(label: Text('Total')),
+                DataColumn(label: Text('Points')),
+                DataColumn(label: Text('Actions')),
+              ],
+              source: _TxnDataSource(
+                filtered,
+                context,
+                onDelete: _deleteTransaction,
+                onReceipt: _viewReceipt,
               ),
             );
           },
@@ -432,37 +529,40 @@ class _TransactionsTableState extends State<TransactionsTable> {
     );
   }
 
-  Widget _buildTransactionsList(List<Sale> filteredSales) {
+  // ── Mobile list ─────────────────────────────────────────────────────
+
+  Widget _buildList(List<TransactionGroup> filtered) {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-      itemCount: filteredSales.length,
-      separatorBuilder: (_, index) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        return _TransactionListCard(
-          sale: filteredSales[index],
-          onDelete: _deleteSale,
-          onEdit: _editSale,
-        );
-      },
+      itemCount: filtered.length,
+      separatorBuilder: (_, i) => const SizedBox(height: 8),
+      itemBuilder: (context, index) => _TxnListCard(
+        group: filtered[index],
+        onDelete: _deleteTransaction,
+        onReceipt: _viewReceipt,
+      ),
     );
   }
 }
 
-class _TransactionListCard extends StatelessWidget {
-  const _TransactionListCard({
-    required this.sale,
+// ── Mobile card ───────────────────────────────────────────────────────
+
+class _TxnListCard extends StatelessWidget {
+  const _TxnListCard({
+    required this.group,
     required this.onDelete,
-    required this.onEdit,
+    required this.onReceipt,
   });
 
-  final Sale sale;
-  final Future<void> Function(Sale) onDelete;
-  final Future<void> Function(Sale) onEdit;
+  final TransactionGroup group;
+  final Future<void> Function(TransactionGroup) onDelete;
+  final Future<void> Function(TransactionGroup) onReceipt;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final itemWord = group.itemCount == 1 ? 'item' : 'items';
 
     return Card(
       margin: EdgeInsets.zero,
@@ -481,7 +581,7 @@ class _TransactionListCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    sale.itemName,
+                    group.buyerName,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleMedium?.copyWith(
@@ -492,14 +592,17 @@ class _TransactionListCard extends StatelessWidget {
                 PopupMenuButton<String>(
                   tooltip: 'Transaction actions',
                   onSelected: (value) async {
-                    if (value == 'edit') {
-                      await onEdit(sale);
+                    if (value == 'receipt') {
+                      await onReceipt(group);
                     } else if (value == 'delete') {
-                      await onDelete(sale);
+                      await onDelete(group);
                     }
                   },
                   itemBuilder: (ctx) => const [
-                    PopupMenuItem(value: 'edit', child: Text('Edit')),
+                    PopupMenuItem(
+                      value: 'receipt',
+                      child: Text('View Receipt'),
+                    ),
                     PopupMenuItem(value: 'delete', child: Text('Delete')),
                   ],
                   icon: const Icon(Icons.more_vert),
@@ -511,19 +614,18 @@ class _TransactionListCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 6,
               children: [
-                _SaleMetaPill(
+                _Pill(
                   icon: Icons.inventory_2_outlined,
-                  text: 'Qty ${sale.quantity}',
+                  text: '$group.itemCount $itemWord',
                 ),
-                _SaleMetaPill(
+                _Pill(
                   icon: Icons.payments_outlined,
-                  text: 'PHP ${sale.price}',
+                  text: '₱${group.totalPrice}',
                 ),
-                _SaleMetaPill(
+                _Pill(
                   icon: Icons.stars_outlined,
-                  text: '${sale.points} pts',
+                  text: '${group.totalPoints} pts',
                 ),
-                _SaleMetaPill(icon: Icons.tag_outlined, text: 'ID ${sale.id}'),
               ],
             ),
             const SizedBox(height: 8),
@@ -537,7 +639,7 @@ class _TransactionListCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    formatDisplayDate(sale.timestamp),
+                    formatDisplayDate(group.timestamp),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -554,9 +656,10 @@ class _TransactionListCard extends StatelessWidget {
   }
 }
 
-class _SaleMetaPill extends StatelessWidget {
-  const _SaleMetaPill({required this.icon, required this.text});
+// ── Reusable pill ─────────────────────────────────────────────────────
 
+class _Pill extends StatelessWidget {
+  const _Pill({required this.icon, required this.text});
   final IconData icon;
   final String text;
 
@@ -583,55 +686,57 @@ class _SaleMetaPill extends StatelessWidget {
   }
 }
 
-class _TransactionsDataSource extends DataTableSource {
-  final List<Sale> _sales;
-  final BuildContext _context;
-  final Future<void> Function(Sale)? onDelete;
-  final Future<void> Function(Sale)? onEdit;
+// ── Desktop data source ───────────────────────────────────────────────
 
-  _TransactionsDataSource(
-    this._sales,
-    this._context, {
-    this.onDelete,
-    this.onEdit,
-  });
+class _TxnDataSource extends DataTableSource {
+  final List<TransactionGroup> _groups;
+  final BuildContext _context;
+  final Future<void> Function(TransactionGroup)? onDelete;
+  final Future<void> Function(TransactionGroup)? onReceipt;
+
+  _TxnDataSource(this._groups, this._context, {this.onDelete, this.onReceipt});
 
   @override
   DataRow getRow(int index) {
-    if (index >= _sales.length) return const DataRow(cells: []);
-    final sale = _sales[index];
+    if (index >= _groups.length) return const DataRow(cells: []);
+    final group = _groups[index];
     final isEven = index % 2 == 0;
+    final itemWord = group.itemCount == 1 ? 'item' : 'items';
 
     return DataRow(
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
+        if (states.contains(WidgetState.hovered)) {
+          return Theme.of(_context).colorScheme.primary.withAlpha(18);
+        }
         if (isEven) {
-          return Theme.of(_context).colorScheme.surfaceContainerHighest;
+          return Theme.of(
+            _context,
+          ).colorScheme.surfaceContainerHighest.withAlpha(90);
         }
         return null;
       }),
       cells: [
-        DataCell(Text(sale.itemName)),
-        DataCell(Text(sale.quantity.toString())),
-        DataCell(Text('₱${sale.price}')),
-        DataCell(Text(formatDisplayDate(sale.timestamp))),
-        DataCell(Text(sale.points.toString())),
-        DataCell(Text('ID:${sale.id}')),
-        DataCell(_buildActionsCell(_context, sale)),
+        DataCell(Text(group.buyerName)),
+        DataCell(Text(formatDisplayDate(group.timestamp))),
+        DataCell(Text('${group.itemCount} $itemWord')),
+        DataCell(Text('₱${group.totalPrice}')),
+        DataCell(Text('${group.totalPoints} pts')),
+        DataCell(_buildActions(_context, group)),
       ],
     );
   }
 
-  Widget _buildActionsCell(BuildContext context, Sale sale) {
+  Widget _buildActions(BuildContext context, TransactionGroup group) {
     return PopupMenuButton<String>(
       onSelected: (value) async {
-        if (value == 'delete') {
-          if (onDelete != null) await onDelete!(sale);
-        } else if (value == 'edit') {
-          if (onEdit != null) await onEdit!(sale);
+        if (value == 'receipt') {
+          if (onReceipt != null) await onReceipt!(group);
+        } else if (value == 'delete') {
+          if (onDelete != null) await onDelete!(group);
         }
       },
       itemBuilder: (ctx) => const [
-        PopupMenuItem(value: 'edit', child: Text('Edit')),
+        PopupMenuItem(value: 'receipt', child: Text('View Receipt')),
         PopupMenuItem(value: 'delete', child: Text('Delete')),
       ],
       icon: const Icon(Icons.more_vert),
@@ -642,7 +747,7 @@ class _TransactionsDataSource extends DataTableSource {
   bool get isRowCountApproximate => false;
 
   @override
-  int get rowCount => _sales.length;
+  int get rowCount => _groups.length;
 
   @override
   int get selectedRowCount => 0;

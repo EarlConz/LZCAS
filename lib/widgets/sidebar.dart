@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme.dart';
+
 class Sidebar extends StatelessWidget {
   final int selectedIndex;
   final Function(int) onItemSelected;
@@ -18,17 +20,39 @@ class Sidebar extends StatelessWidget {
     return Drawer(
       width: 250,
       backgroundColor: colorScheme.surface,
-      elevation: 16, 
+      elevation: 8,
       child: Column(
         children: <Widget>[
           Container(
-            padding: const EdgeInsets.symmetric(vertical: 40.0),
-            child: Text(
-              "LZCAS",
-              style: theme.textTheme.headlineMedium?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
+            padding: const EdgeInsets.fromLTRB(18, 28, 18, 24),
+            alignment: Alignment.centerLeft,
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary,
+                    borderRadius: BorderRadius.circular(appRadius),
+                  ),
+                  child: Text(
+                    'L',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: colorScheme.onPrimary,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  "LZCAS",
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -78,12 +102,12 @@ class Sidebar extends StatelessWidget {
       highlightColor: colorScheme.primary.withAlpha((0.1 * 255).round()),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 5),
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
         decoration: BoxDecoration(
           color: selected
               ? colorScheme.primary.withAlpha((0.1 * 255).round())
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(appRadius),
         ),
         child: Row(
           children: [
@@ -100,7 +124,7 @@ class Sidebar extends StatelessWidget {
                 label,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyLarge?.copyWith(
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                   color: selected
                       ? colorScheme.primary
                       : colorScheme.onSurface.withAlpha((0.8 * 255).round()),

@@ -16,6 +16,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late bool _dark;
   bool _syncing = false;
+  bool _restoring = false;
 
   void _onToggle(bool val) {
     setState(() => _dark = val);
@@ -25,10 +26,88 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _syncToCloud() async {
     if (!SupabaseConfig.isConfigured) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Supabase is not configured for this run')),
+        const SnackBar(
+          content: Text('Supabase is not configured for this run'),
+        ),
       );
       return;
     }
+
+    // ── Confirmation dialog with record counts ──────────────────
+    final items = await repository.fetchItems();
+    final members = await repository.fetchMembers();
+    final sales = await repository.fetchSales();
+
+    final isEmpty = items.isEmpty && members.isEmpty && sales.isEmpty;
+
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sync to Cloud'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This will overwrite the cloud snapshot with your local data.',
+            ),
+            const SizedBox(height: 12),
+            Text('• ${items.length} items'),
+            Text('• ${members.length} members'),
+            Text('• ${sales.length} sales'),
+            if (isEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.error.withAlpha(30),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.error.withAlpha(80),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: Theme.of(context).colorScheme.error,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Your local database is empty. Syncing now '
+                        'will DELETE all cloud data.',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: isEmpty
+                ? ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Colors.white,
+                  )
+                : null,
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isEmpty ? 'Sync Anyway' : 'Sync'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
 
     setState(() => _syncing = true);
     try {
@@ -43,12 +122,73 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to sync to Supabase: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to sync to Supabase: $e')));
     } finally {
       if (mounted) {
         setState(() => _syncing = false);
+      }
+    }
+  }
+
+  Future<void> _restoreFromCloud() async {
+    if (!SupabaseConfig.isConfigured) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Supabase is not configured for this run'),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restore from cloud'),
+        content: const Text(
+          'This will replace your local inventory, members, and transactions with the current Supabase snapshot.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _restoring = true);
+    try {
+      final syncService = SupabaseSyncService(
+        db: repository.db,
+        client: supabaseClient,
+      );
+      final summary = await syncService.restoreRemoteSnapshot();
+      await repository.ensurePointsConsistency();
+      repository.notifyCloudRestored();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Restored ${summary.items} items, ${summary.members} members, and ${summary.sales} sales from Supabase',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to restore from Supabase: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _restoring = false);
       }
     }
   }
@@ -88,7 +228,7 @@ class _SettingsPageState extends State<SettingsPage> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _syncing ? null : _syncToCloud,
+              onPressed: _syncing || _restoring ? null : _syncToCloud,
               icon: _syncing
                   ? const SizedBox(
                       width: 18,
@@ -103,6 +243,24 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _syncing || _restoring ? null : _restoreFromCloud,
+              icon: _restoring
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.cloud_download_outlined),
+              label: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14.0),
+                child: Text(_restoring ? 'Restoring...' : 'Restore from Cloud'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           // Clear Database button
           SizedBox(
             width: double.infinity,
@@ -110,7 +268,10 @@ class _SettingsPageState extends State<SettingsPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.error,
                 foregroundColor: Colors.white,
-                textStyle: const TextStyle(inherit: false, fontWeight: FontWeight.bold),
+                textStyle: const TextStyle(
+                  inherit: false,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               onPressed: () async {
                 final confirmed = await showDialog<bool>(
@@ -120,22 +281,63 @@ class _SettingsPageState extends State<SettingsPage> {
                     content: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text('This will permanently delete all records from the local database.'),
-                        SizedBox(height: 8),
-                        Text(
+                      children: [
+                        const Text(
+                          'This will permanently delete all records from '
+                          'the local database.',
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              ctx,
+                            ).colorScheme.error.withAlpha(30),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Theme.of(
+                                ctx,
+                              ).colorScheme.error.withAlpha(80),
+                            ),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.red,
+                                size: 20,
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Do NOT sync to cloud after clearing — '
+                                  'it will wipe your cloud data too.',
+                                  style: TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
                           'Please export your data before proceeding.',
                           style: TextStyle(fontStyle: FontStyle.italic),
                         ),
                       ],
                     ),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel'),
+                      ),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Theme.of(context).colorScheme.error,
                           foregroundColor: Colors.white,
-                          textStyle: const TextStyle(inherit: false, fontWeight: FontWeight.bold),
+                          textStyle: const TextStyle(
+                            inherit: false,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         onPressed: () => Navigator.pop(ctx, true),
                         child: const Text('Clear'),
@@ -150,7 +352,14 @@ class _SettingsPageState extends State<SettingsPage> {
                     await repository.clearAllData();
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Database cleared')),
+                      const SnackBar(
+                        content: Text(
+                          '⚠ Database cleared. Do NOT sync to cloud '
+                          'or cloud data will be lost.',
+                        ),
+                        duration: Duration(seconds: 8),
+                        backgroundColor: Colors.red,
+                      ),
                     );
                   } catch (e) {
                     if (!context.mounted) return;
@@ -162,7 +371,10 @@ class _SettingsPageState extends State<SettingsPage> {
               },
               child: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 14.0),
-                child: Text('Clear Database', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: Text(
+                  'Clear Database',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ),

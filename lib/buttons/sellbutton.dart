@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/dialogs/receipt_dialog.dart';
 
 class SellButton extends StatefulWidget {
   final bool compact;
@@ -468,7 +469,44 @@ class _SellDialogState extends State<_SellDialog> {
                   }
 
                   widget.onSaleConfirmed();
-                  if (!mounted) return; // ensure safe to use Navigator
+                  if (!mounted) return;
+
+                  // Build receipt line items from cart
+                  final receiptItems = cart.map((entry) {
+                    final priceStr = (entry['price'] ?? '').toString();
+                    return ReceiptLineItem(
+                      itemName: entry['item'] as String? ?? 'Unknown',
+                      quantity: entry['quantity'] as int? ?? 0,
+                      unitPrice: int.tryParse(priceStr) ?? 0,
+                      points: entry['points'] as int? ?? 0,
+                    );
+                  }).toList();
+
+                  // Lookup buyer name
+                  String? buyerName;
+                  if (selectedBuyerId != null) {
+                    final m = widget.members.firstWhere(
+                      (m) => (m['id'] as int?) == selectedBuyerId,
+                      orElse: () => <String, dynamic>{},
+                    );
+                    final first = (m['firstName'] ?? '').toString().trim();
+                    final last = (m['lastName'] ?? '').toString().trim();
+                    buyerName = '$first $last'.trim();
+                    if (buyerName!.isEmpty) buyerName = null;
+                  }
+
+                  // Show receipt, only pop sell dialog after receipt is dismissed
+                  if (!mounted) return;
+                  await showDialog<void>(
+                    context: safeContext,
+                    builder: (_) => ReceiptDialog(
+                      lineItems: receiptItems,
+                      buyerName: buyerName,
+                      transactionTime: transactionTs,
+                    ),
+                  );
+
+                  if (!mounted) return;
                   // ignore: use_build_context_synchronously
                   Navigator.pop(safeContext, cart);
                   cart.clear();

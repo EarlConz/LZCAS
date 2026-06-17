@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import 'package:csv/csv.dart';
 import '../db/csv_header_utils.dart';
+import '../theme.dart';
 
 class InventoryTable extends StatefulWidget {
   const InventoryTable({super.key});
@@ -102,8 +103,8 @@ class _InventoryTableState extends State<InventoryTable> {
   Widget build(BuildContext context) {
     final filteredItems = items.where((item) {
       final matchesSearch = item["name"].toString().toLowerCase().contains(
-            searchTerm.toLowerCase(),
-          );
+        searchTerm.toLowerCase(),
+      );
       final matchesStatus =
           selectedStatus == null || item["status"] == selectedStatus;
       final matchesCategory =
@@ -113,59 +114,88 @@ class _InventoryTableState extends State<InventoryTable> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final bool isMobile = constraints.maxWidth < 650;
-        final bool isTablet = constraints.maxWidth >= 650 && constraints.maxWidth < 1050;
+        final bool isMobile = constraints.maxWidth < 780;
+        final bool isTablet =
+            constraints.maxWidth >= 780 && constraints.maxWidth < 1050;
+        final tableWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        const minTableWidth = 860.0;
 
         return Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: isMobile 
-                  ? _buildMobileActionBar(context) 
+              padding: const EdgeInsets.all(appSpacing),
+              child: isMobile
+                  ? _buildMobileActionBar(context)
                   : _buildDesktopActionBar(context, isTablet),
             ),
-            
+
             Expanded(
-              child: SizedBox(
-                width: double.infinity,
-                child: Theme(
-                  data: Theme.of(context).copyWith(
-                    cardTheme: CardThemeData(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        side: BorderSide(color: Colors.grey.shade300, width: 1),
-                      ),
-                      color: Theme.of(context).cardColor,
+              child: isMobile
+                  ? _buildInventoryList(context, filteredItems)
+                  : LayoutBuilder(
+                      builder: (context, tableConstraints) {
+                        final availableHeight =
+                            tableConstraints.hasBoundedHeight
+                            ? tableConstraints.maxHeight
+                            : MediaQuery.sizeOf(context).height;
+                        final rowsPerPage = ((availableHeight - 124) ~/ 48)
+                            .clamp(1, 7);
+
+                        return SizedBox(
+                          width: double.infinity,
+                          child: Theme(
+                            data: Theme.of(context).copyWith(
+                              cardTheme: CardThemeData(
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    appRadius,
+                                  ),
+                                  side: BorderSide(
+                                    color: Theme.of(context).dividerColor,
+                                    width: 1,
+                                  ),
+                                ),
+                                color: Theme.of(context).colorScheme.surface,
+                              ),
+                            ),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: tableWidth < minTableWidth
+                                    ? minTableWidth
+                                    : tableWidth,
+                                child: PaginatedDataTable(
+                                  rowsPerPage: rowsPerPage,
+                                  horizontalMargin: isTablet ? 12 : 16,
+                                  columnSpacing: isTablet ? 20 : 36,
+                                  headingRowHeight: 42,
+                                  dataRowMinHeight: 44,
+                                  dataRowMaxHeight: 52,
+                                  showCheckboxColumn: false,
+                                  columns: const [
+                                    DataColumn(label: Text("Item Name")),
+                                    DataColumn(label: Text("Category")),
+                                    DataColumn(label: Text("Stock")),
+                                    DataColumn(label: Text("Last Updated")),
+                                    DataColumn(label: Text("Status")),
+                                    DataColumn(label: Text("Action")),
+                                  ],
+                                  source: _InventoryDataSource(
+                                    filteredItems,
+                                    _getStatusColor,
+                                    _onUpdate,
+                                    context,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  ),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: SizedBox(
-                      width: isMobile ? 800 : constraints.maxWidth,
-                      child: PaginatedDataTable(
-                        rowsPerPage: 7,
-                        horizontalMargin: 16,
-                        columnSpacing: isTablet ? 20 : 40,
-                        columns: const [
-                          DataColumn(label: Text("Item Name")),
-                          DataColumn(label: Text("Category")),
-                          DataColumn(label: Text("Stock")),
-                          DataColumn(label: Text("Last Updated")),
-                          DataColumn(label: Text("Status")),
-                          DataColumn(label: Text("Action")),
-                        ],
-                        source: _InventoryDataSource(
-                          filteredItems,
-                          _getStatusColor,
-                          _onUpdate,
-                          context,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
             ),
           ],
         );
@@ -184,17 +214,15 @@ class _InventoryTableState extends State<InventoryTable> {
             InventoryFilterButton(
               selectedStatus: selectedStatus,
               selectedCategory: selectedCategory,
-              onStatusChanged: (status) => setState(() => selectedStatus = status),
-              onCategoryChanged: (category) => setState(() => selectedCategory = category),
+              onStatusChanged: (status) =>
+                  setState(() => selectedStatus = status),
+              onCategoryChanged: (category) =>
+                  setState(() => selectedCategory = category),
             ),
           ],
         ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(child: _buildAddButton(context)),
-          ],
-        ),
+        Row(children: [Expanded(child: _buildAddButton(context))]),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -210,16 +238,14 @@ class _InventoryTableState extends State<InventoryTable> {
   Widget _buildDesktopActionBar(BuildContext context, bool isTablet) {
     return Row(
       children: [
-        Expanded(
-          flex: isTablet ? 2 : 3, 
-          child: _buildSearchBar(),
-        ),
+        Expanded(flex: isTablet ? 2 : 3, child: _buildSearchBar()),
         const SizedBox(width: 8),
         InventoryFilterButton(
           selectedStatus: selectedStatus,
           selectedCategory: selectedCategory,
           onStatusChanged: (status) => setState(() => selectedStatus = status),
-          onCategoryChanged: (category) => setState(() => selectedCategory = category),
+          onCategoryChanged: (category) =>
+              setState(() => selectedCategory = category),
         ),
         const SizedBox(width: 12),
         _buildAddButton(context),
@@ -231,6 +257,37 @@ class _InventoryTableState extends State<InventoryTable> {
     );
   }
 
+  Widget _buildInventoryList(
+    BuildContext context,
+    List<Map<String, dynamic>> filteredItems,
+  ) {
+    if (filteredItems.isEmpty) {
+      return const Center(child: Text('No items found'));
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+      itemCount: filteredItems.length,
+      separatorBuilder: (_, index) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final item = filteredItems[index];
+        return _InventoryListCard(
+          item: item,
+          statusColor: _getStatusColor(item['status']?.toString() ?? ''),
+          onEdit: () {
+            showDialog(
+              context: context,
+              builder: (dialogContext) => EditProductDialog(
+                item: item,
+                onUpdated: () => _onUpdate(item),
+              ),
+            );
+          },
+          onDelete: () => _deleteItem(context, item),
+        );
+      },
+    );
+  }
 
   Widget _buildSearchBar() {
     return SearchBarWidget(
@@ -243,8 +300,14 @@ class _InventoryTableState extends State<InventoryTable> {
 
   Widget _buildAddButton(BuildContext context) {
     return CustomElevatedButton(
-      icon: Icon(Icons.add_business, color: Theme.of(context).colorScheme.onPrimary),
-      label: const Text('Add Product', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      icon: Icon(
+        Icons.add_business,
+        color: Theme.of(context).colorScheme.onPrimary,
+      ),
+      label: const Text(
+        'Add Product',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
       backgroundColor: Colors.blue[700],
       onPressed: () => _openAddProductDialog(context),
     );
@@ -252,8 +315,14 @@ class _InventoryTableState extends State<InventoryTable> {
 
   Widget _buildExportButton(BuildContext context) {
     return CustomElevatedButton(
-      icon: Icon(Icons.upload_file, color: Theme.of(context).colorScheme.onPrimary),
-      label: const Text('Export CSV', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      icon: Icon(
+        Icons.upload_file,
+        color: Theme.of(context).colorScheme.onPrimary,
+      ),
+      label: const Text(
+        'Export CSV',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
       backgroundColor: Colors.grey[700],
       onPressed: () => _handleExportCsv(context),
     );
@@ -261,13 +330,18 @@ class _InventoryTableState extends State<InventoryTable> {
 
   Widget _buildImportButton(BuildContext context) {
     return CustomElevatedButton(
-      icon: Icon(Icons.download, color: Theme.of(context).colorScheme.onPrimary),
-      label: const Text('Import CSV', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      icon: Icon(
+        Icons.download,
+        color: Theme.of(context).colorScheme.onPrimary,
+      ),
+      label: const Text(
+        'Import CSV',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
       backgroundColor: Colors.grey[700],
       onPressed: () => _handleImportCsv(context),
     );
   }
-
 
   void _openAddProductDialog(BuildContext parentCtx) {
     showDialog(
@@ -283,12 +357,15 @@ class _InventoryTableState extends State<InventoryTable> {
             stock: (p['stock'] ?? 0) is int
                 ? p['stock']
                 : int.tryParse(p['stock']?.toString() ?? '0') ?? 0,
+            lastUpdated: p['lastUpdated'] is DateTime
+                ? p['lastUpdated'] as DateTime
+                : null,
           );
           await _loadItems();
           if (!mounted) return;
-          ScaffoldMessenger.of(parentCtx).showSnackBar(
-            const SnackBar(content: Text('Product added')),
-          );
+          ScaffoldMessenger.of(
+            parentCtx,
+          ).showSnackBar(const SnackBar(content: Text('Product added')));
         },
       ),
     );
@@ -296,9 +373,12 @@ class _InventoryTableState extends State<InventoryTable> {
 
   Future<void> _handleExportCsv(BuildContext parentCtx) async {
     final csv = await repository.exportItemsCsvString();
-    final suggested = 'items_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+    final suggested =
+        'items_export_${DateTime.now().millisecondsSinceEpoch}.csv';
     try {
-      final fs.FileSaveLocation? loc = await fs.getSaveLocation(suggestedName: suggested);
+      final fs.FileSaveLocation? loc = await fs.getSaveLocation(
+        suggestedName: suggested,
+      );
       if (loc != null) {
         final xfile = fs.XFile.fromData(
           Uint8List.fromList(csv.codeUnits),
@@ -307,24 +387,26 @@ class _InventoryTableState extends State<InventoryTable> {
         );
         await xfile.saveTo(loc.path);
         if (!mounted) return;
-        ScaffoldMessenger.of(parentCtx).showSnackBar(
-          SnackBar(content: Text('Exported to ${loc.path}')),
-        );
+        ScaffoldMessenger.of(
+          parentCtx,
+        ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
       }
     } catch (e) {
       final dir = Directory.current.path;
       final savePath = p.join(dir, suggested);
       await File(savePath).writeAsString(csv);
       if (!mounted) return;
-      ScaffoldMessenger.of(parentCtx).showSnackBar(
-        SnackBar(content: Text('Exported to $savePath')),
-      );
+      ScaffoldMessenger.of(
+        parentCtx,
+      ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
     }
   }
 
   Future<void> _handleImportCsv(BuildContext localCtx) async {
     final files = await fs.openFiles(
-      acceptedTypeGroups: [fs.XTypeGroup(label: 'CSV', extensions: ['csv'])],
+      acceptedTypeGroups: [
+        fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
+      ],
     );
     if (files.isEmpty) return;
     final xfile = files.first;
@@ -332,10 +414,21 @@ class _InventoryTableState extends State<InventoryTable> {
     final parsed = const CsvToListConverter().convert(content);
     if (parsed.isEmpty) return;
     final headers = parsed.first.map((e) => e.toString()).toList();
-    final rows = parsed.sublist(1).map((r) => r.map((c) => c?.toString() ?? '').toList()).toList();
+    final rows = parsed
+        .sublist(1)
+        .map((r) => r.map((c) => c?.toString() ?? '').toList())
+        .toList();
     if (!mounted) return;
 
-    final expected = ['id', 'name', 'points', 'category', 'stock', 'lastupdated', 'status'];
+    final expected = [
+      'id',
+      'name',
+      'points',
+      'category',
+      'stock',
+      'lastupdated',
+      'status',
+    ];
     final missing = findMissingHeaders(headers.cast<String>(), expected);
     if (missing.isNotEmpty) {
       await showDialog<void>(
@@ -343,7 +436,12 @@ class _InventoryTableState extends State<InventoryTable> {
         builder: (ctx) => AlertDialog(
           title: const Text('Invalid CSV'),
           content: Text('Missing headers: ${missing.join(', ')}'),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
         ),
       );
       return;
@@ -365,18 +463,61 @@ class _InventoryTableState extends State<InventoryTable> {
         final name = (m['name'] ?? '').trim();
         if (name.isEmpty) return false;
         final all = await repository.fetchItems();
-        return all.any((it) => it.name.trim().toLowerCase() == name.toLowerCase());
+        return all.any(
+          (it) => it.name.trim().toLowerCase() == name.toLowerCase(),
+        );
       },
     );
     if (sel == null || sel.isEmpty) return;
     final rowsToImport = sel.map((i) => rows[i]).toList();
-    final selectedCsv = const ListToCsvConverter().convert([headers, ...rowsToImport]);
+    final selectedCsv = const ListToCsvConverter().convert([
+      headers,
+      ...rowsToImport,
+    ]);
     final count = await repository.importItemsCsv(selectedCsv);
     if (!mounted) return;
     await _loadItems();
     ScaffoldMessenger.of(localCtx).showSnackBar(
       SnackBar(content: Text('Imported $count rows from ${xfile.name}')),
     );
+  }
+
+  Future<void> _deleteItem(
+    BuildContext context,
+    Map<String, dynamic> item,
+  ) async {
+    final id = item['id'] as int?;
+    if (id == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete product'),
+        content: const Text(
+          'Are you sure you want to delete this product? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    await repository.deleteItemById(id);
+    await repository.fetchItems();
+    _onUpdate(item);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Product deleted')));
   }
 
   @override
@@ -386,23 +527,194 @@ class _InventoryTableState extends State<InventoryTable> {
   }
 }
 
+class _InventoryListCard extends StatelessWidget {
+  const _InventoryListCard({
+    required this.item,
+    required this.statusColor,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final Map<String, dynamic> item;
+  final Color statusColor;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final name = (item['name'] ?? '').toString().trim();
+    final category = (item['category'] ?? '').toString().trim();
+    final lastUpdated = (item['lastUpdated'] ?? '').toString().trim();
+    final status = (item['status'] ?? '').toString().trim();
+
+    return Card(
+      margin: EdgeInsets.zero,
+      color: colorScheme.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.45)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 6, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    name.isEmpty ? 'Unnamed Product' : name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'Product actions',
+                  onSelected: (value) {
+                    if (value == 'edit') {
+                      onEdit();
+                    } else if (value == 'delete') {
+                      onDelete();
+                    }
+                  },
+                  itemBuilder: (ctx) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Edit Product')),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Text('Delete Product'),
+                    ),
+                  ],
+                  icon: const Icon(Icons.more_vert),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _InventoryMetaPill(
+                  icon: Icons.inventory_2_outlined,
+                  text: 'Stock ${item['stock'] ?? 0}',
+                ),
+                if (category.isNotEmpty)
+                  _InventoryMetaPill(
+                    icon: Icons.category_outlined,
+                    text: category,
+                  ),
+                _InventoryMetaPill(
+                  icon: Icons.circle,
+                  text: status.isEmpty ? 'Unknown' : status,
+                  color: statusColor,
+                ),
+              ],
+            ),
+            if (lastUpdated.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    Icons.update_outlined,
+                    size: 16,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      lastUpdated,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InventoryMetaPill extends StatelessWidget {
+  const _InventoryMetaPill({
+    required this.icon,
+    required this.text,
+    this.color,
+  });
+
+  final IconData icon;
+  final String text;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final iconColor = color ?? theme.colorScheme.onSurfaceVariant;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: iconColor),
+            const SizedBox(width: 5),
+            Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _InventoryDataSource extends DataTableSource {
   final List<Map<String, dynamic>> items;
   final Color Function(String) getStatusColor;
   final void Function(Map<String, dynamic>) onUpdate;
   final BuildContext _context;
 
-  _InventoryDataSource(this.items, this.getStatusColor, this.onUpdate, this._context);
+  _InventoryDataSource(
+    this.items,
+    this.getStatusColor,
+    this.onUpdate,
+    this._context,
+  );
 
   @override
   DataRow getRow(int index) {
     if (index >= items.length) return const DataRow(cells: []);
     final item = items[index];
     final isEven = index % 2 == 0;
-    
+
     return DataRow(
       color: WidgetStateProperty.resolveWith<Color?>((states) {
-        if (isEven) return Theme.of(_context).colorScheme.surfaceContainerHighest;
+        if (states.contains(WidgetState.hovered)) {
+          return Theme.of(_context).colorScheme.primary.withAlpha(18);
+        }
+        if (isEven) {
+          return Theme.of(
+            _context,
+          ).colorScheme.surfaceContainerHighest.withAlpha(90);
+        }
         return null;
       }),
       cells: [
@@ -439,10 +751,18 @@ class _InventoryDataSource extends DataTableSource {
                       context: cellContext,
                       builder: (ctx) => AlertDialog(
                         title: const Text('Delete product'),
-                        content: const Text('Are you sure you want to delete this product? This action cannot be undone.'),
+                        content: const Text(
+                          'Are you sure you want to delete this product? This action cannot be undone.',
+                        ),
                         actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Cancel'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Delete'),
+                          ),
                         ],
                       ),
                     );
@@ -461,7 +781,10 @@ class _InventoryDataSource extends DataTableSource {
               },
               itemBuilder: (menuContext) => [
                 const PopupMenuItem(value: 'edit', child: Text('Edit Product')),
-                const PopupMenuItem(value: 'delete', child: Text('Delete Product')),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Delete Product'),
+                ),
               ],
             ),
           ),

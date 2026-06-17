@@ -36,10 +36,12 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+
     return AlertDialog(
       title: const Text('Redeem Points'),
       content: SizedBox(
-        width: 400,
+        width: size.width < 500 ? double.maxFinite : 400,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -56,7 +58,8 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
                     ),
                     onChanged: (_) => setState(() {}),
                   ),
-                  if (_memberFocusNode.hasFocus || _memberSearchController.text.isNotEmpty)
+                  if (_memberFocusNode.hasFocus ||
+                      _memberSearchController.text.isNotEmpty)
                     Container(
                       constraints: const BoxConstraints(maxHeight: 200),
                       margin: const EdgeInsets.only(top: 4),
@@ -67,14 +70,23 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
                       ),
                       child: Builder(
                         builder: (ctx) {
-                          final List<String> memberNames = widget.members.map((m) {
+                          final List<String> memberNames = widget.members.map((
+                            m,
+                          ) {
                             final lastName = m['lastName'] ?? '';
                             final firstName = m['firstName'] ?? '';
                             return '$firstName $lastName'.trim();
                           }).toList();
 
-                          final query = _memberSearchController.text.toLowerCase();
-                          final filtered = memberNames.where((m) => query.isEmpty || m.toLowerCase().contains(query)).toList();
+                          final query = _memberSearchController.text
+                              .toLowerCase();
+                          final filtered = memberNames
+                              .where(
+                                (m) =>
+                                    query.isEmpty ||
+                                    m.toLowerCase().contains(query),
+                              )
+                              .toList();
 
                           return ListView.builder(
                             shrinkWrap: true,
@@ -92,7 +104,9 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
                                   final rows = await repository.fetchMembers();
                                   try {
                                     final m = rows.firstWhere((r) {
-                                      final name = '${r.firstName ?? ''} ${r.lastName ?? ''}'.trim();
+                                      final name =
+                                          '${r.firstName ?? ''} ${r.lastName ?? ''}'
+                                              .trim();
                                       return name == selectedMember;
                                     });
                                     setState(() => _resolvedMember = m);
@@ -113,35 +127,48 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
             const SizedBox(height: 16),
 
             // Denomination picker (only allow predefined redeemable amounts)
-            Builder(builder: (ctx) {
-              // Only show denominations after a member has been resolved.
-              if (_resolvedMember == null) {
-                return const SizedBox.shrink();
-              }
-              final available = _resolvedMember!.points;
-              final canUse = _denoms.where((d) => d <= available).toList();
-              if (canUse.isEmpty) {
-                return Card(
-                  color: Colors.red.shade50,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.error_outline, color: Colors.red),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text('Insufficient Reward Points: ${_resolvedMember!.points}')),
-                      ],
+            Builder(
+              builder: (ctx) {
+                // Only show denominations after a member has been resolved.
+                if (_resolvedMember == null) {
+                  return const SizedBox.shrink();
+                }
+                final available = _resolvedMember!.points;
+                final canUse = _denoms.where((d) => d <= available).toList();
+                if (canUse.isEmpty) {
+                  return Card(
+                    color: Colors.red.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline, color: Colors.red),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Insufficient Reward Points: ${_resolvedMember!.points}',
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                  );
+                }
+                return DropdownButtonFormField<int>(
+                  decoration: const InputDecoration(labelText: 'Redeem Amount'),
+                  initialValue: _selectedDenomination,
+                  items: canUse
+                      .map(
+                        (d) => DropdownMenuItem(
+                          value: d,
+                          child: Text(d.toString()),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setState(() => _selectedDenomination = v),
                 );
-              }
-              return DropdownButtonFormField<int>(
-                decoration: const InputDecoration(labelText: 'Redeem Amount'),
-                initialValue: _selectedDenomination,
-                items: canUse.map((d) => DropdownMenuItem(value: d, child: Text(d.toString()))).toList(),
-                onChanged: (v) => setState(() => _selectedDenomination = v),
-              );
-            }),
+              },
+            ),
             const SizedBox(height: 8),
             // show warning if redeem amount exceeds member balance
             const SizedBox.shrink(),
@@ -149,7 +176,10 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         ElevatedButton(
           onPressed: () async {
             // move all async work into a helper to avoid using BuildContext after awaits
@@ -168,7 +198,9 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
   Future<_RedeemResult> _attemptRedeem() async {
     final points = _selectedDenomination ?? 0;
 
-    if (selectedMember == null || selectedMember!.isEmpty) return _RedeemResult.notSelected;
+    if (selectedMember == null || selectedMember!.isEmpty) {
+      return _RedeemResult.notSelected;
+    }
     if (points <= 0) return _RedeemResult.invalidAmount;
 
     // Resolve member id from selectedMember label
@@ -184,10 +216,13 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
     }
     if (target == null) return _RedeemResult.notFound;
 
-  if (target.points < points) return _RedeemResult.insufficient;
+    if (target.points < points) return _RedeemResult.insufficient;
 
     // Use repository helper to deduct points
-    final ok = await repository.redeemPoints(memberId: target.id, points: points);
+    final ok = await repository.redeemPoints(
+      memberId: target.id,
+      points: points,
+    );
     return ok ? _RedeemResult.success : _RedeemResult.failed;
   }
 
@@ -199,7 +234,12 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
           builder: (ctx) => AlertDialog(
             title: const Text('Error'),
             content: const Text('Please select a member.'),
-            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
         break;
@@ -209,7 +249,12 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
           builder: (ctx) => AlertDialog(
             title: const Text('Error'),
             content: const Text('Please enter valid points.'),
-            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
         break;
@@ -219,7 +264,12 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
           builder: (ctx) => AlertDialog(
             title: const Text('Error'),
             content: const Text('Selected member not found.'),
-            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
         break;
@@ -228,14 +278,25 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Error'),
-            content: const Text('Member does not have enough points to redeem.'),
-            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+            content: const Text(
+              'Member does not have enough points to redeem.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
         break;
       case _RedeemResult.success:
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Redeemed ${_selectedDenomination ?? 0} points for $selectedMember')),
+          SnackBar(
+            content: Text(
+              'Redeemed ${_selectedDenomination ?? 0} points for $selectedMember',
+            ),
+          ),
         );
         Navigator.pop(context);
         break;
@@ -245,11 +306,23 @@ class _RedeemPointsDialogState extends State<RedeemPointsDialog> {
           builder: (ctx) => AlertDialog(
             title: const Text('Error'),
             content: const Text('Failed to redeem points.'),
-            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
     }
   }
 }
 
-enum _RedeemResult { notSelected, invalidAmount, notFound, insufficient, success, failed }
+enum _RedeemResult {
+  notSelected,
+  invalidAmount,
+  notFound,
+  insufficient,
+  success,
+  failed,
+}
