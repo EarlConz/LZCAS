@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:qr/qr.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'dart:convert'; // Required for jsonEncode
 
-// Lightweight deterministic QR-like grid painter used as a visual QR for members.
-// Not a real QR standard; intended for quick visual identification and printing.
 class MemberQr extends StatelessWidget {
   final String lastName;
   final String firstName;
   final String middleName;
-  final int? id;
+  final String contactNo;
+  final String birthday;
+  final String address;
+  final String referrer;
   final double size;
 
   const MemberQr({
@@ -15,78 +18,134 @@ class MemberQr extends StatelessWidget {
     required this.lastName,
     required this.firstName,
     required this.middleName,
-    this.id,
-    this.size = 120,
+    required this.contactNo,
+    required this.birthday,
+    required this.address,
+    required this.referrer,
+    this.size = 160,
   });
 
   String _payload() {
-    if (id != null) return '{"id":$id}';
-    final name = ('$firstName $middleName $lastName').trim();
-    return '{"name":"${name.replaceAll('"', '\\"')}"}';
+    // Standardizes all properties into a clean JSON structure
+    final qrDataMap = {
+      'lastName': lastName,
+      'firstName': firstName,
+      'middleName': middleName,
+      'contactNo': contactNo,
+      'birthday': birthday,
+      'address': address,
+      'referrer': referrer,
+    };
+    return jsonEncode(qrDataMap);
   }
 
   @override
   Widget build(BuildContext context) {
-    final payload = _payload();
     try {
-      final qr = QrCode(4, QrErrorCorrectLevel.L);
-      qr.addData(payload);
-      qr.make();
-      return CustomPaint(
-        size: Size.square(size),
-        painter: _QrPainterFromMatrix(qr: qr, color: Theme.of(context).colorScheme.onSurface),
+      final payload = _payload();
+      
+      // qr_flutter handles the matrix rendering seamlessly here
+      return QrImageView(
+        data: payload,
+        version: QrVersions.auto,
+        size: size,
+        gapless: false,
+        eyeStyle: QrEyeStyle(
+          eyeShape: QrEyeShape.square,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
+        dataModuleStyle: QrDataModuleStyle(
+          dataModuleShape: QrDataModuleShape.square,
+          color: Theme.of(context).colorScheme.onSurface,
+        ),
       );
     } catch (_) {
+      // Fallback UI if the QR generation throws any unexpected errors
       final initials = '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}';
-      return CircleAvatar(child: Text(initials.toUpperCase()));
+      return SizedBox(
+        width: size,
+        height: size,
+        child: CircleAvatar(
+          child: Text(initials.toUpperCase(), style: const TextStyle(fontSize: 24)),
+        ),
+      );
     }
   }
 }
-
-// legacy painter removed — using qr_flutter for real QR rendering
 
 class MemberQrWithName extends StatelessWidget {
   final String lastName;
   final String firstName;
   final String middleName;
-  final int? id;
+  final String contactNo;
+  final String birthday;
+  final String address;
+  final String referrer;
 
-  const MemberQrWithName({super.key, required this.lastName, required this.firstName, required this.middleName, this.id});
+  const MemberQrWithName({
+    super.key,
+    required this.lastName,
+    required this.firstName,
+    required this.middleName,
+    required this.contactNo,
+    required this.birthday,
+    required this.address,
+    required this.referrer,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final fullName = ('$firstName $middleName $lastName').trim();
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        MemberQr(lastName: lastName, firstName: firstName, middleName: middleName, id: id, size: 160),
-        const SizedBox(height: 8),
-        Text(fullName, style: Theme.of(context).textTheme.titleMedium),
-      ],
+    final fullName = '$lastName, $firstName $middleName'.trim();
+    
+    return Center(
+      child: Card(
+        elevation: 6,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Renders the updated QR code with full payload details
+              MemberQr(
+                lastName: lastName,
+                firstName: firstName,
+                middleName: middleName,
+                contactNo: contactNo,
+                birthday: birthday,
+                address: address,
+                referrer: referrer,
+                size: 200,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      fullName,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    icon: const Icon(Icons.copy),
+                    tooltip: 'Copy name to clipboard',
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: fullName));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Name Copied to Clipboard')),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
-}
-
-class _QrPainterFromMatrix extends CustomPainter {
-  final QrCode qr;
-  final Color color;
-
-  _QrPainterFromMatrix({required this.qr, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color;
-    final moduleCount = qr.moduleCount;
-    final cellSize = size.width / moduleCount;
-    for (var x = 0; x < moduleCount; x++) {
-      for (var y = 0; y < moduleCount; y++) {
-        if (qr.isDark(y, x)) {
-          canvas.drawRect(Rect.fromLTWH(x * cellSize, y * cellSize, cellSize, cellSize), paint);
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
