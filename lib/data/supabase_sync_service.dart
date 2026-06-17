@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:drift/drift.dart';
 
@@ -35,9 +39,27 @@ class SupabaseSyncService {
     }
 
     if (members.isNotEmpty) {
+      // Upload member rows (with local id_image_path)
       await client
           .from('members')
           .upsert(members.map(_memberToSupabase).toList(), onConflict: 'id');
+
+      // Upload each member's ID image to Storage and update remote
+      // id_image_path to the public URL
+      for (final m in members) {
+        if ((m.idImagePath ?? '').isNotEmpty && File(m.idImagePath!).existsSync()) {
+          final url = await uploadIdImage(
+            memberId: m.id,
+            localFilePath: m.idImagePath!,
+          );
+          if (url != null) {
+            await client
+                .from('members')
+                .update({'id_image_path': url})
+                .eq('id', m.id);
+          }
+        }
+      }
     }
 
     if (sales.isNotEmpty) {
@@ -71,6 +93,38 @@ class SupabaseSyncService {
 
       await _resetLocalSequences();
     });
+
+    // Download ID images from Supabase Storage to local device
+    final docsDir = await getApplicationDocumentsDirectory();
+    final memberIdDir = Directory(p.join(docsDir.path, 'member_ids'));
+    if (!await memberIdDir.exists()) {
+      await memberIdDir.create(recursive: true);
+    }
+
+    for (final row in remoteMembers) {
+      final id = _readInt(row['id']);
+      final remotePath = _readString(row['id_image_path']);
+      if (id > 0 && remotePath != null) {
+        // Extract extension from URL or default to .jpg
+        final uri = Uri.tryParse(remotePath);
+        final ext = uri != null
+            ? p.extension(uri.path)
+            : p.extension(remotePath);
+        final localPath = p.join(memberIdDir.path, '$id${ext.isEmpty ? '.jpg' : ext}');
+
+        final downloaded = await downloadIdImage(
+          memberId: id,
+          saveToPath: localPath,
+        );
+
+        if (downloaded != null) {
+          await db.customStatement(
+            'UPDATE members SET id_image_path = ? WHERE id = ?',
+            [downloaded, id],
+          );
+        }
+      }
+    }
 
     return CloudRestoreSummary(
       items: remoteItems.length,
@@ -146,6 +200,9 @@ class SupabaseSyncService {
       'referrer_id': member.referrerId,
       'points': member.points,
       'qr': member.qr,
+      'id_type': member.idType,
+      'id_number': member.idNumber,
+      'id_image_path': member.idImagePath,
     };
   }
 
@@ -188,6 +245,9 @@ class SupabaseSyncService {
       referrerId: Value(_readNullableInt(row['referrer_id'])),
       points: Value(_readInt(row['points'])),
       qr: Value(_readString(row['qr'])),
+      idType: Value(_readString(row['id_type'])),
+      idNumber: Value(_readString(row['id_number'])),
+      idImagePath: Value(_readString(row['id_image_path'])),
     );
   }
 
@@ -225,5 +285,50 @@ class SupabaseSyncService {
     if (value == null) return null;
     if (value is DateTime) return value;
     return DateTime.tryParse(value.toString());
+  }
+
+  // ── Supabase Storage helpers for ID images ──────────────────────────
+
+  static const _idBucket = 'member-ids';
+
+  /// Upload a member's ID image to Supabase Storage.
+  /// Returns the public URL on success, or null on failure.
+  Future<String?> uploadIdImage({
+    required int memberId,
+    required String localFilePath,
+  }) async {
+    try {
+      final ext = localFilePath.split('.').last;
+      final remotePath = '$memberId.$ext';
+      await client.storage
+          .from(_idBucket)
+          .upload(
+            remotePath,
+            File(localFilePath),
+            fileOptions: const FileOptions(upsert: true),
+          );
+      return client.storage.from(_idBucket).getPublicUrl(remotePath);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Download a member's ID image from Supabase Storage to a local file.
+  /// [remoteName] is the file name in the bucket (e.g. "42.jpg").
+  /// [saveToPath] is the full local destination path.
+  /// Returns the local file path on success, or null on failure.
+  Future<String?> downloadIdImage({
+    required int memberId,
+    required String saveToPath,
+  }) async {
+    try {
+      final ext = saveToPath.split('.').last;
+      final remotePath = '$memberId.$ext';
+      final bytes = await client.storage.from(_idBucket).download(remotePath);
+      await File(saveToPath).writeAsBytes(bytes);
+      return saveToPath;
+    } catch (_) {
+      return null;
+    }
   }
 }

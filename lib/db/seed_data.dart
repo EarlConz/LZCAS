@@ -7,32 +7,43 @@ import '../utils/formatters.dart';
 // Seed lists removed: this module now only exposes helper mappers and utilities.
 
 List<Map<String, dynamic>> inventoryItemsFromRows(List<Item> rows) {
-  return rows.map((r) => {
-        'id': r.id,
-        'name': r.name,
-    'points': r.points,
-        'category': r.category ?? '',
-        'stock': r.stock,
-    'lastUpdated': formatDisplayDate(r.lastUpdated),
-        'status': r.status ?? statusFromStock(r.stock),
-      }).toList();
+  return rows
+      .map(
+        (r) => {
+          'id': r.id,
+          'name': r.name,
+          'points': r.points,
+          'category': r.category ?? '',
+          'stock': r.stock,
+          'lastUpdated': formatDisplayDate(r.lastUpdated),
+          'status': r.status ?? statusFromStock(r.stock),
+        },
+      )
+      .toList();
 }
 
 List<Map<String, dynamic>> membersFromRows(List<Member> rows) {
-  return rows.map((m) => {
-        'id': m.id,
-        'firstName': m.firstName ?? '',
-        'lastName': m.lastName ?? '',
-        'middleName': m.middleName ?? '',
-        'role': m.role ?? '',
-        'contactNo': m.contactNo ?? '',
-        'birthday': m.birthday ?? '',
-        'address': m.address ?? '',
-  'referrer': m.referrer ?? '',
-  'referrerId': m.referrerId,
-        'points': m.points,
-        'qr': m.qr ?? '',
-      }).toList();
+  return rows
+      .map(
+        (m) => {
+          'id': m.id,
+          'firstName': m.firstName ?? '',
+          'lastName': m.lastName ?? '',
+          'middleName': m.middleName ?? '',
+          'role': m.role ?? '',
+          'contactNo': m.contactNo ?? '',
+          'birthday': m.birthday ?? '',
+          'address': m.address ?? '',
+          'referrer': m.referrer ?? '',
+          'referrerId': m.referrerId,
+          'points': m.points,
+          'qr': m.qr ?? '',
+          'idType': m.idType ?? '',
+          'idNumber': m.idNumber ?? '',
+          'idImagePath': m.idImagePath ?? '',
+        },
+      )
+      .toList();
 }
 
 String statusFromStock(int stock) {

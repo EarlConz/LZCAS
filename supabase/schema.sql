@@ -30,7 +30,10 @@ create table if not exists public.members (
   referrer text,
   referrer_id bigint,
   points integer not null default 0,
-  qr text
+  qr text,
+  id_type text,
+  id_number text,
+  id_image_path text
 );
 
 create table if not exists public.sales (

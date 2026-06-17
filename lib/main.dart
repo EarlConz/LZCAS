@@ -20,12 +20,18 @@ Future<void> main() async {
 
   final db = await initDb();
   repository = DbRepository(db);
-  // Run a one-off points consistency migration at startup. This is idempotent.
+  // Run one-off migrations at startup. Both are idempotent.
   try {
     await repository.ensurePointsConsistency();
   } catch (e) {
     // ignore: avoid_print
     print('ensurePointsConsistency failed: $e');
+  }
+  try {
+    await repository.ensureVerifiedResellerConsistency();
+  } catch (e) {
+    // ignore: avoid_print
+    print('ensureVerifiedResellerConsistency failed: $e');
   }
   // If you need initial data, use CSV import helpers on the repository
   // e.g. `await repository.importItemsCsv(csvString)` or use your own seed script.

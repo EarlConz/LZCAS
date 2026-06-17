@@ -1,7 +1,12 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member;
 import 'package:lzcas/utils/phone_formatter.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 class EditMemberDialog extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -25,13 +30,31 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   late final TextEditingController birthdayController;
   late final TextEditingController addressController;
   late final TextEditingController pointsController;
+  late final TextEditingController idNumberController;
   late String _roleValue;
+  late String? _selectedIdType;
+  String? _selectedIdImagePath;
   List<Member> _members = [];
   int? _selectedReferrerId;
 
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
   final _contactKey = GlobalKey<FormFieldState>();
+
+  static const _idTypes = [
+    'Driver\'s License',
+    'National ID (PhilSys)',
+    'Passport',
+    'UMID',
+    'SSS ID',
+    'GSIS eCard',
+    'PhilHealth ID',
+    'PRC License',
+    'Postal ID',
+    'Voter\'s ID',
+    'Senior Citizen ID',
+    'Other',
+  ];
 
   Future<void> _pickBirthday() async {
     final birthday = await showBirthdayPickerDialog(
@@ -70,7 +93,42 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
       text: widget.member['points']?.toString() ?? '0',
     );
     _selectedReferrerId = widget.member['referrerId'] as int?;
+    _selectedIdType = widget.member['idType']?.toString();
+    _selectedIdImagePath = widget.member['idImagePath']?.toString();
+    idNumberController = TextEditingController(
+      text: widget.member['idNumber']?.toString() ?? '',
+    );
     _loadMembers();
+  }
+
+  Future<void> _pickIdImage() async {
+    final files = await fs.openFiles(
+      acceptedTypeGroups: [
+        const fs.XTypeGroup(
+          label: 'Images',
+          extensions: ['jpg', 'jpeg', 'png'],
+        ),
+      ],
+    );
+    if (files.isEmpty || !mounted) return;
+
+    final sourcePath = files.first.path;
+    if (sourcePath == null) return;
+
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final memberIdDir = Directory(p.join(docsDir.path, 'member_ids'));
+      if (!await memberIdDir.exists()) {
+        await memberIdDir.create(recursive: true);
+      }
+      final memberId = widget.member['id'] as int? ?? 0;
+      final ext = p.extension(sourcePath);
+      final destPath = p.join(memberIdDir.path, '$memberId$ext');
+      await File(sourcePath).copy(destPath);
+      setState(() => _selectedIdImagePath = destPath);
+    } catch (_) {
+      setState(() => _selectedIdImagePath = sourcePath);
+    }
   }
 
   Future<void> _loadMembers() async {
@@ -90,6 +148,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     birthdayController.dispose();
     addressController.dispose();
     pointsController.dispose();
+    idNumberController.dispose();
     super.dispose();
   }
 
@@ -293,6 +352,75 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                 ],
                 onChanged: (v) => setState(() => _selectedReferrerId = v),
               ),
+
+              const SizedBox(height: 20),
+              // ── ID Verification section ────────────────────
+              _sectionLabel('Verification ID', theme, colorScheme),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<String>(
+                initialValue:
+                    _selectedIdType != null &&
+                        _selectedIdType!.isNotEmpty &&
+                        _idTypes.contains(_selectedIdType)
+                    ? _selectedIdType
+                    : null,
+                decoration: InputDecoration(
+                  labelText: 'ID Type',
+                  hintText: 'Select ID type (optional)',
+                  prefixIcon: const Icon(Icons.credit_card_outlined),
+                  border: inputBorder,
+                ),
+                items: _idTypes
+                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                    .toList(),
+                onChanged: (v) => setState(() => _selectedIdType = v),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: idNumberController,
+                decoration: InputDecoration(
+                  labelText: 'ID Number',
+                  hintText: 'Optional',
+                  prefixIcon: const Icon(Icons.numbers_outlined),
+                  border: inputBorder,
+                ),
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 14),
+              InkWell(
+                onTap: _pickIdImage,
+                borderRadius: BorderRadius.circular(10),
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'ID Photo',
+                    hintText: 'Tap to upload',
+                    prefixIcon: const Icon(Icons.camera_alt_outlined),
+                    border: inputBorder,
+                  ),
+                  child: _selectedIdImagePath != null
+                      ? Row(
+                          children: [
+                            Icon(
+                              Icons.check_circle,
+                              size: 18,
+                              color: colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                p.basename(_selectedIdImagePath!),
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        )
+                      : const Text(
+                          'Tap to select ID photo',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                ),
+              ),
             ],
           ),
         ),
@@ -358,6 +486,11 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                 .let((m) => '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim()))
           : '',
       'referrerId': _selectedReferrerId,
+      'idType': _selectedIdType,
+      'idNumber': idNumberController.text.trim().isEmpty
+          ? null
+          : idNumberController.text.trim(),
+      'idImagePath': _selectedIdImagePath,
     };
 
     widget.onMemberUpdated(updatedMember);
