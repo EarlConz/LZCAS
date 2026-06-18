@@ -87,7 +87,6 @@ class QRScanButton extends StatelessWidget {
               Text('Birthday: ${m.birthday ?? ''}'),
               Text('Address: ${m.address ?? ''}'),
               Text('Referrer: ${m.referrer ?? ''}'),
-              Text('Points: ${m.points}'),
             ],
           ),
           actions: [

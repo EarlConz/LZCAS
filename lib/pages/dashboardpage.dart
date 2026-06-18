@@ -19,10 +19,11 @@ class _DashboardPageState extends State<DashboardPage> {
   int totalProducts = 0;
   int lowStockItems = 0;
   int outOfStockItems = 0;
-  int totalRevenue = 0;
+  int monthlyRevenue = 0;
+  int previousMonthRevenue = 0;
+  int twoMonthsAgoRevenue = 0;
   List<Map<String, dynamic>> topSpenders = const [];
   List<Map<String, dynamic>> salesBreakdown = const [];
-  List<Map<String, dynamic>> topPointsMembers = const [];
 
   static const _topSpenderColors = <Color>[
     Color(0xFF42A5F5),
@@ -40,14 +41,6 @@ class _DashboardPageState extends State<DashboardPage> {
     Color(0xFF29B6F6),
   ];
 
-  static const _pointsColors = <Color>[
-    Color(0xFFFF8A65),
-    Color(0xFF4DB6AC),
-    Color(0xFFFFD54F),
-    Color(0xFF7986CB),
-    Color(0xFFA1887F),
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -63,7 +56,35 @@ class _DashboardPageState extends State<DashboardPage> {
     lowStockItems = items.where((i) => i.stock < 50 && i.stock > 0).length;
     outOfStockItems = items.where((i) => i.stock <= 0).length;
 
-    totalRevenue = sales.fold(0, (sum, s) => sum + s.price);
+    // Compute current-month revenue and previous two months
+    final now = DateTime.now();
+    final thisMonth = DateTime(now.year, now.month, 1);
+    monthlyRevenue = sales
+        .where(
+          (s) =>
+              s.timestamp.isAfter(thisMonth.subtract(const Duration(days: 1))),
+        )
+        .fold(0, (sum, s) => sum + s.price);
+    final lastMonth = DateTime(now.year, now.month - 1, 1);
+    final twoMonthsAgo = DateTime(now.year, now.month - 2, 1);
+    previousMonthRevenue = sales
+        .where(
+          (s) =>
+              s.timestamp.isAfter(
+                lastMonth.subtract(const Duration(days: 1)),
+              ) &&
+              s.timestamp.isBefore(thisMonth),
+        )
+        .fold(0, (sum, s) => sum + s.price);
+    twoMonthsAgoRevenue = sales
+        .where(
+          (s) =>
+              s.timestamp.isAfter(
+                twoMonthsAgo.subtract(const Duration(days: 1)),
+              ) &&
+              s.timestamp.isBefore(lastMonth),
+        )
+        .fold(0, (sum, s) => sum + s.price);
 
     final Map<int, String> memberNames = {};
     for (final m in members) {
@@ -75,20 +96,6 @@ class _DashboardPageState extends State<DashboardPage> {
         memberNames[m.id] = 'No name';
       }
     }
-
-    final List<Map<String, dynamic>> pointsRanked = members
-        .map(
-          (m) => {
-            'id': m.id,
-            'name': memberNames[m.id] ?? 'No name',
-            'points': m.points,
-          },
-        )
-        .toList();
-    pointsRanked.sort(
-      (a, b) => (b['points'] as int).compareTo(a['points'] as int),
-    );
-    topPointsMembers = pointsRanked.take(5).toList();
 
     final Map<int, int> spenderTotals = <int, int>{};
     for (final sale in sales) {
@@ -124,7 +131,6 @@ class _DashboardPageState extends State<DashboardPage> {
     itemRanked.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
     salesBreakdown = itemRanked.take(5).toList();
 
-    final now = DateTime.now();
     final weekStart = now.subtract(Duration(days: now.weekday % 7));
     final monthStart = DateTime(now.year, now.month, 1);
 
@@ -158,6 +164,16 @@ class _DashboardPageState extends State<DashboardPage> {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isMobile = screenWidth < 750;
     final theme = Theme.of(context);
+
+    final now = DateTime.now();
+    final lastMonthName = DateFormat(
+      'MMM',
+    ).format(DateTime(now.year, now.month - 1));
+    final twoMonthsAgoName = DateFormat(
+      'MMM',
+    ).format(DateTime(now.year, now.month - 2));
+    final revenueSubtitle =
+        '$lastMonthName: ₱$previousMonthRevenue  ·  $twoMonthsAgoName: ₱$twoMonthsAgoRevenue';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(appSpacing),
@@ -194,9 +210,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
                 const SizedBox(height: 14),
                 _buildCard(
-                  "Total Revenue",
-                  "₱$totalRevenue",
-                  "All-time sales revenue",
+                  "Monthly Revenue",
+                  "₱$monthlyRevenue",
+                  revenueSubtitle,
                   Icons.attach_money_rounded,
                   const Color(0xFF42A5F5),
                 ),
@@ -240,9 +256,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
                 const SizedBox(height: 14),
                 _buildCard(
-                  "Total Revenue",
-                  "₱$totalRevenue",
-                  "All-time sales revenue",
+                  "Monthly Revenue",
+                  "₱$monthlyRevenue",
+                  revenueSubtitle,
                   Icons.paid_rounded,
                   const Color(0xFF42A5F5),
                 ),
@@ -266,11 +282,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   title: 'Sales Breakdown',
                   child: _buildSalesBreakdownChart(context),
                 ),
-                const SizedBox(height: 14),
-                _buildChartCard(
-                  title: 'Top Tokens',
-                  child: _buildTopPointsChart(context),
-                ),
               ],
             )
           else
@@ -288,13 +299,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: _buildChartCard(
                     title: 'Sales Breakdown',
                     child: _buildSalesBreakdownChart(context),
-                  ),
-                ),
-                const SizedBox(width: appSpacing),
-                Expanded(
-                  child: _buildChartCard(
-                    title: 'Top Tokens',
-                    child: _buildTopPointsChart(context),
                   ),
                 ),
               ],
@@ -453,130 +457,6 @@ class _DashboardPageState extends State<DashboardPage> {
       maxYOffset: 50,
       barColor: Theme.of(context).colorScheme.primary,
       showTitle: false,
-    );
-  }
-
-  Widget _buildTopPointsChart(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 750;
-
-    final data = topPointsMembers;
-    final maxValue = data.isEmpty
-        ? 100
-        : data.fold<int>(
-            0,
-            (max, e) => max > (e['points'] as int) ? max : (e['points'] as int),
-          );
-
-    final barGroups = List.generate(data.length, (index) {
-      final entry = data[index];
-      final value = entry['points'] as int;
-      return BarChartGroupData(
-        x: index,
-        barRods: [
-          BarChartRodData(
-            toY: value.toDouble(),
-            color: _pointsColors[index % _pointsColors.length],
-            width: isMobile ? 18 : 28,
-            borderRadius: BorderRadius.circular(6),
-          ),
-        ],
-      );
-    });
-
-    return SizedBox(
-      height: isMobile ? 200 : 240,
-      child: data.isEmpty
-          ? Center(
-              child: Text(
-                'No points data yet',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            )
-          : BarChart(
-              BarChartData(
-                alignment: BarChartAlignment.spaceAround,
-                maxY: (maxValue + 15).toDouble(),
-                barTouchData: BarTouchData(
-                  enabled: true,
-                  touchTooltipData: BarTouchTooltipData(
-                    getTooltipColor: (_) => colorScheme.primary,
-                    getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                      final label = data[group.x]['name'] ?? '';
-                      final points = (rod.toY).toInt();
-                      return BarTooltipItem(
-                        '$label\n',
-                        theme.textTheme.bodySmall ?? const TextStyle(),
-                        children: [
-                          TextSpan(
-                            text: '$points pts',
-                            style: TextStyle(
-                              color: colorScheme.onPrimary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-                titlesData: FlTitlesData(
-                  leftTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  topTitles: const AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: isMobile ? 40 : 52,
-                      getTitlesWidget: (value, meta) {
-                        final index = value.toInt();
-                        if (index < 0 || index >= data.length) {
-                          return const SizedBox.shrink();
-                        }
-                        final label = data[index]['name'] ?? '';
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: SizedBox(
-                            width: isMobile ? 50 : 80,
-                            child: Text(
-                              label,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  getDrawingHorizontalLine: (value) => FlLine(
-                    color: theme.dividerColor.withValues(alpha: 0.5),
-                    strokeWidth: 1,
-                  ),
-                ),
-                barGroups: barGroups,
-              ),
-            ),
     );
   }
 

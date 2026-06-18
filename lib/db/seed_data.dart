@@ -12,7 +12,6 @@ List<Map<String, dynamic>> inventoryItemsFromRows(List<Item> rows) {
         (r) => {
           'id': r.id,
           'name': r.name,
-          'points': r.points,
           'category': r.category ?? '',
           'stock': r.stock,
           'lastUpdated': formatDisplayDate(r.lastUpdated),
@@ -36,7 +35,7 @@ List<Map<String, dynamic>> membersFromRows(List<Member> rows) {
           'address': m.address ?? '',
           'referrer': m.referrer ?? '',
           'referrerId': m.referrerId,
-          'points': m.points,
+          'level': m.level,
           'qr': m.qr ?? '',
           'idType': m.idType ?? '',
           'idNumber': m.idNumber ?? '',

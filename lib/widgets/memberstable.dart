@@ -5,6 +5,7 @@ import 'package:lzcas/dialogs/add_member_dialog.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:drift/drift.dart' show Value;
 import 'package:lzcas/db/db.dart';
 import 'package:path/path.dart' as p;
@@ -26,6 +27,7 @@ class MembersTable extends StatefulWidget {
 
 class MembersTableState extends State<MembersTable> {
   String searchTerm = "";
+  String? roleFilter;
   List<Map<String, dynamic>> members = [];
   final Set<int> _selectedMemberIds = {};
 
@@ -89,24 +91,26 @@ class MembersTableState extends State<MembersTable> {
       birthday: newMember['birthday']?.toString(),
       address: newMember['address']?.toString(),
       referrer: newMember['referrer']?.toString(),
-      points: (newMember['points'] ?? 0) is int
-          ? newMember['points']
-          : int.tryParse(newMember['points']?.toString() ?? '0') ?? 0,
+      level: int.tryParse(newMember['level']?.toString() ?? '1') ?? 1,
       idType: newMember['idType']?.toString(),
       idNumber: newMember['idNumber']?.toString(),
       idImagePath: null, // set after renaming
     );
 
-    // Rename temp image file to member ID
-    if (finalImagePath != null) {
+    // Rename temp image file to member ID (skip on web — data URLs don't need renaming)
+    if (finalImagePath != null && !kIsWeb) {
       try {
-        final file = File(finalImagePath);
-        if (await file.exists()) {
-          final parent = file.parent;
-          final ext = p.extension(finalImagePath);
+        final srcFile = File(finalImagePath);
+        if (await srcFile.exists()) {
+          final parent = srcFile.parent;
+          final ext = p.extension(finalImagePath).isNotEmpty
+              ? p.extension(finalImagePath)
+              : '.jpg';
           final renamed = p.join(parent.path, '$memberId$ext');
-          final renamedFile = await file.rename(renamed);
-          finalImagePath = renamedFile.path;
+          final bytes = await srcFile.readAsBytes();
+          await File(renamed).writeAsBytes(bytes);
+          await srcFile.delete();
+          finalImagePath = renamed;
 
           // Update the DB path
           final created = await repository.getMemberById(memberId);
@@ -218,7 +222,7 @@ class MembersTableState extends State<MembersTable> {
       referrer: updatedMember['referrer'] != null
           ? Value(updatedMember['referrer'].toString())
           : const Value.absent(),
-      points: updatedMember['points'] is int ? updatedMember['points'] : null,
+      level: updatedMember['level'] is int ? updatedMember['level'] : null,
       idType: updatedMember['idType'] != null
           ? Value(updatedMember['idType'].toString())
           : const Value.absent(),
@@ -331,7 +335,7 @@ class MembersTableState extends State<MembersTable> {
       'birthday',
       'address',
       'referrer',
-      'points',
+      'level',
     ];
     final missing = findMissingHeaders(headers.cast<String>(), expected);
     if (missing.isNotEmpty) {
@@ -406,9 +410,15 @@ class MembersTableState extends State<MembersTable> {
   Widget build(BuildContext context) {
     final filteredMembers = members.where((member) {
       final search = searchTerm.toLowerCase();
-      return member.values.any(
-        (value) => value.toString().toLowerCase().contains(search),
-      );
+      final matchesSearch =
+          search.isEmpty ||
+          member.values.any(
+            (value) => value.toString().toLowerCase().contains(search),
+          );
+      final matchesRole =
+          roleFilter == null ||
+          (member['role']?.toString() ?? '') == roleFilter;
+      return matchesSearch && matchesRole;
     }).toList();
 
     return LayoutBuilder(
@@ -432,6 +442,34 @@ class MembersTableState extends State<MembersTable> {
                               vertical: 8,
                               horizontal: 16,
                             ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 180,
+                          child: DropdownButtonFormField<String?>(
+                            value: roleFilter,
+                            decoration: const InputDecoration(
+                              labelText: 'Role',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: null, child: Text('All')),
+                              DropdownMenuItem(
+                                value: 'Verified Reseller',
+                                child: Text('Verified Reseller'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Member',
+                                child: Text('Member'),
+                              ),
+                            ],
+                            onChanged: (v) => setState(() => roleFilter = v),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -494,6 +532,34 @@ class MembersTableState extends State<MembersTable> {
                           contentPadding: const EdgeInsets.symmetric(
                             vertical: 8,
                             horizontal: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: DropdownButtonFormField<String?>(
+                            value: roleFilter,
+                            decoration: const InputDecoration(
+                              labelText: 'Filter by Role',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: null, child: Text('All')),
+                              DropdownMenuItem(
+                                value: 'Verified Reseller',
+                                child: Text('Verified Reseller'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'Member',
+                                child: Text('Member'),
+                              ),
+                            ],
+                            onChanged: (v) => setState(() => roleFilter = v),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -589,7 +655,7 @@ class MembersTableState extends State<MembersTable> {
                   DataColumn(label: Text('Contact No.')),
                   DataColumn(label: Text('Birthday')),
                   DataColumn(label: Text('Address')),
-                  DataColumn(label: Text('Points')),
+                  DataColumn(label: Text('Level')),
                   DataColumn(label: Text('QR')),
                 ],
                 source: _MembersDataSource(
@@ -731,7 +797,11 @@ class _MembersDataSource extends DataTableSource {
           onTap: () => onRowSelected(member),
         ),
         DataCell(
-          Text((member["points"] ?? 0).toString()),
+          Text(
+            (member['role'] ?? '') == 'Verified Reseller'
+                ? (member['level'] ?? 1).toString()
+                : '—',
+          ),
           onTap: () => onRowSelected(member),
         ),
         DataCell(_QrIconButton(member: member)),
@@ -802,10 +872,11 @@ class _MemberListCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _MemberMetaPill(
-                    icon: Icons.stars_outlined,
-                    text: (member['points'] ?? 0).toString(),
-                  ),
+                  if ((member['role'] ?? '') == 'Verified Reseller')
+                    _MemberMetaPill(
+                      icon: Icons.stars_outlined,
+                      text: (member['level'] ?? 1).toString(),
+                    ),
                   const SizedBox(width: 4),
                   _QrIconButton(member: member),
                 ],

@@ -27,7 +27,6 @@ Future<AppDb> initDb() async {
       CREATE TABLE IF NOT EXISTS items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
-        points INTEGER NOT NULL DEFAULT 0,
         category TEXT,
         stock INTEGER NOT NULL DEFAULT 0,
         last_updated TEXT,
@@ -44,8 +43,8 @@ Future<AppDb> initDb() async {
         birthday TEXT,
         address TEXT,
         referrer TEXT,
-        points INTEGER NOT NULL DEFAULT 0,
-        qr TEXT
+        qr TEXT,
+        level INTEGER NOT NULL DEFAULT 1
       );
 
       CREATE TABLE IF NOT EXISTS sales (
@@ -54,7 +53,6 @@ Future<AppDb> initDb() async {
         item_name TEXT NOT NULL,
         quantity INTEGER NOT NULL,
         price INTEGER NOT NULL DEFAULT 0,
-        points INTEGER NOT NULL DEFAULT 0,
         timestamp TEXT DEFAULT (CURRENT_TIMESTAMP)
       );
       
@@ -66,7 +64,6 @@ Future<AppDb> initDb() async {
         item_name TEXT,
         quantity INTEGER DEFAULT 0,
         price INTEGER DEFAULT 0,
-        points INTEGER DEFAULT 0,
         timestamp TEXT DEFAULT (CURRENT_TIMESTAMP)
       );
     ''');
@@ -75,19 +72,11 @@ Future<AppDb> initDb() async {
     print('initDb: schema ensure failed: $e\n$st');
   }
 
-  // Defensive migration: if an older DB exists without the `points` column on
-  // items, try to add it. SQLite will throw if the column already exists; we
-  // catch and ignore errors to keep init idempotent.
+  // Defensive migration: add level column to members if missing (for older DBs)
   try {
-    await appDb.customStatement('ALTER TABLE items ADD COLUMN points INTEGER NOT NULL DEFAULT 0;');
-  } catch (_) {
-    // ignore: avoid_print
-    // Column probably already exists or ALTER not applicable — safe to continue.
-  }
-
-  // Defensive migration: ensure sales.points exists (older DBs may lack it)
-  try {
-    await appDb.customStatement('ALTER TABLE sales ADD COLUMN points INTEGER NOT NULL DEFAULT 0;');
+    await appDb.customStatement(
+      'ALTER TABLE members ADD COLUMN level INTEGER NOT NULL DEFAULT 1;',
+    );
   } catch (_) {
     // ignore: avoid_print
     // Column probably already exists — safe to continue.
@@ -95,7 +84,9 @@ Future<AppDb> initDb() async {
 
   // Defensive migration: add referrer_id to members if missing (nullable)
   try {
-    await appDb.customStatement('ALTER TABLE members ADD COLUMN referrer_id INTEGER;');
+    await appDb.customStatement(
+      'ALTER TABLE members ADD COLUMN referrer_id INTEGER;',
+    );
   } catch (_) {
     // ignore: avoid_print
     // Column probably already exists or ALTER not applicable — safe to continue.
@@ -103,10 +94,26 @@ Future<AppDb> initDb() async {
 
   // Defensive migration: add sale_id to member_transactions if missing (nullable)
   try {
-    await appDb.customStatement('ALTER TABLE member_transactions ADD COLUMN sale_id INTEGER;');
+    await appDb.customStatement(
+      'ALTER TABLE member_transactions ADD COLUMN sale_id INTEGER;',
+    );
   } catch (_) {
     // ignore: avoid_print
     // Column probably already exists — safe to continue.
+  }
+
+  // Defensive migration: ensure reseller_levels table exists
+  try {
+    await appDb.customStatement(
+      'CREATE TABLE IF NOT EXISTS reseller_levels ('
+      'level INTEGER PRIMARY KEY,'
+      'remittance_min INTEGER NOT NULL DEFAULT 0,'
+      'remittance_max INTEGER NOT NULL DEFAULT 0,'
+      'cash_advance INTEGER NOT NULL DEFAULT 0'
+      ')',
+    );
+  } catch (_) {
+    // ignore: avoid_print
   }
 
   return appDb;

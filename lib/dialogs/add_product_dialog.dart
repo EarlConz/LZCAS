@@ -13,19 +13,16 @@ class _AddProductDialogState extends State<AddProductDialog> {
   final nameController = TextEditingController();
   final categoryController = TextEditingController();
   final stockController = TextEditingController();
-  final pointsController = TextEditingController();
 
   final _nameKey = GlobalKey<FormFieldState>();
   final _categoryKey = GlobalKey<FormFieldState>();
   final _stockKey = GlobalKey<FormFieldState>();
-  final _pointsKey = GlobalKey<FormFieldState>();
 
   @override
   void dispose() {
     nameController.dispose();
     categoryController.dispose();
     stockController.dispose();
-    pointsController.dispose();
     super.dispose();
   }
 
@@ -41,10 +38,6 @@ class _AddProductDialogState extends State<AddProductDialog> {
     }
     if (stockController.text.trim().isEmpty) {
       _stockKey.currentState?.validate();
-      valid = false;
-    }
-    if (pointsController.text.trim().isEmpty) {
-      _pointsKey.currentState?.validate();
       valid = false;
     }
     return valid;
@@ -133,23 +126,6 @@ class _AddProductDialogState extends State<AddProductDialog> {
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 14),
-              TextFormField(
-                key: _pointsKey,
-                controller: pointsController,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-                decoration: InputDecoration(
-                  labelText: 'Points per item',
-                  hintText: '0',
-                  prefixIcon: const Icon(Icons.stars_outlined),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) => _submit(),
-              ),
             ],
           ),
         ),
@@ -186,13 +162,10 @@ class _AddProductDialogState extends State<AddProductDialog> {
     final name = nameController.text.trim();
     final category = categoryController.text.trim();
     final stock = int.tryParse(stockController.text) ?? 0;
-    final points = int.tryParse(pointsController.text) ?? 0;
-
     widget.onProductAdded({
       'name': name,
       'category': category,
       'stock': stock,
-      'points': points,
       'lastUpdated': DateTime.now(),
       'status': stock <= 0
           ? 'Out of Stock'

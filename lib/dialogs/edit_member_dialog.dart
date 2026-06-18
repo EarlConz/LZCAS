@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart' as fs;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member;
@@ -90,7 +92,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
       text: widget.member['address']?.toString() ?? '',
     );
     pointsController = TextEditingController(
-      text: widget.member['points']?.toString() ?? '0',
+      text: widget.member['level']?.toString() ?? '1',
     );
     _selectedReferrerId = widget.member['referrerId'] as int?;
     _selectedIdType = widget.member['idType']?.toString();
@@ -112,22 +114,38 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     );
     if (files.isEmpty || !mounted) return;
 
-    final sourcePath = files.first.path;
-    if (sourcePath == null) return;
+    final xfile = files.first;
 
+    if (kIsWeb) {
+      try {
+        final bytes = await xfile.readAsBytes();
+        final ext = xfile.name.split('.').last.toLowerCase();
+        final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
+        final base64 = base64Encode(bytes);
+        setState(() => _selectedIdImagePath = 'data:$mime;base64,$base64');
+      } catch (_) {
+        setState(() => _selectedIdImagePath = null);
+      }
+      return;
+    }
+
+    // Native: read bytes and write to app documents directory
     try {
+      final bytes = await xfile.readAsBytes();
       final docsDir = await getApplicationDocumentsDirectory();
       final memberIdDir = Directory(p.join(docsDir.path, 'member_ids'));
       if (!await memberIdDir.exists()) {
         await memberIdDir.create(recursive: true);
       }
       final memberId = widget.member['id'] as int? ?? 0;
-      final ext = p.extension(sourcePath);
+      final ext = xfile.name.contains('.')
+          ? p.extension(xfile.name)
+          : '.jpg';
       final destPath = p.join(memberIdDir.path, '$memberId$ext');
-      await File(sourcePath).copy(destPath);
+      await File(destPath).writeAsBytes(bytes);
       setState(() => _selectedIdImagePath = destPath);
     } catch (_) {
-      setState(() => _selectedIdImagePath = sourcePath);
+      setState(() => _selectedIdImagePath = xfile.path);
     }
   }
 
@@ -261,16 +279,17 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                 ),
               ),
               const SizedBox(height: 14),
-              TextFormField(
-                controller: pointsController,
-                decoration: InputDecoration(
-                  labelText: 'Points',
-                  prefixIcon: const Icon(Icons.stars_outlined),
-                  border: inputBorder,
+              if ((widget.member['role'] ?? '') == 'Verified Reseller')
+                TextFormField(
+                  controller: pointsController,
+                  decoration: InputDecoration(
+                    labelText: 'Level (1-10)',
+                    prefixIcon: const Icon(Icons.stars_outlined),
+                    border: inputBorder,
+                  ),
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.next,
                 ),
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next,
-              ),
 
               const SizedBox(height: 20),
               // ── Contact section ───────────────────────────
@@ -408,7 +427,9 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                             const SizedBox(width: 8),
                             Flexible(
                               child: Text(
-                                p.basename(_selectedIdImagePath!),
+                                kIsWeb
+                                    ? 'Image selected'
+                                    : p.basename(_selectedIdImagePath!),
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall,
                               ),
@@ -464,7 +485,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
           : contactController.text.replaceAll(' ', '').trim(),
       'birthday': birthdayController.text.trim(),
       'address': addressController.text.trim(),
-      'points': int.tryParse(pointsController.text) ?? 0,
+      'level': int.tryParse(pointsController.text) ?? 1,
       'referrer': _selectedReferrerId != null
           ? (_members
                 .firstWhere(
@@ -479,7 +500,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                     birthday: null,
                     address: null,
                     referrer: null,
-                    points: 0,
+                    level: 1,
                     qr: null,
                   ),
                 )

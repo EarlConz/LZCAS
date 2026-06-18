@@ -7,7 +7,6 @@ part 'app_db.g.dart';
 class Items extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get name => text()();
-  IntColumn get points => integer().withDefault(const Constant(0))();
   TextColumn get category => text().nullable()();
   IntColumn get stock => integer().withDefault(const Constant(0))();
   DateTimeColumn get lastUpdated => dateTime().nullable()();
@@ -24,14 +23,14 @@ class Members extends Table {
   TextColumn get birthday => text().nullable()();
   TextColumn get address => text().nullable()();
   TextColumn get referrer => text().nullable()();
-  // New nullable integer foreign key to store the member id of the referrer.
   IntColumn get referrerId => integer().nullable()();
-  IntColumn get points => integer().withDefault(const Constant(0))();
   TextColumn get qr => text().nullable()();
   // Verified reseller fields
   TextColumn get idType => text().nullable()();
   TextColumn get idNumber => text().nullable()();
   TextColumn get idImagePath => text().nullable()();
+  // Reseller level (1-10, default 1). Only meaningful for verified resellers.
+  IntColumn get level => integer().withDefault(const Constant(1))();
 }
 
 class Sales extends Table {
@@ -40,17 +39,26 @@ class Sales extends Table {
   IntColumn get buyerId => integer().nullable()();
   TextColumn get itemName => text()();
   IntColumn get quantity => integer()();
-  IntColumn get points => integer().withDefault(const Constant(0))();
   IntColumn get price => integer().withDefault(const Constant(0))();
   DateTimeColumn get timestamp => dateTime().withDefault(currentDateAndTime)();
 }
 
-@DriftDatabase(tables: [Items, Members, Sales])
+class ResellerLevels extends Table {
+  IntColumn get level => integer()();
+  IntColumn get remittanceMin => integer().withDefault(const Constant(0))();
+  IntColumn get remittanceMax => integer().withDefault(const Constant(0))();
+  IntColumn get cashAdvance => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {level};
+}
+
+@DriftDatabase(tables: [Items, Members, Sales, ResellerLevels])
 class AppDb extends _$AppDb {
   AppDb(super.e);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -121,6 +129,28 @@ class AppDb extends _$AppDb {
         try {
           await m.database.customStatement(
             'ALTER TABLE members ADD COLUMN id_image_path TEXT',
+          );
+        } catch (e) {
+          // ignore
+        }
+      }
+      // If upgrading from schema < 5, add reseller level column and reseller_levels table
+      if (from < 5) {
+        try {
+          await m.database.customStatement(
+            'ALTER TABLE members ADD COLUMN level INTEGER DEFAULT 1',
+          );
+        } catch (e) {
+          // ignore
+        }
+        try {
+          await m.database.customStatement(
+            'CREATE TABLE IF NOT EXISTS reseller_levels ('
+            'level INTEGER PRIMARY KEY,'
+            'remittance_min INTEGER NOT NULL DEFAULT 0,'
+            'remittance_max INTEGER NOT NULL DEFAULT 0,'
+            'cash_advance INTEGER NOT NULL DEFAULT 0'
+            ')',
           );
         } catch (e) {
           // ignore

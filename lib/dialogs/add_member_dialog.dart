@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart' as fs;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member;
@@ -72,27 +74,41 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     );
     if (files.isEmpty || !mounted) return;
 
-    final sourcePath = files.first.path;
-    if (sourcePath == null) return;
+    final xfile = files.first;
 
-    // Copy to app documents directory for local persistence
+    if (kIsWeb) {
+      // Web: read bytes and store as base64 data URL (dart:io File is unavailable)
+      try {
+        final bytes = await xfile.readAsBytes();
+        final ext = xfile.name.split('.').last.toLowerCase();
+        final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
+        final base64 = base64Encode(bytes);
+        setState(() => _selectedIdImagePath = 'data:$mime;base64,$base64');
+      } catch (_) {
+        setState(() => _selectedIdImagePath = null);
+      }
+      return;
+    }
+
+    // Native: read bytes and write to app documents directory
     try {
+      final bytes = await xfile.readAsBytes();
       final docsDir = await getApplicationDocumentsDirectory();
       final memberIdDir = Directory(p.join(docsDir.path, 'member_ids'));
       if (!await memberIdDir.exists()) {
         await memberIdDir.create(recursive: true);
       }
-      // Use a temp name; real name will be set with memberId after creation
+      final ext = xfile.name.contains('.')
+          ? p.extension(xfile.name)
+          : '.jpg';
       final destPath = p.join(
         memberIdDir.path,
-        'new_${DateTime.now().millisecondsSinceEpoch}${p.extension(sourcePath)}',
+        'new_${DateTime.now().millisecondsSinceEpoch}$ext',
       );
-      await File(sourcePath).copy(destPath);
-
+      await File(destPath).writeAsBytes(bytes);
       setState(() => _selectedIdImagePath = destPath);
     } catch (_) {
-      // Fall back to using the original path
-      setState(() => _selectedIdImagePath = sourcePath);
+      setState(() => _selectedIdImagePath = xfile.path);
     }
   }
 
@@ -319,7 +335,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                             const SizedBox(width: 8),
                             Flexible(
                               child: Text(
-                                p.basename(_selectedIdImagePath!),
+                                kIsWeb
+                                    ? 'Image selected'
+                                    : p.basename(_selectedIdImagePath!),
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall,
                               ),
@@ -376,7 +394,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                         birthday: null,
                         address: null,
                         referrer: null,
-                        points: 0,
+                        level: 1,
                         qr: null,
                       ),
                     );
@@ -430,7 +448,6 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
       'address': addressController.text.trim(),
       'referrer': _selectedReferrerName,
       'referrerId': _selectedReferrerId,
-      'points': 0,
       'role': 'Member',
       'idType': _selectedIdType,
       'idNumber': idNumberController.text.trim().isEmpty

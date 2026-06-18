@@ -350,9 +350,6 @@ class _InventoryTableState extends State<InventoryTable> {
         onProductAdded: (p) async {
           await repository.addItem(
             name: p['name']?.toString() ?? '',
-            points: (p['points'] ?? 0) is int
-                ? p['points']
-                : int.tryParse(p['points']?.toString() ?? '0') ?? 0,
             category: p['category']?.toString(),
             stock: (p['stock'] ?? 0) is int
                 ? p['stock']
@@ -423,7 +420,6 @@ class _InventoryTableState extends State<InventoryTable> {
     final expected = [
       'id',
       'name',
-      'points',
       'category',
       'stock',
       'lastupdated',

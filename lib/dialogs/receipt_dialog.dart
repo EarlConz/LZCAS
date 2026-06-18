@@ -12,17 +12,14 @@ class ReceiptLineItem {
   final String itemName;
   final int quantity;
   final int unitPrice;
-  final int points;
 
   const ReceiptLineItem({
     required this.itemName,
     required this.quantity,
     required this.unitPrice,
-    required this.points,
   });
 
   int get subtotal => unitPrice * quantity;
-  int get subtotalPoints => points * quantity;
 }
 
 /// A responsive receipt dialog with print support.
@@ -45,7 +42,6 @@ class ReceiptDialog extends StatefulWidget {
           itemName: sale.itemName,
           quantity: sale.quantity,
           unitPrice: sale.price,
-          points: sale.points,
         ),
       ],
       buyerName: buyerName,
@@ -114,10 +110,6 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
       0,
       (sum, i) => sum + i.subtotal,
     );
-    final totalPoints = widget.lineItems.fold<int>(
-      0,
-      (sum, i) => sum + i.subtotalPoints,
-    );
     final fmtDate = DateFormat(
       'MMMM dd, yyyy  hh:mm a',
     ).format(widget.transactionTime);
@@ -179,23 +171,6 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                   child: Column(
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Points earned',
-                            style: theme.textTheme.bodyMedium,
-                          ),
-                          Text(
-                            '$totalPoints pts',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: colorScheme.secondary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [

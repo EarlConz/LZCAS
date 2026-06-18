@@ -5,7 +5,6 @@ import 'dart:convert';
 import '../db/db.dart' show Sale, repository;
 import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
-import '../buttons/redeembutton.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'dart:io';
@@ -35,7 +34,6 @@ class TransactionGroup {
 
   int get itemCount => sales.length;
   int get totalPrice => sales.fold(0, (sum, s) => sum + s.price);
-  int get totalPoints => sales.fold(0, (sum, s) => sum + s.points);
 }
 
 // ── Table widget ──────────────────────────────────────────────────────
@@ -289,8 +287,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete transaction'),
         content: Text(
-          'Delete this transaction? ($group.itemCount $itemWord, '
-          '₱${group.totalPrice}, ${group.totalPoints} pts)',
+          'Delete this transaction? (${group.itemCount} $itemWord, '
+          '₱${group.totalPrice})',
         ),
         actions: [
           TextButton(
@@ -316,10 +314,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
           context: localCtx,
           builder: (ctx) => AlertDialog(
             title: const Text('Delete failed'),
-            content: const Text(
-              'Cannot delete because the buyer does not have enough '
-              'points to reverse the award.',
-            ),
+            content: const Text('Cannot delete this transaction.'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
@@ -354,7 +349,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
         itemName: s.itemName,
         quantity: s.quantity,
         unitPrice: s.price,
-        points: s.points,
       );
     }).toList();
     if (!mounted || !localCtx.mounted) return;
@@ -398,8 +392,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
                         const SizedBox(width: 8),
                         const SellButton(),
                         const SizedBox(width: 8),
-                        const RedeemButton(),
-                        const SizedBox(width: 8),
                         CustomElevatedButton(
                           onPressed: () => _onExportCsvPressed(context),
                           icon: const Icon(Icons.upload_file),
@@ -437,8 +429,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             const SellButton(compact: true),
-                            const SizedBox(width: 8),
-                            const RedeemButton(compact: true),
                             const SizedBox(width: 8),
                             IconButton.filled(
                               tooltip: 'Export CSV',
@@ -513,7 +503,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
                 DataColumn(label: Text('Date')),
                 DataColumn(label: Text('Items')),
                 DataColumn(label: Text('Total')),
-                DataColumn(label: Text('Points')),
                 DataColumn(label: Text('Actions')),
               ],
               source: _TxnDataSource(
@@ -616,15 +605,11 @@ class _TxnListCard extends StatelessWidget {
               children: [
                 _Pill(
                   icon: Icons.inventory_2_outlined,
-                  text: '$group.itemCount $itemWord',
+                  text: '${group.itemCount} $itemWord',
                 ),
                 _Pill(
                   icon: Icons.payments_outlined,
                   text: '₱${group.totalPrice}',
-                ),
-                _Pill(
-                  icon: Icons.stars_outlined,
-                  text: '${group.totalPoints} pts',
                 ),
               ],
             ),
@@ -720,7 +705,6 @@ class _TxnDataSource extends DataTableSource {
         DataCell(Text(formatDisplayDate(group.timestamp))),
         DataCell(Text('${group.itemCount} $itemWord')),
         DataCell(Text('₱${group.totalPrice}')),
-        DataCell(Text('${group.totalPoints} pts')),
         DataCell(_buildActions(_context, group)),
       ],
     );
