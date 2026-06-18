@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lzcas/db/db.dart'
-    show Sale, repository, inventoryItemsFromRows, membersFromRows, Member;
+    show Sale, repository, inventoryItemsFromRows, membersFromRows;
 
 class SaleCartEditor extends StatefulWidget {
   final Sale seedSale;
@@ -51,7 +51,6 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
           itemId: 0,
           itemName: '',
           quantity: 1,
-          points: 0,
           price: 0,
           timestamp: DateTime.now(),
         ),
@@ -60,52 +59,6 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
   }
 
   Future<String?> _saveAll() async {
-    final all = await repository.fetchSales();
-    final originals = all
-        .where((s) => s.timestamp.toUtc() == widget.seedSale.timestamp.toUtc())
-        .toList();
-    final originalPoints = originals.fold<int>(0, (acc, s) => acc + (s.points));
-    final newPoints = lines.fold<int>(0, (acc, l) => acc + (l.points));
-    final delta = newPoints - originalPoints;
-
-    if (delta < 0 && _selectedBuyerId != null) {
-      final buyer = await repository.getMemberById(_selectedBuyerId!);
-      if (buyer != null) {
-        Member? refMember;
-        if (buyer.referrerId != null) {
-          refMember = await repository.getMemberById(buyer.referrerId!);
-        }
-        if (refMember == null) {
-          final refRaw = (buyer.referrer ?? '').toString();
-          if (refRaw.isNotEmpty) {
-            final refId = int.tryParse(refRaw);
-            if (refId != null) {
-              refMember = await repository.getMemberById(refId);
-            }
-            if (refMember == null) {
-              final mems = await repository.fetchMembers();
-              try {
-                refMember = mems.firstWhere((r) {
-                  final name = '${r.firstName ?? ''} ${r.lastName ?? ''}'
-                      .trim();
-                  return name.toLowerCase() == refRaw.toLowerCase();
-                });
-              } catch (_) {
-                refMember = null;
-              }
-            }
-          }
-        }
-
-        if (refMember != null) {
-          final needed = -delta;
-          if (refMember.points < needed) {
-            return '${refMember.firstName} ${refMember.lastName} has only ${refMember.points} points but you are trying to deduct $needed points.';
-          }
-        }
-      }
-    }
-
     final newLines = lines.map((l) => l).toList();
     final err = await repository.editSaleGroup(
       timestamp: widget.seedSale.timestamp,
@@ -124,10 +77,7 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
     final isNarrow = size.width < 520;
 
     return AlertDialog(
-      title: Text(
-        'Edit Sale',
-        style: TextStyle(fontSize: isNarrow ? 18 : 20),
-      ),
+      title: Text('Edit Sale', style: TextStyle(fontSize: isNarrow ? 18 : 20)),
       content: SizedBox(
         width: isNarrow ? double.maxFinite : 700,
         height: isNarrow ? size.height * 0.85 : size.height * 0.72,
@@ -143,7 +93,8 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                       (m) => DropdownMenuItem(
                         value: m['id'] as int?,
                         child: Text(
-                          '${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'.trim(),
+                          '${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'
+                              .trim(),
                         ),
                       ),
                     )
@@ -164,9 +115,12 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                         child: Column(
                           children: [
                             DropdownButtonFormField<String>(
-                              initialValue:
-                                  line.itemName.isEmpty ? null : line.itemName,
-                              decoration: const InputDecoration(labelText: 'Item'),
+                              initialValue: line.itemName.isEmpty
+                                  ? null
+                                  : line.itemName,
+                              decoration: const InputDecoration(
+                                labelText: 'Item',
+                              ),
                               items: _items
                                   .map(
                                     (i) => DropdownMenuItem(
@@ -181,17 +135,11 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                                   (it) => it['name'] == v,
                                   orElse: () => <String, Object>{},
                                 );
-                                final perUnit =
-                                    (selected['points'] as int?) ?? 0;
                                 final id = (selected['id'] as int?) ?? 0;
-                                final qty =
-                                    lines[idx].quantity > 0 ? lines[idx].quantity : 1;
-                                final totalPts = perUnit * qty;
                                 setState(
                                   () => lines[idx] = lines[idx].copyWith(
                                     itemName: v,
                                     itemId: id,
-                                    points: totalPts,
                                   ),
                                 );
                               },
@@ -211,21 +159,9 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                                     ),
                                     onChanged: (v) {
                                       final newQ = int.tryParse(v) ?? 1;
-                                      int perUnit = 0;
-                                      try {
-                                        final match = _items.firstWhere(
-                                          (it) => (it['id'] as int?) == lines[idx].itemId,
-                                          orElse: () => <String, Object>{},
-                                        );
-                                        perUnit = (match['points'] as int?) ?? 0;
-                                      } catch (_) {
-                                        perUnit = 0;
-                                      }
-                                      final totalPts = perUnit * newQ;
                                       setState(
                                         () => lines[idx] = lines[idx].copyWith(
                                           quantity: newQ,
-                                          points: totalPts,
                                         ),
                                       );
                                     },
@@ -256,7 +192,10 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
                                 TextButton.icon(
-                                  icon: const Icon(Icons.delete, color: Colors.red),
+                                  icon: const Icon(
+                                    Icons.delete,
+                                    color: Colors.red,
+                                  ),
                                   label: const Text('Remove'),
                                   onPressed: () =>
                                       setState(() => lines.removeAt(idx)),

@@ -184,11 +184,6 @@ class _SellDialogState extends State<_SellDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final totalPoints = cart.fold<int>(
-      0,
-      (acc, e) =>
-          acc + ((e['points'] as int? ?? 0) * (e['quantity'] as int? ?? 0)),
-    );
     final totalPrice = cart.fold<int>(0, (acc, e) {
       final priceStr = (e['price'] ?? '').toString();
       final p = int.tryParse(priceStr) ?? 0;
@@ -342,18 +337,12 @@ class _SellDialogState extends State<_SellDialog> {
                           _showError('Invalid item');
                           return;
                         }
-                        // fetch item to get points and default price (non-blocking best-effort)
-                        repository.fetchItems().then((rows) {
-                          final found = inventoryItemsFromRows(rows).firstWhere(
-                            (r) => r['name'] == selectedItem,
-                            orElse: () => <String, Object>{},
-                          );
-                          final pts = (found['points'] as int?) ?? 0;
+                        // fetch item for validation (non-blocking best-effort)
+                        repository.fetchItems().then((_) {
                           setState(() {
                             cart.add({
                               'item': selectedItem,
                               'quantity': quantity,
-                              'points': pts,
                               'price': '',
                               'priceController': TextEditingController(),
                             });
@@ -382,9 +371,7 @@ class _SellDialogState extends State<_SellDialog> {
                               Expanded(
                                 child: ListTile(
                                   title: Text(entry['item']),
-                                  subtitle: Text(
-                                    'Qty: ${entry['quantity']}   Pts: ${entry['points']}',
-                                  ),
+                                  subtitle: Text('Qty: ${entry['quantity']}'),
                                 ),
                               ),
                               SizedBox(
@@ -426,19 +413,7 @@ class _SellDialogState extends State<_SellDialog> {
                     padding: const EdgeInsets.only(top: 12.0),
                     child: Row(
                       children: [
-                        // left: points to receive
-                        Expanded(
-                          child: Text(
-                            'Points to receive: $totalPoints',
-                            style: TextStyle(
-                              fontStyle: FontStyle.italic,
-                              color: Theme.of(
-                                context,
-                              ).textTheme.bodyMedium?.color,
-                            ),
-                          ),
-                        ),
-                        // right: total price (we'll also show above confirm)
+                        const Spacer(),
                         Text(
                           'Total Price: $totalPrice',
                           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -467,8 +442,7 @@ class _SellDialogState extends State<_SellDialog> {
         ElevatedButton(
           onPressed: isCartValid()
               ? () async {
-                  final safeContext = context; // capture before awaits
-                  // persist sales and update stock
+                  final safeContext = context;
                   final transactionTs = DateTime.now();
                   for (var entry in cart) {
                     final dbItem = (await repository.fetchItems()).firstWhere(
@@ -486,36 +460,14 @@ class _SellDialogState extends State<_SellDialog> {
 
                     final priceStr = (entry['price'] ?? '').toString();
                     final price = int.tryParse(priceStr) ?? 0;
-                    final ptsPerUnit = entry['points'] as int? ?? 0;
-                    final totalForSale = ptsPerUnit * q;
                     await repository.addSale(
                       itemId: dbItem.id,
                       itemName: dbItem.name,
                       quantity: q,
                       price: price,
-                      points: totalForSale,
                       timestamp: transactionTs,
                       buyerId: selectedBuyerId,
                     );
-                  }
-
-                  // Award points to the buyer (points per product * quantity) if selected
-                  if (selectedBuyerId != null && totalPoints > 0) {
-                    try {
-                      final buyer = await repository.getMemberById(
-                        selectedBuyerId!,
-                      );
-                      if (buyer != null) {
-                        final updatedBuyer = buyer.copyWith(
-                          points: buyer.points + totalPoints,
-                        );
-                        await repository.updateMember(updatedBuyer);
-                      }
-                    } catch (e) {
-                      // ignore failures but log for debugging
-                      // ignore: avoid_print
-                      print('Failed to award points to buyer: $e');
-                    }
                   }
 
                   widget.onSaleConfirmed();
@@ -528,7 +480,6 @@ class _SellDialogState extends State<_SellDialog> {
                       itemName: entry['item'] as String? ?? 'Unknown',
                       quantity: entry['quantity'] as int? ?? 0,
                       unitPrice: int.tryParse(priceStr) ?? 0,
-                      points: entry['points'] as int? ?? 0,
                     );
                   }).toList();
 

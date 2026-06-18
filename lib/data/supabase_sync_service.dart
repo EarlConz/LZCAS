@@ -182,7 +182,6 @@ class SupabaseSyncService {
     return {
       'id': item.id,
       'name': item.name,
-      'points': item.points,
       'category': item.category,
       'stock': item.stock,
       'last_updated': item.lastUpdated?.toIso8601String(),
@@ -202,7 +201,7 @@ class SupabaseSyncService {
       'address': member.address,
       'referrer': member.referrer,
       'referrer_id': member.referrerId,
-      'points': member.points,
+      'level': member.level,
       'qr': member.qr,
       'id_type': member.idType,
       'id_number': member.idNumber,
@@ -217,7 +216,6 @@ class SupabaseSyncService {
       'buyer_id': sale.buyerId,
       'item_name': sale.itemName,
       'quantity': sale.quantity,
-      'points': sale.points,
       'price': sale.price,
       'timestamp': sale.timestamp.toIso8601String(),
     };
@@ -227,7 +225,6 @@ class SupabaseSyncService {
     return ItemsCompanion(
       id: Value(_readInt(row['id'])),
       name: Value(_readString(row['name']) ?? ''),
-      points: Value(_readInt(row['points'])),
       category: Value(_readString(row['category'])),
       stock: Value(_readInt(row['stock'])),
       lastUpdated: Value(_readDateTime(row['last_updated'])),
@@ -247,7 +244,7 @@ class SupabaseSyncService {
       address: Value(_readString(row['address'])),
       referrer: Value(_readString(row['referrer'])),
       referrerId: Value(_readNullableInt(row['referrer_id'])),
-      points: Value(_readInt(row['points'])),
+      level: Value(_readInt(row['level'])),
       qr: Value(_readString(row['qr'])),
       idType: Value(_readString(row['id_type'])),
       idNumber: Value(_readString(row['id_number'])),
@@ -262,7 +259,6 @@ class SupabaseSyncService {
       buyerId: Value(_readNullableInt(row['buyer_id'])),
       itemName: Value(_readString(row['item_name']) ?? ''),
       quantity: Value(_readInt(row['quantity'])),
-      points: Value(_readInt(row['points'])),
       price: Value(_readInt(row['price'])),
       timestamp: Value(_readDateTime(row['timestamp']) ?? DateTime.now()),
     );

@@ -59,13 +59,12 @@ Future<String> exportItemsToCsvFile(AppDb db) async {
 Future<String> exportItemsToCsvString(AppDb db) async {
   final rows = await db.getAllItems();
   final fields = [
-    ['id', 'name', 'points', 'category', 'stock', 'lastUpdated', 'status'],
+    ['id', 'name', 'category', 'stock', 'lastUpdated', 'status'],
   ];
   for (final r in rows) {
     fields.add([
       r.id.toString(),
       r.name,
-      r.points.toString(),
       r.category ?? '',
       r.stock.toString(),
       r.lastUpdated?.toIso8601String() ?? '',
@@ -93,7 +92,6 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
     }
     final name = (map['name'] ?? '').trim();
     if (name.isEmpty) continue;
-    final points = int.tryParse((map['points'] ?? '').trim()) ?? 0;
     final category = (map['category'] ?? '').trim();
     final stock = int.tryParse((map['stock'] ?? '').trim()) ?? 0;
     final lastUpdated =
@@ -133,7 +131,6 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
     }
     if (byName != null) {
       final updated = byName.copyWith(
-        points: points,
         category: Value(category),
         stock: stock,
         lastUpdated: Value(lastUpdated),
@@ -148,7 +145,6 @@ Future<int> importItemsFromCsvString(AppDb db, String csv) async {
     // Insert new
     final companion = ItemsCompanion.insert(
       name: name,
-      points: Value(points),
       category: Value(category.isEmpty ? null : category),
       stock: Value(stock),
       lastUpdated: Value(lastUpdated),
@@ -188,7 +184,7 @@ Future<String> exportMembersToCsvString(AppDb db) async {
       'birthday',
       'address',
       'referrer',
-      'points',
+      'level',
       'qr',
       'idType',
       'idNumber',
@@ -197,18 +193,13 @@ Future<String> exportMembersToCsvString(AppDb db) async {
     ],
   ];
   for (final r in rows) {
-    // Serialize transactions: itemName|quantity|price|points|timestamp;... using sales for this member
+    // Serialize transactions: itemId|itemName|quantity|price|timestamp;...
     final allSales = await db.getAllSales();
     final sales = allSales.where((s) => s.buyerId == r.id).toList();
     final txParts = <String>[];
     for (final s in sales) {
       final ts = s.timestamp.toIso8601String();
-      // Include itemId as the first field so imports can match items reliably.
-      // Format (with id): itemId|itemName|quantity|price|points|timestamp
-      // Format (without id): itemName|quantity|price|points|timestamp (still supported by parser)
-      txParts.add(
-        '${s.itemId}|${s.itemName}|${s.quantity}|${s.price}|${s.points}|$ts',
-      );
+      txParts.add('${s.itemId}|${s.itemName}|${s.quantity}|${s.price}|$ts');
     }
     final txField = txParts.join(';');
 
@@ -222,7 +213,7 @@ Future<String> exportMembersToCsvString(AppDb db) async {
       r.birthday ?? '',
       r.address ?? '',
       r.referrer ?? '',
-      r.points.toString(),
+      r.level.toString(),
       r.qr ?? '',
       r.idType ?? '',
       r.idNumber ?? '',
@@ -291,11 +282,10 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
                 ? null
                 : (map['referrer'] ?? '').trim(),
           ),
-          points: int.tryParse((map['points'] ?? '').trim()) ?? 0,
+          level: int.tryParse((map['level'] ?? '').trim()) ?? 1,
         );
         await db.updateMemberData(updated);
         memberId = existing.id;
-        // do not count updates as inserted
       }
     }
 
@@ -344,11 +334,10 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
               ? null
               : (map['referrer'] ?? '').trim(),
         ),
-        points: int.tryParse((map['points'] ?? '').trim()) ?? 0,
+        level: int.tryParse((map['level'] ?? '').trim()) ?? 1,
       );
       await db.updateMemberData(updated);
       memberId = byName.id;
-      // do not count updates as inserted
       continue;
     }
 
@@ -383,7 +372,7 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
             ? null
             : (map['referrer'] ?? '').trim(),
       ),
-      points: Value(int.tryParse((map['points'] ?? '').trim()) ?? 0),
+      level: Value(int.tryParse((map['level'] ?? '').trim()) ?? 1),
       qr: Value(
         (map['qr'] ?? '').trim().isEmpty
             ? _generateMemberQrToken()
@@ -456,14 +445,12 @@ Future<int> importMembersFromCsvString(AppDb db, String csv) async {
           });
           if (duplicate) continue;
 
-          final computedPoints = (item.points * quantity).toInt();
           final saleComp = SalesCompanion.insert(
             itemId: item.id,
             buyerId: Value(memberId),
             itemName: itemName,
             quantity: quantity,
             price: Value(price),
-            points: Value(computedPoints),
             timestamp: Value(ts),
           );
           await db.insertSale(saleComp);
@@ -548,16 +535,7 @@ Future<String> exportSalesToCsvString(AppDb db) async {
   final rows = await db.getAllSales();
   // Include buyerId in exports so sales can be associated with the buyer on import.
   final fields = [
-    [
-      'id',
-      'itemId',
-      'buyerId',
-      'itemName',
-      'quantity',
-      'price',
-      'points',
-      'createdAt',
-    ],
+    ['id', 'itemId', 'buyerId', 'itemName', 'quantity', 'price', 'createdAt'],
   ];
   for (final r in rows) {
     fields.add([
@@ -567,7 +545,6 @@ Future<String> exportSalesToCsvString(AppDb db) async {
       r.itemName,
       r.quantity.toString(),
       r.price.toString(),
-      r.points.toString(),
       r.timestamp.toIso8601String(),
     ]);
   }
@@ -602,7 +579,6 @@ Future<int> importSalesFromCsvString(
     final itemName = norm['itemname'] ?? '';
     final quantity = int.tryParse(norm['quantity'] ?? '') ?? 0;
     final price = int.tryParse(norm['price'] ?? '') ?? 0;
-    final points = int.tryParse(norm['points'] ?? '') ?? 0;
 
     if (itemName.isEmpty) continue;
 
@@ -640,7 +616,7 @@ Future<int> importSalesFromCsvString(
         // Use NULLIF(?, -1) so we can pass -1 to indicate NULL for buyer_id
         final tsVal = (ts ?? DateTime.now()).millisecondsSinceEpoch;
         await db.customInsert(
-          'INSERT INTO sales (id, item_id, buyer_id, item_name, quantity, price, points, timestamp) VALUES (?,?,NULLIF(?, -1),?,?,?,?,?)',
+          'INSERT INTO sales (id, item_id, buyer_id, item_name, quantity, price, timestamp) VALUES (?,?,NULLIF(?, -1),?,?,?,?)',
           variables: [
             Variable.withInt(id),
             Variable.withInt(itemId),
@@ -648,7 +624,6 @@ Future<int> importSalesFromCsvString(
             Variable.withString(itemName),
             Variable.withInt(quantity),
             Variable.withInt(price),
-            Variable.withInt(points),
             Variable.withInt(tsVal),
           ],
         );
@@ -701,7 +676,6 @@ Future<int> importSalesFromCsvString(
         itemName: Value(itemName),
         quantity: Value(quantity),
         price: Value(price),
-        points: Value(points),
         timestamp: ts != null ? Value(ts) : const Value.absent(),
       );
       await db.insertSale(companion);

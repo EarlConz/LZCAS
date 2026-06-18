@@ -22,12 +22,6 @@ Future<void> main() async {
   repository = DbRepository(db);
   // Run one-off migrations at startup. Both are idempotent.
   try {
-    await repository.ensurePointsConsistency();
-  } catch (e) {
-    // ignore: avoid_print
-    print('ensurePointsConsistency failed: $e');
-  }
-  try {
     await repository.ensureVerifiedResellerConsistency();
   } catch (e) {
     // ignore: avoid_print

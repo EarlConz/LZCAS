@@ -1,12 +1,53 @@
 // ignore_for_file: unnecessary_underscores
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import 'interactive_member_avatar.dart';
 import '../utils/formatters.dart';
 import 'package:lzcas/db/db.dart';
+
+/// Build an image widget from either a file path (native) or a data URL (web).
+Widget buildIdImage(
+  BuildContext context,
+  String source, {
+  BoxFit fit = BoxFit.contain,
+  double? height,
+  double? width,
+}) {
+  if (source.startsWith('data:')) {
+    final commaIdx = source.indexOf(',');
+    if (commaIdx < 0) {
+      return const Icon(Icons.broken_image, size: 48);
+    }
+    final bytes = base64Decode(source.substring(commaIdx + 1));
+    return Image.memory(
+      Uint8List.fromList(bytes),
+      fit: fit,
+      height: height,
+      width: width,
+      errorBuilder: (_, __, ___) => Container(
+        height: 60,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: const Center(child: Text('Image not available')),
+      ),
+    );
+  }
+  return Image.file(
+    File(source),
+    fit: fit,
+    height: height,
+    width: width,
+    errorBuilder: (_, __, ___) => Container(
+      height: 60,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: const Center(child: Text('Image not available')),
+    ),
+  );
+}
 
 class MemberDetailsCard extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -152,7 +193,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             children: [
               Expanded(
                 child: InteractiveViewer(
-                  child: Image.file(File(imagePath), fit: BoxFit.contain),
+                  child: buildIdImage(context, imagePath, fit: BoxFit.contain),
                 ),
               ),
               TextButton(
@@ -287,11 +328,12 @@ class _MemberProfileSection extends StatelessWidget {
                   ? 'Verified Reseller'
                   : (member['role'] ?? 'Member').toString(),
             ),
-            _InfoPill(
-              icon: Icons.stars_outlined,
-              label: 'Points',
-              value: (member['points'] ?? 0).toString(),
-            ),
+            if ((member['role'] ?? '') == 'Verified Reseller')
+              _InfoPill(
+                icon: Icons.stars_outlined,
+                label: 'Level',
+                value: (member['level'] ?? 1).toString(),
+              ),
           ],
         ),
         const SizedBox(height: 14),
@@ -371,21 +413,12 @@ class _MemberProfileSection extends StatelessWidget {
                         onTap: () => onIdImageTap?.call(),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          child: Image.file(
-                            File(member['idImagePath'].toString()),
+                          child: buildIdImage(
+                            context,
+                            member['idImagePath'].toString(),
                             height: 120,
                             width: double.infinity,
                             fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => Container(
-                              height: 60,
-                              color: theme.colorScheme.surfaceContainerHighest,
-                              child: Center(
-                                child: Text(
-                                  'Image not available',
-                                  style: theme.textTheme.bodySmall,
-                                ),
-                              ),
-                            ),
                           ),
                         ),
                       ),
@@ -480,7 +513,7 @@ class _MemberTransactionHistory extends StatelessWidget {
             );
             final totalPoints = sales.fold<int>(
               0,
-              (sum, sale) => sum + sale.points,
+              (sum, sale) => sum + sale.price,
             );
             final totalPrice = sales.fold<int>(
               0,
@@ -611,7 +644,7 @@ class _TransactionRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  'Pts ${sale.points}',
+                  '₱${sale.price}',
                   style: theme.textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),

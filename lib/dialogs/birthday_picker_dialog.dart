@@ -34,7 +34,8 @@ Future<String?> showBirthdayPickerDialog(
 }) async {
   final selected = await showDialog<DateTime>(
     context: context,
-    builder: (_) => BirthdayPickerDialog(initialDate: parseBirthday(initialValue)),
+    builder: (_) =>
+        BirthdayPickerDialog(initialDate: parseBirthday(initialValue)),
   );
 
   if (selected == null) return null;
@@ -91,11 +92,18 @@ class _BirthdayPickerDialogState extends State<BirthdayPickerDialog> {
 
   List<DateTime?> _calendarDays() {
     final first = DateTime(_visibleMonth.year, _visibleMonth.month);
-    final daysInMonth = DateTime(_visibleMonth.year, _visibleMonth.month + 1, 0).day;
+    final daysInMonth = DateTime(
+      _visibleMonth.year,
+      _visibleMonth.month + 1,
+      0,
+    ).day;
     final leadingBlanks = first.weekday % 7;
     final cells = <DateTime?>[
       ...List<DateTime?>.filled(leadingBlanks, null),
-      ...List.generate(daysInMonth, (i) => DateTime(_visibleMonth.year, _visibleMonth.month, i + 1)),
+      ...List.generate(
+        daysInMonth,
+        (i) => DateTime(_visibleMonth.year, _visibleMonth.month, i + 1),
+      ),
     ];
 
     while (cells.length % 7 != 0) {
@@ -114,151 +122,168 @@ class _BirthdayPickerDialogState extends State<BirthdayPickerDialog> {
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Select Birthday',
-                      style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Clear birthday',
-                    onPressed: () => Navigator.pop(context, DateTime(1)),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Previous month',
-                        onPressed: () => _changeMonth(-1),
-                        icon: const Icon(Icons.chevron_left),
-                      ),
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          initialValue: _selectedYear,
-                          decoration: const InputDecoration(
-                            labelText: 'Year',
-                            isDense: true,
-                            border: OutlineInputBorder(),
-                          ),
-                          items: [
-                            for (var year = today.year; year >= 1900; year--)
-                              DropdownMenuItem(
-                                value: year,
-                                child: Text(year.toString()),
-                              ),
-                          ],
-                          onChanged: (year) {
-                            if (year != null) _changeYear(year);
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          initialValue: _visibleMonth.month,
-                          decoration: const InputDecoration(
-                            labelText: 'Month',
-                            isDense: true,
-                            border: OutlineInputBorder(),
-                          ),
-                          items: [
-                            for (var month = 1; month <= 12; month++)
-                              DropdownMenuItem(
-                                value: month,
-                                child: Text(
-                                  DateFormat('MMM').format(DateTime(2024, month)),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                          ],
-                          onChanged: (month) {
-                            if (month != null) _changeMonthTo(month);
-                          },
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Next month',
-                        onPressed: () => _changeMonth(1),
-                        icon: const Icon(Icons.chevron_right),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _monthFormat.format(_visibleMonth),
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 12),
-              GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 7,
-                mainAxisSpacing: 6,
-                crossAxisSpacing: 6,
-                childAspectRatio: 1.15,
-                children: [
-                  for (final day in weekdays)
-                    Center(
+        constraints: BoxConstraints(
+          maxWidth: 380,
+          maxHeight: MediaQuery.of(context).size.height * 0.75,
+        ),
+        child: ClipRect(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
                       child: Text(
-                        _weekdayFormat.format(day).substring(0, 1),
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
+                        'Select Birthday',
+                        style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
-                  for (final date in _calendarDays()) _DayCell(
-                    date: date,
-                    isToday: date != null && _isSameDay(date, today),
-                    isSelected: date != null && _selectedDate != null && _isSameDay(date, _selectedDate!),
-                    onTap: date == null
-                        ? null
-                        : () {
-                            setState(() => _selectedDate = date);
-                          },
+                    IconButton(
+                      tooltip: 'Clear birthday',
+                      onPressed: () => Navigator.pop(context, DateTime(1)),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Previous month',
+                          onPressed: () => _changeMonth(-1),
+                          icon: const Icon(Icons.chevron_left),
+                        ),
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            initialValue: _selectedYear,
+                            decoration: const InputDecoration(
+                              labelText: 'Year',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                            ),
+                            items: [
+                              for (var year = today.year; year >= 1900; year--)
+                                DropdownMenuItem(
+                                  value: year,
+                                  child: Text(year.toString()),
+                                ),
+                            ],
+                            onChanged: (year) {
+                              if (year != null) _changeYear(year);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            initialValue: _visibleMonth.month,
+                            decoration: const InputDecoration(
+                              labelText: 'Month',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                            ),
+                            items: [
+                              for (var month = 1; month <= 12; month++)
+                                DropdownMenuItem(
+                                  value: month,
+                                  child: Text(
+                                    DateFormat(
+                                      'MMM',
+                                    ).format(DateTime(2024, month)),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                            ],
+                            onChanged: (month) {
+                              if (month != null) _changeMonthTo(month);
+                            },
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Next month',
+                          onPressed: () => _changeMonth(1),
+                          icon: const Icon(Icons.chevron_right),
+                        ),
+                      ],
+                    ),
                   ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, DateTime(1)),
-                    child: const Text('Clear'),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _monthFormat.format(_visibleMonth),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _selectedDate == null ? null : () => Navigator.pop(context, _selectedDate),
-                    child: const Text('Use Date'),
-                  ),
-                ],
-              ),
-            ],
+                ),
+                const SizedBox(height: 12),
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 7,
+                  mainAxisSpacing: 6,
+                  crossAxisSpacing: 6,
+                  childAspectRatio: 1.15,
+                  children: [
+                    for (final day in weekdays)
+                      Center(
+                        child: Text(
+                          _weekdayFormat.format(day).substring(0, 1),
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    for (final date in _calendarDays())
+                      _DayCell(
+                        date: date,
+                        isToday: date != null && _isSameDay(date, today),
+                        isSelected:
+                            date != null &&
+                            _selectedDate != null &&
+                            _isSameDay(date, _selectedDate!),
+                        onTap: date == null
+                            ? null
+                            : () {
+                                setState(() => _selectedDate = date);
+                              },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, DateTime(1)),
+                      child: const Text('Clear'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: _selectedDate == null
+                          ? null
+                          : () => Navigator.pop(context, _selectedDate),
+                      child: const Text('Use Date'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -294,7 +319,9 @@ class _DayCell extends StatelessWidget {
           color: isSelected ? colorScheme.primary : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isToday && !isSelected ? colorScheme.primary : Colors.transparent,
+            color: isToday && !isSelected
+                ? colorScheme.primary
+                : Colors.transparent,
           ),
         ),
         child: Center(
@@ -302,7 +329,9 @@ class _DayCell extends StatelessWidget {
             date!.day.toString(),
             style: theme.textTheme.bodyMedium?.copyWith(
               color: isSelected ? colorScheme.onPrimary : colorScheme.onSurface,
-              fontWeight: isSelected || isToday ? FontWeight.w700 : FontWeight.w500,
+              fontWeight: isSelected || isToday
+                  ? FontWeight.w700
+                  : FontWeight.w500,
             ),
           ),
         ),

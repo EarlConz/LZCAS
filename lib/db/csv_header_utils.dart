@@ -21,12 +21,14 @@ final Map<String, List<String>> headerSynonyms = {
   'quantity': ['quantity', 'qty'],
   'price': ['price', 'cost', 'amount'],
   'createdat': ['createdat', 'timestamp', 'time', 'date', 'created'],
-  'points': ['points', 'score'],
 };
 
 /// Returns true if the provided headers (raw list) contain all required canonical fields.
 /// `requiredList` should be canonical keys from headerSynonyms (e.g. 'itemid', 'createdat').
-List<String> findMissingHeaders(List<String> rawHeaders, List<String> requiredList) {
+List<String> findMissingHeaders(
+  List<String> rawHeaders,
+  List<String> requiredList,
+) {
   final found = rawHeaders.map(normalizeHeader).toSet();
   final missing = <String>[];
   for (final req in requiredList) {

@@ -11,7 +11,6 @@
 create table if not exists public.items (
   id bigint primary key,
   name text not null,
-  points integer not null default 0,
   category text,
   stock integer not null default 0,
   last_updated timestamptz,
@@ -29,11 +28,11 @@ create table if not exists public.members (
   address text,
   referrer text,
   referrer_id bigint,
-  points integer not null default 0,
   qr text,
   id_type text,
   id_number text,
-  id_image_path text
+  id_image_path text,
+  level integer not null default 1
 );
 
 create table if not exists public.sales (
@@ -42,7 +41,6 @@ create table if not exists public.sales (
   buyer_id bigint,
   item_name text not null,
   quantity integer not null,
-  points integer not null default 0,
   price integer not null default 0,
   timestamp timestamptz not null default now()
 );
@@ -55,11 +53,18 @@ create table if not exists public.member_transactions (
   item_name text,
   quantity integer default 0,
   price integer default 0,
-  points integer default 0,
   timestamp timestamptz default now()
+);
+
+create table if not exists public.reseller_levels (
+  level integer primary key,
+  remittance_min integer not null default 0,
+  remittance_max integer not null default 0,
+  cash_advance integer not null default 0
 );
 
 alter table public.items disable row level security;
 alter table public.members disable row level security;
 alter table public.sales disable row level security;
 alter table public.member_transactions disable row level security;
+alter table public.reseller_levels disable row level security;

@@ -46,7 +46,7 @@ class _MemberTransactionsPreviewState extends State<MemberTransactionsPreview> {
                   return ListTile(
                     title: Text(e.itemName),
                     subtitle: Text(
-                      'qty: ${e.quantity}, price: ${e.price}, points: ${e.points}, ts: ${e.timestamp ?? 'now'}',
+                      'qty: ${e.quantity}, price: ${e.price}, ts: ${e.timestamp ?? 'now'}',
                     ),
                   );
                 },
