@@ -33,6 +33,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   late final TextEditingController addressController;
   late final TextEditingController pointsController;
   late final TextEditingController idNumberController;
+  late final TextEditingController referrerSearchController;
   late String _roleValue;
   late String? _selectedIdType;
   String? _selectedIdImagePath;
@@ -100,6 +101,9 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     _selectedIdImagePath = widget.member['idImagePath']?.toString();
     idNumberController = TextEditingController(
       text: widget.member['idNumber']?.toString() ?? '',
+    );
+    referrerSearchController = TextEditingController(
+      text: widget.member['referrer']?.toString() ?? '',
     );
     _loadMembers();
   }
@@ -174,6 +178,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     addressController.dispose();
     pointsController.dispose();
     idNumberController.dispose();
+    referrerSearchController.dispose();
     super.dispose();
   }
 
@@ -200,8 +205,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isNarrow = MediaQuery.sizeOf(context).width < 500;
-    final memberId = widget.member['id'] as int?;
-    final excludeSelf = _members.where((m) => m.id != memberId).toList();
 
     final inputBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(10),
@@ -352,35 +355,88 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               // ── Referrer section ──────────────────────────
               _sectionLabel('Referral', theme, colorScheme),
               const SizedBox(height: 10),
-              DropdownButtonFormField<int?>(
-                initialValue: _selectedReferrerId,
-                decoration: InputDecoration(
-                  labelText: 'Referrer',
-                  prefixIcon: const Icon(Icons.group_outlined),
-                  border: inputBorder,
-                ),
-                items: [
-                  const DropdownMenuItem<int?>(
-                    value: null,
-                    child: Text('None'),
-                  ),
-                  ...excludeSelf.map((m) {
-                    final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'
-                        .trim();
-                    final count = _referralCounts[m.id] ?? 0;
-                    final displayLabel = count > 0
-                        ? '$label • $count referral${count == 1 ? '' : 's'}'
-                        : label;
-                    return DropdownMenuItem<int?>(
-                      value: m.id,
-                      child: Text(
-                        displayLabel,
-                        overflow: TextOverflow.ellipsis,
+              Autocomplete<Member>(
+                optionsBuilder: (textEditingValue) {
+                  if (textEditingValue.text.isEmpty) return [];
+                  final query = textEditingValue.text.toLowerCase();
+                  final memberId = widget.member['id'] as int?;
+                  return _members.where((m) {
+                    if (m.id == memberId) return false; // exclude self
+                    final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                        .toLowerCase();
+                    return name.contains(query);
+                  });
+                },
+                displayStringForOption: (m) =>
+                    '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim(),
+                fieldViewBuilder: (context, controller, focusNode, onSubmit) {
+                  return TextFormField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Referrer',
+                      hintText: 'Type a name to search...',
+                      prefixIcon: const Icon(Icons.search_outlined),
+                      suffixIcon: _selectedReferrerId != null
+                          ? IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () {
+                                controller.clear();
+                                setState(() => _selectedReferrerId = null);
+                              },
+                            )
+                          : null,
+                      border: inputBorder,
+                    ),
+                  );
+                },
+                optionsViewBuilder: (context, onSelected, options) {
+                  return Align(
+                    alignment: Alignment.topLeft,
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(10),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: 200,
+                          maxWidth: MediaQuery.of(context).size.width * 0.4,
+                        ),
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: options.length,
+                          itemBuilder: (context, index) {
+                            final m = options.elementAt(index);
+                            final label =
+                                '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                                    .trim();
+                            final count = _referralCounts[m.id] ?? 0;
+                            final display = count > 0
+                                ? '$label • $count referral${count == 1 ? '' : 's'}'
+                                : label;
+                            return ListTile(
+                              dense: true,
+                              title: Text(
+                                display,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onTap: () {
+                                onSelected(m);
+                                referrerSearchController.text = label;
+                                setState(() => _selectedReferrerId = m.id);
+                              },
+                            );
+                          },
+                        ),
                       ),
-                    );
-                  }),
-                ],
-                onChanged: (v) => setState(() => _selectedReferrerId = v),
+                    ),
+                  );
+                },
+                onSelected: (m) {
+                  final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                      .trim();
+                  referrerSearchController.text = label;
+                  setState(() => _selectedReferrerId = m.id);
+                },
               ),
 
               const SizedBox(height: 20),

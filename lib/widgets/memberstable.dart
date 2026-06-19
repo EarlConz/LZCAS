@@ -91,6 +91,7 @@ class MembersTableState extends State<MembersTable> {
       birthday: newMember['birthday']?.toString(),
       address: newMember['address']?.toString(),
       referrer: newMember['referrer']?.toString(),
+      referrerId: newMember['referrerId'] as int?,
       level: int.tryParse(newMember['level']?.toString() ?? '1') ?? 1,
       idType: newMember['idType']?.toString(),
       idNumber: newMember['idNumber']?.toString(),
@@ -221,6 +222,9 @@ class MembersTableState extends State<MembersTable> {
           : const Value.absent(),
       referrer: updatedMember['referrer'] != null
           ? Value(updatedMember['referrer'].toString())
+          : const Value.absent(),
+      referrerId: updatedMember['referrerId'] != null
+          ? Value(updatedMember['referrerId'] as int)
           : const Value.absent(),
       level: updatedMember['level'] is int ? updatedMember['level'] : null,
       idType: updatedMember['idType'] != null

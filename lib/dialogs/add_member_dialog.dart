@@ -27,10 +27,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final birthdayController = TextEditingController();
   final addressController = TextEditingController();
   final idNumberController = TextEditingController();
+  final referrerSearchController = TextEditingController();
   List<Member> _members = [];
   Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
-  String _selectedReferrerName = '';
   String? _selectedIdType;
   String? _selectedIdImagePath;
 
@@ -142,6 +142,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     birthdayController.dispose();
     addressController.dispose();
     idNumberController.dispose();
+    referrerSearchController.dispose();
     super.dispose();
   }
 
@@ -362,57 +363,85 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               // ── Referrer section ──────────────────────────
               _sectionLabel('Referral', theme, colorScheme),
               const SizedBox(height: 10),
-              DropdownButtonFormField<int?>(
-                initialValue: _selectedReferrerId,
-                decoration: InputDecoration(
-                  labelText: 'Referrer',
-                  prefixIcon: const Icon(Icons.group_outlined),
-                  border: inputBorder,
-                ),
-                items: [
-                  const DropdownMenuItem<int?>(
-                    value: null,
-                    child: Text('None'),
-                  ),
-                  ..._members.map((m) {
-                    final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'
-                        .trim();
-                    final count = _referralCounts[m.id] ?? 0;
-                    final displayLabel = count > 0
-                        ? '$label • $count referral${count == 1 ? '' : 's'}'
-                        : label;
-                    return DropdownMenuItem<int?>(
-                      value: m.id,
-                      child: Text(
-                        displayLabel,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }),
-                ],
-                onChanged: (v) {
-                  setState(() {
-                    _selectedReferrerId = v;
-                    final sel = _members.firstWhere(
-                      (m) => m.id == v,
-                      orElse: () => Member(
-                        id: 0,
-                        lastName: null,
-                        firstName: null,
-                        middleName: null,
-                        role: null,
-                        contactNo: null,
-                        birthday: null,
-                        address: null,
-                        referrer: null,
-                        level: 1,
-                        qr: null,
-                      ),
-                    );
-                    _selectedReferrerName = sel.id == 0
-                        ? ''
-                        : '${sel.firstName ?? ''} ${sel.lastName ?? ''}'.trim();
+              Autocomplete<Member>(
+                optionsBuilder: (textEditingValue) {
+                  if (textEditingValue.text.isEmpty) return [];
+                  final query = textEditingValue.text.toLowerCase();
+                  return _members.where((m) {
+                    final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                        .toLowerCase();
+                    return name.contains(query);
                   });
+                },
+                displayStringForOption: (m) =>
+                    '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim(),
+                fieldViewBuilder: (context, controller, focusNode, onSubmit) {
+                  return TextFormField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Referrer',
+                      hintText: 'Type a name to search...',
+                      prefixIcon: const Icon(Icons.search_outlined),
+                      suffixIcon: _selectedReferrerId != null
+                          ? IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () {
+                                controller.clear();
+                                setState(() => _selectedReferrerId = null);
+                              },
+                            )
+                          : null,
+                      border: inputBorder,
+                    ),
+                  );
+                },
+                optionsViewBuilder: (context, onSelected, options) {
+                  return Align(
+                    alignment: Alignment.topLeft,
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(10),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: 200,
+                          maxWidth: MediaQuery.of(context).size.width * 0.4,
+                        ),
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: options.length,
+                          itemBuilder: (context, index) {
+                            final m = options.elementAt(index);
+                            final label =
+                                '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                                    .trim();
+                            final count = _referralCounts[m.id] ?? 0;
+                            final display = count > 0
+                                ? '$label • $count referral${count == 1 ? '' : 's'}'
+                                : label;
+                            return ListTile(
+                              dense: true,
+                              title: Text(
+                                display,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onTap: () {
+                                onSelected(m);
+                                referrerSearchController.text = label;
+                                setState(() => _selectedReferrerId = m.id);
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                onSelected: (m) {
+                  final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                      .trim();
+                  referrerSearchController.text = label;
+                  setState(() => _selectedReferrerId = m.id);
                 },
               ),
             ],
@@ -457,7 +486,27 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           : contactController.text.replaceAll(' ', '').trim(),
       'birthday': birthdayController.text.trim(),
       'address': addressController.text.trim(),
-      'referrer': _selectedReferrerName,
+      'referrer': _selectedReferrerId != null
+          ? () {
+              final sel = _members.firstWhere(
+                (m) => m.id == _selectedReferrerId,
+                orElse: () => Member(
+                  id: 0,
+                  lastName: null,
+                  firstName: null,
+                  middleName: null,
+                  role: null,
+                  contactNo: null,
+                  birthday: null,
+                  address: null,
+                  referrer: null,
+                  level: 1,
+                  qr: null,
+                ),
+              );
+              return '${sel.firstName ?? ''} ${sel.lastName ?? ''}'.trim();
+            }()
+          : '',
       'referrerId': _selectedReferrerId,
       'role': 'Member',
       'idType': _selectedIdType,
