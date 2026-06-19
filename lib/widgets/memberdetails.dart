@@ -116,11 +116,6 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
       }
       return false;
     }).toList();
-    // ignore: avoid_print
-    print(
-      'ReferralCount for $memberName (id=$memberId): '
-      '${matched.length} match(es) — ${matched.map((m) => '${m.firstName ?? ''} ${m.lastName ?? ''} (referrerId=${m.referrerId}, referrer="${m.referrer}")').join(', ')}',
-    );
     setState(() => _referralCount = matched.length);
   }
 
@@ -259,6 +254,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
         builder: (context, constraints) {
           return _MemberProfileSection(
             member: widget.member,
+            referralCount: _referralCount,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
             onIdImageTap: () {
