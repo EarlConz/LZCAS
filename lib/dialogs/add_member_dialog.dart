@@ -28,6 +28,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final addressController = TextEditingController();
   final idNumberController = TextEditingController();
   List<Member> _members = [];
+  Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
   String _selectedReferrerName = '';
   String? _selectedIdType;
@@ -123,6 +124,14 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     if (!mounted) return;
     setState(() {
       _members = rows;
+      // Compute referral counts: count how many members have each referrerId
+      _referralCounts = {};
+      for (final m in rows) {
+        if (m.referrerId != null) {
+          _referralCounts[m.referrerId!] =
+              (_referralCounts[m.referrerId!] ?? 0) + 1;
+        }
+      }
     });
   }
 
@@ -370,10 +379,14 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                   ..._members.map((m) {
                     final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'
                         .trim();
+                    final count = _referralCounts[m.id] ?? 0;
+                    final displayLabel = count > 0
+                        ? '$label • $count referral${count == 1 ? '' : 's'}'
+                        : label;
                     return DropdownMenuItem<int?>(
                       value: m.id,
                       child: Text(
-                        label.isEmpty ? 'ID:${m.id}' : label,
+                        displayLabel,
                         overflow: TextOverflow.ellipsis,
                       ),
                     );
