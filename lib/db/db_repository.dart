@@ -71,6 +71,43 @@ class DbRepository {
     }
   }
 
+  /// One-time backfill: for members that have a [referrer] name string but no
+  /// [referrerId], look up the matching member by name and set referrerId.
+  /// Safe to run at startup — idempotent (skips members that already have referrerId).
+  Future<void> ensureReferrerIdBackfill() async {
+    final all = await db.getAllMembers();
+    bool changed = false;
+    for (final m in all) {
+      // Skip if referrerId is already set, or no referrer name to match
+      if (m.referrerId != null) continue;
+      final refName = (m.referrer ?? '').trim().toLowerCase();
+      if (refName.isEmpty) continue;
+
+      // Try to find a member whose full name matches the referrer string
+      Member? match;
+      try {
+        match = all.firstWhere(
+          (candidate) =>
+              '${candidate.firstName ?? ''} ${candidate.lastName ?? ''}'
+                  .trim()
+                  .toLowerCase() ==
+              refName,
+        );
+      } catch (_) {
+        match = null;
+      }
+
+      if (match != null) {
+        final updated = m.copyWith(referrerId: Value(match.id));
+        await db.updateMemberData(updated);
+        changed = true;
+      }
+    }
+    if (changed) {
+      _changes.add('member_updated');
+    }
+  }
+
   /// Bulk import helper that accepts parsed headers and rows (each row is a list of strings aligned to headers).
   /// Returns number of newly created members.
   Future<int> importMembersFromRows(
