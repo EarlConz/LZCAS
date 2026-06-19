@@ -98,9 +98,24 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   Future<void> _computeReferralCount() async {
     final memberId = member['id'] as int?;
     if (memberId == null) return;
+
+    final memberName =
+        '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'
+            .trim()
+            .toLowerCase();
+
     final all = await repository.fetchMembers();
     if (!mounted) return;
-    final count = all.where((m) => m.referrerId == memberId).length;
+    final count = all.where((m) {
+      // Primary: match by referrerId (new records)
+      if (m.referrerId == memberId) return true;
+      // Fallback: match by referrer name string (legacy records)
+      if (memberName.isNotEmpty) {
+        final ref = (m.referrer ?? '').trim().toLowerCase();
+        if (ref.isNotEmpty && ref == memberName) return true;
+      }
+      return false;
+    }).length;
     setState(() => _referralCount = count);
   }
 

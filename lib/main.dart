@@ -27,6 +27,13 @@ Future<void> main() async {
     // ignore: avoid_print
     print('ensureVerifiedResellerConsistency failed: $e');
   }
+  // Backfill referrerId for members that only have a referrer name string
+  try {
+    await repository.ensureReferrerIdBackfill();
+  } catch (e) {
+    // ignore: avoid_print
+    print('ensureReferrerIdBackfill failed: $e');
+  }
   // If you need initial data, use CSV import helpers on the repository
   // e.g. `await repository.importItemsCsv(csvString)` or use your own seed script.
 
