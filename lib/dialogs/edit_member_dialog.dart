@@ -37,6 +37,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   late String? _selectedIdType;
   String? _selectedIdImagePath;
   List<Member> _members = [];
+  Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
 
   final _lastNameKey = GlobalKey<FormFieldState>();
@@ -138,9 +139,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
         await memberIdDir.create(recursive: true);
       }
       final memberId = widget.member['id'] as int? ?? 0;
-      final ext = xfile.name.contains('.')
-          ? p.extension(xfile.name)
-          : '.jpg';
+      final ext = xfile.name.contains('.') ? p.extension(xfile.name) : '.jpg';
       final destPath = p.join(memberIdDir.path, '$memberId$ext');
       await File(destPath).writeAsBytes(bytes);
       setState(() => _selectedIdImagePath = destPath);
@@ -154,6 +153,14 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     if (!mounted) return;
     setState(() {
       _members = rows;
+      // Compute referral counts: count how many members have each referrerId
+      _referralCounts = {};
+      for (final m in rows) {
+        if (m.referrerId != null) {
+          _referralCounts[m.referrerId!] =
+              (_referralCounts[m.referrerId!] ?? 0) + 1;
+        }
+      }
     });
   }
 
@@ -360,10 +367,14 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                   ...excludeSelf.map((m) {
                     final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'
                         .trim();
+                    final count = _referralCounts[m.id] ?? 0;
+                    final displayLabel = count > 0
+                        ? '$label • $count referral${count == 1 ? '' : 's'}'
+                        : label;
                     return DropdownMenuItem<int?>(
                       value: m.id,
                       child: Text(
-                        label.isEmpty ? 'ID:${m.id}' : label,
+                        displayLabel,
                         overflow: TextOverflow.ellipsis,
                       ),
                     );
