@@ -98,9 +98,20 @@ class DbRepository {
       }
 
       if (match != null) {
+        // ignore: avoid_print
+        print(
+          'Backfill: setting ${m.firstName ?? ''} ${m.lastName ?? ''}'
+          '.referrerId = ${match.id} (${match.firstName ?? ''} ${match.lastName ?? ''})',
+        );
         final updated = m.copyWith(referrerId: Value(match.id));
         await db.updateMemberData(updated);
         changed = true;
+      } else {
+        // ignore: avoid_print
+        print(
+          'Backfill: no match found for referrer "$refName" '
+          '(member: ${m.firstName ?? ''} ${m.lastName ?? ''})',
+        );
       }
     }
     if (changed) {
