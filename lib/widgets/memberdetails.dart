@@ -106,7 +106,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
 
     final all = await repository.fetchMembers();
     if (!mounted) return;
-    final count = all.where((m) {
+    final matched = all.where((m) {
       // Primary: match by referrerId (new records)
       if (m.referrerId == memberId) return true;
       // Fallback: match by referrer name string (legacy records)
@@ -115,8 +115,13 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
         if (ref.isNotEmpty && ref == memberName) return true;
       }
       return false;
-    }).length;
-    setState(() => _referralCount = count);
+    }).toList();
+    // ignore: avoid_print
+    print(
+      'ReferralCount for $memberName (id=$memberId): '
+      '${matched.length} match(es) — ${matched.map((m) => '${m.firstName ?? ''} ${m.lastName ?? ''} (referrerId=${m.referrerId}, referrer="${m.referrer}")').join(', ')}',
+    );
+    setState(() => _referralCount = matched.length);
   }
 
   @override
