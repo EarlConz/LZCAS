@@ -139,9 +139,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
         await memberIdDir.create(recursive: true);
       }
       final memberId = widget.member['id'] as int? ?? 0;
-      final ext = xfile.name.contains('.')
-          ? p.extension(xfile.name)
-          : '.jpg';
+      final ext = xfile.name.contains('.') ? p.extension(xfile.name) : '.jpg';
       final destPath = p.join(memberIdDir.path, '$memberId$ext');
       await File(destPath).writeAsBytes(bytes);
       setState(() => _selectedIdImagePath = destPath);

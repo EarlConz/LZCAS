@@ -99,9 +99,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
       if (!await memberIdDir.exists()) {
         await memberIdDir.create(recursive: true);
       }
-      final ext = xfile.name.contains('.')
-          ? p.extension(xfile.name)
-          : '.jpg';
+      final ext = xfile.name.contains('.') ? p.extension(xfile.name) : '.jpg';
       final destPath = p.join(
         memberIdDir.path,
         'new_${DateTime.now().millisecondsSinceEpoch}$ext',
