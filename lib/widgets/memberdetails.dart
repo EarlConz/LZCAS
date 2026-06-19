@@ -67,12 +67,14 @@ class MemberDetailsCard extends StatefulWidget {
 
 class _MemberDetailsCardState extends State<MemberDetailsCard> {
   late Map<String, dynamic> member;
+  int _referralCount = 0;
   late final StreamSubscription<String> _sub;
 
   @override
   void initState() {
     super.initState();
     member = widget.member;
+    _computeReferralCount();
     _sub = repository.changes.listen((e) {
       if (e == 'sale_added' ||
           e == 'sale_imported' ||
@@ -80,10 +82,26 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
           e == 'sale_deleted' ||
           e == 'member_transactions_committed' ||
           e == 'member_updated' ||
-          e == 'member_verified') {
-        if (mounted) setState(() {});
+          e == 'member_verified' ||
+          e == 'member_added' ||
+          e == 'member_imported' ||
+          e == 'member_deleted' ||
+          e == 'db_cleared') {
+        if (mounted) {
+          setState(() {});
+          _computeReferralCount();
+        }
       }
     });
+  }
+
+  Future<void> _computeReferralCount() async {
+    final memberId = member['id'] as int?;
+    if (memberId == null) return;
+    final all = await repository.fetchMembers();
+    if (!mounted) return;
+    final count = all.where((m) => m.referrerId == memberId).length;
+    setState(() => _referralCount = count);
   }
 
   @override
@@ -250,6 +268,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
         builder: (context, constraints) {
           return _MemberProfileSection(
             member: widget.member,
+            referralCount: _referralCount,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
             onIdImageTap: () {
@@ -269,12 +288,14 @@ class _MemberProfileSection extends StatelessWidget {
   const _MemberProfileSection({
     required this.member,
     required this.onViewTransactions,
+    this.referralCount = 0,
     this.showHeader = true,
     this.onIdImageTap,
   });
 
   final Map<String, dynamic> member;
   final VoidCallback onViewTransactions;
+  final int referralCount;
   final bool showHeader;
   final VoidCallback? onIdImageTap;
 
@@ -361,6 +382,11 @@ class _MemberProfileSection extends StatelessWidget {
               ? member['referrer']
               : 'None',
           italic: true,
+        ),
+        _DetailLine(
+          icon: Icons.people_outline,
+          label: 'Referrals',
+          value: referralCount > 0 ? '$referralCount' : 'None',
         ),
         // ── ID Verification section ────────────────────────
         if ((member['idImagePath']?.toString() ?? '').isNotEmpty)
