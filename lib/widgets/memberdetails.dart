@@ -122,7 +122,10 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   @override
   void didUpdateWidget(covariant MemberDetailsCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    member = widget.member;
+    if (oldWidget.member['id'] != widget.member['id']) {
+      member = widget.member;
+      _computeReferralCount();
+    }
   }
 
   @override
