@@ -191,13 +191,30 @@ class _SellDialogState extends State<_SellDialog> {
       return acc + (p * q);
     });
 
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return AlertDialog(
-      title: const Text('Sell Items'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+      title: Row(
+        children: [
+          Icon(Icons.point_of_sale, color: colorScheme.primary, size: 30),
+          const SizedBox(width: 12),
+          Text(
+            'Sell Items',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
       content: SizedBox(
-        width: 650,
+        width: 680,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.75,
+            maxHeight: MediaQuery.of(context).size.height * 0.80,
           ),
           child: SingleChildScrollView(
             child: Column(
@@ -205,7 +222,7 @@ class _SellDialogState extends State<_SellDialog> {
               children: [
                 // Buyer picker (member-picker) with QR scan
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 8.0),
+                  padding: const EdgeInsets.only(bottom: 12.0),
                   child: Row(
                     children: [
                       Expanded(
@@ -226,9 +243,10 @@ class _SellDialogState extends State<_SellDialog> {
                           onChanged: (v) => setState(() => selectedBuyerId = v),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      IconButton(
+                      const SizedBox(width: 12),
+                      IconButton.filled(
                         tooltip: 'Scan member QR',
+                        iconSize: 24,
                         icon: const Icon(Icons.qr_code_scanner),
                         onPressed: () => _scanBuyerQr(context),
                       ),
@@ -236,7 +254,7 @@ class _SellDialogState extends State<_SellDialog> {
                   ),
                 ),
 
-                const Divider(height: 32),
+                Divider(color: theme.dividerColor, height: 28),
 
                 // Item search
                 FocusScope(
@@ -256,12 +274,12 @@ class _SellDialogState extends State<_SellDialog> {
                         if (_itemFocusNode.hasFocus ||
                             _itemSearchController.text.isNotEmpty)
                           Container(
-                            constraints: const BoxConstraints(maxHeight: 200),
-                            margin: const EdgeInsets.only(top: 4),
+                            constraints: const BoxConstraints(maxHeight: 240),
+                            margin: const EdgeInsets.only(top: 6),
                             decoration: BoxDecoration(
-                              color: Theme.of(context).cardColor,
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(4),
+                              color: theme.cardColor,
+                              border: Border.all(color: theme.dividerColor),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                             child: ListView(
                               shrinkWrap: true,
@@ -274,7 +292,10 @@ class _SellDialogState extends State<_SellDialog> {
                                   })
                                   .map(
                                     (i) => ListTile(
-                                      title: Text(i),
+                                      title: Text(
+                                        i,
+                                        style: theme.textTheme.bodyLarge,
+                                      ),
                                       onTap: () {
                                         setState(() {
                                           selectedItem = i;
@@ -292,7 +313,7 @@ class _SellDialogState extends State<_SellDialog> {
                   ),
                 ),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
 
                 // quick add row
                 Row(
@@ -312,7 +333,7 @@ class _SellDialogState extends State<_SellDialog> {
                     ),
                     const SizedBox(width: 12),
                     SizedBox(
-                      width: 100,
+                      width: 110,
                       child: TextField(
                         controller: _qtyController,
                         focusNode: _qtyFocusNode,
@@ -326,7 +347,7 @@ class _SellDialogState extends State<_SellDialog> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    ElevatedButton(
+                    FilledButton(
                       onPressed: () {
                         if (selectedItem == null) {
                           _showError('Please select an item');
@@ -337,7 +358,6 @@ class _SellDialogState extends State<_SellDialog> {
                           _showError('Invalid item');
                           return;
                         }
-                        // fetch item for validation (non-blocking best-effort)
                         repository.fetchItems().then((_) {
                           setState(() {
                             cart.add({
@@ -354,53 +374,73 @@ class _SellDialogState extends State<_SellDialog> {
                   ],
                 ),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
 
                 // cart list
                 if (cart.isNotEmpty)
                   SizedBox(
-                    height: 240,
+                    height: 260,
                     child: ListView.builder(
                       itemCount: cart.length,
                       itemBuilder: (context, index) {
                         final entry = cart[index];
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4.0),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: ListTile(
-                                  title: Text(entry['item']),
-                                  subtitle: Text('Qty: ${entry['quantity']}'),
-                                ),
-                              ),
-                              SizedBox(
-                                width: 120,
-                                child: TextField(
-                                  controller: entry['priceController'],
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  decoration: const InputDecoration(
-                                    labelText: 'Price',
-                                    hintText: 'Enter Price',
-                                    isDense: true,
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                              horizontal: 12,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        entry['item'],
+                                        style: theme.textTheme.bodyLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                      Text(
+                                        'Qty: ${entry['quantity']}',
+                                        style: theme.textTheme.bodyMedium,
+                                      ),
+                                    ],
                                   ),
-                                  onChanged: (val) =>
-                                      setState(() => entry['price'] = val),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete,
-                                  color: Colors.red,
+                                SizedBox(
+                                  width: 160,
+                                  child: TextField(
+                                    controller: entry['priceController'],
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    decoration: const InputDecoration(
+                                      labelText: 'Price',
+                                      hintText: 'Enter Price',
+                                    ),
+                                    onChanged: (val) =>
+                                        setState(() => entry['price'] = val),
+                                  ),
                                 ),
-                                onPressed: () =>
-                                    setState(() => cart.removeAt(index)),
-                              ),
-                            ],
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  iconSize: 28,
+                                  icon: const Icon(
+                                    Icons.remove_circle_outline,
+                                    color: Colors.red,
+                                  ),
+                                  tooltip: 'Remove item',
+                                  onPressed: () =>
+                                      setState(() => cart.removeAt(index)),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },
@@ -410,13 +450,15 @@ class _SellDialogState extends State<_SellDialog> {
                 // totals area placed under list
                 if (cart.isNotEmpty)
                   Padding(
-                    padding: const EdgeInsets.only(top: 12.0),
+                    padding: const EdgeInsets.only(top: 16.0),
                     child: Row(
                       children: [
                         const Spacer(),
                         Text(
-                          'Total Price: $totalPrice',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          'Subtotal: ₱$totalPrice',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ],
                     ),
@@ -426,6 +468,7 @@ class _SellDialogState extends State<_SellDialog> {
           ),
         ),
       ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
@@ -433,13 +476,16 @@ class _SellDialogState extends State<_SellDialog> {
         ),
         if (cart.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0),
+            padding: const EdgeInsets.only(right: 8.0),
             child: Text(
               'Total: ₱$totalPrice',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
-        ElevatedButton(
+        FilledButton(
           onPressed: isCartValid()
               ? () async {
                   final safeContext = context;

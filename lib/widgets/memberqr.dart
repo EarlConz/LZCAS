@@ -109,10 +109,10 @@ class MemberQrWithName extends StatelessWidget {
           address: address,
           referrer: referrer,
           qrToken: qrToken,
-          size: 160,
+          size: 180,
         ),
-        const SizedBox(height: 8),
-        Text(fullName, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 10),
+        Text(fullName, style: Theme.of(context).textTheme.titleLarge),
       ],
     );
   }

@@ -171,9 +171,9 @@ class _InventoryTableState extends State<InventoryTable> {
                                   rowsPerPage: rowsPerPage,
                                   horizontalMargin: isTablet ? 12 : 16,
                                   columnSpacing: isTablet ? 20 : 36,
-                                  headingRowHeight: 42,
-                                  dataRowMinHeight: 44,
-                                  dataRowMaxHeight: 52,
+                                  headingRowHeight: 52,
+                                  dataRowMinHeight: 56,
+                                  dataRowMaxHeight: 62,
                                   showCheckboxColumn: false,
                                   columns: const [
                                     DataColumn(label: Text("Item Name")),

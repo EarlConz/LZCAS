@@ -18,19 +18,19 @@ class Sidebar extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     return Drawer(
-      width: 250,
+      width: 280,
       backgroundColor: colorScheme.surface,
       elevation: 8,
       child: Column(
         children: <Widget>[
           Container(
-            padding: const EdgeInsets.fromLTRB(18, 28, 18, 24),
+            padding: const EdgeInsets.fromLTRB(22, 32, 22, 28),
             alignment: Alignment.centerLeft,
             child: Row(
               children: [
                 Container(
-                  width: 42,
-                  height: 42,
+                  width: 48,
+                  height: 48,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: colorScheme.primary,
@@ -44,10 +44,10 @@ class Sidebar extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 Text(
                   "LZCAS",
-                  style: theme.textTheme.titleLarge?.copyWith(
+                  style: theme.textTheme.headlineSmall?.copyWith(
                     color: colorScheme.primary,
                     fontWeight: FontWeight.w900,
                   ),
@@ -57,12 +57,23 @@ class Sidebar extends StatelessWidget {
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               children: [
+                const SizedBox(height: 8),
                 _buildNavItem(context, Icons.dashboard_rounded, "Dashboard", 0),
-                _buildNavItem(context, Icons.inventory_2_rounded, "Inventory", 1),
+                _buildNavItem(
+                  context,
+                  Icons.inventory_2_rounded,
+                  "Inventory",
+                  1,
+                ),
                 _buildNavItem(context, Icons.people_alt_rounded, "Members", 2),
-                _buildNavItem(context, Icons.card_giftcard_rounded, "Transactions", 3),
+                _buildNavItem(
+                  context,
+                  Icons.card_giftcard_rounded,
+                  "Transactions",
+                  3,
+                ),
               ],
             ),
           ),
@@ -72,10 +83,15 @@ class Sidebar extends StatelessWidget {
             endIndent: 20,
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: _buildNavItem(context, Icons.settings_rounded, "Settings", 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: _buildNavItem(
+              context,
+              Icons.settings_rounded,
+              "Settings",
+              4,
+            ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -97,36 +113,36 @@ class Sidebar extends StatelessWidget {
         onItemSelected(index);
       },
       borderRadius: BorderRadius.circular(12),
-      hoverColor: colorScheme.primary.withAlpha((0.05 * 255).round()),
-      splashColor: colorScheme.primary.withAlpha((0.1 * 255).round()),
-      highlightColor: colorScheme.primary.withAlpha((0.1 * 255).round()),
+      hoverColor: const Color(0xFF6C63FF).withAlpha((0.05 * 255).round()),
+      splashColor: const Color(0xFF6C63FF).withAlpha((0.1 * 255).round()),
+      highlightColor: const Color(0xFF6C63FF).withAlpha((0.1 * 255).round()),
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 5),
+        margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
         decoration: BoxDecoration(
           color: selected
-              ? colorScheme.primary.withAlpha((0.1 * 255).round())
+              ? const Color(0xFF6C63FF).withAlpha(18)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(appRadius),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
             Icon(
               icon,
               color: selected
-                  ? colorScheme.primary
-                  : colorScheme.onSurface.withAlpha((0.6 * 255).round()),
+                  ? const Color(0xFF6C63FF)
+                  : colorScheme.onSurface.withAlpha((0.5 * 255).round()),
               size: 24,
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 14),
             Expanded(
               child: Text(
                 label,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                   color: selected
-                      ? colorScheme.primary
+                      ? const Color(0xFF6C63FF)
                       : colorScheme.onSurface.withAlpha((0.8 * 255).round()),
                 ),
               ),

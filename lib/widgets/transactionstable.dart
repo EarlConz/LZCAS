@@ -494,9 +494,9 @@ class _TransactionsTableState extends State<TransactionsTable> {
               horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
               columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
               rowsPerPage: estimated,
-              headingRowHeight: 42,
-              dataRowMinHeight: 44,
-              dataRowMaxHeight: 52,
+              headingRowHeight: 52,
+              dataRowMinHeight: 56,
+              dataRowMaxHeight: 62,
               showCheckboxColumn: false,
               columns: const [
                 DataColumn(label: Text('Buyer')),
