@@ -4,6 +4,7 @@
 // from every dashboard (admin, inventory, and cashier).
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
@@ -1459,7 +1460,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   }
 }
 
-// ─── Admin · Borrow Stock Management — review requests from Cashiers ────────
+// ─── Admin · Borrow Stock Management ────────────────────────────────────────
 
 class _AdminBorrowStockTab extends StatefulWidget {
   const _AdminBorrowStockTab();
@@ -1469,98 +1470,664 @@ class _AdminBorrowStockTab extends StatefulWidget {
 }
 
 class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
-  // Placeholder list — in production, fetch from API/repository.
-  final List<Map<String, String>> _pendingRequests = [];
+  List<Borrow> _borrows = [];
+  List<Member> _members = [];
+  bool _loading = true;
+  String _filter = 'all'; // all, active, overdue, settled
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _loading = true);
+    try {
+      final borrows = await repository.fetchBorrows();
+      final members = await repository.fetchMembers();
+      if (!mounted) return;
+      setState(() {
+        _borrows = borrows;
+        _members = members;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _memberName(int memberId) {
+    final m = _members.cast<Member?>().firstWhere(
+      (m) => m?.id == memberId,
+      orElse: () => null,
+    );
+    if (m == null) return 'Member #$memberId';
+    return '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
+  }
+
+  List<Borrow> get _filtered {
+    final now = DateTime.now();
+    switch (_filter) {
+      case 'active':
+        return _borrows.where((b) {
+          final isOverdue =
+              b.dueDate.isBefore(now) &&
+              b.status != 'returned' &&
+              b.status != 'remitted';
+          return b.outstandingQuantity > 0 && !isOverdue;
+        }).toList();
+      case 'overdue':
+        return _borrows.where((b) {
+          return b.dueDate.isBefore(now) &&
+              b.status != 'returned' &&
+              b.status != 'remitted' &&
+              b.outstandingQuantity > 0;
+        }).toList();
+      case 'settled':
+        return _borrows.where((b) => b.outstandingQuantity <= 0).toList();
+      default:
+        return _borrows;
+    }
+  }
+
+  int get _activeCount =>
+      _borrows.where((b) => b.outstandingQuantity > 0 && !b.isOverdue).length;
+  int get _overdueCount =>
+      _borrows.where((b) => b.isOverdue && b.outstandingQuantity > 0).length;
+  int get _settledCount =>
+      _borrows.where((b) => b.outstandingQuantity <= 0).length;
+
+  Color _statusColor(String status, bool isOverdue, bool isDark) {
+    if (isOverdue) return StockpileColors.error500;
+    switch (status) {
+      case 'returned':
+        return StockpileColors.success;
+      case 'remitted':
+        return Colors.purple;
+      case 'partially_settled':
+        return Colors.orange;
+      default:
+        return isDark ? StockpileColors.darkTextBody : StockpileColors.bodyText;
+    }
+  }
+
+  String _statusLabel(Borrow b) {
+    if (b.outstandingQuantity <= 0) {
+      if (b.quantityReturned >= b.quantity) return 'Returned';
+      if (b.quantityRemitted >= b.quantity) return 'Remitted';
+      return 'Settled';
+    }
+    if (b.isOverdue) return 'Overdue';
+    if (b.quantityReturned > 0 || b.quantityRemitted > 0) return 'Partial';
+    return 'Active';
+  }
+
+  Future<void> _returnItem(Borrow b) async {
+    final qtyCtrl = TextEditingController(
+      text: b.outstandingQuantity.toString(),
+    );
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Return Borrowed Item'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${b.itemName} — ${_memberName(b.memberId)}'),
+            const SizedBox(height: 4),
+            Text(
+              'Borrowed: ${b.quantity}  |  '
+              'Outstanding: ${b.outstandingQuantity}',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: qtyCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Quantity to return',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final q = int.tryParse(qtyCtrl.text) ?? 0;
+              Navigator.pop(ctx, q);
+            },
+            child: const Text('Return'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == null || result <= 0) return;
+    await repository.returnBorrowedItem(b.id!, result);
+    _loadData();
+  }
+
+  Future<void> _remitItem(Borrow b) async {
+    final qtyCtrl = TextEditingController(
+      text: b.outstandingQuantity.toString(),
+    );
+    final result = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remit Payment'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${b.itemName} — ${_memberName(b.memberId)}'),
+            const SizedBox(height: 4),
+            Text(
+              'Borrowed: ${b.quantity}  |  '
+              'Outstanding: ${b.outstandingQuantity}',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: qtyCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Quantity to remit',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.purple),
+            onPressed: () {
+              final q = int.tryParse(qtyCtrl.text) ?? 0;
+              Navigator.pop(ctx, q);
+            },
+            child: const Text('Remit'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == null || result <= 0) return;
+    await repository.remitBorrowedItem(b.id!, result);
+    _loadData();
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    if (_pendingRequests.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.add_box_rounded,
-              size: 48,
-              color: StockpileColors.secondary500,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'No Borrow Requests',
-              style: StockpileFonts.satoshi(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: isDark
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Stock borrow requests submitted by cashiers will appear here '
-              'for your review and approval.',
-              textAlign: TextAlign.center,
-              style: StockpileFonts.satoshi(
-                fontSize: 13,
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
-              ),
-            ),
-          ],
-        ),
-      );
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _pendingRequests.length,
-      itemBuilder: (context, index) {
-        final request = _pendingRequests[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: StockpileColors.secondary100,
-              child: const Icon(
-                Icons.add_box_rounded,
-                color: StockpileColors.secondary700,
-              ),
-            ),
-            title: Text(request['itemName'] ?? 'Unknown'),
-            subtitle: Text(
-              'Qty: ${request['quantity'] ?? '—'} · ${request['reason'] ?? ''}',
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
+    return Column(
+      children: [
+        // Overdue alert banner
+        if (_overdueCount > 0)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            color: StockpileColors.error50,
+            child: Row(
               children: [
-                IconButton(
-                  icon: const Icon(
-                    Icons.check_circle_outline,
-                    color: StockpileColors.success,
-                  ),
-                  tooltip: 'Approve',
-                  onPressed: () {
-                    // TODO: approve borrow
-                  },
+                const Icon(
+                  Icons.warning_amber_rounded,
+                  color: StockpileColors.error700,
+                  size: 22,
                 ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.cancel_outlined,
-                    color: StockpileColors.error500,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '⚠️ $_overdueCount overdue borrow(s) — '
+                    'resellers have not settled within 10 days.',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: StockpileColors.error700,
+                    ),
                   ),
-                  tooltip: 'Reject',
-                  onPressed: () {
-                    // TODO: reject borrow
-                  },
                 ),
               ],
             ),
           ),
-        );
-      },
+
+        // Summary cards
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              _SummaryChip(
+                label: 'All',
+                count: _borrows.length,
+                isSelected: _filter == 'all',
+                color: isDark
+                    ? StockpileColors.darkTextBody
+                    : StockpileColors.bodyText,
+                onTap: () => setState(() => _filter = 'all'),
+              ),
+              const SizedBox(width: 8),
+              _SummaryChip(
+                label: 'Active',
+                count: _activeCount,
+                isSelected: _filter == 'active',
+                color: Colors.blue,
+                onTap: () => setState(() => _filter = 'active'),
+              ),
+              const SizedBox(width: 8),
+              _SummaryChip(
+                label: 'Overdue',
+                count: _overdueCount,
+                isSelected: _filter == 'overdue',
+                color: StockpileColors.error500,
+                onTap: () => setState(() => _filter = 'overdue'),
+              ),
+              const SizedBox(width: 8),
+              _SummaryChip(
+                label: 'Settled',
+                count: _settledCount,
+                isSelected: _filter == 'settled',
+                color: StockpileColors.success,
+                onTap: () => setState(() => _filter = 'settled'),
+              ),
+            ],
+          ),
+        ),
+
+        Expanded(
+          child: _filtered.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.swap_horiz_rounded,
+                        size: 48,
+                        color: isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _filter == 'all'
+                            ? 'No borrow records yet'
+                            : 'No ${_filter} borrows',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? StockpileColors.darkTextPrimary
+                              : StockpileColors.darkText,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Borrow stock via the POS Terminal using the Borrow button.',
+                        textAlign: TextAlign.center,
+                        style: StockpileFonts.satoshi(
+                          fontSize: 13,
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _loadData,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: _filtered.length,
+                    itemBuilder: (context, index) {
+                      final b = _filtered[index];
+                      final memName = _memberName(b.memberId);
+                      final statusLbl = _statusLabel(b);
+                      final overdue = b.isOverdue && b.outstandingQuantity > 0;
+                      final statusCol = _statusColor(b.status, overdue, isDark);
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(
+                            color: overdue
+                                ? StockpileColors.error500.withAlpha(120)
+                                : Colors.transparent,
+                            width: overdue ? 1.5 : 0,
+                          ),
+                        ),
+                        color: overdue
+                            ? StockpileColors.error50.withAlpha(80)
+                            : null,
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Header row
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: statusCol.withAlpha(30),
+                                    child: Icon(
+                                      Icons.swap_horiz_rounded,
+                                      size: 18,
+                                      color: statusCol,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          b.itemName,
+                                          style: StockpileFonts.satoshi(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w700,
+                                            color: isDark
+                                                ? StockpileColors
+                                                      .darkTextPrimary
+                                                : StockpileColors.darkText,
+                                          ),
+                                        ),
+                                        Text(
+                                          memName,
+                                          style: StockpileFonts.satoshi(
+                                            fontSize: 12,
+                                            color: isDark
+                                                ? StockpileColors.darkTextMuted
+                                                : StockpileColors.mutedText,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // Status badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: statusCol.withAlpha(30),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      statusLbl,
+                                      style: StockpileFonts.satoshi(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: statusCol,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 10),
+
+                              // Quantity details
+                              Row(
+                                children: [
+                                  _QtyBadge(
+                                    label: 'Borrowed',
+                                    value: b.quantity,
+                                    isDark: isDark,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _QtyBadge(
+                                    label: 'Returned',
+                                    value: b.quantityReturned,
+                                    isDark: isDark,
+                                    color: StockpileColors.success,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _QtyBadge(
+                                    label: 'Remitted',
+                                    value: b.quantityRemitted,
+                                    isDark: isDark,
+                                    color: Colors.purple,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _QtyBadge(
+                                    label: 'Outstanding',
+                                    value: b.outstandingQuantity,
+                                    isDark: isDark,
+                                    color: b.outstandingQuantity > 0
+                                        ? StockpileColors.error500
+                                        : StockpileColors.success,
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 8),
+
+                              // Date info
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.calendar_today_rounded,
+                                    size: 14,
+                                    color: isDark
+                                        ? StockpileColors.darkTextMuted
+                                        : StockpileColors.mutedText,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Due: ${b.dueDate.day}/${b.dueDate.month}/${b.dueDate.year}',
+                                    style: StockpileFonts.satoshi(
+                                      fontSize: 12,
+                                      color: overdue
+                                          ? StockpileColors.error500
+                                          : isDark
+                                          ? StockpileColors.darkTextMuted
+                                          : StockpileColors.mutedText,
+                                      fontWeight: overdue
+                                          ? FontWeight.w700
+                                          : FontWeight.w400,
+                                    ),
+                                  ),
+                                  if (overdue) ...[
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '(${DateTime.now().difference(b.dueDate).inDays}d late)',
+                                      style: StockpileFonts.satoshi(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: StockpileColors.error500,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+
+                              // Notes
+                              if (b.notes != null && b.notes!.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  b.notes!,
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 12,
+                                    color: isDark
+                                        ? StockpileColors.darkTextMuted
+                                        : StockpileColors.mutedText,
+                                  ),
+                                ),
+                              ],
+
+                              // Action buttons (only if outstanding)
+                              if (b.outstandingQuantity > 0) ...[
+                                const SizedBox(height: 10),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      icon: const Icon(
+                                        Icons.assignment_return_rounded,
+                                        size: 18,
+                                      ),
+                                      label: const Text('Return'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor:
+                                            StockpileColors.success,
+                                      ),
+                                      onPressed: () => _returnItem(b),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    FilledButton.icon(
+                                      icon: const Icon(
+                                        Icons.payments_rounded,
+                                        size: 18,
+                                      ),
+                                      label: const Text('Remit'),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: Colors.purple,
+                                      ),
+                                      onPressed: () => _remitItem(b),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SummaryChip extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool isSelected;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _SummaryChip({
+    required this.label,
+    required this.count,
+    required this.isSelected,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? color.withAlpha(25)
+                : (isDark
+                      ? StockpileColors.darkSurface
+                      : StockpileColors.surface),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected
+                  ? color.withAlpha(120)
+                  : StockpileColors.divider,
+            ),
+          ),
+          child: Column(
+            children: [
+              Text(
+                '$count',
+                style: StockpileFonts.satoshi(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: isSelected
+                      ? color
+                      : (isDark
+                            ? StockpileColors.darkTextBody
+                            : StockpileColors.bodyText),
+                ),
+              ),
+              Text(
+                label,
+                style: StockpileFonts.satoshi(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isSelected
+                      ? color
+                      : (isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QtyBadge extends StatelessWidget {
+  final String label;
+  final int value;
+  final bool isDark;
+  final Color? color;
+
+  const _QtyBadge({
+    required this.label,
+    required this.value,
+    required this.isDark,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c =
+        color ??
+        (isDark ? StockpileColors.darkTextBody : StockpileColors.bodyText);
+    return Column(
+      children: [
+        Text(
+          '$value',
+          style: StockpileFonts.satoshi(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: c,
+          ),
+        ),
+        Text(
+          label,
+          style: StockpileFonts.satoshi(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: isDark
+                ? StockpileColors.darkTextMuted
+                : StockpileColors.mutedText,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -8,6 +8,8 @@ export '../data/models.dart'
         Item,
         Member,
         Sale,
+        Borrow,
+        StockMovement,
         ResellerLevel,
         MemberTransactionEntry,
         inventoryItemsFromRows,

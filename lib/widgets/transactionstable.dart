@@ -5,6 +5,7 @@ import 'dart:convert';
 import '../db/db.dart' show Sale, repository;
 import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
+import '../buttons/borrowbutton.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'dart:io';
@@ -398,6 +399,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
                         const SizedBox(width: 8),
                         const SellButton(),
                         const SizedBox(width: 8),
+                        const BorrowButton(),
+                        const SizedBox(width: 8),
                         CustomElevatedButton(
                           onPressed: () => _onExportCsvPressed(context),
                           icon: const Icon(Icons.upload_file),
@@ -435,6 +438,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             const SellButton(compact: true),
+                            const SizedBox(width: 8),
+                            const BorrowButton(compact: true),
                             const SizedBox(width: 8),
                             IconButton.filled(
                               tooltip: 'Export CSV',
