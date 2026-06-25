@@ -1,9 +1,11 @@
 // lib/pages/cashier/cashier_dashboard.dart
-// Cashier Dashboard with four tab modules:
+// Cashier Dashboard — restricted to Cashier role only.
+// Tabs:
 //   1. Transaction — POS terminal for processing sales.
 //   2. Members — Read-only member lookup.
 //   3. Request Member Deletion — POST-based deletion request for Admin approval.
 //   4. Request Borrow Stock — POST-based borrow stock request for review.
+// Cashier role CANNOT see: inventory CRUD, reports, admin panels, or user mgmt.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -39,6 +41,9 @@ class _CashierDashboardState extends State<CashierDashboard>
 
   @override
   Widget build(BuildContext context) {
+    // Defense-in-depth: only cashier role may render this dashboard.
+    assertRoleOrThrow(context, {UserRole.cashier});
+
     final auth = context.watch<AuthState>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 

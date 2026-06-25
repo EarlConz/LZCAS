@@ -1,6 +1,7 @@
 // lib/pages/admin/admin_dashboard.dart
-// Admin Dashboard — full administrative control, user provisioning, and
-// global configuration management.
+// Admin Dashboard — full unrestricted access to ALL application features.
+// The admin role passes every role assertion and can access every tab
+// from every dashboard (admin, inventory, and cashier).
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +9,7 @@ import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -16,17 +18,40 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-class _AdminDashboardState extends State<AdminDashboard> {
-  int _selectedTab = 0;
+class _AdminDashboardState extends State<AdminDashboard>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
 
+  /// All tabs the admin can see — every feature from every role.
   static const _tabs = [
-    _TabInfo(Icons.dashboard_rounded, 'Overview'),
-    _TabInfo(Icons.person_add_alt_rounded, 'User Management'),
-    _TabInfo(Icons.settings_rounded, 'Global Config'),
+    _TabInfo(Icons.admin_panel_settings_rounded, 'Admin · Overview'),
+    _TabInfo(Icons.person_add_alt_rounded, 'Admin · Users'),
+    _TabInfo(Icons.settings_rounded, 'Admin · Config'),
+    _TabInfo(Icons.inventory_2_rounded, 'Inventory · Stock'),
+    _TabInfo(Icons.history_rounded, 'Inventory · Reports'),
+    _TabInfo(Icons.point_of_sale_rounded, 'Cashier · POS'),
+    _TabInfo(Icons.people_alt_rounded, 'Cashier · Members'),
+    _TabInfo(Icons.person_remove_rounded, 'Cashier · Del. Request'),
+    _TabInfo(Icons.add_box_rounded, 'Cashier · Borrow Stock'),
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: _tabs.length, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Defense-in-depth: only admins may render this dashboard.
+    assertRoleOrThrow(context, {UserRole.admin});
+
     final auth = context.watch<AuthState>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -54,7 +79,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     Expanded(
                       child: Text(
                         'Temporary Admin Account — Create a real admin from '
-                        'the "User Management" tab to secure the system and '
+                        'the "Admin · Users" tab to secure the system and '
                         'disable this temporary access.',
                         style: StockpileFonts.satoshi(
                           fontSize: 12,
@@ -76,7 +101,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Admin Panel',
+                          'Admin Panel · All Rights',
                           style: StockpileFonts.satoshi(
                             fontSize: 26,
                             fontWeight: FontWeight.w800,
@@ -87,7 +112,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Welcome, ${auth.username} · All Rights',
+                          'Welcome, ${auth.username} · Full app access',
                           style: StockpileFonts.satoshi(
                             fontSize: 14,
                             color: isDark
@@ -104,31 +129,35 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
             const Divider(height: 1),
 
-            // ── Tab Bar ─────────────────────────────────────────────────
+            // ── Tab Bar — ALL app tabs ───────────────────────────────────
             SizedBox(
-              height: 48,
+              height: 52,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 children: List.generate(_tabs.length, (i) {
-                  final selected = _selectedTab == i;
+                  final selected = _tabController.index == i;
                   return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
                     child: ChoiceChip(
                       label: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
                             _tabs[i].icon,
-                            size: 18,
+                            size: 16,
                             color: selected ? Colors.white : null,
                           ),
-                          const SizedBox(width: 6),
-                          Text(_tabs[i].label),
+                          const SizedBox(width: 5),
+                          Text(
+                            _tabs[i].label,
+                            style: const TextStyle(fontSize: 13),
+                          ),
                         ],
                       ),
                       selected: selected,
-                      onSelected: (_) => setState(() => _selectedTab = i),
+                      onSelected: (_) =>
+                          setState(() => _tabController.index = i),
                     ),
                   );
                 }),
@@ -136,14 +165,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
             ),
             const Divider(height: 1),
 
-            // ── Tab Content ─────────────────────────────────────────────
+            // ── Tab Content — ALL features ───────────────────────────────
             Expanded(
-              child: IndexedStack(
-                index: _selectedTab,
+              child: TabBarView(
+                controller: _tabController,
                 children: const [
+                  // Admin section (3 tabs)
                   _AdminOverviewTab(),
                   _UserManagementTab(),
                   _GlobalConfigTab(),
+                  // Inventory section (2 tabs)
+                  _AdminInventoryTab(),
+                  _AdminReportsTab(),
+                  // Cashier section (4 tabs)
+                  _AdminTransactionTab(),
+                  _AdminMembersTab(),
+                  _AdminDeleteRequestTab(),
+                  _AdminBorrowStockTab(),
                 ],
               ),
             ),
@@ -339,6 +377,7 @@ class _UserManagementTabState extends State<_UserManagementTab> {
       // Deactivate the temp admin account now that a real user exists
       await auth.deactivateTempAdmin();
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('User created successfully.')),
       );
@@ -713,6 +752,246 @@ class _ConfigTile extends StatelessWidget {
             ),
           ),
           trailing,
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Admin · Inventory Tab (directly uses InventoryTable) ──────────────────
+
+class _AdminInventoryTab extends StatelessWidget {
+  const _AdminInventoryTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.all(16),
+      child: inventory.InventoryTable(),
+    );
+  }
+}
+
+// ─── Admin · Reports Tab ────────────────────────────────────────────────────
+
+class _AdminReportsTab extends StatelessWidget {
+  const _AdminReportsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.assessment_rounded,
+            size: 48,
+            color: isDark
+                ? StockpileColors.darkTextMuted
+                : StockpileColors.mutedText,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Inventory Reports',
+            style: StockpileFonts.satoshi(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Stock in/out logs and borrowing trends — full read access.',
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Admin · Transaction (POS) Tab ──────────────────────────────────────────
+
+class _AdminTransactionTab extends StatelessWidget {
+  const _AdminTransactionTab();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.point_of_sale_rounded,
+            size: 48,
+            color: isDark
+                ? StockpileColors.darkTextMuted
+                : StockpileColors.mutedText,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Point-of-Sale Terminal',
+            style: StockpileFonts.satoshi(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Admin has full access to process sales and manage transactions.',
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Admin · Members Tab ────────────────────────────────────────────────────
+
+class _AdminMembersTab extends StatelessWidget {
+  const _AdminMembersTab();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.people_alt_rounded,
+            size: 48,
+            color: isDark
+                ? StockpileColors.darkTextMuted
+                : StockpileColors.mutedText,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Member Directory',
+            style: StockpileFonts.satoshi(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Full read/write access to all member records.',
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Admin · Delete Request Tab ─────────────────────────────────────────────
+
+class _AdminDeleteRequestTab extends StatelessWidget {
+  const _AdminDeleteRequestTab();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.person_remove_rounded,
+            size: 48,
+            color: StockpileColors.error500,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Pending Deletion Requests',
+            style: StockpileFonts.satoshi(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Review and approve/reject member deletion requests.',
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Admin · Borrow Stock Tab ───────────────────────────────────────────────
+
+class _AdminBorrowStockTab extends StatelessWidget {
+  const _AdminBorrowStockTab();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.add_box_rounded,
+            size: 48,
+            color: StockpileColors.secondary500,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Pending Borrow Requests',
+            style: StockpileFonts.satoshi(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Review and approve/reject stock borrowing requests.',
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
         ],
       ),
     );

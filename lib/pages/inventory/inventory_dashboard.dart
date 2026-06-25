@@ -1,7 +1,10 @@
 // lib/pages/inventory/inventory_dashboard.dart
-// Inventory Dashboard with two navigation tabs:
-//   1. Inventory CRUD — manage items, stock levels, product details.
-//   2. In/Out/Borrow Reports — read-only logs of inventory history.
+// Inventory Dashboard — restricted to Inventory role only.
+// Tabs:
+//   1. Only Inventory Tab — Full CRUD for items, stock levels, product details.
+//   2. In/Out/Borrow Reports — Read-only logs of inventory activity.
+// Inventory role CANNOT see: cashier tabs, admin tabs, member management,
+// POS transactions, deletion requests, or borrow requests.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -36,6 +39,9 @@ class _InventoryDashboardState extends State<InventoryDashboard>
 
   @override
   Widget build(BuildContext context) {
+    // Defense-in-depth: only inventory + admin roles may render this dashboard.
+    assertRoleOrThrow(context, {UserRole.inventory});
+
     final auth = context.watch<AuthState>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -81,7 +87,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
             ),
             const SizedBox(height: 8),
 
-            // ── Tab Bar ─────────────────────────────────────────────────
+            // ── Tab Bar — Only Inventory + Reports ──────────────────────
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
