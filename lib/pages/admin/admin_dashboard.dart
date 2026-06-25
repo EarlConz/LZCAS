@@ -11,6 +11,9 @@ import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 import 'package:lzcas/widgets/stockpile_topbar.dart';
+import 'package:lzcas/widgets/transactionstable.dart';
+import 'package:lzcas/widgets/memberstable.dart';
+import 'package:lzcas/pages/dashboardpage.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -24,30 +27,39 @@ class _AdminDashboardState extends State<AdminDashboard> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   static const _pageTitles = [
-    'Admin · Overview',
-    'Admin · User Management',
-    'Admin · Global Config',
+    'Dashboard',
+    'User Management',
     'Inventory · Stock',
     'Inventory · Reports',
-    'Cashier · POS Terminal',
-    'Cashier · Members',
-    'Cashier · Deletion Requests',
-    'Cashier · Borrow Stock',
+    'POS Terminal',
+    'Members',
+    'Deletion Requests',
+    'Borrow Stock',
+    'Settings',
+    'Help & Support',
   ];
 
   List<Widget> _buildPages() => const [
-    // Admin section (3 pages)
-    _AdminOverviewTab(),
+    // 0: Dashboard — recovered from original DashboardPage
+    _AdminDashboardPage(),
+    // 1: Users — user provisioning
     _UserManagementTab(),
-    _GlobalConfigTab(),
-    // Inventory section (2 pages)
+    // 2: Inventory — full CRUD via InventoryTable
     _AdminInventoryTab(),
+    // 3: Reports — In/Out/Borrow read-only
     _AdminReportsTab(),
-    // Cashier section (4 pages)
-    _AdminTransactionTab(),
-    _AdminMembersTab(),
+    // 4: POS Terminal — shared with Cashier via TransactionsTable
+    _AdminPosTab(),
+    // 5: Members — recovered full MembersTable
+    _AdminMembersPage(),
+    // 6: Deletion Requests
     _AdminDeleteRequestTab(),
+    // 7: Borrow Stock
     _AdminBorrowStockTab(),
+    // 8: Settings — Global Config moved here
+    _AdminSettingsTab(),
+    // 9: Help & Support
+    _AdminHelpTab(),
   ];
 
   void _onItemTapped(int index) {
@@ -145,123 +157,14 @@ class _AdminDashboardState extends State<AdminDashboard> {
   }
 }
 
-// ─── Overview Tab ───────────────────────────────────────────────────────────
+// ─── Dashboard — recovered from original DashboardPage ─────────────────────
 
-class _AdminOverviewTab extends StatelessWidget {
-  const _AdminOverviewTab();
+class _AdminDashboardPage extends StatelessWidget {
+  const _AdminDashboardPage();
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'System Overview',
-            style: StockpileFonts.satoshi(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.people_alt_rounded,
-                  label: 'Total Users',
-                  value: '—',
-                  color: StockpileColors.secondary500,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.inventory_2_rounded,
-                  label: 'Inventory Items',
-                  value: '—',
-                  color: StockpileColors.primary700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.receipt_long_rounded,
-                  label: 'Total Sales',
-                  value: '—',
-                  color: StockpileColors.success,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.group_rounded,
-                  label: 'Active Members',
-                  value: '—',
-                  color: StockpileColors.secondary300,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: StockpileColors.primary50,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: StockpileColors.primary200.withAlpha(120),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.verified_user_rounded,
-                  size: 32,
-                  color: StockpileColors.primary700,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Full Administrative Control',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: StockpileColors.primary900,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'You have all rights. Manage users, configurations, '
-                        'and system settings from the tabs above.',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 13,
-                          color: StockpileColors.primary800,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    return const DashboardPage();
   }
 }
 
@@ -470,31 +373,42 @@ class _UserManagementTabState extends State<_UserManagementTab> {
   }
 }
 
-// ─── Global Config Tab ──────────────────────────────────────────────────────
+// ─── Admin · Settings Tab — Global Config relocated from top nav ───────────
 
-class _GlobalConfigTab extends StatelessWidget {
-  const _GlobalConfigTab();
+class _AdminSettingsTab extends StatelessWidget {
+  const _AdminSettingsTab();
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
+            'Settings',
+            style: StockpileFonts.satoshi(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          Text(
             'Global Configuration',
             style: StockpileFonts.satoshi(
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: FontWeight.w700,
               color: isDark
                   ? StockpileColors.darkTextPrimary
                   : StockpileColors.darkText,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
           _ConfigTile(
             icon: Icons.palette_outlined,
@@ -526,6 +440,55 @@ class _GlobalConfigTab extends StatelessWidget {
   }
 }
 
+// ─── Admin · Help & Support Tab ─────────────────────────────────────────────
+
+class _AdminHelpTab extends StatelessWidget {
+  const _AdminHelpTab();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.help_outline_rounded,
+              size: 64,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Help & Support',
+              style: StockpileFonts.satoshi(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: isDark
+                    ? StockpileColors.darkTextPrimary
+                    : StockpileColors.darkText,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Contact support@lzcas.app for assistance.',
+              style: StockpileFonts.satoshi(
+                fontSize: 16,
+                color: isDark
+                    ? StockpileColors.darkTextMuted
+                    : StockpileColors.mutedText,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Admin Sidebar (styled after StockpileSidebar from UI Changes) ─────────
 
 class _AdminSidebar extends StatelessWidget {
@@ -540,15 +503,14 @@ class _AdminSidebar extends StatelessWidget {
   });
 
   static const _navItems = <_NavItem>[
-    _NavItem(Icons.admin_panel_settings_rounded, 'Overview'),
+    _NavItem(Icons.dashboard_rounded, 'Dashboard'),
     _NavItem(Icons.person_add_alt_rounded, 'Users'),
-    _NavItem(Icons.settings_rounded, 'Config'),
     _NavItem(Icons.inventory_2_rounded, 'Inventory'),
     _NavItem(Icons.history_rounded, 'Reports'),
     _NavItem(Icons.point_of_sale_rounded, 'POS Terminal'),
     _NavItem(Icons.people_alt_rounded, 'Members'),
     _NavItem(Icons.person_remove_rounded, 'Del. Requests'),
-    _NavItem(Icons.add_box_rounded, 'Borrow Requests'),
+    _NavItem(Icons.add_box_rounded, 'Borrow Stock'),
   ];
 
   static const _bottomItems = <_NavItem>[
@@ -624,25 +586,21 @@ class _AdminSidebar extends StatelessWidget {
                   endIndent: 12,
                 ),
                 const SizedBox(height: 12),
-                // Settings
+                // Settings → index 8
                 _AdminSidebarTile(
                   item: _bottomItems[0],
-                  isSelected: selectedIndex == _navItems.length,
+                  isSelected: selectedIndex == 8,
                   activeBg: activeBg,
                   isDark: isDark,
-                  onTap: () {
-                    // Settings — not in nav items yet
-                  },
+                  onTap: () => onItemSelected(8),
                 ),
-                // Help & Support
+                // Help & Support → index 9
                 _AdminSidebarTile(
                   item: _bottomItems[1],
-                  isSelected: selectedIndex == _navItems.length + 1,
+                  isSelected: selectedIndex == 9,
                   activeBg: activeBg,
                   isDark: isDark,
-                  onTap: () {
-                    // Help — not in nav items yet
-                  },
+                  onTap: () => onItemSelected(9),
                 ),
               ],
             ),
@@ -825,75 +783,6 @@ class _AdminSidebarTile extends StatelessWidget {
 
 // ─── Shared Widgets ─────────────────────────────────────────────────────────
 
-class _StatCard extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-
-  const _StatCard({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? StockpileColors.darkDivider : StockpileColors.divider,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: color.withAlpha(30),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  value,
-                  style: StockpileFonts.satoshi(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: isDark
-                        ? StockpileColors.darkTextPrimary
-                        : StockpileColors.darkText,
-                  ),
-                ),
-                Text(
-                  label,
-                  style: StockpileFonts.satoshi(
-                    fontSize: 12,
-                    color: isDark
-                        ? StockpileColors.darkTextMuted
-                        : StockpileColors.mutedText,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ConfigTile extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -1019,96 +908,34 @@ class _AdminReportsTab extends StatelessWidget {
   }
 }
 
-// ─── Admin · Transaction (POS) Tab ──────────────────────────────────────────
+// ─── Admin · POS Tab — shared TransactionsTable with Cashier ───────────────
 
-class _AdminTransactionTab extends StatelessWidget {
-  const _AdminTransactionTab();
+class _AdminPosTab extends StatelessWidget {
+  const _AdminPosTab();
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.point_of_sale_rounded,
-            size: 48,
-            color: isDark
-                ? StockpileColors.darkTextMuted
-                : StockpileColors.mutedText,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Point-of-Sale Terminal',
-            style: StockpileFonts.satoshi(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Admin has full access to process sales and manage transactions.',
-            style: StockpileFonts.satoshi(
-              fontSize: 13,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-          ),
-        ],
-      ),
+    return const Padding(
+      padding: EdgeInsets.all(16),
+      child: TransactionsTable(),
     );
   }
 }
 
-// ─── Admin · Members Tab ────────────────────────────────────────────────────
+// ─── Admin · Members Tab — recovered full MembersTable ──────────────────────
 
-class _AdminMembersTab extends StatelessWidget {
-  const _AdminMembersTab();
+class _AdminMembersPage extends StatelessWidget {
+  const _AdminMembersPage();
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.people_alt_rounded,
-            size: 48,
-            color: isDark
-                ? StockpileColors.darkTextMuted
-                : StockpileColors.mutedText,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Member Directory',
-            style: StockpileFonts.satoshi(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Full read/write access to all member records.',
-            style: StockpileFonts.satoshi(
-              fontSize: 13,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-          ),
-        ],
-      ),
+    return const Padding(
+      padding: EdgeInsets.all(16),
+      child: MembersTable(onRowSelected: _noOpMemberSelect),
     );
   }
+
+  static void _noOpMemberSelect(Map<String, dynamic> _) {}
 }
 
 // ─── Admin · Delete Request Tab ─────────────────────────────────────────────
