@@ -123,7 +123,8 @@ class AuthState extends ChangeNotifier {
         key: _StorageKeys.tempAdminDisabled,
       );
       if (disabled == 'true') {
-        _error = 'Temporary account has been deactivated. '
+        _error =
+            'Temporary account has been deactivated. '
             'Create a real admin account from the Admin Panel.';
         _status = AuthStatus.authError;
         _username = '';
@@ -230,10 +231,7 @@ class AuthState extends ChangeNotifier {
       _username = username;
       _jwtToken = 'local_user_token_${username.hashCode}';
 
-      await _secureStorage.write(
-        key: _StorageKeys.authToken,
-        value: _jwtToken,
-      );
+      await _secureStorage.write(key: _StorageKeys.authToken, value: _jwtToken);
       await _secureStorage.write(key: _StorageKeys.username, value: _username);
       await _secureStorage.write(
         key: _StorageKeys.userRole,
@@ -377,8 +375,8 @@ class AuthState extends ChangeNotifier {
   static const _tempAdminToken = 'temp_admin_bypass_token';
 
   /// Whether the current session is using the temp admin bypass.
-  bool get isTempAdmin => _username == 'Temp Admin' &&
-      _jwtToken == _tempAdminToken;
+  bool get isTempAdmin =>
+      _username == 'Temp Admin' && _jwtToken == _tempAdminToken;
 
   /// Permanently disable the temp admin account.
   /// Call this after creating a real admin user.
@@ -400,8 +398,10 @@ class AuthState extends ChangeNotifier {
     if (json != null && json.isNotEmpty) {
       try {
         final decoded = jsonDecode(json) as Map<String, dynamic>;
-        _localUsers = decoded.map((k, v) =>
-            MapEntry(k, (v as Map<String, dynamic>).cast<String, String>()));
+        _localUsers = decoded.map(
+          (k, v) =>
+              MapEntry(k, (v as Map<String, dynamic>).cast<String, String>()),
+        );
       } catch (_) {
         _localUsers = {};
       }
@@ -418,10 +418,7 @@ class AuthState extends ChangeNotifier {
     await _loadLocalUsers();
     if (_localUsers.containsKey(username)) return false;
 
-    _localUsers[username] = {
-      'password': password,
-      'role': role.name,
-    };
+    _localUsers[username] = {'password': password, 'role': role.name};
 
     final json = jsonEncode(_localUsers);
     await _secureStorage.write(key: _StorageKeys.localUsers, value: json);
