@@ -15,6 +15,7 @@ import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
+import 'package:lzcas/db/db.dart';
 
 class CashierDashboard extends StatefulWidget {
   const CashierDashboard({super.key});
@@ -432,7 +433,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
   }
 }
 
-// ─── Tab 4: Request Borrow Stock ────────────────────────────────────────────
+// ─── Tab 4: Active Borrows (read-only) ─────────────────────────────────────
 
 class _BorrowStockTab extends StatefulWidget {
   final bool isDark;
@@ -443,112 +444,62 @@ class _BorrowStockTab extends StatefulWidget {
 }
 
 class _BorrowStockTabState extends State<_BorrowStockTab> {
-  final _itemNameCtrl = TextEditingController();
-  final _quantityCtrl = TextEditingController();
-  final _reasonCtrl = TextEditingController();
-  bool _submitting = false;
-  String? _feedback;
+  List<Borrow> _borrows = [];
+  List<Member> _members = [];
+  bool _loading = true;
 
   @override
-  void dispose() {
-    _itemNameCtrl.dispose();
-    _quantityCtrl.dispose();
-    _reasonCtrl.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadData();
   }
 
-  Future<void> _submitBorrowRequest() async {
-    final itemName = _itemNameCtrl.text.trim();
-    final quantity = _quantityCtrl.text.trim();
-    final reason = _reasonCtrl.text.trim();
-
-    if (itemName.isEmpty || quantity.isEmpty || reason.isEmpty) {
-      setState(() => _feedback = 'Please fill in all fields.');
-      return;
-    }
-
-    if (int.tryParse(quantity) == null || int.parse(quantity) <= 0) {
-      setState(() => _feedback = 'Quantity must be a positive number.');
-      return;
-    }
-
-    setState(() {
-      _submitting = true;
-      _feedback = null;
-    });
-
+  Future<void> _loadData() async {
+    setState(() => _loading = true);
     try {
-      // POST request to submit borrow stock request.
-      // final client = context.read<ApiClient>();
-      // await client.post('/api/cashier/borrow-stock-request', data: {
-      //   'itemName': itemName,
-      //   'quantity': int.parse(quantity),
-      //   'reason': reason,
-      // });
-
-      // Simulate API delay
-      await Future.delayed(const Duration(milliseconds: 800));
-
+      final borrows = await repository.fetchActiveBorrows();
+      final members = await repository.fetchMembers();
       if (!mounted) return;
-      _itemNameCtrl.clear();
-      _quantityCtrl.clear();
-      _reasonCtrl.clear();
       setState(() {
-        _feedback = 'Borrow stock request submitted for review.';
+        _borrows = borrows;
+        _members = members;
+        _loading = false;
       });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _feedback = 'Failed to submit: $e');
-    } finally {
-      if (mounted) setState(() => _submitting = false);
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _memberName(int memberId) {
+    final m = _members.cast<Member?>().firstWhere(
+      (m) => m?.id == memberId,
+      orElse: () => null,
+    );
+    if (m == null) return 'Member #$memberId';
+    return '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
   }
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 500),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Info banner
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: StockpileColors.secondary50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: StockpileColors.secondary200.withAlpha(120),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    color: StockpileColors.secondary700,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Submit a request to borrow stock from the inventory. '
-                      'This will be reviewed by the Admin or Inventory team.',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 13,
-                        color: StockpileColors.secondary700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
+    if (_borrows.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.swap_horiz_rounded,
+              size: 48,
+              color: widget.isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+            const SizedBox(height: 12),
             Text(
-              'Request Borrow Stock',
+              'No Active Borrows',
               style: StockpileFonts.satoshi(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -557,92 +508,144 @@ class _BorrowStockTabState extends State<_BorrowStockTab> {
                     : StockpileColors.darkText,
               ),
             ),
-            const SizedBox(height: 16),
-
-            if (_feedback != null)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: _feedback!.contains('submitted')
-                      ? StockpileColors.successBg
-                      : StockpileColors.dangerBg,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  _feedback!,
-                  style: TextStyle(
-                    color: _feedback!.contains('submitted')
-                        ? StockpileColors.success
-                        : StockpileColors.danger,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-
-            TextFormField(
-              controller: _itemNameCtrl,
-              enabled: !_submitting,
-              decoration: const InputDecoration(
-                labelText: 'Item Name',
-                hintText: 'e.g., Office Chair',
-                prefixIcon: Icon(Icons.inventory_2_outlined),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _quantityCtrl,
-              enabled: !_submitting,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Quantity',
-                hintText: 'Number of units to borrow',
-                prefixIcon: Icon(Icons.numbers_rounded),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _reasonCtrl,
-              enabled: !_submitting,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Reason for Borrowing',
-                hintText: 'Explain why you need to borrow this item',
-                alignLabelWithHint: true,
-                prefixIcon: Padding(
-                  padding: EdgeInsets.only(bottom: 48),
-                  child: Icon(Icons.edit_note_rounded),
-                ),
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: FilledButton.icon(
-                icon: _submitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.send_rounded),
-                label: Text(
-                  _submitting ? 'Submitting…' : 'Submit Borrow Request',
-                ),
-                onPressed: _submitting ? null : _submitBorrowRequest,
+            const SizedBox(height: 4),
+            Text(
+              'Borrow stock via the POS Terminal using the Borrow button.',
+              textAlign: TextAlign.center,
+              style: StockpileFonts.satoshi(
+                fontSize: 13,
+                color: widget.isDark
+                    ? StockpileColors.darkTextMuted
+                    : StockpileColors.mutedText,
               ),
             ),
           ],
         ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _borrows.length,
+        itemBuilder: (context, index) {
+          final b = _borrows[index];
+          final memName = _memberName(b.memberId);
+          final overdue = b.isOverdue && b.outstandingQuantity > 0;
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                color: overdue
+                    ? StockpileColors.error500.withAlpha(120)
+                    : Colors.transparent,
+                width: overdue ? 1.5 : 0,
+              ),
+            ),
+            color: overdue ? StockpileColors.error50.withAlpha(80) : null,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: overdue
+                        ? StockpileColors.error100
+                        : StockpileColors.secondary100,
+                    child: Icon(
+                      Icons.swap_horiz_rounded,
+                      size: 18,
+                      color: overdue
+                          ? StockpileColors.error500
+                          : StockpileColors.secondary700,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          b.itemName,
+                          style: StockpileFonts.satoshi(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: widget.isDark
+                                ? StockpileColors.darkTextPrimary
+                                : StockpileColors.darkText,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          memName,
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            color: widget.isDark
+                                ? StockpileColors.darkTextMuted
+                                : StockpileColors.mutedText,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Borrowed: ${b.quantity}  ·  '
+                          'Outstanding: ${b.outstandingQuantity}',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            color: widget.isDark
+                                ? StockpileColors.darkTextBody
+                                : StockpileColors.bodyText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: overdue
+                              ? StockpileColors.error500.withAlpha(30)
+                              : Colors.blue.withAlpha(30),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          overdue ? 'Overdue' : 'Active',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: overdue
+                                ? StockpileColors.error500
+                                : Colors.blue,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Due: ${b.dueDate.day}/${b.dueDate.month}/${b.dueDate.year}',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 11,
+                          color: overdue
+                              ? StockpileColors.error500
+                              : (widget.isDark
+                                    ? StockpileColors.darkTextMuted
+                                    : StockpileColors.mutedText),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }

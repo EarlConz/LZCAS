@@ -167,6 +167,270 @@ class SupabaseRepository {
     return levels;
   }
 
+  // ── Borrow Methods ───────────────────────────────────────────────────────
+
+  /// Record a borrow — deducts stock immediately, sets due date 10 days out.
+  Future<int> addBorrow({
+    required int memberId,
+    required int itemId,
+    required String itemName,
+    required int quantity,
+    int price = 0,
+    String? notes,
+  }) async {
+    final item = await getItemById(itemId);
+    if (item == null) throw Exception('Item not found: $itemId');
+    if (item.stock < quantity) {
+      throw Exception('Insufficient stock for $itemName');
+    }
+
+    // Deduct stock
+    final updated = item.copyWith(stock: item.stock - quantity);
+    await updateItem(updated);
+
+    final now = DateTime.now();
+    final dueDate = now.add(const Duration(days: 10));
+
+    final result = await _supabase
+        .from('borrows')
+        .insert({
+          'user_id': _uid,
+          'member_id': memberId,
+          'item_id': itemId,
+          'item_name': itemName,
+          'quantity': quantity,
+          'price': price,
+          'borrowed_at': now.toUtc().toIso8601String(),
+          'due_date': dueDate.toUtc().toIso8601String(),
+          'status': 'active',
+          if (notes != null) 'notes': notes,
+        })
+        .select('id');
+
+    _changes.add('borrow_added');
+    if (result is List && result.isNotEmpty) {
+      return (result.first['id'] as num).toInt();
+    }
+    return 0;
+  }
+
+  Future<List<Borrow>> fetchBorrows() async {
+    final data = await _supabase.from('borrows').select();
+    return (data as List).map((j) => Borrow.fromJson(j)).toList();
+  }
+
+  Future<List<Borrow>> fetchBorrowsForMember(int memberId) async {
+    final data = await _supabase
+        .from('borrows')
+        .select()
+        .eq('member_id', memberId);
+    return (data as List).map((j) => Borrow.fromJson(j)).toList();
+  }
+
+  /// Active borrows — not yet fully settled.
+  Future<List<Borrow>> fetchActiveBorrows() async {
+    final data = await _supabase.from('borrows').select().inFilter('status', [
+      'active',
+      'overdue',
+      'partially_settled',
+    ]);
+    return (data as List).map((j) => Borrow.fromJson(j)).toList();
+  }
+
+  /// Overdue borrows — past due date and not fully settled.
+  /// Also auto-updates status to 'overdue' for qualifying rows.
+  Future<List<Borrow>> fetchOverdueBorrows() async {
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    // Auto-flag overdue rows
+    await _supabase
+        .from('borrows')
+        .update({'status': 'overdue'})
+        .lt('due_date', now)
+        .inFilter('status', ['active', 'partially_settled']);
+
+    final data = await _supabase
+        .from('borrows')
+        .select()
+        .eq('status', 'overdue');
+    return (data as List).map((j) => Borrow.fromJson(j)).toList();
+  }
+
+  /// Return unsold borrowed items — restores stock.
+  Future<bool> returnBorrowedItem(int borrowId, int returnQty) async {
+    final data = await _supabase
+        .from('borrows')
+        .select()
+        .eq('id', borrowId)
+        .maybeSingle();
+    if (data == null) return false;
+
+    final borrow = Borrow.fromJson(data);
+    if (returnQty <= 0 || returnQty > borrow.outstandingQuantity) return false;
+
+    final newReturned = borrow.quantityReturned + returnQty;
+    final newStatus = _computeBorrowStatus(
+      quantity: borrow.quantity,
+      returned: newReturned,
+      remitted: borrow.quantityRemitted,
+      dueDate: borrow.dueDate,
+    );
+
+    await _supabase
+        .from('borrows')
+        .update({
+          'quantity_returned': newReturned,
+          'status': newStatus,
+          if (newStatus == 'returned' || newStatus == 'remitted')
+            'settled_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', borrowId);
+
+    // Restore stock
+    final item = await getItemById(borrow.itemId);
+    if (item != null) {
+      final updated = item.copyWith(stock: item.stock + returnQty);
+      await updateItem(updated);
+    }
+
+    _changes.add('borrow_updated');
+    return true;
+  }
+
+  /// Remit payment for sold borrowed items — creates a Sale record.
+  Future<bool> remitBorrowedItem(int borrowId, int remitQty) async {
+    final data = await _supabase
+        .from('borrows')
+        .select()
+        .eq('id', borrowId)
+        .maybeSingle();
+    if (data == null) return false;
+
+    final borrow = Borrow.fromJson(data);
+    if (remitQty <= 0 || remitQty > borrow.outstandingQuantity) return false;
+
+    final newRemitted = borrow.quantityRemitted + remitQty;
+    final newStatus = _computeBorrowStatus(
+      quantity: borrow.quantity,
+      returned: borrow.quantityReturned,
+      remitted: newRemitted,
+      dueDate: borrow.dueDate,
+    );
+
+    await _supabase
+        .from('borrows')
+        .update({
+          'quantity_remitted': newRemitted,
+          'status': newStatus,
+          if (newStatus == 'returned' || newStatus == 'remitted')
+            'settled_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', borrowId);
+
+    // Create a Sale record for the remitted quantity
+    await addSale(
+      itemId: borrow.itemId,
+      itemName: borrow.itemName,
+      quantity: remitQty,
+      price: borrow.price,
+      buyerId: borrow.memberId,
+    );
+
+    _changes.add('borrow_updated');
+    return true;
+  }
+
+  /// Compute borrow status from current quantities and due date.
+  String _computeBorrowStatus({
+    required int quantity,
+    required int returned,
+    required int remitted,
+    required DateTime dueDate,
+  }) {
+    final outstanding = quantity - returned - remitted;
+    if (outstanding <= 0) {
+      if (returned >= quantity) return 'returned';
+      if (remitted >= quantity) return 'remitted';
+      return 'returned'; // fully settled by combination
+    }
+    // Outstanding > 0
+    if (dueDate.isBefore(DateTime.now())) return 'overdue';
+    if (returned > 0 || remitted > 0) return 'partially_settled';
+    return 'active';
+  }
+
+  // ── Stock Movement Methods ──────────────────────────────────────────────
+
+  /// Add stock with audit trail.
+  Future<bool> addStock({
+    required int itemId,
+    required String itemName,
+    required int quantity,
+    String? reason,
+  }) async {
+    final item = await getItemById(itemId);
+    if (item == null) return false;
+
+    final newStock = item.stock + quantity;
+    final updated = item.copyWith(
+      stock: newStock,
+      lastUpdated: DateTime.now(),
+      status: statusFromStock(newStock),
+    );
+    await updateItem(updated);
+
+    await _supabase.from('stock_movements').insert({
+      'user_id': _uid,
+      'item_id': itemId,
+      'item_name': itemName,
+      'quantity': quantity,
+      'movement_type': 'stock_in',
+      if (reason != null) 'reason': reason,
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+    });
+
+    _changes.add('stock_movement_added');
+    return true;
+  }
+
+  /// Reduce stock with audit trail and mandatory reason.
+  Future<bool> reduceStock({
+    required int itemId,
+    required String itemName,
+    required int quantity,
+    required String reason,
+  }) async {
+    final item = await getItemById(itemId);
+    if (item == null) return false;
+    if (item.stock < quantity) return false;
+
+    final newStock = item.stock - quantity;
+    final updated = item.copyWith(
+      stock: newStock,
+      lastUpdated: DateTime.now(),
+      status: statusFromStock(newStock),
+    );
+    await updateItem(updated);
+
+    await _supabase.from('stock_movements').insert({
+      'user_id': _uid,
+      'item_id': itemId,
+      'item_name': itemName,
+      'quantity': quantity,
+      'movement_type': 'stock_out',
+      'reason': reason,
+      'created_at': DateTime.now().toUtc().toIso8601String(),
+    });
+
+    _changes.add('stock_movement_added');
+    return true;
+  }
+
+  Future<List<StockMovement>> fetchStockMovements() async {
+    final data = await _supabase.from('stock_movements').select();
+    return (data as List).map((j) => StockMovement.fromJson(j)).toList();
+  }
+
   // ── Add Methods ──────────────────────────────────────────────────────────
 
   Future<int> addItem({
@@ -190,10 +454,25 @@ class SupabaseRepository {
         .select('id');
 
     _changes.add('item_added');
-    if (result is List && result.isNotEmpty) {
-      return (result.first['id'] as num).toInt();
+
+    // If the new item has stock > 0, record it as a stock-in movement
+    final itemId = result is List && result.isNotEmpty
+        ? (result.first['id'] as num).toInt()
+        : 0;
+    if (itemId > 0 && stock > 0) {
+      await _supabase.from('stock_movements').insert({
+        'user_id': _uid,
+        'item_id': itemId,
+        'item_name': name,
+        'quantity': stock,
+        'movement_type': 'stock_in',
+        'reason': 'new_product',
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      });
+      _changes.add('stock_movement_added');
     }
-    return 0;
+
+    return itemId;
   }
 
   Future<int> addMember({

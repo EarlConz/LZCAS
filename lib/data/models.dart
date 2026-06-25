@@ -35,7 +35,6 @@ class Item {
   );
 
   Map<String, dynamic> toJson() => {
-    if (id != null) 'id': id,
     'name': name,
     if (category != null) 'category': category,
     'stock': stock,
@@ -121,7 +120,6 @@ class Member {
   );
 
   Map<String, dynamic> toJson() => {
-    if (id != null) 'id': id,
     if (lastName != null) 'last_name': lastName,
     if (firstName != null) 'first_name': firstName,
     if (middleName != null) 'middle_name': middleName,
@@ -212,7 +210,6 @@ class Sale {
   );
 
   Map<String, dynamic> toJson() => {
-    if (id != null) 'id': id,
     'item_id': itemId,
     if (buyerId != null) 'buyer_id': buyerId,
     'item_name': itemName,
@@ -316,7 +313,6 @@ class MemberTransaction {
       );
 
   Map<String, dynamic> toJson() => {
-    if (id != null) 'id': id,
     'member_id': memberId,
     if (saleId != null) 'sale_id': saleId,
     if (itemId != null) 'item_id': itemId,
@@ -325,6 +321,52 @@ class MemberTransaction {
     'price': price,
     if (timestamp != null) 'timestamp': timestamp!.toIso8601String(),
     if (userId != null) 'user_id': userId,
+  };
+}
+
+/// Audit record for manual stock adjustments (add / reduce).
+class StockMovement {
+  final int? id;
+  final String? userId;
+  final int itemId;
+  final String itemName;
+  final int quantity;
+  final String movementType; // 'stock_in' or 'stock_out'
+  final String? reason;
+  final DateTime? createdAt;
+
+  const StockMovement({
+    this.id,
+    this.userId,
+    required this.itemId,
+    required this.itemName,
+    required this.quantity,
+    required this.movementType,
+    this.reason,
+    this.createdAt,
+  });
+
+  factory StockMovement.fromJson(Map<String, dynamic> json) => StockMovement(
+    id: json['id'] as int?,
+    userId: json['user_id'] as String?,
+    itemId: json['item_id'] as int? ?? 0,
+    itemName: json['item_name'] as String? ?? '',
+    quantity: json['quantity'] as int? ?? 0,
+    movementType: json['movement_type'] as String? ?? 'stock_in',
+    reason: json['reason'] as String?,
+    createdAt: json['created_at'] != null
+        ? DateTime.tryParse(json['created_at'].toString())
+        : null,
+  );
+
+  Map<String, dynamic> toJson() => {
+    if (userId != null) 'user_id': userId,
+    'item_id': itemId,
+    'item_name': itemName,
+    'quantity': quantity,
+    'movement_type': movementType,
+    if (reason != null) 'reason': reason,
+    if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
   };
 }
 
@@ -374,6 +416,136 @@ class MemberTransactionEntry {
     required this.price,
     this.timestamp,
   });
+}
+
+/// A borrow record — items loaned to a reseller with a settlement deadline.
+class Borrow {
+  final int? id;
+  final String? userId;
+  final int memberId;
+  final int itemId;
+  final String itemName;
+  final int quantity;
+  final int quantityReturned;
+  final int quantityRemitted;
+  final int price;
+  final DateTime? borrowedAt;
+  final DateTime dueDate;
+  final String status;
+  final String? notes;
+  final DateTime? settledAt;
+
+  const Borrow({
+    this.id,
+    this.userId,
+    required this.memberId,
+    required this.itemId,
+    required this.itemName,
+    required this.quantity,
+    this.quantityReturned = 0,
+    this.quantityRemitted = 0,
+    this.price = 0,
+    this.borrowedAt,
+    required this.dueDate,
+    this.status = 'active',
+    this.notes,
+    this.settledAt,
+  });
+
+  /// Remaining items not yet returned or paid for.
+  int get outstandingQuantity => quantity - quantityReturned - quantityRemitted;
+
+  /// Whether the due date has passed and the borrow is not fully settled.
+  bool get isOverdue =>
+      dueDate.isBefore(DateTime.now()) &&
+      status != 'returned' &&
+      status != 'remitted';
+
+  /// Whether the borrow is fully settled (all items returned or remitted).
+  bool get isFullySettled => outstandingQuantity <= 0;
+
+  /// Human-readable status badge label.
+  String get statusLabel {
+    if (status == 'overdue' || isOverdue) return 'Overdue';
+    if (isFullySettled) {
+      if (quantityReturned >= quantity) return 'Returned';
+      if (quantityRemitted >= quantity) return 'Remitted';
+      return 'Settled';
+    }
+    if (quantityReturned > 0 || quantityRemitted > 0) return 'Partial';
+    return 'Active';
+  }
+
+  factory Borrow.fromJson(Map<String, dynamic> json) => Borrow(
+    id: json['id'] as int?,
+    userId: json['user_id'] as String?,
+    memberId: json['member_id'] as int? ?? 0,
+    itemId: json['item_id'] as int? ?? 0,
+    itemName: json['item_name'] as String? ?? '',
+    quantity: json['quantity'] as int? ?? 0,
+    quantityReturned: json['quantity_returned'] as int? ?? 0,
+    quantityRemitted: json['quantity_remitted'] as int? ?? 0,
+    price: json['price'] as int? ?? 0,
+    borrowedAt: json['borrowed_at'] != null
+        ? DateTime.tryParse(json['borrowed_at'].toString())
+        : null,
+    dueDate: json['due_date'] != null
+        ? DateTime.parse(json['due_date'].toString())
+        : DateTime.now().add(const Duration(days: 10)),
+    status: json['status'] as String? ?? 'active',
+    notes: json['notes'] as String?,
+    settledAt: json['settled_at'] != null
+        ? DateTime.tryParse(json['settled_at'].toString())
+        : null,
+  );
+
+  Map<String, dynamic> toJson() => {
+    if (userId != null) 'user_id': userId,
+    'member_id': memberId,
+    'item_id': itemId,
+    'item_name': itemName,
+    'quantity': quantity,
+    'quantity_returned': quantityReturned,
+    'quantity_remitted': quantityRemitted,
+    'price': price,
+    if (borrowedAt != null) 'borrowed_at': borrowedAt!.toIso8601String(),
+    'due_date': dueDate.toIso8601String(),
+    'status': status,
+    if (notes != null) 'notes': notes,
+    if (settledAt != null) 'settled_at': settledAt!.toIso8601String(),
+  };
+
+  Borrow copyWith({
+    int? id,
+    String? userId,
+    int? memberId,
+    int? itemId,
+    String? itemName,
+    int? quantity,
+    int? quantityReturned,
+    int? quantityRemitted,
+    int? price,
+    DateTime? borrowedAt,
+    DateTime? dueDate,
+    String? status,
+    String? notes,
+    DateTime? settledAt,
+  }) => Borrow(
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    memberId: memberId ?? this.memberId,
+    itemId: itemId ?? this.itemId,
+    itemName: itemName ?? this.itemName,
+    quantity: quantity ?? this.quantity,
+    quantityReturned: quantityReturned ?? this.quantityReturned,
+    quantityRemitted: quantityRemitted ?? this.quantityRemitted,
+    price: price ?? this.price,
+    borrowedAt: borrowedAt ?? this.borrowedAt,
+    dueDate: dueDate ?? this.dueDate,
+    status: status ?? this.status,
+    notes: notes ?? this.notes,
+    settledAt: settledAt ?? this.settledAt,
+  );
 }
 
 // ── Helper Functions ──────────────────────────────────────────────────────

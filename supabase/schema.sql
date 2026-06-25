@@ -1,6 +1,8 @@
 -- Minimal schema — no FK to auth.users, no triggers. Run in SQL Editor.
 drop table if exists public.member_transactions cascade;
 drop table if exists public.sales cascade;
+drop table if exists public.borrows cascade;
+drop table if exists public.stock_movements cascade;
 drop table if exists public.items cascade;
 drop table if exists public.members cascade;
 drop table if exists public.reseller_levels cascade;
@@ -42,6 +44,34 @@ create table public.member_transactions (
   user_id uuid not null, member_id bigint not null, sale_id bigint,
   item_id bigint, item_name text, quantity integer default 0,
   price integer default 0, timestamp timestamptz default now()
+);
+
+create table public.borrows (
+  id bigint generated always as identity primary key,
+  user_id uuid not null,
+  member_id bigint not null,
+  item_id bigint not null,
+  item_name text not null,
+  quantity integer not null,
+  quantity_returned integer not null default 0,
+  quantity_remitted integer not null default 0,
+  price integer not null default 0,
+  borrowed_at timestamptz not null default now(),
+  due_date timestamptz not null,
+  status text not null default 'active',
+  notes text,
+  settled_at timestamptz
+);
+
+create table public.stock_movements (
+  id bigint generated always as identity primary key,
+  user_id uuid not null,
+  item_id bigint not null,
+  item_name text not null,
+  quantity integer not null,
+  movement_type text not null,
+  reason text,
+  created_at timestamptz not null default now()
 );
 
 create table public.reseller_levels (
