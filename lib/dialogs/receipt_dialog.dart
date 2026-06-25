@@ -26,7 +26,7 @@ class ReceiptLineItem {
 class ReceiptDialog extends StatefulWidget {
   final List<ReceiptLineItem> lineItems;
   final String? buyerName;
-  final DateTime transactionTime;
+  final DateTime? transactionTime;
 
   const ReceiptDialog({
     super.key,
@@ -61,7 +61,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
   final _receiptKey = GlobalKey();
 
   String get _ref {
-    final d = widget.transactionTime;
+    final d = widget.transactionTime ?? DateTime.now();
     return 'TXN-${d.year}${d.month.toString().padLeft(2, '0')}'
         '${d.day.toString().padLeft(2, '0')}'
         '-${d.hour.toString().padLeft(2, '0')}'
@@ -112,7 +112,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
     );
     final fmtDate = DateFormat(
       'MMMM dd, yyyy  hh:mm a',
-    ).format(widget.transactionTime);
+    ).format(widget.transactionTime ?? DateTime.now());
 
     return AlertDialog(
       shape: RoundedRectangleBorder(

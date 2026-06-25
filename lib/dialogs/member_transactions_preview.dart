@@ -5,7 +5,7 @@ import 'package:lzcas/db/db.dart';
 class MemberTransactionsPreview extends StatefulWidget {
   final int memberId;
   final List<MemberTransactionEntry> entries;
-  final DbRepository repository;
+  final SupabaseRepository repository;
 
   const MemberTransactionsPreview({
     super.key,

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:drift/drift.dart' show Value;
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/receipt_dialog.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
@@ -499,15 +498,15 @@ class _SellDialogState extends State<_SellDialog> {
                     final newStatus = statusFromStock(newStock);
                     final updated = dbItem.copyWith(
                       stock: newStock,
-                      lastUpdated: Value(DateTime.now()),
-                      status: Value(newStatus),
+                      lastUpdated: DateTime.now(),
+                      status: newStatus,
                     );
                     await repository.updateItem(updated);
 
                     final priceStr = (entry['price'] ?? '').toString();
                     final price = int.tryParse(priceStr) ?? 0;
                     await repository.addSale(
-                      itemId: dbItem.id,
+                      itemId: dbItem.id!,
                       itemName: dbItem.name,
                       quantity: q,
                       price: price,

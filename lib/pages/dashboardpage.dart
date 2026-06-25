@@ -41,37 +41,41 @@ class _DashboardPageState extends State<DashboardPage> {
     final lastMonth = DateTime(now.year, now.month - 1, 1);
 
     monthlyRevenue = sales
+        .where((s) => s.timestamp != null)
         .where(
           (s) =>
-              s.timestamp.isAfter(thisMonth.subtract(const Duration(days: 1))),
+              s.timestamp!.isAfter(thisMonth.subtract(const Duration(days: 1))),
         )
         .fold(0, (sum, s) => sum + s.price);
 
     previousMonthRevenue = sales
+        .where((s) => s.timestamp != null)
         .where(
           (s) =>
-              s.timestamp.isAfter(
+              s.timestamp!.isAfter(
                 lastMonth.subtract(const Duration(days: 1)),
               ) &&
-              s.timestamp.isBefore(thisMonth),
+              s.timestamp!.isBefore(thisMonth),
         )
         .fold(0, (sum, s) => sum + s.price);
 
     final thisMonthSales = sales
+        .where((s) => s.timestamp != null)
         .where(
           (s) =>
-              s.timestamp.isAfter(thisMonth.subtract(const Duration(days: 1))),
+              s.timestamp!.isAfter(thisMonth.subtract(const Duration(days: 1))),
         )
         .toList();
     activeOrders = thisMonthSales.length;
 
     final lastMonthSales = sales
+        .where((s) => s.timestamp != null)
         .where(
           (s) =>
-              s.timestamp.isAfter(
+              s.timestamp!.isAfter(
                 lastMonth.subtract(const Duration(days: 1)),
               ) &&
-              s.timestamp.isBefore(thisMonth),
+              s.timestamp!.isBefore(thisMonth),
         )
         .toList();
     previousMonthOrders = lastMonthSales.length;
@@ -109,12 +113,13 @@ class _DashboardPageState extends State<DashboardPage> {
       final monthStart = DateTime(now.year, now.month - i, 1);
       final monthEnd = DateTime(now.year, now.month - i + 1, 1);
       return sales
+          .where((s) => s.timestamp != null)
           .where(
             (s) =>
-                s.timestamp.isAfter(
+                s.timestamp!.isAfter(
                   monthStart.subtract(const Duration(days: 1)),
                 ) &&
-                s.timestamp.isBefore(monthEnd),
+                s.timestamp!.isBefore(monthEnd),
           )
           .fold<double>(0, (sum, s) => sum + s.price)
           .toDouble();
@@ -126,7 +131,7 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   String _fmt(int val) =>
-      NumberFormat.currency(symbol: '\$', decimalDigits: 0).format(val);
+      NumberFormat.currency(symbol: '₱', decimalDigits: 0).format(val);
 
   String _chg(int cur, int prev) {
     if (prev == 0) return cur > 0 ? '+100%' : '0%';
@@ -314,7 +319,7 @@ class _DashboardPageState extends State<DashboardPage> {
             getTooltipItem: (g, _, r, __) {
               final cat = cats[g.x]['category'] as String;
               return BarTooltipItem(
-                '$cat\n\$${r.toY.toInt()}',
+                '$cat\n₱${r.toY.toInt()}',
                 StockpileFonts.satoshi(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -388,7 +393,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '\$$val',
+                          '₱$val',
                           style: StockpileFonts.satoshi(
                             fontSize: 10,
                             fontWeight: FontWeight.w400,
