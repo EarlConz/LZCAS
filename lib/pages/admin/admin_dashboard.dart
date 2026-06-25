@@ -15,6 +15,9 @@ import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
+import 'package:lzcas/data/supabase_config.dart';
+import 'package:lzcas/data/supabase_sync_service.dart';
+import 'package:lzcas/db/db.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -376,29 +379,349 @@ class _UserManagementTabState extends State<_UserManagementTab> {
 
 // ─── Admin · Settings Tab — Global Config relocated from top nav ───────────
 
-class _AdminSettingsTab extends StatelessWidget {
+class _AdminSettingsTab extends StatefulWidget {
   const _AdminSettingsTab();
+
+  @override
+  State<_AdminSettingsTab> createState() => _AdminSettingsTabState();
+}
+
+class _AdminSettingsTabState extends State<_AdminSettingsTab>
+    with SingleTickerProviderStateMixin {
+  late final TabController _settingsTabController;
+  bool _syncing = false;
+  bool _restoring = false;
+  List<ResellerLevel> _levels = [];
+  bool _levelsLoading = true;
+  final Map<int, TextEditingController> _remMinCtls = {};
+  final Map<int, TextEditingController> _remMaxCtls = {};
+  final Map<int, TextEditingController> _cashAdvCtls = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _settingsTabController = TabController(length: 3, vsync: this);
+    _loadLevels();
+  }
+
+  @override
+  void dispose() {
+    _settingsTabController.dispose();
+    for (final c in [
+      ..._remMinCtls.values,
+      ..._remMaxCtls.values,
+      ..._cashAdvCtls.values,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _loadLevels() async {
+    final rows = await repository.fetchResellerLevels();
+    for (final c in [
+      ..._remMinCtls.values,
+      ..._remMaxCtls.values,
+      ..._cashAdvCtls.values,
+    ]) {
+      c.dispose();
+    }
+    _remMinCtls.clear();
+    _remMaxCtls.clear();
+    _cashAdvCtls.clear();
+    for (final r in rows) {
+      _remMinCtls[r.level] = TextEditingController(
+        text: r.remittanceMin.toString(),
+      );
+      _remMaxCtls[r.level] = TextEditingController(
+        text: r.remittanceMax.toString(),
+      );
+      _cashAdvCtls[r.level] = TextEditingController(
+        text: r.cashAdvance.toString(),
+      );
+    }
+    setState(() {
+      _levels = rows;
+      _levelsLoading = false;
+    });
+  }
+
+  Future<void> _saveLevels() async {
+    for (final lvl in _levels) {
+      await repository.upsertResellerLevel(
+        level: lvl.level,
+        remittanceMin: int.tryParse(_remMinCtls[lvl.level]?.text ?? '0') ?? 0,
+        remittanceMax: int.tryParse(_remMaxCtls[lvl.level]?.text ?? '0') ?? 0,
+        cashAdvance: int.tryParse(_cashAdvCtls[lvl.level]?.text ?? '0') ?? 0,
+      );
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Reseller levels saved')));
+  }
+
+  // ── Cloud Sync ────────────────────────────────────────────────────────
+
+  Future<void> _syncToCloud() async {
+    if (!SupabaseConfig.isConfigured) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Supabase is not configured for this run'),
+        ),
+      );
+      return;
+    }
+
+    final items = await repository.fetchItems();
+    final members = await repository.fetchMembers();
+    final sales = await repository.fetchSales();
+    final isEmpty = items.isEmpty && members.isEmpty && sales.isEmpty;
+
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sync to Cloud'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This will overwrite the cloud snapshot with your local data.',
+            ),
+            const SizedBox(height: 12),
+            Text('• ${items.length} items'),
+            Text('• ${members.length} members'),
+            Text('• ${sales.length} sales'),
+            if (isEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.error.withAlpha(30),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.error.withAlpha(80),
+                  ),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.red,
+                      size: 20,
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Your local database is empty. Syncing now '
+                        'will DELETE all cloud data.',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: isEmpty
+                ? ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Colors.white,
+                  )
+                : null,
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isEmpty ? 'Sync Anyway' : 'Sync'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    setState(() => _syncing = true);
+    try {
+      final syncService = SupabaseSyncService(
+        db: repository.db,
+        client: supabaseClient,
+      );
+      await syncService.uploadLocalSnapshot();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Local data synced to Supabase')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to sync to Supabase: $e')));
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+  }
+
+  Future<void> _restoreFromCloud() async {
+    if (!SupabaseConfig.isConfigured) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Supabase is not configured for this run'),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restore from cloud'),
+        content: const Text(
+          'This will replace your local inventory, members, and transactions '
+          'with the current Supabase snapshot.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    setState(() => _restoring = true);
+    try {
+      final syncService = SupabaseSyncService(
+        db: repository.db,
+        client: supabaseClient,
+      );
+      final summary = await syncService.restoreRemoteSnapshot();
+      repository.notifyCloudRestored();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Restored ${summary.items} items, ${summary.members} members, '
+            'and ${summary.sales} sales from Supabase',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to restore from Supabase: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _restoring = false);
+    }
+  }
+
+  Future<void> _clearDatabase() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear database'),
+        content: const Text(
+          'This will permanently delete all records from the local database.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    await repository.clearAllData();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Local database cleared')));
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Column(
+      children: [
+        // Settings header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+          child: Row(
+            children: [
+              Text(
+                'Settings',
+                style: StockpileFonts.satoshi(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: isDark
+                      ? StockpileColors.darkTextPrimary
+                      : StockpileColors.darkText,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Tab bar: General | Cloud Sync | Reseller Levels
+        TabBar(
+          controller: _settingsTabController,
+          labelColor: StockpileColors.primary900,
+          unselectedLabelColor: isDark
+              ? StockpileColors.darkTextMuted
+              : StockpileColors.mutedText,
+          indicatorColor: StockpileColors.primary900,
+          tabs: const [
+            Tab(text: 'General'),
+            Tab(text: 'Cloud Sync'),
+            Tab(text: 'Reseller Levels'),
+          ],
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: TabBarView(
+            controller: _settingsTabController,
+            children: [
+              // ── General Tab ─────────────────────────────────────────
+              _buildGeneralTab(isDark),
+              // ── Cloud Sync Tab ──────────────────────────────────────
+              _buildCloudSyncTab(isDark),
+              // ── Reseller Levels Tab ─────────────────────────────────
+              _buildResellerLevelsTab(isDark),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGeneralTab(bool isDark) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Settings',
-            style: StockpileFonts.satoshi(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
-            ),
-          ),
-          const SizedBox(height: 24),
-
           Text(
             'Global Configuration',
             style: StockpileFonts.satoshi(
@@ -409,24 +732,22 @@ class _AdminSettingsTab extends StatelessWidget {
                   : StockpileColors.darkText,
             ),
           ),
-          const SizedBox(height: 12),
-
+          const SizedBox(height: 16),
           _ConfigTile(
             icon: Icons.palette_outlined,
-            title: 'Theme Settings',
-            subtitle: 'Customize application appearance',
-            trailing: Switch(value: !isDark, onChanged: (_) {}),
+            title: 'Dark Mode',
+            subtitle: 'Toggle between light and dark appearance',
+            trailing: Switch(
+              value: isDark,
+              onChanged: (_) {
+                // The theme toggle is handled at the app level
+              },
+            ),
           ),
           _ConfigTile(
             icon: Icons.notifications_outlined,
             title: 'Notifications',
             subtitle: 'Configure system alerts and email notifications',
-            trailing: Switch(value: true, onChanged: (_) {}),
-          ),
-          _ConfigTile(
-            icon: Icons.backup_outlined,
-            title: 'Cloud Sync',
-            subtitle: 'Supabase synchronization settings',
             trailing: Switch(value: true, onChanged: (_) {}),
           ),
           _ConfigTile(
@@ -437,6 +758,174 @@ class _AdminSettingsTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCloudSyncTab(bool isDark) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Supabase Cloud Sync',
+            style: StockpileFonts.satoshi(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            SupabaseConfig.isConfigured
+                ? 'Connected to ${SupabaseConfig.url}'
+                : 'Supabase not configured',
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _syncing || _restoring ? null : _syncToCloud,
+              icon: _syncing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.cloud_upload_outlined),
+              label: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Text(_syncing ? 'Syncing...' : 'Sync to Cloud'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _syncing || _restoring ? null : _restoreFromCloud,
+              icon: _restoring
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.cloud_download_outlined),
+              label: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                child: Text(_restoring ? 'Restoring...' : 'Restore from Cloud'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: StockpileColors.error500,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: _clearDatabase,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 14),
+                child: Text('Clear Local Database'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResellerLevelsTab(bool isDark) {
+    if (_levelsLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: _levels.length,
+            itemBuilder: (context, index) {
+              final lvl = _levels[index];
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Level ${lvl.level}',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? StockpileColors.darkTextPrimary
+                              : StockpileColors.darkText,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _remMinCtls[lvl.level],
+                        decoration: const InputDecoration(
+                          labelText: 'Remittance Min',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _remMaxCtls[lvl.level],
+                        decoration: const InputDecoration(
+                          labelText: 'Remittance Max',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _cashAdvCtls[lvl.level],
+                        decoration: const InputDecoration(
+                          labelText: 'Cash Advance',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _saveLevels,
+              icon: const Icon(Icons.save_rounded),
+              label: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 14),
+                child: Text('Save Reseller Levels'),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
