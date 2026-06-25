@@ -93,9 +93,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
               child: TabBar(
                 controller: _tabController,
                 indicator: BoxDecoration(
-                  color: isDark
-                      ? StockpileColors.darkSurface
-                      : Colors.white,
+                  color: isDark ? StockpileColors.darkSurface : Colors.white,
                   borderRadius: BorderRadius.circular(10),
                   boxShadow: [
                     BoxShadow(
@@ -164,10 +162,7 @@ class _InventoryCrudTab extends StatelessWidget {
   Widget build(BuildContext context) {
     // Reuse the existing InventoryTable widget which provides full CRUD
     // capabilities: view items, edit stock, add products, etc.
-    return const Padding(
-      padding: EdgeInsets.all(16),
-      child: InventoryTable(),
-    );
+    return const Padding(padding: EdgeInsets.all(16), child: InventoryTable());
   }
 }
 
@@ -308,12 +303,15 @@ class _InventoryReportsTabState extends State<_InventoryReportsTab> {
               return ListTile(
                 leading: CircleAvatar(
                   backgroundColor: StockpileColors.primary100,
-                  child: Icon(Icons.swap_vert_rounded,
-                      color: StockpileColors.primary700),
+                  child: Icon(
+                    Icons.swap_vert_rounded,
+                    color: StockpileColors.primary700,
+                  ),
                 ),
                 title: Text(m['item'] ?? ''),
                 subtitle: Text(
-                    '${m['type']} · ${m['qty']} units · ${m['date']}'),
+                  '${m['type']} · ${m['qty']} units · ${m['date']}',
+                ),
                 trailing: Text(m['user'] ?? ''),
               );
             }),
@@ -355,19 +353,25 @@ class _ReportStatCard extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 24),
           const SizedBox(height: 6),
-          Text(value,
-              style: StockpileFonts.satoshi(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: isDark
-                      ? StockpileColors.darkTextPrimary
-                      : StockpileColors.darkText)),
-          Text(label,
-              style: StockpileFonts.satoshi(
-                  fontSize: 11,
-                  color: isDark
-                      ? StockpileColors.darkTextMuted
-                      : StockpileColors.mutedText)),
+          Text(
+            value,
+            style: StockpileFonts.satoshi(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+          Text(
+            label,
+            style: StockpileFonts.satoshi(
+              fontSize: 11,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
         ],
       ),
     );
@@ -411,10 +415,9 @@ class _LogoutButton extends StatelessWidget {
 
         if (!context.mounted) return;
 
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          AppRoutes.login,
-          (_) => false,
-        );
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
       },
     );
   }

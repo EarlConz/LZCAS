@@ -86,9 +86,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       label: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(_tabs[i].icon,
-                              size: 18,
-                              color: selected ? Colors.white : null),
+                          Icon(
+                            _tabs[i].icon,
+                            size: 18,
+                            color: selected ? Colors.white : null,
+                          ),
                           const SizedBox(width: 6),
                           Text(_tabs[i].label),
                         ],
@@ -180,7 +182,7 @@ class _AdminOverviewTab extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: _StatCard(
-                    icon: Icons.group_rounded,
+                  icon: Icons.group_rounded,
                   label: 'Active Members',
                   value: '—',
                   color: StockpileColors.secondary300,
@@ -201,8 +203,11 @@ class _AdminOverviewTab extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(Icons.verified_user_rounded,
-                    size: 32, color: StockpileColors.primary700),
+                Icon(
+                  Icons.verified_user_rounded,
+                  size: 32,
+                  color: StockpileColors.primary700,
+                ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
@@ -249,8 +254,7 @@ class _UserManagementTab extends StatefulWidget {
 class _UserManagementTabState extends State<_UserManagementTab> {
   final _nameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
-  final _passwordCtrls =
-      List.generate(1, (_) => TextEditingController());
+  final _passwordCtrls = List.generate(1, (_) => TextEditingController());
   UserRole _selectedRole = UserRole.cashier;
   bool _creating = false;
   String? _createError;
@@ -346,8 +350,10 @@ class _UserManagementTabState extends State<_UserManagementTab> {
                 color: StockpileColors.dangerBg,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Text(_createError!,
-                  style: const TextStyle(color: StockpileColors.danger)),
+              child: Text(
+                _createError!,
+                style: const TextStyle(color: StockpileColors.danger),
+              ),
             ),
 
           TextFormField(
@@ -384,16 +390,20 @@ class _UserManagementTabState extends State<_UserManagementTab> {
           const SizedBox(height: 16),
 
           // Role selector
-          Text('Role',
-              style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w600)),
+          Text(
+            'Role',
+            style: StockpileFonts.satoshi(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 8),
           DropdownButtonFormField<UserRole>(
             initialValue: _selectedRole,
             items: UserRole.values
-                .map((r) => DropdownMenuItem(
-                      value: r,
-                      child: Text(r.displayName),
-                    ))
+                .map(
+                  (r) => DropdownMenuItem(value: r, child: Text(r.displayName)),
+                )
                 .toList(),
             onChanged: (v) {
               if (v != null) setState(() => _selectedRole = v);
@@ -414,7 +424,9 @@ class _UserManagementTabState extends State<_UserManagementTab> {
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Icon(Icons.person_add_rounded),
               label: Text(_creating ? 'Creating…' : 'Create User'),
@@ -524,10 +536,9 @@ class _LogoutButton extends StatelessWidget {
         if (!context.mounted) return;
 
         // Wipe the entire navigation stack and land on the login screen.
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          AppRoutes.login,
-          (_) => false,
-        );
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
       },
     );
   }
@@ -576,19 +587,25 @@ class _StatCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(value,
-                    style: StockpileFonts.satoshi(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: isDark
-                            ? StockpileColors.darkTextPrimary
-                            : StockpileColors.darkText)),
-                Text(label,
-                    style: StockpileFonts.satoshi(
-                        fontSize: 12,
-                        color: isDark
-                            ? StockpileColors.darkTextMuted
-                            : StockpileColors.mutedText)),
+                Text(
+                  value,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: isDark
+                        ? StockpileColors.darkTextPrimary
+                        : StockpileColors.darkText,
+                  ),
+                ),
+                Text(
+                  label,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 12,
+                    color: isDark
+                        ? StockpileColors.darkTextMuted
+                        : StockpileColors.mutedText,
+                  ),
+                ),
               ],
             ),
           ),
@@ -626,24 +643,33 @@ class _ConfigTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(icon,
-              color: isDark
-                  ? StockpileColors.darkTextBody
-                  : StockpileColors.bodyText),
+          Icon(
+            icon,
+            color: isDark
+                ? StockpileColors.darkTextBody
+                : StockpileColors.bodyText,
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: StockpileFonts.satoshi(
-                        fontSize: 14, fontWeight: FontWeight.w600)),
-                Text(subtitle,
-                    style: StockpileFonts.satoshi(
-                        fontSize: 12,
-                        color: isDark
-                            ? StockpileColors.darkTextMuted
-                            : StockpileColors.mutedText)),
+                Text(
+                  title,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 12,
+                    color: isDark
+                        ? StockpileColors.darkTextMuted
+                        : StockpileColors.mutedText,
+                  ),
+                ),
               ],
             ),
           ),

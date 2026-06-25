@@ -32,8 +32,8 @@ class CsrfInterceptor extends Interceptor {
     required Dio dio,
     this.csrfUrl = '/api/csrf-cookie',
     OnSessionExpired? onSessionExpired,
-  })  : _dio = dio,
-        _onSessionExpired = onSessionExpired;
+  }) : _dio = dio,
+       _onSessionExpired = onSessionExpired;
 
   /// Set or update the session-expiry callback after construction.
   /// This allows the callback to capture state that doesn't exist yet
@@ -66,8 +66,7 @@ class CsrfInterceptor extends Interceptor {
       // Option A: Token returned in JSON body under 'csrfToken' or 'token'.
       if (response.data is Map<String, dynamic>) {
         final body = response.data as Map<String, dynamic>;
-        _csrfToken =
-            (body['csrfToken'] ?? body['token'] ?? '').toString();
+        _csrfToken = (body['csrfToken'] ?? body['token'] ?? '').toString();
       }
 
       // Option B: Token returned in a response header.
@@ -102,10 +101,7 @@ class CsrfInterceptor extends Interceptor {
   // ── Request Interceptor ──────────────────────────────────────────────────
 
   @override
-  void onRequest(
-    RequestOptions options,
-    RequestInterceptorHandler handler,
-  ) {
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     // Only attach CSRF header to state-changing methods (POST, PUT, etc.).
     final method = options.method.toUpperCase();
     if (_csrfToken != null &&
@@ -126,8 +122,7 @@ class CsrfInterceptor extends Interceptor {
     // 419 Token Mismatch (Laravel-style) or 403 Forbidden (CSRF failure)
     // are signals that the session has been invalidated server-side.
     if (statusCode == 419 ||
-        (statusCode == 403 &&
-            _isLikelyCsrfError(err.response?.headers))) {
+        (statusCode == 403 && _isLikelyCsrfError(err.response?.headers))) {
       _onSessionExpired?.call();
       // Do NOT retry — the session is gone. Propagate the error so the
       // caller still knows the request failed.

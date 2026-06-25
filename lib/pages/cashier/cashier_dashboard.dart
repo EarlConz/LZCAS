@@ -97,9 +97,7 @@ class _CashierDashboardState extends State<CashierDashboard>
                 controller: _tabController,
                 isScrollable: true,
                 indicator: BoxDecoration(
-                  color: isDark
-                      ? StockpileColors.darkSurface
-                      : Colors.white,
+                  color: isDark ? StockpileColors.darkSurface : Colors.white,
                   borderRadius: BorderRadius.circular(10),
                   boxShadow: [
                     BoxShadow(
@@ -226,9 +224,7 @@ class _MembersLookupTab extends StatelessWidget {
     // The cashier role does not have edit/delete permissions.
     return const Padding(
       padding: EdgeInsets.all(16),
-      child: MembersTable(
-        onRowSelected: _noOpMemberSelect,
-      ),
+      child: MembersTable(onRowSelected: _noOpMemberSelect),
     );
   }
 }
@@ -289,8 +285,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
       _memberIdCtrl.clear();
       _reasonCtrl.clear();
       setState(() {
-        _feedback =
-            'Deletion request submitted for Admin approval.';
+        _feedback = 'Deletion request submitted for Admin approval.';
       });
     } catch (e) {
       if (!mounted) return;
@@ -322,8 +317,11 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline_rounded,
-                      color: StockpileColors.error700, size: 22),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    color: StockpileColors.error700,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -412,11 +410,14 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : const Icon(Icons.send_rounded),
                 label: Text(
-                    _submitting ? 'Submitting…' : 'Submit Deletion Request'),
+                  _submitting ? 'Submitting…' : 'Submit Deletion Request',
+                ),
                 onPressed: _submitting ? null : _submitDeletionRequest,
                 style: FilledButton.styleFrom(
                   backgroundColor: StockpileColors.error500,
@@ -496,8 +497,7 @@ class _BorrowStockTabState extends State<_BorrowStockTab> {
       _quantityCtrl.clear();
       _reasonCtrl.clear();
       setState(() {
-        _feedback =
-            'Borrow stock request submitted for review.';
+        _feedback = 'Borrow stock request submitted for review.';
       });
     } catch (e) {
       if (!mounted) return;
@@ -529,8 +529,11 @@ class _BorrowStockTabState extends State<_BorrowStockTab> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline_rounded,
-                      color: StockpileColors.secondary700, size: 22),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    color: StockpileColors.secondary700,
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -630,11 +633,14 @@ class _BorrowStockTabState extends State<_BorrowStockTab> {
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : const Icon(Icons.send_rounded),
                 label: Text(
-                    _submitting ? 'Submitting…' : 'Submit Borrow Request'),
+                  _submitting ? 'Submitting…' : 'Submit Borrow Request',
+                ),
                 onPressed: _submitting ? null : _submitBorrowRequest,
               ),
             ),
@@ -682,10 +688,9 @@ class _LogoutButton extends StatelessWidget {
 
         if (!context.mounted) return;
 
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          AppRoutes.login,
-          (_) => false,
-        );
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
       },
     );
   }

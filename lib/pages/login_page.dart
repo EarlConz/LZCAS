@@ -136,8 +136,11 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.error_outline,
-                                size: 20, color: StockpileColors.danger),
+                            Icon(
+                              Icons.error_outline,
+                              size: 20,
+                              color: StockpileColors.danger,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
@@ -185,7 +188,8 @@ class _LoginPageState extends State<LoginPage> {
                                 : Icons.visibility_rounded,
                           ),
                           onPressed: () => setState(
-                              () => _obscurePassword = !_obscurePassword),
+                            () => _obscurePassword = !_obscurePassword,
+                          ),
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),

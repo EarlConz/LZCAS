@@ -75,14 +75,18 @@ class RouteGuard {
 
     // Guard 1: Must be authenticated.
     if (auth.status != AuthStatus.authenticated) {
-      return RouteRedirect(AppRoutes.login,
-          reason: 'You must be logged in to access this page.');
+      return RouteRedirect(
+        AppRoutes.login,
+        reason: 'You must be logged in to access this page.',
+      );
     }
 
     final role = auth.userRole;
     if (role == null) {
-      return RouteRedirect(AppRoutes.login,
-          reason: 'Session error. Please log in again.');
+      return RouteRedirect(
+        AppRoutes.login,
+        reason: 'Session error. Please log in again.',
+      );
     }
 
     // Guard 2: Role-based route prefix matching.
@@ -95,12 +99,15 @@ class RouteGuard {
 
     // Guard 3: Deep-link to a different role's path → 403 Forbidden page.
     // Check if the route belongs to any known role prefix.
-    final isKnownProtectedRoute = AppRoutes._rolePrefixes.values
-        .any((prefix) => route.startsWith(prefix));
+    final isKnownProtectedRoute = AppRoutes._rolePrefixes.values.any(
+      (prefix) => route.startsWith(prefix),
+    );
     if (isKnownProtectedRoute) {
-      return RouteRedirect(AppRoutes.forbidden,
-          reason:
-              'This page requires ${_roleForPrefix(route)?.displayName ?? "a different"} account.');
+      return RouteRedirect(
+        AppRoutes.forbidden,
+        reason:
+            'This page requires ${_roleForPrefix(route)?.displayName ?? "a different"} account.',
+      );
     }
 
     // Fallback: redirect to the user's own dashboard.
@@ -148,8 +155,11 @@ class ForbiddenPage extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.gpp_bad_rounded,
-                  size: 80, color: theme.colorScheme.error),
+              Icon(
+                Icons.gpp_bad_rounded,
+                size: 80,
+                color: theme.colorScheme.error,
+              ),
               const SizedBox(height: 16),
               Text(
                 '403 — Access Denied',
@@ -176,10 +186,9 @@ class ForbiddenPage extends StatelessWidget {
                       (_) => false,
                     );
                   } else {
-                    Navigator.of(context).pushNamedAndRemoveUntil(
-                      AppRoutes.login,
-                      (_) => false,
-                    );
+                    Navigator.of(
+                      context,
+                    ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
                   }
                 },
               ),
@@ -189,10 +198,9 @@ class ForbiddenPage extends StatelessWidget {
                   onPressed: () async {
                     await auth.logout();
                     if (!context.mounted) return;
-                    Navigator.of(context).pushNamedAndRemoveUntil(
-                      AppRoutes.login,
-                      (_) => false,
-                    );
+                    Navigator.of(
+                      context,
+                    ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
                   },
                   child: const Text('Sign in with a different account'),
                 ),

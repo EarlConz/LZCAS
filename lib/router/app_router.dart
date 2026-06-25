@@ -54,10 +54,7 @@ Route<dynamic>? appRouter(RouteSettings settings) {
 }
 
 MaterialPageRoute _buildRoute(RouteSettings settings, Widget page) {
-  return MaterialPageRoute<dynamic>(
-    settings: settings,
-    builder: (_) => page,
-  );
+  return MaterialPageRoute<dynamic>(settings: settings, builder: (_) => page);
 }
 
 /// Build a route that checks [RouteGuard.checkAccess] before rendering.
@@ -70,20 +67,21 @@ MaterialPageRoute _buildGuardedRoute(
     settings: settings,
     builder: (context) {
       final auth = context.read<AuthState>();
-      final redirect = RouteGuard.checkAccess(context, settings.name ?? '', auth);
+      final redirect = RouteGuard.checkAccess(
+        context,
+        settings.name ?? '',
+        auth,
+      );
 
       if (redirect != null) {
         // Defer the navigation to avoid building during build phase.
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          Navigator.of(context).pushNamedAndRemoveUntil(
-            redirect.destination,
-            (_) => false,
-          );
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil(redirect.destination, (_) => false);
         });
         // Show a loading indicator while the redirect happens.
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
 
       final page = pageBuilder();
@@ -95,9 +93,7 @@ MaterialPageRoute _buildGuardedRoute(
               : AppRoutes.login;
           Navigator.of(context).pushNamedAndRemoveUntil(dest, (_) => false);
         });
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
 
       return page;

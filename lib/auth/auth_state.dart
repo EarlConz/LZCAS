@@ -81,9 +81,9 @@ class AuthState extends ChangeNotifier {
     required ApiClient apiClient,
     required CsrfInterceptor csrfInterceptor,
     FlutterSecureStorage? secureStorage,
-  })  : _apiClient = apiClient,
-        _csrfInterceptor = csrfInterceptor,
-        _secureStorage = secureStorage ?? const FlutterSecureStorage();
+  }) : _apiClient = apiClient,
+       _csrfInterceptor = csrfInterceptor,
+       _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   // ── Getters ──────────────────────────────────────────────────────────────
 
@@ -118,10 +118,7 @@ class AuthState extends ChangeNotifier {
       // Step 2: Authenticate
       final response = await _apiClient.post(
         '/api/login',
-        data: {
-          'username': username,
-          'password': password,
-        },
+        data: {'username': username, 'password': password},
       );
 
       final data = response.data as Map<String, dynamic>;
@@ -129,7 +126,8 @@ class AuthState extends ChangeNotifier {
       // Step 3: Extract profile
       final roleRaw = data['role'] as String? ?? '';
       _userRole = UserRole.fromString(roleRaw);
-      _username = data['username'] as String? ?? data['name'] as String? ?? username;
+      _username =
+          data['username'] as String? ?? data['name'] as String? ?? username;
       _jwtToken = data['token'] as String?;
 
       // Step 4: Fetch session-bound CSRF token tied to this authenticated user
@@ -137,7 +135,10 @@ class AuthState extends ChangeNotifier {
 
       // Step 5: Persist to secure storage (including CSRF token)
       if (_jwtToken != null) {
-        await _secureStorage.write(key: _StorageKeys.authToken, value: _jwtToken);
+        await _secureStorage.write(
+          key: _StorageKeys.authToken,
+          value: _jwtToken,
+        );
         _apiClient.setAuthToken(_jwtToken!);
       }
       await _secureStorage.write(key: _StorageKeys.username, value: _username);
@@ -181,10 +182,10 @@ class AuthState extends ChangeNotifier {
       if (token == null || token.isEmpty) return false;
 
       final savedRole = await _secureStorage.read(key: _StorageKeys.userRole);
-      final savedUsername =
-          await _secureStorage.read(key: _StorageKeys.username);
-      final savedCsrf =
-          await _secureStorage.read(key: _StorageKeys.csrfToken);
+      final savedUsername = await _secureStorage.read(
+        key: _StorageKeys.username,
+      );
+      final savedCsrf = await _secureStorage.read(key: _StorageKeys.csrfToken);
 
       if (savedRole == null || savedUsername == null) return false;
 
@@ -268,7 +269,10 @@ class AuthState extends ChangeNotifier {
         return 'Unable to connect to server. Check your network.';
       }
       // Strip common prefixes
-      return msg.replaceAll(RegExp(r'^Exception:\s*|^DioException:\s*|^HttpException:\s*'), '');
+      return msg.replaceAll(
+        RegExp(r'^Exception:\s*|^DioException:\s*|^HttpException:\s*'),
+        '',
+      );
     }
     return 'An unexpected error occurred.';
   }
