@@ -2,6 +2,8 @@
 // Centralized authentication state using ChangeNotifier + Provider.
 // Manages login, logout, role-based routing, and CSRF token propagation.
 
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'api_client.dart';
@@ -54,6 +56,8 @@ abstract class _StorageKeys {
   static const username = 'username';
   static const userRole = 'user_role';
   static const csrfToken = 'csrf_token';
+  static const tempAdminDisabled = 'temp_admin_disabled';
+  static const localUsers = 'local_users';
 }
 
 // ── AuthState ───────────────────────────────────────────────────────────────
@@ -111,6 +115,47 @@ class AuthState extends ChangeNotifier {
     _username = username;
     notifyListeners();
 
+    // --- Temp Admin Bypass ---
+    // Hardcoded temporary admin credentials for initial setup.
+    // Automatically disabled when a real user is created via Admin Dashboard.
+    if (username == _tempAdminUser && password == _tempAdminPass) {
+      final disabled = await _secureStorage.read(
+        key: _StorageKeys.tempAdminDisabled,
+      );
+      if (disabled == 'true') {
+        _error = 'Temporary account has been deactivated. '
+            'Create a real admin account from the Admin Panel.';
+        _status = AuthStatus.authError;
+        _username = '';
+        notifyListeners();
+        return false;
+      }
+
+      // Bypass API — set admin state directly
+      _userRole = UserRole.admin;
+      _username = 'Temp Admin';
+      _jwtToken = _tempAdminToken;
+
+      await _secureStorage.write(
+        key: _StorageKeys.authToken,
+        value: _tempAdminToken,
+      );
+      await _secureStorage.write(key: _StorageKeys.username, value: _username);
+      await _secureStorage.write(
+        key: _StorageKeys.userRole,
+        value: UserRole.admin.name,
+      );
+      _apiClient.setAuthToken(_tempAdminToken);
+
+      // ignore: parameter_assignments
+      password = '';
+      _status = AuthStatus.authenticated;
+      notifyListeners();
+      return true;
+    }
+    // --- End Temp Admin Bypass ---
+
+    // --- Try API first (online mode) ---
     try {
       // Step 1: Pre-auth CSRF cookie handshake
       await _csrfInterceptor.fetchToken();
@@ -153,23 +198,68 @@ class AuthState extends ChangeNotifier {
         );
       }
 
-      // Step 6: Clear raw credentials from memory immediately
-      // (The caller should also clear TextEditingControllers.)
       // ignore: parameter_assignments
       password = '';
-
       _status = AuthStatus.authenticated;
       notifyListeners();
       return true;
     } catch (e) {
-      _error = _extractErrorMessage(e);
-      _status = AuthStatus.authError;
-      _userRole = null;
-      _jwtToken = null;
-      _username = '';
-      notifyListeners();
-      return false;
+      // API failed — fall through to local users check
+      if (e.toString().contains('404') ||
+          e.toString().contains('Connection refused') ||
+          e.toString().contains('SocketException')) {
+        // Expected offline scenario — continue to local fallback
+      } else {
+        // Genuine auth error (wrong password, etc.) — surface it
+        _error = _extractErrorMessage(e);
+        _status = AuthStatus.authError;
+        _userRole = null;
+        _jwtToken = null;
+        _username = '';
+        notifyListeners();
+        return false;
+      }
     }
+
+    // --- Local Users Fallback (offline-created accounts) ---
+    await _loadLocalUsers();
+    if (_localUsers.containsKey(username) &&
+        _localUsers[username]!['password'] == password) {
+      final userData = _localUsers[username]!;
+      _userRole = UserRole.fromString(userData['role'] as String);
+      _username = username;
+      _jwtToken = 'local_user_token_${username.hashCode}';
+
+      await _secureStorage.write(
+        key: _StorageKeys.authToken,
+        value: _jwtToken,
+      );
+      await _secureStorage.write(key: _StorageKeys.username, value: _username);
+      await _secureStorage.write(
+        key: _StorageKeys.userRole,
+        value: _userRole!.name,
+      );
+      await _secureStorage.write(
+        key: _StorageKeys.csrfToken,
+        value: 'local_csrf_bypass',
+      );
+      _apiClient.setAuthToken(_jwtToken!);
+
+      // ignore: parameter_assignments
+      password = '';
+      _status = AuthStatus.authenticated;
+      notifyListeners();
+      return true;
+    }
+    // --- End Local Users Check ---
+
+    _error = 'Invalid username or password.';
+    _status = AuthStatus.authError;
+    _userRole = null;
+    _jwtToken = null;
+    _username = '';
+    notifyListeners();
+    return false;
   }
 
   // ── Session Restore ──────────────────────────────────────────────────────
@@ -231,7 +321,28 @@ class AuthState extends ChangeNotifier {
   }
 
   Future<void> _clearAll() async {
+    // Preserve locally-created users and temp admin flag across logouts
+    final savedUsers = await _secureStorage.read(key: _StorageKeys.localUsers);
+    final tempDisabled = await _secureStorage.read(
+      key: _StorageKeys.tempAdminDisabled,
+    );
+
     await _secureStorage.deleteAll();
+
+    // Restore the keys we want to keep
+    if (savedUsers != null && savedUsers.isNotEmpty) {
+      await _secureStorage.write(
+        key: _StorageKeys.localUsers,
+        value: savedUsers,
+      );
+    }
+    if (tempDisabled != null && tempDisabled.isNotEmpty) {
+      await _secureStorage.write(
+        key: _StorageKeys.tempAdminDisabled,
+        value: tempDisabled,
+      );
+    }
+
     _status = AuthStatus.unauthenticated;
     _userRole = null;
     _username = '';
@@ -239,6 +350,7 @@ class AuthState extends ChangeNotifier {
     _jwtToken = null;
     _csrfInterceptor.clearToken();
     _apiClient.clearAuthToken();
+    _localUsers.clear(); // clear in-memory cache, will reload on next login
     notifyListeners();
   }
 
@@ -254,6 +366,66 @@ class AuthState extends ChangeNotifier {
         value: _csrfInterceptor.token,
       );
     }
+  }
+
+  // ── Temp Admin ───────────────────────────────────────────────────────────
+
+  /// Hardcoded temporary admin credentials.
+  /// These allow initial access before a real admin account is created.
+  static const _tempAdminUser = 'admin';
+  static const _tempAdminPass = 'lzcas2025';
+  static const _tempAdminToken = 'temp_admin_bypass_token';
+
+  /// Whether the current session is using the temp admin bypass.
+  bool get isTempAdmin => _username == 'Temp Admin' &&
+      _jwtToken == _tempAdminToken;
+
+  /// Permanently disable the temp admin account.
+  /// Call this after creating a real admin user.
+  Future<void> deactivateTempAdmin() async {
+    await _secureStorage.write(
+      key: _StorageKeys.tempAdminDisabled,
+      value: 'true',
+    );
+  }
+
+  // ── Local Users (offline-created accounts) ───────────────────────────────
+
+  Map<String, Map<String, String>> _localUsers = {};
+
+  /// Load locally created users from secure storage.
+  Future<void> _loadLocalUsers() async {
+    if (_localUsers.isNotEmpty) return;
+    final json = await _secureStorage.read(key: _StorageKeys.localUsers);
+    if (json != null && json.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(json) as Map<String, dynamic>;
+        _localUsers = decoded.map((k, v) =>
+            MapEntry(k, (v as Map<String, dynamic>).cast<String, String>()));
+      } catch (_) {
+        _localUsers = {};
+      }
+    }
+  }
+
+  /// Create a user locally (no backend needed).
+  /// Returns false if the username already exists.
+  Future<bool> createLocalUser({
+    required String username,
+    required String password,
+    required UserRole role,
+  }) async {
+    await _loadLocalUsers();
+    if (_localUsers.containsKey(username)) return false;
+
+    _localUsers[username] = {
+      'password': password,
+      'role': role.name,
+    };
+
+    final json = jsonEncode(_localUsers);
+    await _secureStorage.write(key: _StorageKeys.localUsers, value: json);
+    return true;
   }
 
   // ── Error Parsing ────────────────────────────────────────────────────────
