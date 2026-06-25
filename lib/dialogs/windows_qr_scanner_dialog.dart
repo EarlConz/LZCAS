@@ -36,6 +36,10 @@ class _WindowsQrScannerDialogState extends State<_WindowsQrScannerDialog> {
   Timer? _captureTimer;
   bool _isCapturing = false;
 
+  List<CameraDescription> _cameras = [];
+  int _selectedCameraIndex = 0;
+  bool _isSwitchingCamera = false;
+
   @override
   void initState() {
     super.initState();
@@ -45,12 +49,20 @@ class _WindowsQrScannerDialogState extends State<_WindowsQrScannerDialog> {
   Future<void> _initCamera() async {
     try {
       final cameras = await availableCameras();
+      if (!mounted) return;
+
+      _cameras = cameras;
+
       if (cameras.isEmpty) {
         if (mounted) setState(() => _error = 'No camera found');
         return;
       }
 
-      _controller = CameraController(cameras.first, ResolutionPreset.medium);
+      // Clamp index in case cameras changed since last init
+      final index = _selectedCameraIndex.clamp(0, cameras.length - 1);
+      _selectedCameraIndex = index;
+
+      _controller = CameraController(cameras[index], ResolutionPreset.medium);
 
       await _controller!.initialize();
       if (!mounted) return;
@@ -68,6 +80,46 @@ class _WindowsQrScannerDialogState extends State<_WindowsQrScannerDialog> {
               'Camera error: ${e.toString().replaceAll(RegExp(r'^Exception: '), '')}',
         );
       }
+    }
+  }
+
+  Future<void> _switchToCamera(int index) async {
+    if (index == _selectedCameraIndex || _isSwitchingCamera) return;
+    _isSwitchingCamera = true;
+
+    // Stop current camera
+    _captureTimer?.cancel();
+    _captureTimer = null;
+    await _controller?.dispose();
+    _controller = null;
+
+    setState(() {
+      _isInitialized = false;
+      _selectedCameraIndex = index;
+      _error = null;
+    });
+
+    // Init new camera
+    try {
+      final camera = _cameras[index];
+      _controller = CameraController(camera, ResolutionPreset.medium);
+      await _controller!.initialize();
+      if (!mounted) return;
+
+      setState(() => _isInitialized = true);
+
+      _captureTimer = Timer.periodic(const Duration(milliseconds: 350), (_) {
+        _captureAndScan();
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'Camera error: ${e.toString().replaceAll(RegExp(r'^Exception: '), '')}',
+        );
+      }
+    } finally {
+      _isSwitchingCamera = false;
     }
   }
 
@@ -168,6 +220,44 @@ class _WindowsQrScannerDialogState extends State<_WindowsQrScannerDialog> {
                     ),
                   ),
                   const Spacer(),
+                  // ── Camera switcher ──
+                  if (_cameras.length > 1 && _isInitialized)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back_ios, size: 16),
+                          tooltip: 'Previous camera',
+                          onPressed: _selectedCameraIndex > 0
+                              ? () => _switchToCamera(_selectedCameraIndex - 1)
+                              : null,
+                        ),
+                        Text(
+                          _cameras[_selectedCameraIndex].name.length > 12
+                              ? '${_cameras[_selectedCameraIndex].name.substring(0, 12)}…'
+                              : _cameras[_selectedCameraIndex].name,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.arrow_forward_ios, size: 16),
+                          tooltip: 'Next camera',
+                          onPressed: _selectedCameraIndex < _cameras.length - 1
+                              ? () => _switchToCamera(_selectedCameraIndex + 1)
+                              : null,
+                        ),
+                      ],
+                    ),
+                  if (_isSwitchingCamera)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
                   IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(context).pop(),
