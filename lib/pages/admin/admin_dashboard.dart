@@ -13,6 +13,7 @@ import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 import 'package:lzcas/widgets/stockpile_topbar.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/memberstable.dart';
+import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -869,41 +870,9 @@ class _AdminReportsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.assessment_rounded,
-            size: 48,
-            color: isDark
-                ? StockpileColors.darkTextMuted
-                : StockpileColors.mutedText,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Inventory Reports',
-            style: StockpileFonts.satoshi(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Stock in/out logs and borrowing trends — full read access.',
-            style: StockpileFonts.satoshi(
-              fontSize: 13,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-          ),
-        ],
-      ),
+    return const Padding(
+      padding: EdgeInsets.all(16),
+      child: InventoryReportsView(),
     );
   }
 }
@@ -938,90 +907,212 @@ class _AdminMembersPage extends StatelessWidget {
   static void _noOpMemberSelect(Map<String, dynamic> _) {}
 }
 
-// ─── Admin · Delete Request Tab ─────────────────────────────────────────────
+// ─── Admin · Delete Request Management — review requests from Cashiers ─────
 
-class _AdminDeleteRequestTab extends StatelessWidget {
+class _AdminDeleteRequestTab extends StatefulWidget {
   const _AdminDeleteRequestTab();
+
+  @override
+  State<_AdminDeleteRequestTab> createState() => _AdminDeleteRequestTabState();
+}
+
+class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
+  // Placeholder list — in production, fetch from API/repository.
+  final List<Map<String, String>> _pendingRequests = [];
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.person_remove_rounded,
-            size: 48,
-            color: StockpileColors.error500,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Pending Deletion Requests',
-            style: StockpileFonts.satoshi(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
+
+    if (_pendingRequests.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.person_remove_rounded,
+              size: 48,
+              color: StockpileColors.error500,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No Pending Deletion Requests',
+              style: StockpileFonts.satoshi(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: isDark
+                    ? StockpileColors.darkTextPrimary
+                    : StockpileColors.darkText,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Member deletion requests submitted by cashiers will appear here '
+              'for your review and approval.',
+              textAlign: TextAlign.center,
+              style: StockpileFonts.satoshi(
+                fontSize: 13,
+                color: isDark
+                    ? StockpileColors.darkTextMuted
+                    : StockpileColors.mutedText,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _pendingRequests.length,
+      itemBuilder: (context, index) {
+        final request = _pendingRequests[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: StockpileColors.error100,
+              child: const Icon(
+                Icons.person_remove_rounded,
+                color: StockpileColors.error500,
+              ),
+            ),
+            title: Text(request['memberName'] ?? 'Unknown'),
+            subtitle: Text(request['reason'] ?? ''),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(
+                    Icons.check_circle_outline,
+                    color: StockpileColors.success,
+                  ),
+                  tooltip: 'Approve',
+                  onPressed: () {
+                    // TODO: approve deletion
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.cancel_outlined,
+                    color: StockpileColors.error500,
+                  ),
+                  tooltip: 'Reject',
+                  onPressed: () {
+                    // TODO: reject deletion
+                  },
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Review and approve/reject member deletion requests.',
-            style: StockpileFonts.satoshi(
-              fontSize: 13,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
 
-// ─── Admin · Borrow Stock Tab ───────────────────────────────────────────────
+// ─── Admin · Borrow Stock Management — review requests from Cashiers ────────
 
-class _AdminBorrowStockTab extends StatelessWidget {
+class _AdminBorrowStockTab extends StatefulWidget {
   const _AdminBorrowStockTab();
+
+  @override
+  State<_AdminBorrowStockTab> createState() => _AdminBorrowStockTabState();
+}
+
+class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
+  // Placeholder list — in production, fetch from API/repository.
+  final List<Map<String, String>> _pendingRequests = [];
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.add_box_rounded,
-            size: 48,
-            color: StockpileColors.secondary500,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Pending Borrow Requests',
-            style: StockpileFonts.satoshi(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
+
+    if (_pendingRequests.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.add_box_rounded,
+              size: 48,
+              color: StockpileColors.secondary500,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No Borrow Requests',
+              style: StockpileFonts.satoshi(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: isDark
+                    ? StockpileColors.darkTextPrimary
+                    : StockpileColors.darkText,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Stock borrow requests submitted by cashiers will appear here '
+              'for your review and approval.',
+              textAlign: TextAlign.center,
+              style: StockpileFonts.satoshi(
+                fontSize: 13,
+                color: isDark
+                    ? StockpileColors.darkTextMuted
+                    : StockpileColors.mutedText,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _pendingRequests.length,
+      itemBuilder: (context, index) {
+        final request = _pendingRequests[index];
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: StockpileColors.secondary100,
+              child: const Icon(
+                Icons.add_box_rounded,
+                color: StockpileColors.secondary700,
+              ),
+            ),
+            title: Text(request['itemName'] ?? 'Unknown'),
+            subtitle: Text(
+              'Qty: ${request['quantity'] ?? '—'} · ${request['reason'] ?? ''}',
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(
+                    Icons.check_circle_outline,
+                    color: StockpileColors.success,
+                  ),
+                  tooltip: 'Approve',
+                  onPressed: () {
+                    // TODO: approve borrow
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.cancel_outlined,
+                    color: StockpileColors.error500,
+                  ),
+                  tooltip: 'Reject',
+                  onPressed: () {
+                    // TODO: reject borrow
+                  },
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Review and approve/reject stock borrowing requests.',
-            style: StockpileFonts.satoshi(
-              fontSize: 13,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
