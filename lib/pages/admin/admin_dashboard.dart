@@ -16,7 +16,6 @@ import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/data/supabase_config.dart';
-import 'package:lzcas/data/supabase_sync_service.dart';
 import 'package:lzcas/db/db.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -109,38 +108,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
           Expanded(
             child: Column(
               children: [
-                // ── Temp Admin Warning Banner ──────────────────────────
-                if (auth.isTempAdmin)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 10,
-                    ),
-                    color: StockpileColors.primary50,
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.warning_amber_rounded,
-                          size: 20,
-                          color: StockpileColors.primary800,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Temporary Admin — Create a real admin from '
-                            '"Users" to secure the system.',
-                            style: StockpileFonts.satoshi(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: StockpileColors.primary800,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                // ── Top Bar (from UI Changes) ──────────────────────────
+                // ── Top Bar ────────────────────────────────────────────
                 StockpileTopBar(
                   pageTitle: _pageTitles[_selectedIndex],
                   showMenu: !isDesktop,
@@ -217,15 +185,19 @@ class _UserManagementTabState extends State<_UserManagementTab> {
     try {
       final auth = context.read<AuthState>();
 
-      // Create the user locally (offline-first, no backend needed)
-      final ok = await auth.createLocalUser(
-        username: email,
+      // Create the user via Supabase Auth (online)
+      final ok = await auth.createUser(
+        email: email,
         password: password,
         role: _selectedRole,
       );
 
       if (!ok) {
-        setState(() => _createError = 'Username already exists.');
+        setState(
+          () => _createError = auth.error.isNotEmpty
+              ? auth.error
+              : 'Failed to create user.',
+        );
         return;
       }
 
@@ -233,9 +205,6 @@ class _UserManagementTabState extends State<_UserManagementTab> {
       _nameCtrl.clear();
       _emailCtrl.clear();
       _passwordCtrls[0].clear();
-
-      // Deactivate the temp admin account now that a real user exists
-      await auth.deactivateTempAdmin();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -548,20 +517,18 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     if (confirmed != true || !mounted) return;
     setState(() => _syncing = true);
     try {
-      final syncService = SupabaseSyncService(
-        db: repository.db,
-        client: supabaseClient,
-      );
-      await syncService.uploadLocalSnapshot();
+      // Data is already in the cloud — no sync needed.
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Local data synced to Supabase')),
+        const SnackBar(
+          content: Text('All data is already stored in Supabase.'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Failed to sync to Supabase: $e')));
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
@@ -601,19 +568,11 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     if (confirmed != true || !mounted) return;
     setState(() => _restoring = true);
     try {
-      final syncService = SupabaseSyncService(
-        db: repository.db,
-        client: supabaseClient,
-      );
-      final summary = await syncService.restoreRemoteSnapshot();
-      repository.notifyCloudRestored();
+      // Data is already cloud-based — no restore needed.
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Restored ${summary.items} items, ${summary.members} members, '
-            'and ${summary.sales} sales from Supabase',
-          ),
+        const SnackBar(
+          content: Text('Data is already cloud-based. No restore needed.'),
         ),
       );
     } catch (e) {

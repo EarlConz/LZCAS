@@ -549,7 +549,11 @@ class _MemberTransactionHistory extends StatelessWidget {
             }
 
             final sales = [...?snap.data]
-              ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+              ..sort((a, b) {
+                final ta = a.timestamp ?? DateTime(2000);
+                final tb = b.timestamp ?? DateTime(2000);
+                return tb.compareTo(ta);
+              });
             if (sales.isEmpty) return const _EmptyTransactions();
 
             final totalQuantity = sales.fold<int>(

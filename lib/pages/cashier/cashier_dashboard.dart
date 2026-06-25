@@ -272,10 +272,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
     });
 
     try {
-      // Refresh CSRF token before sending the state-changing request.
-      final auth = context.read<AuthState>();
-      await auth.refreshCsrfToken();
-
       // POST request to initiate deletion request for admin approval.
       // final client = context.read<ApiClient>();
       // await client.post('/api/cashier/delete-member-request', data: {
@@ -482,10 +478,6 @@ class _BorrowStockTabState extends State<_BorrowStockTab> {
     });
 
     try {
-      // Refresh CSRF token before sending the state-changing request.
-      final auth = context.read<AuthState>();
-      await auth.refreshCsrfToken();
-
       // POST request to submit borrow stock request.
       // final client = context.read<ApiClient>();
       // await client.post('/api/cashier/borrow-stock-request', data: {

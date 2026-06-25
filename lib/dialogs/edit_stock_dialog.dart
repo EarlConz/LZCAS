@@ -1,6 +1,5 @@
 // ...existing code...
 import 'package:flutter/material.dart';
-import 'package:drift/drift.dart' show Value;
 import 'package:lzcas/db/db.dart';
 
 class EditProductDialog extends StatefulWidget {
@@ -96,7 +95,7 @@ class _EditProductDialogState extends State<EditProductDialog> {
       return;
     }
 
-    final row = await repository.db.getItemById(id);
+    final row = await repository.getItemById(id);
     if (row == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -107,10 +106,10 @@ class _EditProductDialogState extends State<EditProductDialog> {
 
     final updated = row.copyWith(
       name: newName.isEmpty ? row.name : newName,
-      category: Value(newCategory),
+      category: newCategory,
       stock: newStock,
-      lastUpdated: Value(DateTime.now()),
-      status: Value(statusFromStock(newStock)),
+      lastUpdated: DateTime.now(),
+      status: statusFromStock(newStock),
     );
 
     await repository.updateItem(updated);

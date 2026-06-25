@@ -6,7 +6,6 @@ import 'package:file_selector/file_selector.dart' as fs;
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:drift/drift.dart' show Value;
 import 'package:lzcas/db/db.dart';
 import 'package:path/path.dart' as p;
 import 'dart:async';
@@ -116,10 +115,8 @@ class MembersTableState extends State<MembersTable> {
           // Update the DB path
           final created = await repository.getMemberById(memberId);
           if (created != null) {
-            final updated = created.copyWith(
-              idImagePath: Value(finalImagePath),
-            );
-            await repository.db.updateMemberData(updated);
+            final updated = created.copyWith(idImagePath: finalImagePath);
+            await repository.updateMember(updated);
           }
         }
       } catch (_) {
@@ -201,50 +198,32 @@ class MembersTableState extends State<MembersTable> {
     final newRole = hasId ? 'Verified Reseller' : (row.role ?? 'Member');
 
     final updated = row.copyWith(
-      lastName: updatedMember['lastName'] != null
-          ? Value(updatedMember['lastName'].toString())
-          : const Value.absent(),
-      firstName: updatedMember['firstName'] != null
-          ? Value(updatedMember['firstName'].toString())
-          : const Value.absent(),
-      middleName: updatedMember['middleName'] != null
-          ? Value(updatedMember['middleName'].toString())
-          : const Value.absent(),
-      role: Value(newRole),
-      contactNo: updatedMember['contactNo'] != null
-          ? Value(updatedMember['contactNo'].toString())
-          : const Value.absent(),
-      birthday: updatedMember['birthday'] != null
-          ? Value(updatedMember['birthday'].toString())
-          : const Value.absent(),
-      address: updatedMember['address'] != null
-          ? Value(updatedMember['address'].toString())
-          : const Value.absent(),
-      referrer: updatedMember['referrer'] != null
-          ? Value(updatedMember['referrer'].toString())
-          : const Value.absent(),
-      referrerId: updatedMember['referrerId'] != null
-          ? Value(updatedMember['referrerId'] as int)
-          : const Value.absent(),
-      level: updatedMember['level'] is int ? updatedMember['level'] : null,
-      idType: updatedMember['idType'] != null
-          ? Value(updatedMember['idType'].toString())
-          : const Value.absent(),
-      idNumber: updatedMember['idNumber'] != null
-          ? Value(updatedMember['idNumber'].toString())
-          : const Value.absent(),
-      idImagePath: updatedMember['idImagePath'] != null
-          ? Value(updatedMember['idImagePath'].toString())
-          : const Value.absent(),
+      lastName: updatedMember['lastName']?.toString(),
+      firstName: updatedMember['firstName']?.toString(),
+      middleName: updatedMember['middleName']?.toString(),
+      role: newRole,
+      contactNo: updatedMember['contactNo']?.toString(),
+      birthday: updatedMember['birthday']?.toString(),
+      address: updatedMember['address']?.toString(),
+      referrer: updatedMember['referrer']?.toString(),
+      referrerId: updatedMember['referrerId'] is int
+          ? updatedMember['referrerId'] as int
+          : null,
+      level: updatedMember['level'] is int
+          ? updatedMember['level'] as int
+          : null,
+      idType: updatedMember['idType']?.toString(),
+      idNumber: updatedMember['idNumber']?.toString(),
+      idImagePath: updatedMember['idImagePath']?.toString(),
     );
-    await repository.db.updateMemberData(updated);
+    await repository.updateMember(updated);
     await _loadMembers();
   }
 
   Future<void> removeMember(Map<String, dynamic> member) async {
     final id = member['id'] as int?;
     if (id == null) return;
-    await repository.db.deleteMemberById(id);
+    await repository.deleteMemberById(id);
     await _loadMembers();
   }
 
@@ -364,7 +343,7 @@ class MembersTableState extends State<MembersTable> {
     final existingIds = <int>{};
     final existingNames = <String>{};
     for (final m in existingRows) {
-      existingIds.add(m.id);
+      if (m.id != null) existingIds.add(m.id!);
       existingNames.add(
         ('${m.firstName ?? ''}||${m.lastName ?? ''}').trim().toLowerCase(),
       );

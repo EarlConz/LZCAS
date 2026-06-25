@@ -34,7 +34,13 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
     _members = membersFromRows(memberRows);
     final ts = widget.seedSale.timestamp;
     final grouped = all
-        .where((s) => s.timestamp.toUtc() == ts.toUtc())
+        .where(
+          (s) =>
+              s.timestamp != null &&
+              ts != null &&
+              s.timestamp!.toUtc().toIso8601String() ==
+                  ts.toUtc().toIso8601String(),
+        )
         .toList();
     setState(() {
       lines = grouped;
@@ -59,9 +65,11 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
   }
 
   Future<String?> _saveAll() async {
+    final ts = widget.seedSale.timestamp;
+    if (ts == null) return 'Missing timestamp on sale.';
     final newLines = lines.map((l) => l).toList();
     final err = await repository.editSaleGroup(
-      timestamp: widget.seedSale.timestamp,
+      timestamp: ts,
       buyerId: _selectedBuyerId,
       newLines: newLines,
     );

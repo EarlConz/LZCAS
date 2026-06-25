@@ -19,13 +19,13 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _obscurePassword = true;
 
   @override
   void dispose() {
-    _usernameCtrl.dispose();
+    _emailCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
   }
@@ -36,7 +36,7 @@ class _LoginPageState extends State<LoginPage> {
     final auth = context.read<AuthState>();
 
     // Capture credentials before clearing controllers
-    final username = _usernameCtrl.text.trim();
+    final username = _emailCtrl.text.trim();
     final password = _passwordCtrl.text;
 
     // Clear password from UI immediately for security
@@ -51,7 +51,7 @@ class _LoginPageState extends State<LoginPage> {
 
     if (success && auth.userRole != null) {
       // Clear username from UI as well
-      _usernameCtrl.clear();
+      _emailCtrl.clear();
 
       // Navigate to the user's role-specific dashboard, clearing the stack.
       Navigator.of(context).pushNamedAndRemoveUntil(
@@ -156,20 +156,29 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
 
-                    // ── Username ──────────────────────────────────────────
+                    // ── Email ────────────────────────────────────────────
                     TextFormField(
-                      controller: _usernameCtrl,
+                      controller: _emailCtrl,
                       enabled: !isAuthenticating,
+                      keyboardType: TextInputType.emailAddress,
                       decoration: InputDecoration(
-                        labelText: 'Username',
-                        prefixIcon: const Icon(Icons.person_outline_rounded),
+                        labelText: 'Email',
+                        prefixIcon: const Icon(Icons.email_outlined),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
                       textInputAction: TextInputAction.next,
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Required';
+                        final val = v.trim();
+                        // Allow "admin" shorthand
+                        if (val == 'admin') return null;
+                        if (!val.contains('@') || !val.contains('.')) {
+                          return 'Enter a valid email';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 16),
 
@@ -234,7 +243,7 @@ class _LoginPageState extends State<LoginPage> {
 
                     const SizedBox(height: 24),
                     Text(
-                      'Accounts are provisioned by your administrator.',
+                      'Accounts are provisioned by your administrator.\nSign in with your email and password.',
                       textAlign: TextAlign.center,
                       style: StockpileFonts.satoshi(
                         fontSize: 12,
