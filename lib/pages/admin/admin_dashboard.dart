@@ -10,6 +10,7 @@ import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/inventorytable.dart' as inventory;
+import 'package:lzcas/widgets/stockpile_topbar.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -18,33 +19,47 @@ class AdminDashboard extends StatefulWidget {
   State<AdminDashboard> createState() => _AdminDashboardState();
 }
 
-class _AdminDashboardState extends State<AdminDashboard>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+class _AdminDashboardState extends State<AdminDashboard> {
+  int _selectedIndex = 0;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  /// All tabs the admin can see — every feature from every role.
-  static const _tabs = [
-    _TabInfo(Icons.admin_panel_settings_rounded, 'Admin · Overview'),
-    _TabInfo(Icons.person_add_alt_rounded, 'Admin · Users'),
-    _TabInfo(Icons.settings_rounded, 'Admin · Config'),
-    _TabInfo(Icons.inventory_2_rounded, 'Inventory · Stock'),
-    _TabInfo(Icons.history_rounded, 'Inventory · Reports'),
-    _TabInfo(Icons.point_of_sale_rounded, 'Cashier · POS'),
-    _TabInfo(Icons.people_alt_rounded, 'Cashier · Members'),
-    _TabInfo(Icons.person_remove_rounded, 'Cashier · Del. Request'),
-    _TabInfo(Icons.add_box_rounded, 'Cashier · Borrow Stock'),
+  static const _pageTitles = [
+    'Admin · Overview',
+    'Admin · User Management',
+    'Admin · Global Config',
+    'Inventory · Stock',
+    'Inventory · Reports',
+    'Cashier · POS Terminal',
+    'Cashier · Members',
+    'Cashier · Deletion Requests',
+    'Cashier · Borrow Stock',
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: _tabs.length, vsync: this);
+  List<Widget> _buildPages() => const [
+    // Admin section (3 pages)
+    _AdminOverviewTab(),
+    _UserManagementTab(),
+    _GlobalConfigTab(),
+    // Inventory section (2 pages)
+    _AdminInventoryTab(),
+    _AdminReportsTab(),
+    // Cashier section (4 pages)
+    _AdminTransactionTab(),
+    _AdminMembersTab(),
+    _AdminDeleteRequestTab(),
+    _AdminBorrowStockTab(),
+  ];
+
+  void _onItemTapped(int index) {
+    setState(() => _selectedIndex = index);
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
+  void _toggleSidebar() {
+    if (_scaffoldKey.currentState!.isDrawerOpen) {
+      _scaffoldKey.currentState!.closeDrawer();
+    } else {
+      _scaffoldKey.currentState!.openDrawer();
+    }
   }
 
   @override
@@ -53,140 +68,78 @@ class _AdminDashboardState extends State<AdminDashboard>
     assertRoleOrThrow(context, {UserRole.admin});
 
     final auth = context.watch<AuthState>();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDesktop = MediaQuery.sizeOf(context).width >= 900;
+    final pages = _buildPages();
+
+    final sidebar = _AdminSidebar(
+      selectedIndex: _selectedIndex,
+      auth: auth,
+      onItemSelected: (i) {
+        if (!isDesktop) Navigator.pop(context);
+        _onItemTapped(i);
+      },
+    );
 
     return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            // ── Temp Admin Warning Banner ────────────────────────────────
-            if (auth.isTempAdmin)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 10,
-                ),
-                color: StockpileColors.primary50,
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      size: 20,
-                      color: StockpileColors.primary800,
+      key: _scaffoldKey,
+      drawer: isDesktop ? null : sidebar,
+      body: Row(
+        children: [
+          // Desktop sidebar
+          if (isDesktop) SizedBox(width: 260, child: sidebar),
+          if (isDesktop) const VerticalDivider(width: 1),
+
+          // Main content area
+          Expanded(
+            child: Column(
+              children: [
+                // ── Temp Admin Warning Banner ──────────────────────────
+                if (auth.isTempAdmin)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 10,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Temporary Admin Account — Create a real admin from '
-                        'the "Admin · Users" tab to secure the system and '
-                        'disable this temporary access.',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                    color: StockpileColors.primary50,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 20,
                           color: StockpileColors.primary800,
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            // ── Header ──────────────────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.fromLTRB(24, 16, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Admin Panel · All Rights',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                            color: isDark
-                                ? StockpileColors.darkTextPrimary
-                                : StockpileColors.darkText,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Welcome, ${auth.username} · Full app access',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 14,
-                            color: isDark
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Temporary Admin — Create a real admin from '
+                            '"Users" to secure the system.',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: StockpileColors.primary800,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  _LogoutButton(auth: auth),
-                ],
-              ),
+                // ── Top Bar (from UI Changes) ──────────────────────────
+                StockpileTopBar(
+                  pageTitle: _pageTitles[_selectedIndex],
+                  showMenu: !isDesktop,
+                  onMenuTap: _toggleSidebar,
+                  onAddNewItem: () {
+                    // Admin can add products from any page; default to
+                    // opening the add-product dialog.
+                  },
+                ),
+                // ── Page Content ───────────────────────────────────────
+                Expanded(child: pages[_selectedIndex]),
+              ],
             ),
-            const Divider(height: 1),
-
-            // ── Tab Bar — ALL app tabs ───────────────────────────────────
-            SizedBox(
-              height: 52,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                children: List.generate(_tabs.length, (i) {
-                  final selected = _tabController.index == i;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 3),
-                    child: ChoiceChip(
-                      label: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _tabs[i].icon,
-                            size: 16,
-                            color: selected ? Colors.white : null,
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            _tabs[i].label,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ],
-                      ),
-                      selected: selected,
-                      onSelected: (_) =>
-                          setState(() => _tabController.index = i),
-                    ),
-                  );
-                }),
-              ),
-            ),
-            const Divider(height: 1),
-
-            // ── Tab Content — ALL features ───────────────────────────────
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: const [
-                  // Admin section (3 tabs)
-                  _AdminOverviewTab(),
-                  _UserManagementTab(),
-                  _GlobalConfigTab(),
-                  // Inventory section (2 tabs)
-                  _AdminInventoryTab(),
-                  _AdminReportsTab(),
-                  // Cashier section (4 tabs)
-                  _AdminTransactionTab(),
-                  _AdminMembersTab(),
-                  _AdminDeleteRequestTab(),
-                  _AdminBorrowStockTab(),
-                ],
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -573,51 +526,299 @@ class _GlobalConfigTab extends StatelessWidget {
   }
 }
 
-// ─── Shared Logout Button (uses confirmation) ───────────────────────────────
+// ─── Admin Sidebar (styled after StockpileSidebar from UI Changes) ─────────
 
-/// A logout icon button that shows a confirmation dialog before clearing the
-/// session, posting to `/api/logout`, and redirecting to the login screen.
-class _LogoutButton extends StatelessWidget {
+class _AdminSidebar extends StatelessWidget {
+  final int selectedIndex;
   final AuthState auth;
+  final ValueChanged<int> onItemSelected;
 
-  const _LogoutButton({required this.auth});
+  const _AdminSidebar({
+    required this.selectedIndex,
+    required this.auth,
+    required this.onItemSelected,
+  });
+
+  static const _navItems = <_NavItem>[
+    _NavItem(Icons.admin_panel_settings_rounded, 'Overview'),
+    _NavItem(Icons.person_add_alt_rounded, 'Users'),
+    _NavItem(Icons.settings_rounded, 'Config'),
+    _NavItem(Icons.inventory_2_rounded, 'Inventory'),
+    _NavItem(Icons.history_rounded, 'Reports'),
+    _NavItem(Icons.point_of_sale_rounded, 'POS Terminal'),
+    _NavItem(Icons.people_alt_rounded, 'Members'),
+    _NavItem(Icons.person_remove_rounded, 'Del. Requests'),
+    _NavItem(Icons.add_box_rounded, 'Borrow Requests'),
+  ];
+
+  static const _bottomItems = <_NavItem>[
+    _NavItem(Icons.settings_rounded, 'Settings'),
+    _NavItem(Icons.help_outline_rounded, 'Help & Support'),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      icon: const Icon(Icons.logout_rounded),
-      tooltip: 'Logout',
-      onPressed: () async {
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Logout'),
-            content: const Text('Are you sure you want to sign out?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surface = isDark
+        ? StockpileColors.darkSurface
+        : StockpileColors.surface;
+    final activeBg = isDark
+        ? StockpileColors.darkSidebarActive
+        : StockpileColors.sidebarActive;
+
+    return Drawer(
+      width: 260,
+      backgroundColor: surface,
+      elevation: 0,
+      child: Column(
+        children: [
+          // ── Brand ────────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: StockpileColors.primary900,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'LZCAS · Admin',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: isDark
+                        ? StockpileColors.darkTextPrimary
+                        : StockpileColors.darkText,
+                    height: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // ── Navigation Items ─────────────────────────────────────────
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                ...List.generate(_navItems.length, (i) {
+                  return _AdminSidebarTile(
+                    item: _navItems[i],
+                    isSelected: selectedIndex == i,
+                    activeBg: activeBg,
+                    isDark: isDark,
+                    onTap: () => onItemSelected(i),
+                  );
+                }),
+                const SizedBox(height: 12),
+                Divider(
+                  color: isDark
+                      ? StockpileColors.darkDivider
+                      : StockpileColors.divider,
+                  indent: 12,
+                  endIndent: 12,
+                ),
+                const SizedBox(height: 12),
+                // Settings
+                _AdminSidebarTile(
+                  item: _bottomItems[0],
+                  isSelected: selectedIndex == _navItems.length,
+                  activeBg: activeBg,
+                  isDark: isDark,
+                  onTap: () {
+                    // Settings — not in nav items yet
+                  },
+                ),
+                // Help & Support
+                _AdminSidebarTile(
+                  item: _bottomItems[1],
+                  isSelected: selectedIndex == _navItems.length + 1,
+                  activeBg: activeBg,
+                  isDark: isDark,
+                  onTap: () {
+                    // Help — not in nav items yet
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          // ── User Profile Card ─────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? StockpileColors.darkInputBg
+                    : StockpileColors.inputBg,
+                borderRadius: BorderRadius.circular(14),
               ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Logout'),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: StockpileColors.primary900,
+                    child: Text(
+                      auth.username.isNotEmpty
+                          ? auth.username[0].toUpperCase()
+                          : 'A',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          auth.username.isNotEmpty ? auth.username : 'Admin',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: isDark
+                                ? StockpileColors.darkTextPrimary
+                                : StockpileColors.darkText,
+                            height: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Admin',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: isDark
+                                ? StockpileColors.darkTextMuted
+                                : StockpileColors.mutedText,
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Logout button in profile card
+                  IconButton(
+                    icon: Icon(
+                      Icons.logout_rounded,
+                      size: 20,
+                      color: isDark
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                    onPressed: () => _confirmLogout(context, auth),
+                    tooltip: 'Logout',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _confirmLogout(BuildContext context, AuthState auth) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    await auth.logout();
+
+    if (!context.mounted) return;
+
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
+  }
+}
+
+// ─── Sidebar Tile ───────────────────────────────────────────────────────────
+
+class _AdminSidebarTile extends StatelessWidget {
+  final _NavItem item;
+  final bool isSelected;
+  final Color activeBg;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _AdminSidebarTile({
+    required this.item,
+    required this.isSelected,
+    required this.activeBg,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = isSelected
+        ? StockpileColors.primary900
+        : isDark
+        ? StockpileColors.darkTextBody
+        : StockpileColors.bodyText;
+
+    final bgColor = isSelected ? activeBg : Colors.transparent;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Icon(item.icon, size: 20, color: textColor),
+              const SizedBox(width: 12),
+              Text(
+                item.label,
+                style: StockpileFonts.satoshi(
+                  fontSize: 14,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: textColor,
+                ),
               ),
             ],
           ),
-        );
-
-        if (confirmed != true || !context.mounted) return;
-
-        // Perform the secure logout — POST /api/logout, clear storage, etc.
-        await auth.logout();
-
-        if (!context.mounted) return;
-
-        // Wipe the entire navigation stack and land on the login screen.
-        Navigator.of(
-          context,
-        ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
-      },
+        ),
+      ),
     );
   }
 }
@@ -998,11 +1199,11 @@ class _AdminBorrowStockTab extends StatelessWidget {
   }
 }
 
-// ─── Tab Info Model ─────────────────────────────────────────────────────────
+// ─── Nav Item Model ─────────────────────────────────────────────────────────
 
-class _TabInfo {
+class _NavItem {
   final IconData icon;
   final String label;
 
-  const _TabInfo(this.icon, this.label);
+  const _NavItem(this.icon, this.label);
 }
