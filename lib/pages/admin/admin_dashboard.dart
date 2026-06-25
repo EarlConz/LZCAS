@@ -34,6 +34,38 @@ class _AdminDashboardState extends State<AdminDashboard> {
       body: SafeArea(
         child: Column(
           children: [
+            // ── Temp Admin Warning Banner ────────────────────────────────
+            if (auth.isTempAdmin)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 10,
+                ),
+                color: StockpileColors.primary50,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 20,
+                      color: StockpileColors.primary800,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Temporary Admin Account — Create a real admin from '
+                        'the "User Management" tab to secure the system and '
+                        'disable this temporary access.',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: StockpileColors.primary800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             // ── Header ──────────────────────────────────────────────────
             Container(
               padding: const EdgeInsets.fromLTRB(24, 16, 16, 8),
@@ -285,20 +317,27 @@ class _UserManagementTabState extends State<_UserManagementTab> {
     });
 
     try {
-      final api = context.read<AuthState>(); // Using AuthState for CSRF refresh
-      await api.refreshCsrfToken();
+      final auth = context.read<AuthState>();
 
-      // In a real app, this calls the backend user provisioning endpoint.
-      // final client = context.read<ApiClient>();
-      // await client.post('/api/admin/users', data: { ... });
+      // Create the user locally (offline-first, no backend needed)
+      final ok = await auth.createLocalUser(
+        username: email,
+        password: password,
+        role: _selectedRole,
+      );
 
-      // Simulate API call
-      await Future.delayed(const Duration(milliseconds: 800));
+      if (!ok) {
+        setState(() => _createError = 'Username already exists.');
+        return;
+      }
 
       if (!mounted) return;
       _nameCtrl.clear();
       _emailCtrl.clear();
       _passwordCtrls[0].clear();
+
+      // Deactivate the temp admin account now that a real user exists
+      await auth.deactivateTempAdmin();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('User created successfully.')),
