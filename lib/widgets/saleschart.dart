@@ -51,7 +51,7 @@ class SalesChart extends StatelessWidget {
               const SizedBox(height: 14),
             ],
             SizedBox(
-              height: isMobile ? 180 : 220,
+              height: isMobile ? 220 : 260,
               child: salesData.isEmpty
                   ? Center(
                       child: Text(
@@ -91,9 +91,9 @@ class SalesChart extends StatelessWidget {
                                   return const SizedBox.shrink();
                                 }
                                 return Padding(
-                                  padding: const EdgeInsets.only(top: 6),
+                                  padding: const EdgeInsets.only(top: 8),
                                   child: SizedBox(
-                                    width: isMobile ? 50 : 76,
+                                    width: isMobile ? 60 : 90,
                                     child: Text(
                                       salesData[index]["product"] as String,
                                       maxLines: 2,
@@ -102,7 +102,7 @@ class SalesChart extends StatelessWidget {
                                       style: theme.textTheme.bodySmall
                                           ?.copyWith(
                                             color: colorScheme.onSurfaceVariant,
-                                            fontSize: isMobile ? 10 : null,
+                                            fontSize: isMobile ? 12 : 14,
                                           ),
                                     ),
                                   ),
@@ -129,8 +129,8 @@ class SalesChart extends StatelessWidget {
                               BarChartRodData(
                                 toY: sales.toDouble(),
                                 color: barColor,
-                                width: isMobile ? 12 : 18,
-                                borderRadius: BorderRadius.circular(5),
+                                width: isMobile ? 16 : 22,
+                                borderRadius: BorderRadius.circular(6),
                                 backDrawRodData: BackgroundBarChartRodData(
                                   show: true,
                                   toY:

@@ -60,9 +60,9 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Admin App',
-      theme: appTheme,
-      darkTheme: appDarkTheme,
+      title: 'Stockpile',
+      theme: stockpileTheme,
+      darkTheme: stockpileDarkTheme,
       themeMode: _mode,
       home: HomePage(
         onToggleTheme: toggleThemeMode,

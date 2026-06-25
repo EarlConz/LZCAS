@@ -31,7 +31,8 @@ class InfoCard extends StatelessWidget {
     final double screenWidth = MediaQuery.of(context).size.width;
     final bool isCompact = screenWidth < 600;
 
-    final effectiveBackgroundColor = backgroundColor ??
+    final effectiveBackgroundColor =
+        backgroundColor ??
         (theme.brightness == Brightness.dark
             ? colorScheme.surface
             : colorScheme.surface);
@@ -50,7 +51,7 @@ class InfoCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(appRadius),
         ),
         child: Padding(
-          padding: EdgeInsets.all(isCompact ? 14.0 : 16.0),
+          padding: EdgeInsets.all(isCompact ? 18.0 : 22.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -59,8 +60,8 @@ class InfoCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    width: isCompact ? 30 : 34,
-                    height: isCompact ? 30 : 34,
+                    width: isCompact ? 36 : 40,
+                    height: isCompact ? 36 : 40,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: contentColor.withAlpha((0.12 * 255).round()),
@@ -69,10 +70,10 @@ class InfoCard extends StatelessWidget {
                     child: Icon(
                       icon,
                       color: contentColor,
-                      size: isCompact ? 17 : 19,
+                      size: isCompact ? 20 : 22,
                     ),
                   ),
-                  SizedBox(width: isCompact ? 8 : 10),
+                  SizedBox(width: isCompact ? 10 : 14),
                   Expanded(
                     child: Text(
                       title,
@@ -80,14 +81,14 @@ class InfoCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: colorScheme.onSurface,
-                        fontSize: isCompact ? 14 : 15,
+                        fontSize: isCompact ? 18 : 20,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: isCompact ? 8 : 14),
+              SizedBox(height: isCompact ? 10 : 18),
               if (contentWidget != null)
                 contentWidget!
               else if (value != null) ...[
@@ -95,19 +96,19 @@ class InfoCard extends StatelessWidget {
                   value!,
                   style: theme.textTheme.headlineLarge?.copyWith(
                     color: colorScheme.onSurface,
-                    fontSize: isCompact ? 24 : 30,
+                    fontSize: isCompact ? 28 : 36,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 if (description != null && description!.isNotEmpty) ...[
-                  SizedBox(height: isCompact ? 4 : 8),
+                  SizedBox(height: isCompact ? 6 : 10),
                   Text(
                     description!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: colorScheme.onSurfaceVariant,
-                      fontSize: isCompact ? 12 : 13,
+                      fontSize: isCompact ? 14 : 16,
                     ),
                   ),
                 ],

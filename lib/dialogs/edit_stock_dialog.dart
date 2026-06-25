@@ -122,12 +122,28 @@ class _EditProductDialogState extends State<EditProductDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final isNarrow = MediaQuery.sizeOf(context).width < 500;
 
     return AlertDialog(
-      title: const Text('Edit Product'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+      title: Row(
+        children: [
+          Icon(Icons.edit_rounded, color: colorScheme.primary, size: 28),
+          const SizedBox(width: 10),
+          Text(
+            'Edit Product',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
       content: SizedBox(
-        width: isNarrow ? double.maxFinite : 420,
+        width: isNarrow ? double.maxFinite : 480,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -136,7 +152,7 @@ class _EditProductDialogState extends State<EditProductDialog> {
                 controller: nameController,
                 decoration: const InputDecoration(labelText: 'Product name'),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(
@@ -154,14 +170,32 @@ class _EditProductDialogState extends State<EditProductDialog> {
                       hint: const Text('Select category'),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   IconButton(
-                    icon: const Icon(Icons.add),
+                    iconSize: 28,
+                    icon: const Icon(Icons.add_circle_outline),
+                    tooltip: 'Add new category',
                     onPressed: () async {
                       final result = await showDialog<String>(
                         context: context,
                         builder: (ctx) {
                           final tc = TextEditingController();
                           return AlertDialog(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            titlePadding: const EdgeInsets.fromLTRB(
+                              24,
+                              22,
+                              24,
+                              0,
+                            ),
+                            contentPadding: const EdgeInsets.fromLTRB(
+                              24,
+                              16,
+                              24,
+                              8,
+                            ),
                             title: const Text('Add category'),
                             content: TextField(
                               controller: tc,
@@ -169,12 +203,19 @@ class _EditProductDialogState extends State<EditProductDialog> {
                                 labelText: 'Category name',
                               ),
                             ),
+                            actionsPadding: const EdgeInsets.fromLTRB(
+                              24,
+                              8,
+                              24,
+                              20,
+                            ),
                             actions: [
                               TextButton(
                                 onPressed: () => Navigator.pop(ctx),
                                 child: const Text('Cancel'),
                               ),
-                              ElevatedButton(
+                              const SizedBox(width: 12),
+                              FilledButton(
                                 onPressed: () =>
                                     Navigator.pop(ctx, tc.text.trim()),
                                 child: const Text('Add'),
@@ -198,7 +239,7 @@ class _EditProductDialogState extends State<EditProductDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
               TextField(
                 controller: stockController,
                 keyboardType: TextInputType.number,
@@ -209,12 +250,14 @@ class _EditProductDialogState extends State<EditProductDialog> {
           ),
         ),
       ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
-        ElevatedButton(onPressed: _save, child: const Text('Save')),
+        const SizedBox(width: 12),
+        FilledButton(onPressed: _save, child: const Text('Save')),
       ],
     );
   }

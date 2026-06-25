@@ -172,7 +172,7 @@ class MembersTableState extends State<MembersTable> {
               address: member.address ?? '',
               referrer: member.referrer ?? '',
               qrToken: member.qr,
-              size: 200,
+              size: 240,
             ),
           ],
         ),
@@ -450,7 +450,7 @@ class MembersTableState extends State<MembersTable> {
                         ),
                         const SizedBox(width: 8),
                         SizedBox(
-                          width: 180,
+                          width: 220,
                           child: DropdownButtonFormField<String?>(
                             value: roleFilter,
                             decoration: const InputDecoration(
@@ -647,9 +647,9 @@ class MembersTableState extends State<MembersTable> {
                 horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
                 columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
                 rowsPerPage: estimated,
-                headingRowHeight: 42,
-                dataRowMinHeight: 44,
-                dataRowMaxHeight: 52,
+                headingRowHeight: 52,
+                dataRowMinHeight: 56,
+                dataRowMaxHeight: 62,
                 showCheckboxColumn: true,
                 columns: const [
                   DataColumn(label: Text('Last Name')),
@@ -1008,7 +1008,7 @@ class _QrIconButton extends StatelessWidget {
               address: (member['address'] ?? '').toString(),
               referrer: (member['referrer'] ?? '').toString(),
               qrToken: (member['qr'] ?? '').toString(),
-              size: 200,
+              size: 240,
             ),
           ],
         ),

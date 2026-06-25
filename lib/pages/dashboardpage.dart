@@ -1,10 +1,13 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '/widgets/infocard.dart';
-import '/widgets/saleschart.dart';
-import 'package:fl_chart/fl_chart.dart';
 import 'package:lzcas/db/db.dart';
 import '../theme.dart';
+import '../utils/fonts.dart';
+import '../widgets/metric_card.dart';
+import '../widgets/mini_bar_chart.dart';
+import '../widgets/mini_donut_chart.dart';
+import '../widgets/mini_line_chart.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -14,32 +17,15 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  List<Map<String, dynamic>> weekly = [];
-  List<Map<String, dynamic>> monthly = [];
-  int totalProducts = 0;
-  int lowStockItems = 0;
-  int outOfStockItems = 0;
   int monthlyRevenue = 0;
   int previousMonthRevenue = 0;
-  int twoMonthsAgoRevenue = 0;
-  List<Map<String, dynamic>> topSpenders = const [];
-  List<Map<String, dynamic>> salesBreakdown = const [];
-
-  static const _topSpenderColors = <Color>[
-    Color(0xFF42A5F5),
-    Color(0xFF66BB6A),
-    Color(0xFFFFB74D),
-    Color(0xFFEF5350),
-    Color(0xFFAB47BC),
-  ];
-
-  static const _salesColors = <Color>[
-    Color(0xFF26A69A),
-    Color(0xFFEF5350),
-    Color(0xFFFFCA28),
-    Color(0xFF7E57C2),
-    Color(0xFF29B6F6),
-  ];
+  int activeOrders = 0;
+  int previousMonthOrders = 0;
+  int lowStockItems = 0;
+  List<Map<String, dynamic>> categoryRevenue = [];
+  List<Map<String, dynamic>> topProducts = [];
+  List<double> revenueTrend = [];
+  List<double> lowStockTrend = [];
 
   @override
   void initState() {
@@ -50,23 +36,17 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _loadStats() async {
     final items = await repository.fetchItems();
     final sales = await repository.fetchSales();
-    final members = await repository.fetchMembers();
-
-    totalProducts = items.length;
-    lowStockItems = items.where((i) => i.stock < 50 && i.stock > 0).length;
-    outOfStockItems = items.where((i) => i.stock <= 0).length;
-
-    // Compute current-month revenue and previous two months
     final now = DateTime.now();
     final thisMonth = DateTime(now.year, now.month, 1);
+    final lastMonth = DateTime(now.year, now.month - 1, 1);
+
     monthlyRevenue = sales
         .where(
           (s) =>
               s.timestamp.isAfter(thisMonth.subtract(const Duration(days: 1))),
         )
         .fold(0, (sum, s) => sum + s.price);
-    final lastMonth = DateTime(now.year, now.month - 1, 1);
-    final twoMonthsAgo = DateTime(now.year, now.month - 2, 1);
+
     previousMonthRevenue = sales
         .where(
           (s) =>
@@ -76,615 +56,544 @@ class _DashboardPageState extends State<DashboardPage> {
               s.timestamp.isBefore(thisMonth),
         )
         .fold(0, (sum, s) => sum + s.price);
-    twoMonthsAgoRevenue = sales
+
+    final thisMonthSales = sales
+        .where(
+          (s) =>
+              s.timestamp.isAfter(thisMonth.subtract(const Duration(days: 1))),
+        )
+        .toList();
+    activeOrders = thisMonthSales.length;
+
+    final lastMonthSales = sales
         .where(
           (s) =>
               s.timestamp.isAfter(
-                twoMonthsAgo.subtract(const Duration(days: 1)),
+                lastMonth.subtract(const Duration(days: 1)),
               ) &&
-              s.timestamp.isBefore(lastMonth),
-        )
-        .fold(0, (sum, s) => sum + s.price);
-
-    final Map<int, String> memberNames = {};
-    for (final m in members) {
-      memberNames[m.id] = [
-        m.firstName,
-        m.lastName,
-      ].where((part) => part != null && part.trim().isNotEmpty).join(' ');
-      if ((memberNames[m.id]?.trim().isEmpty ?? true)) {
-        memberNames[m.id] = 'No name';
-      }
-    }
-
-    final Map<int, int> spenderTotals = <int, int>{};
-    for (final sale in sales) {
-      final buyerId = sale.buyerId;
-      if (buyerId != null) {
-        spenderTotals[buyerId] = (spenderTotals[buyerId] ?? 0) + sale.price;
-      }
-    }
-
-    final List<Map<String, dynamic>> ranked = spenderTotals.entries
-        .map(
-          (e) => {
-            'id': e.key,
-            'name': memberNames[e.key] ?? 'No name',
-            'total': e.value,
-          },
+              s.timestamp.isBefore(thisMonth),
         )
         .toList();
-    ranked.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
-    topSpenders = ranked.take(5).toList();
+    previousMonthOrders = lastMonthSales.length;
 
-    final Map<String, int> itemTotals = <String, int>{};
+    lowStockItems = items.where((i) => i.stock < 50 && i.stock > 0).length;
+
+    final Map<String, int> catRevenue = {};
     for (final s in sales) {
-      final String itemNameKey = s.itemName;
-      if (itemNameKey.trim().isNotEmpty) {
-        itemTotals[itemNameKey] = (itemTotals[itemNameKey] ?? 0) + s.price;
-      }
+      final item = items.where((i) => i.id == s.itemId).firstOrNull;
+      final cat = item?.category ?? 'Uncategorized';
+      catRevenue[cat] = (catRevenue[cat] ?? 0) + s.price;
     }
+    categoryRevenue =
+        catRevenue.entries
+            .map((e) => {'category': e.key, 'revenue': e.value})
+            .toList()
+          ..sort(
+            (a, b) => (b['revenue'] as int).compareTo(a['revenue'] as int),
+          );
 
-    final List<Map<String, dynamic>> itemRanked = itemTotals.entries
-        .map((e) => {'item': e.key, 'total': e.value})
-        .toList();
-    itemRanked.sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
-    salesBreakdown = itemRanked.take(5).toList();
-
-    final weekStart = now.subtract(Duration(days: now.weekday % 7));
-    final monthStart = DateTime(now.year, now.month, 1);
-
-    final Map<String, int> weekAgg = {};
-    final Map<String, int> monthAgg = {};
-
+    final Map<int, Map<String, dynamic>> productAgg = {};
     for (final s in sales) {
-      if (s.timestamp.isAfter(weekStart)) {
-        weekAgg[s.itemName] = (weekAgg[s.itemName] ?? 0) + s.quantity;
-      }
-      if (s.timestamp.isAfter(monthStart)) {
-        monthAgg[s.itemName] = (monthAgg[s.itemName] ?? 0) + s.quantity;
-      }
+      productAgg[s.itemId] = {
+        'itemId': s.itemId,
+        'productName': s.itemName,
+        'revenue': (productAgg[s.itemId]?['revenue'] ?? 0) + s.price,
+        'unitsSold': (productAgg[s.itemId]?['unitsSold'] ?? 0) + s.quantity,
+      };
     }
+    topProducts = productAgg.values.toList()
+      ..sort((a, b) => (b['revenue'] as int).compareTo(a['revenue'] as int));
+    topProducts = topProducts.take(8).toList();
 
-    weekly = weekAgg.entries
-        .map((e) => {"product": e.key, "sales": e.value})
-        .toList();
-    monthly = monthAgg.entries
-        .map((e) => {"product": e.key, "sales": e.value})
-        .toList();
+    revenueTrend = List.generate(6, (i) {
+      final monthStart = DateTime(now.year, now.month - i, 1);
+      final monthEnd = DateTime(now.year, now.month - i + 1, 1);
+      return sales
+          .where(
+            (s) =>
+                s.timestamp.isAfter(
+                  monthStart.subtract(const Duration(days: 1)),
+                ) &&
+                s.timestamp.isBefore(monthEnd),
+          )
+          .fold<double>(0, (sum, s) => sum + s.price)
+          .toDouble();
+    }).reversed.toList();
 
-    weekly.sort((a, b) => (b['sales'] as int).compareTo(a['sales'] as int));
-    monthly.sort((a, b) => (b['sales'] as int).compareTo(a['sales'] as int));
+    lowStockTrend = List.generate(6, (_) => lowStockItems.toDouble());
 
     if (mounted) setState(() {});
   }
 
+  String _fmt(int val) =>
+      NumberFormat.currency(symbol: '\$', decimalDigits: 0).format(val);
+
+  String _chg(int cur, int prev) {
+    if (prev == 0) return cur > 0 ? '+100%' : '0%';
+    final c = ((cur - prev) / prev * 100).round();
+    return c >= 0 ? '+$c%' : '$c%';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 750;
-    final theme = Theme.of(context);
-
-    final now = DateTime.now();
-    final lastMonthName = DateFormat(
-      'MMM',
-    ).format(DateTime(now.year, now.month - 1));
-    final twoMonthsAgoName = DateFormat(
-      'MMM',
-    ).format(DateTime(now.year, now.month - 2));
-    final revenueSubtitle =
-        '$lastMonthName: ₱$previousMonthRevenue  ·  $twoMonthsAgoName: ₱$twoMonthsAgoRevenue';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final w = MediaQuery.sizeOf(context).width;
+    final isMobile = w < 750;
+    final revUp = monthlyRevenue >= previousMonthRevenue;
+    final ordUp = activeOrders >= previousMonthOrders;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(appSpacing),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSectionHeader('Overview', theme),
+          _sectionLabel('Overview', isDark),
           const SizedBox(height: 16),
-          if (isMobile)
-            Column(
-              children: [
-                _buildCard(
-                  "Total Products",
-                  totalProducts.toString(),
-                  "Products in inventory",
-                  Icons.inventory_2_rounded,
-                  const Color(0xFF4CAF50),
-                ),
-                const SizedBox(height: 14),
-                _buildCard(
-                  "Low Stock Items",
-                  lowStockItems.toString(),
-                  "Running low on stock",
-                  Icons.warning_amber_rounded,
-                  const Color(0xFFFFB74D),
-                ),
-                const SizedBox(height: 14),
-                _buildCard(
-                  "Out of Stock Items",
-                  outOfStockItems.toString(),
-                  "Currently unavailable",
-                  Icons.remove_shopping_cart_rounded,
-                  const Color(0xFFE57373),
-                ),
-                const SizedBox(height: 14),
-                _buildCard(
-                  "Monthly Revenue",
-                  "₱$monthlyRevenue",
-                  revenueSubtitle,
-                  Icons.attach_money_rounded,
-                  const Color(0xFF42A5F5),
-                ),
-              ],
-            )
-          else
-            Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildCard(
-                        "Total Products",
-                        totalProducts.toString(),
-                        "Products in inventory",
-                        Icons.inventory_2_rounded,
-                        const Color(0xFF4CAF50),
-                      ),
-                    ),
-                    const SizedBox(width: appSpacing),
-                    Expanded(
-                      child: _buildCard(
-                        "Low Stock Items",
-                        lowStockItems.toString(),
-                        "Running low on stock",
-                        Icons.warning_amber_rounded,
-                        const Color(0xFFFFB74D),
-                      ),
-                    ),
-                    const SizedBox(width: appSpacing),
-                    Expanded(
-                      child: _buildCard(
-                        "Out of Stock Items",
-                        outOfStockItems.toString(),
-                        "Currently unavailable",
-                        Icons.remove_shopping_cart_rounded,
-                        const Color(0xFFE57373),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                _buildCard(
-                  "Monthly Revenue",
-                  "₱$monthlyRevenue",
-                  revenueSubtitle,
-                  Icons.paid_rounded,
-                  const Color(0xFF42A5F5),
-                ),
-              ],
-            ),
-
-          const SizedBox(height: 28),
-
-          _buildSectionHeader('Analytics', theme),
-          const SizedBox(height: 16),
-
-          if (isMobile)
-            Column(
-              children: [
-                _buildChartCard(
-                  title: 'Top Spenders',
-                  child: _buildTopSpendersChart(context),
-                ),
-                const SizedBox(height: 14),
-                _buildChartCard(
-                  title: 'Sales Breakdown',
-                  child: _buildSalesBreakdownChart(context),
-                ),
-              ],
-            )
-          else
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildChartCard(
-                    title: 'Top Spenders',
-                    child: _buildTopSpendersChart(context),
-                  ),
-                ),
-                const SizedBox(width: appSpacing),
-                Expanded(
-                  child: _buildChartCard(
-                    title: 'Sales Breakdown',
-                    child: _buildSalesBreakdownChart(context),
-                  ),
-                ),
-              ],
-            ),
-
-          const SizedBox(height: 28),
-
-          _buildSectionHeader('Trends', theme),
-          const SizedBox(height: 16),
-
-          if (isMobile)
-            Column(
-              children: [
-                _buildChartCard(
-                  title: 'Top Sales This Week',
-                  child: _buildWeeklyChart(context),
-                ),
-                const SizedBox(height: 14),
-                _buildChartCard(
-                  title:
-                      'Top Sales This Month (${DateFormat.MMMM().format(DateTime.now())})',
-                  child: _buildMonthlyChart(context),
-                ),
-              ],
-            )
-          else
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: _buildChartCard(
-                    title: 'Top Sales This Week',
-                    child: _buildWeeklyChart(context),
-                  ),
-                ),
-                const SizedBox(width: appSpacing),
-                Expanded(
-                  child: _buildChartCard(
-                    title:
-                        'Top Sales This Month (${DateFormat.MMMM().format(DateTime.now())})',
-                    child: _buildMonthlyChart(context),
-                  ),
-                ),
-              ],
-            ),
+          _buildMetricRow(isDark, revUp, ordUp, isMobile),
+          const SizedBox(height: 32),
+          _revenueChart(isDark, isMobile),
+          const SizedBox(height: 32),
+          _buildProductsTable(isDark),
         ],
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title, ThemeData theme) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: theme.dividerColor, width: 1)),
-      ),
-      child: Text(
-        title.toUpperCase(),
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.primary,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 1.2,
+  // â”€â”€ Section Label â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _sectionLabel(String t, bool d) => Text(
+    t,
+    style: StockpileFonts.satoshi(
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+      color: d ? StockpileColors.darkTextMuted : StockpileColors.mutedText,
+      letterSpacing: 1,
+    ),
+  );
+
+  // â”€â”€ Metric Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _buildMetricRow(bool d, bool revUp, bool ordUp, bool mobile) {
+    final metricCards = [
+      MetricCard(
+        title: 'Total Revenue',
+        value: _fmt(monthlyRevenue),
+        badgeText: '${_chg(monthlyRevenue, previousMonthRevenue)} This Month',
+        badgeColor: revUp ? StockpileColors.success : StockpileColors.danger,
+        trailing: MiniBarChart(
+          values: revenueTrend.isEmpty ? [0, 0, 0, 0] : revenueTrend,
         ),
       ),
-    );
-  }
-
-  Widget _buildCard(
-    String title,
-    String value,
-    String description,
-    IconData icon,
-    Color color,
-  ) {
-    return InfoCard(
-      title: title,
-      value: value,
-      description: description,
-      icon: icon,
-      contentColor: color,
-    );
-  }
-
-  Widget _buildChartCard({required String title, required Widget child}) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(appRadius),
-        border: Border.all(color: theme.dividerColor, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: theme.shadowColor,
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
+      MetricCard(
+        title: 'Active Orders',
+        value: activeOrders.toString(),
+        badgeText: '${_chg(activeOrders, previousMonthOrders)} This Month',
+        badgeColor: ordUp ? StockpileColors.success : StockpileColors.danger,
+        trailing: MiniDonutChart(
+          percentage: activeOrders > 0
+              ? activeOrders /
+                    (activeOrders + previousMonthOrders).clamp(1, 999999)
+              : 0,
+        ),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(appRadius),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      MetricCard(
+        title: 'Low Stock Items',
+        value: lowStockItems.toString(),
+        trailing: MiniLineChart(
+          values: lowStockTrend.isEmpty ? [0, 0, 0, 0] : lowStockTrend,
+        ),
+      ),
+    ];
+
+    if (mobile) {
+      return Column(
+        children: [
+          metricCards[0],
+          const SizedBox(height: 14),
+          metricCards[1],
+          const SizedBox(height: 14),
+          metricCards[2],
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: metricCards[0]),
+        const SizedBox(width: appSpacing),
+        Expanded(child: metricCards[1]),
+        const SizedBox(width: appSpacing),
+        Expanded(child: metricCards[2]),
+      ],
+    );
+  }
+
+  // â”€â”€ Analytics Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  // ── Card Wrapper ────────────────────────────────────────────────────
+
+  // â”€â”€ Card Wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _card(bool d, Widget c) => Container(
+    decoration: BoxDecoration(
+      color: d ? StockpileColors.darkSurface : StockpileColors.surface,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: d ? StockpileColors.darkDivider : StockpileColors.divider,
+      ),
+    ),
+    padding: const EdgeInsets.all(20),
+    child: c,
+  );
+
+  // â”€â”€ Revenue By Category Chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _revenueChart(bool d, bool mobile) {
+    final cats = categoryRevenue.take(8).toList();
+    final total = categoryRevenue.fold<int>(0, (s, e) => e['revenue'] as int);
+    final barWidth = mobile ? 20.0 : 28.0;
+
+    return _card(
+      d,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 18,
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 17,
-                        color: colorScheme.onSurface,
-                      ),
-                    ),
-                  ),
-                ],
+              Text(
+                'Revenue By Product Category',
+                style: StockpileFonts.satoshi(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: d
+                      ? StockpileColors.darkTextPrimary
+                      : StockpileColors.darkText,
+                ),
               ),
-              const SizedBox(height: 18),
-              child,
+              const Spacer(),
+              _chip('Income', true),
+              const SizedBox(width: 8),
+              _chip('Online Sales', false),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildWeeklyChart(BuildContext context) {
-    return SalesChart(
-      title: 'Top Sales This Week',
-      salesData: weekly,
-      maxYOffset: 20,
-      barColor: Theme.of(context).colorScheme.primary,
-      showTitle: false,
-    );
-  }
-
-  Widget _buildMonthlyChart(BuildContext context) {
-    return SalesChart(
-      title:
-          'Top Sales This Month (${DateFormat.MMMM().format(DateTime.now())})',
-      salesData: monthly,
-      maxYOffset: 50,
-      barColor: Theme.of(context).colorScheme.primary,
-      showTitle: false,
-    );
-  }
-
-  Widget _buildTopSpendersChart(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 750;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    final total = topSpenders.fold<int>(
-      0,
-      (sum, e) => sum + (e['total'] as int? ?? 0),
-    );
-
-    List<PieChartSectionData> sections = const <PieChartSectionData>[];
-    if (topSpenders.isNotEmpty && total > 0) {
-      sections = topSpenders.asMap().entries.map((entry) {
-        final int index = entry.key;
-        final Map<String, dynamic> data = entry.value;
-        final int value = data['total'] as int;
-        final Color color = _topSpenderColors[index % _topSpenderColors.length];
-        final double fraction = value / total;
-
-        return PieChartSectionData(
-          color: color,
-          value: fraction,
-          title: '${(fraction * 100).toStringAsFixed(1)}%',
-          radius: isMobile ? 50 : 80,
-          titleStyle: theme.textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurface,
-            fontWeight: FontWeight.w800,
-            fontSize: isMobile ? 10 : 13,
-          ),
-        );
-      }).toList();
-    }
-
-    return _buildPieContent(
-      context,
-      isMobile: isMobile,
-      sections: sections,
-      legendItems: List<Widget>.generate(topSpenders.length, (int i) {
-        final Color color = _topSpenderColors[i % _topSpenderColors.length];
-        return _buildPieLegendRow(
-          context,
-          color: color,
-          label: topSpenders[i]['name'] ?? '',
-          onSurface: colorScheme.onSurface,
-        );
-      }),
-      emptyText: 'No spending data yet',
-      emptyColor: colorScheme.onSurfaceVariant,
-      pieTouchData: PieTouchData(
-        enabled: true,
-        touchCallback: (event, response) {
-          final index = response?.touchedSection?.touchedSectionIndex;
-          if (index == null || index >= topSpenders.length) {
-            return;
-          }
-        },
-      ),
-    );
-  }
-
-  Widget _buildSalesBreakdownChart(BuildContext context) {
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isMobile = screenWidth < 750;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    final total = salesBreakdown.fold<int>(
-      0,
-      (sum, e) => sum + (e['total'] as int? ?? 0),
-    );
-
-    List<PieChartSectionData> sections = const <PieChartSectionData>[];
-    if (salesBreakdown.isNotEmpty && total > 0) {
-      sections = salesBreakdown.asMap().entries.map((entry) {
-        final int index = entry.key;
-        final Map<String, dynamic> data = entry.value;
-        final int value = data['total'] as int;
-        final Color color = _salesColors[index % _salesColors.length];
-        final double fraction = value / total;
-
-        return PieChartSectionData(
-          color: color,
-          value: fraction,
-          title: '${(fraction * 100).toStringAsFixed(1)}%',
-          radius: isMobile ? 50 : 80,
-          titleStyle: theme.textTheme.bodySmall?.copyWith(
-            color: colorScheme.onSurface,
-            fontWeight: FontWeight.w800,
-            fontSize: isMobile ? 10 : 13,
-          ),
-        );
-      }).toList();
-    }
-
-    return _buildPieContent(
-      context,
-      isMobile: isMobile,
-      sections: sections,
-      legendItems: List<Widget>.generate(salesBreakdown.length, (int i) {
-        final Color color = _salesColors[i % _salesColors.length];
-        return _buildPieLegendRow(
-          context,
-          color: color,
-          label: salesBreakdown[i]['item'] ?? '',
-          onSurface: colorScheme.onSurface,
-        );
-      }),
-      emptyText: 'No sales data yet',
-      emptyColor: colorScheme.onSurfaceVariant,
-    );
-  }
-
-  Widget _buildPieContent(
-    BuildContext context, {
-    required bool isMobile,
-    required List<PieChartSectionData> sections,
-    required List<Widget> legendItems,
-    required String emptyText,
-    required Color emptyColor,
-    PieTouchData? pieTouchData,
-  }) {
-    final theme = Theme.of(context);
-
-    return SizedBox(
-      height: isMobile ? 240 : 240,
-      child: legendItems.isEmpty
-          ? Center(
-              child: Text(
-                emptyText,
-                style: theme.textTheme.bodyMedium?.copyWith(color: emptyColor),
-              ),
-            )
-          : isMobile
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  height: 160,
-                  child: PieChart(
-                    PieChartData(
-                      sectionsSpace: 2,
-                      centerSpaceRadius: 25,
-                      sections: sections,
-                      pieTouchData:
-                          pieTouchData ?? PieTouchData(enabled: false),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 28),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.center,
-                  children: legendItems,
-                ),
-              ],
-            )
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: double.infinity,
-                    child: PieChart(
-                      PieChartData(
-                        sectionsSpace: 4,
-                        centerSpaceRadius: 50,
-                        sections: sections,
-                        pieTouchData:
-                            pieTouchData ?? PieTouchData(enabled: false),
+          const SizedBox(height: 24),
+          SizedBox(
+            height: 240,
+            child: cats.isEmpty
+                ? Center(
+                    child: Text(
+                      'No revenue data yet',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 14,
+                        color: d
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText,
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: legendItems,
-                ),
-              ],
-            ),
-    );
-  }
-
-  Widget _buildPieLegendRow(
-    BuildContext context, {
-    required Color color,
-    required String label,
-    required Color onSurface,
-  }) {
-    final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 4),
-          SizedBox(
-            width: 70,
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                fontSize: 10,
-                color: onSurface,
-              ),
-            ),
+                  )
+                : _buildBarChart(d, cats, total, barWidth),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildBarChart(
+    bool d,
+    List<Map<String, dynamic>> cats,
+    int total,
+    double barWidth,
+  ) {
+    final maxVal = (cats.first['revenue'] as int).toDouble() * 1.3;
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        maxY: maxVal,
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (g, _, r, __) {
+              final cat = cats[g.x]['category'] as String;
+              return BarTooltipItem(
+                '$cat\n\$${r.toY.toInt()}',
+                StockpileFonts.satoshi(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              );
+            },
+          ),
+        ),
+        titlesData: FlTitlesData(
+          leftTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 24,
+              getTitlesWidget: (v, _) {
+                final idx = v.toInt();
+                if (idx < 0 || idx >= cats.length)
+                  return const SizedBox.shrink();
+                final val = cats[idx]['revenue'] as int;
+                final pct = total > 0 ? (val / total * 100).round() : 0;
+                return Text(
+                  '$pct%',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: d
+                        ? StockpileColors.darkTextMuted
+                        : StockpileColors.mutedText,
+                  ),
+                );
+              },
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 50,
+              getTitlesWidget: (v, _) {
+                final idx = v.toInt();
+                if (idx < 0 || idx >= cats.length)
+                  return const SizedBox.shrink();
+                final name = cats[idx]['category'] as String;
+                final val = cats[idx]['revenue'] as int;
+                final displayName = name.length > 10
+                    ? '${name.substring(0, 9)}\u2026'
+                    : name;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: SizedBox(
+                    width: 70,
+                    child: Column(
+                      children: [
+                        Text(
+                          displayName,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: StockpileFonts.satoshi(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: d
+                                ? StockpileColors.darkTextBody
+                                : StockpileColors.bodyText,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '\$$val',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w400,
+                            color: d
+                                ? StockpileColors.darkTextMuted
+                                : StockpileColors.mutedText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (v) => FlLine(
+            color: (d ? StockpileColors.darkDivider : StockpileColors.divider)
+                .withAlpha((0.4 * 255).round()),
+            strokeWidth: 1,
+          ),
+        ),
+        barGroups: cats.asMap().entries.map((e) {
+          return BarChartGroupData(
+            x: e.key,
+            barRods: [
+              BarChartRodData(
+                toY: (e.value['revenue'] as int).toDouble(),
+                color: StockpileColors.primary900,
+                width: barWidth,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(6),
+                  topRight: Radius.circular(6),
+                ),
+              ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildProductsTable(bool d) => _card(
+    d,
+    Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'Top Selling Products',
+              style: StockpileFonts.satoshi(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: d
+                    ? StockpileColors.darkTextPrimary
+                    : StockpileColors.darkText,
+              ),
+            ),
+            const Spacer(),
+            TextButton(
+              onPressed: () {},
+              child: Text(
+                'View All',
+                style: StockpileFonts.satoshi(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: StockpileColors.primary900,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        topProducts.isEmpty
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Text(
+                    'No sales data yet',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 14,
+                      color: d
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                  ),
+                ),
+              )
+            : SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  headingRowColor: WidgetStateProperty.all(
+                    d ? StockpileColors.darkInputBg : StockpileColors.tableHead,
+                  ),
+                  dividerThickness: 1,
+                  headingTextStyle: StockpileFonts.satoshi(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: d
+                        ? StockpileColors.darkTextMuted
+                        : StockpileColors.mutedText,
+                  ),
+                  dataTextStyle: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    color: d
+                        ? StockpileColors.darkTextBody
+                        : StockpileColors.bodyText,
+                  ),
+                  columns: const [
+                    DataColumn(label: Text('Rank')),
+                    DataColumn(label: Text('Product')),
+                    DataColumn(label: Text('Item ID'), numeric: true),
+                    DataColumn(label: Text('Revenue'), numeric: true),
+                    DataColumn(label: Text('Units Sold'), numeric: true),
+                    DataColumn(label: Text('Margin')),
+                    DataColumn(label: Text('')),
+                  ],
+                  rows: topProducts.asMap().entries.map((e) {
+                    final i = e.key;
+                    final p = e.value;
+                    final nm = (p['productName'] as String?) ?? '\u2014';
+                    return DataRow(
+                      cells: [
+                        DataCell(Text('${i + 1}')),
+                        DataCell(
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: StockpileColors.primary900.withAlpha(
+                                    (0.12 * 255).round(),
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  nm.isNotEmpty ? nm[0].toUpperCase() : '?',
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: StockpileColors.primary900,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(nm),
+                            ],
+                          ),
+                        ),
+                        DataCell(Text('#${p['itemId']}')),
+                        DataCell(Text(_fmt(p['revenue'] as int))),
+                        DataCell(Text('${p['unitsSold']}')),
+                        const DataCell(Text('\u2014')),
+                        DataCell(
+                          IconButton(
+                            icon: Icon(
+                              Icons.more_horiz,
+                              size: 20,
+                              color: d
+                                  ? StockpileColors.darkTextMuted
+                                  : StockpileColors.mutedText,
+                            ),
+                            onPressed: () {},
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ),
+      ],
+    ),
+  );
+
+  // â”€â”€ Filter Chip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+  Widget _chip(String l, bool s) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+    decoration: BoxDecoration(
+      color: s
+          ? StockpileColors.primary900.withAlpha((0.12 * 255).round())
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(100),
+      border: Border.all(
+        color: s
+            ? StockpileColors.primary900.withAlpha((0.3 * 255).round())
+            : StockpileColors.divider,
+      ),
+    ),
+    child: Text(
+      l,
+      style: StockpileFonts.satoshi(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: s ? StockpileColors.primary900 : StockpileColors.mutedText,
+      ),
+    ),
+  );
 }

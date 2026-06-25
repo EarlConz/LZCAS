@@ -176,11 +176,13 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     );
 
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
       title: Row(
         children: [
-          Icon(Icons.person_add_rounded, color: colorScheme.primary, size: 28),
-          const SizedBox(width: 10),
+          Icon(Icons.person_add_rounded, color: colorScheme.primary, size: 30),
+          const SizedBox(width: 12),
           Text(
             'Add New Member',
             style: theme.textTheme.headlineSmall?.copyWith(
@@ -190,7 +192,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
         ],
       ),
       content: SizedBox(
-        width: isNarrow ? double.maxFinite : 460,
+        width: isNarrow ? double.maxFinite : 520,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -198,7 +200,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
             children: [
               // ── Name section ──────────────────────────────
               _sectionLabel('Name', theme, colorScheme),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               TextFormField(
                 key: _lastNameKey,
                 controller: lastNameController,
@@ -212,7 +214,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 ),
                 textInputAction: TextInputAction.next,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               TextFormField(
                 key: _firstNameKey,
                 controller: firstNameController,
@@ -226,7 +228,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 ),
                 textInputAction: TextInputAction.next,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: middleNameController,
                 decoration: InputDecoration(
@@ -238,10 +240,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 textInputAction: TextInputAction.next,
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               // ── Contact section ───────────────────────────
               _sectionLabel('Contact', theme, colorScheme),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               TextFormField(
                 key: _contactKey,
                 controller: contactController,
@@ -263,7 +265,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: birthdayController,
                 readOnly: true,
@@ -276,7 +278,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                   border: inputBorder,
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: addressController,
                 decoration: InputDecoration(
@@ -288,10 +290,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 textInputAction: TextInputAction.next,
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               // ── ID Verification section ────────────────────
               _sectionLabel('Verification ID', theme, colorScheme),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue:
                     _selectedIdType != null &&
@@ -310,7 +312,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                     .toList(),
                 onChanged: (v) => setState(() => _selectedIdType = v),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: idNumberController,
                 decoration: InputDecoration(
@@ -321,7 +323,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 ),
                 textInputAction: TextInputAction.next,
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               InkWell(
                 onTap: _pickIdImage,
                 borderRadius: BorderRadius.circular(10),
@@ -361,10 +363,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 ),
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               // ── Referrer section ──────────────────────────
               _sectionLabel('Referral', theme, colorScheme),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Autocomplete<Member>(
                 optionsBuilder: (textEditingValue) {
                   if (textEditingValue.text.isEmpty) return [];
@@ -450,27 +452,17 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           ),
         ),
       ),
-      actionsPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
       actions: [
         OutlinedButton(
           onPressed: () => Navigator.pop(context),
-          style: OutlinedButton.styleFrom(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
           child: const Text('Cancel'),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 12),
         FilledButton.icon(
           onPressed: _submit,
-          icon: const Icon(Icons.person_add, size: 18),
+          icon: const Icon(Icons.person_add, size: 20),
           label: const Text('Add Member'),
-          style: FilledButton.styleFrom(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
         ),
       ],
     );
@@ -527,13 +519,13 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
       children: [
         Text(
           text.toUpperCase(),
-          style: theme.textTheme.labelMedium?.copyWith(
+          style: theme.textTheme.titleSmall?.copyWith(
             color: colorScheme.primary,
             fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
+            letterSpacing: 1.5,
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: Divider(
             color: colorScheme.outline.withValues(alpha: 0.3),
