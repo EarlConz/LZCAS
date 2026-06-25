@@ -485,12 +485,14 @@ class _TransactionsTableState extends State<TransactionsTable> {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final reserved = 140.0;
+            final reserved = 108.0; // header (52) + footer (56)
             var available = constraints.maxHeight - reserved;
             if (available < 56) available = 56;
-            final estimated = (available ~/ 56).clamp(1, 10);
+            final estimated = (available ~/ 62).clamp(1, 10);
 
-            return PaginatedDataTable(
+            return SizedBox(
+              height: constraints.maxHeight,
+              child: PaginatedDataTable(
               horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
               columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
               rowsPerPage: estimated,
@@ -511,7 +513,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
                 onDelete: _deleteTransaction,
                 onReceipt: _viewReceipt,
               ),
-            );
+            )); // PaginatedDataTable + SizedBox + return
           },
         ),
       ),
