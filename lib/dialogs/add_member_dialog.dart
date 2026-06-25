@@ -332,7 +332,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                     prefixIcon: const Icon(Icons.camera_alt_outlined),
                     border: inputBorder,
                   ),
-                  child: _selectedIdImagePath != null
+                  child:
+                      _selectedIdImagePath != null &&
+                          _selectedIdImagePath!.isNotEmpty
                       ? Row(
                           children: [
                             Icon(
