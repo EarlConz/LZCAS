@@ -160,24 +160,44 @@ class _QrScannerDialogState extends State<_QrScannerDialog> {
                               ),
                             ),
                           ),
-                          // ── Torch toggle ──
+                          // ── Camera switch + Torch toggle ──
                           Positioned(
                             bottom: 16,
                             right: 16,
-                            child: ValueListenableBuilder(
-                              valueListenable: _controller,
-                              builder: (context, value, child) {
-                                final torchState = value.torchState;
-                                return IconButton(
-                                  icon: Icon(
-                                    torchState == TorchState.on
-                                        ? Icons.flash_on
-                                        : Icons.flash_off,
-                                    color: Colors.white,
-                                  ),
-                                  onPressed: () => _controller.toggleTorch(),
-                                );
-                              },
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ValueListenableBuilder(
+                                  valueListenable: _controller,
+                                  builder: (context, value, child) {
+                                    final torchState = value.torchState;
+                                    return IconButton(
+                                      icon: Icon(
+                                        torchState == TorchState.on
+                                            ? Icons.flash_on
+                                            : Icons.flash_off,
+                                        color: Colors.white,
+                                      ),
+                                      onPressed: () =>
+                                          _controller.toggleTorch(),
+                                    );
+                                  },
+                                ),
+                                ValueListenableBuilder(
+                                  valueListenable: _controller,
+                                  builder: (context, value, child) {
+                                    return IconButton(
+                                      icon: const Icon(
+                                        Icons.flip_camera_android,
+                                        color: Colors.white,
+                                      ),
+                                      tooltip: 'Switch camera',
+                                      onPressed: () =>
+                                          _controller.switchCamera(),
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
                           ),
                         ],
