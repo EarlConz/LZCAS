@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 
 /// Shared read-only reports view showing stock movement history.
@@ -24,6 +25,26 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
   int _stockOutTotal = 0;
   bool _loading = true;
 
+  // ── Filters ──────────────────────────────────────────────
+  DateTimeRange _dateRange = DateTimeRange(
+    start: DateTime.now().subtract(const Duration(days: 30)),
+    end: DateTime.now(),
+  );
+  String _typeFilter = 'All';
+  static const _pageSize = 25;
+  int _visibleCount = 25;
+
+  static const _typeOptions = [
+    'All',
+    'Stock In',
+    'Stock Out',
+    'New Product',
+    'Borrow',
+    'Return',
+    'Remit',
+    'Sale',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -32,11 +53,44 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
 
   Future<void> _loadData() async {
     setState(() => _loading = true);
+    _visibleCount = _pageSize;
     try {
-      final borrows = await repository.fetchBorrows();
-      final sales = await repository.fetchSales();
-      final members = await repository.fetchMembers();
-      final stockMovements = await repository.fetchStockMovements();
+      final supabase = repository.supabase;
+      final start = _dateRange.start.toIso8601String();
+      final end = _dateRange.end
+          .add(const Duration(days: 1))
+          .toIso8601String(); // inclusive end
+
+      // Fetch only date-filtered data from Supabase
+      final borrowsRaw = await supabase
+          .from('borrows')
+          .select()
+          .gte('borrowed_at', start)
+          .lt('borrowed_at', end);
+      final salesRaw = await supabase
+          .from('sales')
+          .select()
+          .gte('timestamp', start)
+          .lt('timestamp', end);
+      final membersData = await supabase.from('members').select();
+      final stockRaw = await supabase
+          .from('stock_movements')
+          .select()
+          .gte('created_at', start)
+          .lt('created_at', end);
+
+      final borrows = (borrowsRaw as List)
+          .map((j) => Borrow.fromJson(j as Map<String, dynamic>))
+          .toList();
+      final sales = (salesRaw as List)
+          .map((j) => Sale.fromJson(j as Map<String, dynamic>))
+          .toList();
+      final members = (membersData as List)
+          .map((j) => Member.fromJson(j as Map<String, dynamic>))
+          .toList();
+      final stockMovements = (stockRaw as List)
+          .map((j) => StockMovement.fromJson(j as Map<String, dynamic>))
+          .toList();
 
       final now = DateTime.now();
       int activeCount = 0;
@@ -46,15 +100,13 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
 
       final movements = <Map<String, dynamic>>[];
 
-      // Stock movements
       for (final sm in stockMovements) {
         final isIn = sm.movementType == 'stock_in';
         final isNewProduct = sm.reason == 'new_product';
-        if (isIn) {
+        if (isIn)
           stockIn += sm.quantity;
-        } else {
+        else
           stockOut += sm.quantity;
-        }
         movements.add({
           'type': isNewProduct
               ? 'New Product'
@@ -74,7 +126,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           activeCount += outstanding;
           if (b.dueDate.isBefore(now)) overdueCount++;
         }
-
         final mem = members.cast<Member?>().firstWhere(
           (m) => m?.id == b.memberId,
           orElse: () => null,
@@ -82,7 +133,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
         final memName = mem != null
             ? '${mem.firstName ?? ''} ${mem.lastName ?? ''}'.trim()
             : 'Member #${b.memberId}';
-
         movements.add({
           'type': 'Borrow',
           'item': b.itemName,
@@ -92,8 +142,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           'isOverdue': b.dueDate.isBefore(now) && outstanding > 0,
           'remaining': outstanding,
         });
-
-        if (b.quantityReturned > 0) {
+        if (b.quantityReturned > 0)
           movements.add({
             'type': 'Return',
             'item': b.itemName,
@@ -103,9 +152,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
             'isOverdue': false,
             'remaining': 0,
           });
-        }
-
-        if (b.quantityRemitted > 0) {
+        if (b.quantityRemitted > 0)
           movements.add({
             'type': 'Remit',
             'item': b.itemName,
@@ -115,31 +162,26 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
             'isOverdue': false,
             'remaining': 0,
           });
-        }
       }
 
-      // Add sales as events
       for (final s in sales) {
         final mem = members.cast<Member?>().firstWhere(
           (m) => m?.id == s.buyerId,
           orElse: () => null,
         );
-        final memName = mem != null
-            ? '${mem.firstName ?? ''} ${mem.lastName ?? ''}'.trim()
-            : null;
-
         movements.add({
           'type': 'Sale',
           'item': s.itemName,
           'qty': s.quantity,
-          'user': memName ?? 'Walk-in',
+          'user': mem != null
+              ? '${mem.firstName ?? ''} ${mem.lastName ?? ''}'.trim()
+              : 'Walk-in',
           'date': s.timestamp ?? now,
           'isOverdue': false,
           'remaining': 0,
         });
       }
 
-      // Sort by date descending
       movements.sort((a, b) {
         final aDate = a['date'] as DateTime;
         final bDate = b['date'] as DateTime;
@@ -153,7 +195,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
         _stockInTotal = stockIn;
         _stockOutTotal = stockOut;
         _movements.clear();
-        _movements.addAll(movements.take(50));
+        _movements.addAll(movements);
         _loading = false;
       });
     } catch (_) {
@@ -161,11 +203,26 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     }
   }
 
+  void _loadMore() {
+    setState(() => _visibleCount += _pageSize);
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDateRange: _dateRange,
+    );
+    if (picked != null) {
+      setState(() => _dateRange = picked);
+      _loadData();
+    }
+  }
+
   String _formatDate(DateTime dt) {
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}'
-        '-${dt.day.toString().padLeft(2, '0')} '
-        '${dt.hour.toString().padLeft(2, '0')}'
-        ':${dt.minute.toString().padLeft(2, '0')}';
+        '-${dt.day.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -173,8 +230,19 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: SkeletonList(count: 4),
+      );
     }
+
+    // Apply type filter
+    var filtered = _movements;
+    if (_typeFilter != 'All') {
+      filtered = filtered.where((m) => m['type'] == _typeFilter).toList();
+    }
+    final visible = filtered.take(_visibleCount).toList();
+    final hasMore = _visibleCount < filtered.length;
 
     return RefreshIndicator(
       onRefresh: _loadData,
@@ -233,9 +301,117 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            // Read-only movement log
+            // ── Filter Bar ─────────────────────────────────
+            Row(
+              children: [
+                // Date range button
+                Expanded(
+                  flex: 2,
+                  child: InkWell(
+                    onTap: _pickDateRange,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? StockpileColors.darkInputBg
+                            : StockpileColors.inputBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isDark
+                              ? StockpileColors.darkDivider
+                              : StockpileColors.divider,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.date_range,
+                            size: 18,
+                            color: isDark
+                                ? StockpileColors.darkTextMuted
+                                : StockpileColors.mutedText,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${_formatDate(_dateRange.start)} → ${_formatDate(_dateRange.end)}',
+                              style: StockpileFonts.satoshi(
+                                fontSize: 13,
+                                color: isDark
+                                    ? StockpileColors.darkTextPrimary
+                                    : StockpileColors.darkText,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_drop_down,
+                            color: isDark
+                                ? StockpileColors.darkTextMuted
+                                : StockpileColors.mutedText,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Type filter dropdown
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? StockpileColors.darkInputBg
+                          : StockpileColors.inputBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isDark
+                            ? StockpileColors.darkDivider
+                            : StockpileColors.divider,
+                      ),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _typeFilter,
+                        isExpanded: true,
+                        icon: Icon(
+                          Icons.arrow_drop_down,
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText,
+                        ),
+                        style: StockpileFonts.satoshi(
+                          fontSize: 13,
+                          color: isDark
+                              ? StockpileColors.darkTextPrimary
+                              : StockpileColors.darkText,
+                        ),
+                        items: _typeOptions.map((t) {
+                          return DropdownMenuItem(value: t, child: Text(t));
+                        }).toList(),
+                        onChanged: (v) {
+                          if (v != null) {
+                            setState(() {
+                              _typeFilter = v;
+                              _visibleCount = _pageSize;
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Movement History ────────────────────────────
             Text(
               'Movement History',
               style: StockpileFonts.satoshi(
@@ -246,9 +422,19 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                     : StockpileColors.darkText,
               ),
             ),
+            const SizedBox(height: 4),
+            Text(
+              '${filtered.length} entries',
+              style: StockpileFonts.satoshi(
+                fontSize: 12,
+                color: isDark
+                    ? StockpileColors.darkTextMuted
+                    : StockpileColors.mutedText,
+              ),
+            ),
             const SizedBox(height: 12),
 
-            if (_movements.isEmpty)
+            if (visible.isEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(40),
@@ -274,7 +460,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'No movements recorded yet.',
+                      'No movements found.',
                       style: StockpileFonts.satoshi(
                         fontSize: 15,
                         color: isDark
@@ -284,7 +470,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Stock adjustments, sales, borrows, returns, and remittances will appear here.',
+                      'Try adjusting the date range or type filter.',
                       style: StockpileFonts.satoshi(
                         fontSize: 13,
                         color: isDark
@@ -295,12 +481,11 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                   ],
                 ),
               )
-            else
-              ...List.generate(_movements.length, (i) {
-                final m = _movements[i];
+            else ...[
+              ...List.generate(visible.length, (i) {
+                final m = visible[i];
                 final type = m['type'] as String;
                 final isOverdue = m['isOverdue'] as bool? ?? false;
-
                 Color typeColor;
                 IconData typeIcon;
                 switch (type) {
@@ -334,54 +519,70 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                     typeColor = StockpileColors.primary900;
                     typeIcon = Icons.shopping_cart_rounded;
                 }
-
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    side: isOverdue
-                        ? BorderSide(
-                            color: StockpileColors.error500.withAlpha(100),
-                          )
-                        : BorderSide.none,
-                  ),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: typeColor.withAlpha(30),
-                      child: Icon(typeIcon, color: typeColor, size: 20),
+                return StaggeredItem(
+                  index: i,
+                  child: Card(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    title: Text(
-                      m['item'] as String? ?? '',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: isDark
-                            ? StockpileColors.darkTextPrimary
-                            : StockpileColors.darkText,
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: typeColor.withAlpha(25),
+                        child: Icon(typeIcon, color: typeColor, size: 20),
                       ),
-                    ),
-                    subtitle: Text(
-                      '${m['type']} · ${m['qty']} units · '
-                      '${_formatDate(m['date'] as DateTime)}',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 12,
-                        color: isDark
-                            ? StockpileColors.darkTextMuted
-                            : StockpileColors.mutedText,
+                      title: Text(
+                        '${m['qty']}× ${m['item']}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                    ),
-                    trailing: Text(
-                      m['user'] as String? ?? '',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 12,
-                        color: isDark
-                            ? StockpileColors.darkTextBody
-                            : StockpileColors.bodyText,
+                      subtitle: Text(
+                        m['user'] != null && (m['user'] as String).isNotEmpty
+                            ? '${m['type']} · ${m['user']} · ${_formatDate(m['date'] as DateTime)}'
+                            : '${m['type']} · ${_formatDate(m['date'] as DateTime)}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          if (isOverdue)
+                            const Text(
+                              'OVERDUE',
+                              style: TextStyle(
+                                color: StockpileColors.error500,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          if ((m['remaining'] as int) > 0)
+                            Text(
+                              '${m['remaining']} left',
+                              style: TextStyle(
+                                color: Colors.orange.shade700,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
                 );
               }),
+              if (hasMore)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: _loadMore,
+                      child: Text(
+                        'Load More (${_visibleCount - _pageSize + 1}–${_visibleCount > filtered.length ? filtered.length : _visibleCount} of ${filtered.length})',
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ],
         ),
       ),

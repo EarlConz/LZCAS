@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 import '../utils/formatters.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -136,8 +137,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   Future<void> _onExportCsvPressed(BuildContext safeContext) async {
     if (!safeContext.mounted) return;
-    showDialog(
-      context: safeContext,
+    showAnimatedDialog(
+      safeContext,
       barrierDismissible: false,
       builder: (ctx) => const Center(child: CircularProgressIndicator()),
     );
@@ -465,7 +466,10 @@ class _TransactionsTableState extends State<TransactionsTable> {
             ),
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(0, 8, 0, 8),
+                      child: SkeletonList(count: 5),
+                    )
                   : filtered.isEmpty
                   ? const Center(child: Text('No transactions yet'))
                   : isDesktop
@@ -539,10 +543,13 @@ class _TransactionsTableState extends State<TransactionsTable> {
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
       itemCount: filtered.length,
       separatorBuilder: (_, i) => const SizedBox(height: 8),
-      itemBuilder: (context, index) => _TxnListCard(
-        group: filtered[index],
-        onDelete: _deleteTransaction,
-        onReceipt: _viewReceipt,
+      itemBuilder: (context, index) => StaggeredItem(
+        index: index,
+        child: _TxnListCard(
+          group: filtered[index],
+          onDelete: _deleteTransaction,
+          onReceipt: _viewReceipt,
+        ),
       ),
     );
   }

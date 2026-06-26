@@ -12,6 +12,8 @@ import 'models.dart';
 /// as the previous DbRepository (imports, exports, change notifications).
 class SupabaseRepository {
   final SupabaseClient _supabase;
+  /// Public access for raw Supabase queries (reports, filters, etc.)
+  SupabaseClient get supabase => _supabase;
   final StreamController<String> _changes =
       StreamController<String>.broadcast();
 
@@ -1100,16 +1102,16 @@ class SupabaseRepository {
 
   Future<void> _seedDefaultLevels() async {
     final defaults = [
-      (level: 1, remMin: 500, remMax: 1500, ca: 0),
-      (level: 2, remMin: 1501, remMax: 3000, ca: 500),
-      (level: 3, remMin: 3001, remMax: 5000, ca: 1000),
-      (level: 4, remMin: 5001, remMax: 10000, ca: 2000),
-      (level: 5, remMin: 10001, remMax: 20000, ca: 5000),
-      (level: 6, remMin: 20001, remMax: 35000, ca: 10000),
-      (level: 7, remMin: 35001, remMax: 50000, ca: 15000),
-      (level: 8, remMin: 50001, remMax: 75000, ca: 25000),
-      (level: 9, remMin: 75001, remMax: 100000, ca: 35000),
-      (level: 10, remMin: 100001, remMax: 999999, ca: 50000),
+      (level: 1, remMin: 500, remMax: 500, ca: 0),
+      (level: 2, remMin: 800, remMax: 1000, ca: 100),
+      (level: 3, remMin: 1700, remMax: 2100, ca: 200),
+      (level: 4, remMin: 3400, remMax: 4200, ca: 400),
+      (level: 5, remMin: 6800, remMax: 8400, ca: 800),
+      (level: 6, remMin: 13600, remMax: 16800, ca: 1600),
+      (level: 7, remMin: 27200, remMax: 33600, ca: 3200),
+      (level: 8, remMin: 54400, remMax: 67200, ca: 6400),
+      (level: 9, remMin: 108800, remMax: 134400, ca: 12800),
+      (level: 10, remMin: 217600, remMax: 268800, ca: 25600),
     ];
     for (final d in defaults) {
       await _supabase.from('reseller_levels').upsert({

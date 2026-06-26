@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 
 import 'interactive_member_avatar.dart';
 import '../utils/formatters.dart';
@@ -216,8 +217,8 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   }
 
   void _showIdImagePreview(String imagePath) {
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (ctx) => Dialog(
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -538,37 +539,56 @@ class _MemberTransactionHistory extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        FutureBuilder<List<Sale>>(
-          future: repository.fetchSalesForMember(memberId),
+        FutureBuilder<List<Object>>(
+          future: Future.wait([
+            repository.fetchSalesForMember(memberId),
+            repository.fetchBorrowsForMember(memberId),
+          ]),
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting) {
               return const SizedBox(
                 height: 180,
-                child: Center(child: CircularProgressIndicator()),
+                child: SingleChildScrollView(child: SkeletonList(count: 3)),
               );
             }
 
-            final sales = [...?snap.data]
-              ..sort((a, b) {
-                final ta = a.timestamp ?? DateTime(2000);
-                final tb = b.timestamp ?? DateTime(2000);
-                return tb.compareTo(ta);
-              });
-            if (sales.isEmpty) return const _EmptyTransactions();
+            final sales = (snap.data?[0] as List<Sale>?) ?? [];
+            final borrows = (snap.data?[1] as List<Borrow>?) ?? [];
 
-            final totalQuantity = sales.fold<int>(
+            // Build unified, sorted timeline (newest first)
+            final allEntries = <_TimelineEntry>[
+              for (final s in sales)
+                _TimelineEntry(
+                  type: 'sale',
+                  timestamp: s.timestamp ?? DateTime(2000),
+                  sale: s,
+                ),
+              for (final b in borrows)
+                _TimelineEntry(
+                  type: 'borrow',
+                  timestamp: b.borrowedAt ?? DateTime(2000),
+                  borrow: b,
+                ),
+            ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+            if (allEntries.isEmpty) return const _EmptyTransactions();
+
+            final totalSalesQty = sales.fold<int>(
               0,
-              (sum, sale) => sum + sale.quantity,
+              (s, sale) => s + sale.quantity,
             );
-            final totalPoints = sales.fold<int>(
+            final totalSalesPrice = sales.fold<int>(
               0,
-              (sum, sale) => sum + sale.price,
+              (s, sale) => s + sale.price,
             );
-            final totalPrice = sales.fold<int>(
+            final totalBorrowQty = borrows.fold<int>(
               0,
-              (sum, sale) => sum + sale.price,
+              (s, b) => s + b.quantity,
             );
-            final visibleSales = sales.take(8).toList();
+            final activeBorrows = borrows
+                .where((b) => !b.isFullySettled)
+                .length;
+            final visibleEntries = allEntries.take(8).toList();
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -579,40 +599,51 @@ class _MemberTransactionHistory extends StatelessWidget {
                   children: [
                     _InfoPill(
                       icon: Icons.shopping_bag_outlined,
-                      label: 'Purchases',
+                      label: 'Sales',
                       value: sales.length.toString(),
                     ),
                     _InfoPill(
                       icon: Icons.inventory_2_outlined,
-                      label: 'Qty',
-                      value: totalQuantity.toString(),
-                    ),
-                    _InfoPill(
-                      icon: Icons.stars_outlined,
-                      label: 'Points',
-                      value: totalPoints.toString(),
+                      label: 'Sold Qty',
+                      value: totalSalesQty.toString(),
                     ),
                     _InfoPill(
                       icon: Icons.payments_outlined,
                       label: 'Total',
-                      value: totalPrice.toString(),
+                      value: '₱$totalSalesPrice',
                     ),
+                    _InfoPill(
+                      icon: Icons.swap_horiz_rounded,
+                      label: 'Borrows',
+                      value: borrows.length.toString(),
+                    ),
+                    _InfoPill(
+                      icon: Icons.inventory_outlined,
+                      label: 'Borrow Qty',
+                      value: totalBorrowQty.toString(),
+                    ),
+                    if (activeBorrows > 0)
+                      _InfoPill(
+                        icon: Icons.warning_amber_rounded,
+                        label: 'Active',
+                        value: activeBorrows.toString(),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 10),
                 SizedBox(
-                  height: 300,
+                  height: 350,
                   child: ListView.separated(
-                    itemCount: visibleSales.length,
+                    itemCount: visibleEntries.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) =>
-                        _TransactionRow(sale: visibleSales[index]),
+                        _TransactionRow(entry: visibleEntries[index]),
                   ),
                 ),
-                if (sales.length > visibleSales.length) ...[
+                if (allEntries.length > visibleEntries.length) ...[
                   const SizedBox(height: 8),
                   Text(
-                    '${sales.length - visibleSales.length} more transaction${sales.length - visibleSales.length == 1 ? '' : 's'} in the Transactions page',
+                    '${allEntries.length - visibleEntries.length} more transaction(s)',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -627,15 +658,45 @@ class _MemberTransactionHistory extends StatelessWidget {
   }
 }
 
-class _TransactionRow extends StatelessWidget {
-  const _TransactionRow({required this.sale});
+class _TimelineEntry {
+  final String type; // 'sale' or 'borrow'
+  final DateTime timestamp;
+  final Sale? sale;
+  final Borrow? borrow;
 
-  final Sale sale;
+  const _TimelineEntry({
+    required this.type,
+    required this.timestamp,
+    this.sale,
+    this.borrow,
+  });
+}
+
+class _TransactionRow extends StatelessWidget {
+  const _TransactionRow({required this.entry});
+
+  final _TimelineEntry entry;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isSale = entry.type == 'sale';
+    final sale = entry.sale;
+    final borrow = entry.borrow;
+
+    final typeColor = isSale ? Colors.green.shade600 : Colors.orange.shade700;
+    final typeLabel = isSale ? 'Sold' : 'Borrowed';
+    final typeIcon = isSale ? Icons.shopping_cart : Icons.swap_horiz;
+    final itemName = isSale ? sale!.itemName : borrow!.itemName;
+    final quantity = isSale ? sale!.quantity : borrow!.quantity;
+    final timestamp = isSale ? sale!.timestamp : borrow!.borrowedAt;
+    final price = isSale ? sale!.price : borrow!.price;
+
+    final borrowStatus = !isSale ? borrow!.statusLabel : null;
+    final borrowOutstanding = !isSale && !borrow!.isFullySettled
+        ? borrow.outstandingQuantity
+        : null;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -652,13 +713,13 @@ class _TransactionRow extends StatelessWidget {
               height: 38,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: colorScheme.primary.withValues(alpha: 0.12),
+                color: typeColor.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                sale.quantity.toString(),
+                quantity.toString(),
                 style: theme.textTheme.titleSmall?.copyWith(
-                  color: colorScheme.primary,
+                  color: typeColor,
                   fontWeight: FontWeight.w800,
                 ),
               ),
@@ -668,22 +729,81 @@ class _TransactionRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    sale.itemName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          itemName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: typeColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(typeIcon, size: 12, color: typeColor),
+                            const SizedBox(width: 3),
+                            Text(
+                              typeLabel,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: typeColor,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 3),
-                  Text(
-                    formatDisplayDate(sale.timestamp),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          formatDisplayDate(timestamp),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      if (!isSale) ...[
+                        if (borrowOutstanding != null) ...[
+                          Text(
+                            '$borrowOutstanding left',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.orange.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        if (borrowStatus != null)
+                          Text(
+                            borrowStatus,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: borrow!.isOverdue
+                                  ? Colors.red
+                                  : colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -693,14 +813,14 @@ class _TransactionRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '₱${sale.price}',
+                  '₱${price}',
                   style: theme.textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'ID ${sale.id}',
+                  '${isSale ? 'S' : 'B'}${isSale ? sale!.id : borrow!.id}',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: colorScheme.onSurfaceVariant,
                   ),

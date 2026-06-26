@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 
 class CustomElevatedButton extends StatelessWidget {
   final VoidCallback onPressed;
@@ -20,33 +21,35 @@ class CustomElevatedButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        elevation: 0,
-        backgroundColor: backgroundColor ?? colorScheme.primary,
-        foregroundColor: foregroundColor ?? colorScheme.onPrimary,
-        shape: theme.elevatedButtonTheme.style?.shape?.resolve({}),
-        padding: theme.elevatedButtonTheme.style?.padding?.resolve({}),
-        textStyle: theme.elevatedButtonTheme.style?.textStyle?.resolve({}),
+    return ScaleTap(
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          elevation: 0,
+          backgroundColor: backgroundColor ?? colorScheme.primary,
+          foregroundColor: foregroundColor ?? colorScheme.onPrimary,
+          shape: theme.elevatedButtonTheme.style?.shape?.resolve({}),
+          padding: theme.elevatedButtonTheme.style?.padding?.resolve({}),
+          textStyle: theme.elevatedButtonTheme.style?.textStyle?.resolve({}),
+        ),
+        onPressed: onPressed,
+        child: icon != null
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: 24,
+                      maxHeight: 24,
+                    ),
+                    child: icon!,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(child: label),
+                ],
+              )
+            : Flexible(child: label),
       ),
-      onPressed: onPressed,
-      child: icon != null
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // constrain icon so it can't force the button wider than available
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 24, maxHeight: 24),
-                  child: icon!,
-                ),
-                const SizedBox(width: 8),
-                // allow the label to shrink/wrap when space is limited
-                Flexible(child: label),
-              ],
-            )
-          : // when no icon, still allow label to be flexible
-          Flexible(child: label),
     );
   }
 }

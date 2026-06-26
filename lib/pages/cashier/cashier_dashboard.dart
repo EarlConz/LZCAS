@@ -8,12 +8,14 @@
 // Cashier role CANNOT see: inventory CRUD, reports, admin panels, or user mgmt.
 
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/memberstable.dart';
+import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/db/db.dart';
 
@@ -220,17 +222,74 @@ class TransactionPageBody extends StatelessWidget {
 class _MembersLookupTab extends StatelessWidget {
   const _MembersLookupTab();
 
-  static void _noOpMemberSelect(Map<String, dynamic> _) {
-    // Read-only mode — no action on member row selection.
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Reuse existing MembersTable in read-only mode.
-    // The cashier role does not have edit/delete permissions.
-    return const Padding(
-      padding: EdgeInsets.all(16),
-      child: MembersTable(onRowSelected: _noOpMemberSelect),
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: MembersTable(
+        onRowSelected: (member) => _showMemberDetail(context, member),
+      ),
+    );
+  }
+
+  static void _showMemberDetail(
+    BuildContext context,
+    Map<String, dynamic> member,
+  ) {
+    final fullName = [
+      member['firstName'],
+      member['middleName'],
+      member['lastName'],
+    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+
+    showAnimatedDialog(
+      context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 700,
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        fullName.isEmpty ? 'Member Details' : fullName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: MemberDetailsCard(
+                      member: member,
+                      showHeader: false,
+                      showCardStyling: false,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -377,6 +436,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
             TextFormField(
               controller: _memberIdCtrl,
               enabled: !_submitting,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Member ID',
@@ -384,11 +444,14 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                 prefixIcon: Icon(Icons.person_search_rounded),
                 border: OutlineInputBorder(),
               ),
+              validator: (v) =>
+                  v == null || v.trim().isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _reasonCtrl,
               enabled: !_submitting,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               maxLines: 3,
               decoration: const InputDecoration(
                 labelText: 'Reason for Deletion',
@@ -400,6 +463,8 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                 ),
                 border: OutlineInputBorder(),
               ),
+              validator: (v) =>
+                  v == null || v.trim().isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 20),
 

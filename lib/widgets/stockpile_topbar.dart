@@ -5,23 +5,18 @@ import '../theme.dart';
 class StockpileTopBar extends StatelessWidget {
   final String pageTitle;
   final VoidCallback? onMenuTap;
-  final VoidCallback? onAddNewItem;
   final bool showMenu;
 
   const StockpileTopBar({
     super.key,
     required this.pageTitle,
     this.onMenuTap,
-    this.onAddNewItem,
     this.showMenu = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final searchBg = isDark
-        ? StockpileColors.darkInputBg
-        : StockpileColors.inputBg;
     final surface = isDark
         ? StockpileColors.darkSurface
         : StockpileColors.surface;
@@ -68,44 +63,7 @@ class StockpileTopBar extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(width: 32),
-
-          // Search bar (stretched)
-          Expanded(
-            child: Container(
-              height: 44,
-              decoration: BoxDecoration(
-                color: searchBg,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              alignment: Alignment.centerLeft,
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.search_rounded,
-                    size: 20,
-                    color: isDark
-                        ? StockpileColors.darkTextMuted
-                        : StockpileColors.mutedText,
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'Search...',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w400,
-                      color: isDark
-                          ? StockpileColors.darkTextMuted
-                          : StockpileColors.mutedText,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(width: 16),
+          const Spacer(),
 
           // Notification bell
           IconButton(
@@ -126,32 +84,6 @@ class StockpileTopBar extends StatelessWidget {
               // TODO: notifications
             },
             tooltip: 'Notifications',
-          ),
-
-          const SizedBox(width: 12),
-
-          // + Add New Item button
-          ElevatedButton.icon(
-            onPressed: onAddNewItem,
-            icon: const Icon(Icons.add, size: 18),
-            label: Text(
-              'Add New Item',
-              style: StockpileFonts.satoshi(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-              ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: StockpileColors.charcoal,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              minimumSize: const Size(0, 42),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(100),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            ),
           ),
         ],
       ),

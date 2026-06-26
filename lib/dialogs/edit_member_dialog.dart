@@ -236,6 +236,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               const SizedBox(height: 10),
               TextFormField(
                 key: _lastNameKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 controller: lastNameController,
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
@@ -249,6 +250,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               const SizedBox(height: 14),
               TextFormField(
                 key: _firstNameKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 controller: firstNameController,
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
@@ -307,6 +309,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               const SizedBox(height: 10),
               TextFormField(
                 key: _contactKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 controller: contactController,
                 validator: (v) {
                   if (v != null &&

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/receipt_dialog.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
@@ -26,6 +27,7 @@ class _SellButtonState extends State<SellButton> {
 
   Future<void> _loadItems() async {
     final rows = await repository.fetchItems();
+    if (!mounted) return;
     setState(() {
       items = inventoryItemsFromRows(
         rows,
@@ -35,6 +37,7 @@ class _SellButtonState extends State<SellButton> {
 
   Future<void> _loadMembers() async {
     final memberRows = await repository.fetchMembers();
+    if (!mounted) return;
     setState(() {
       members = membersFromRows(memberRows);
     });
@@ -43,8 +46,8 @@ class _SellButtonState extends State<SellButton> {
   void _showSellDialog(BuildContext context) {
     _loadItems();
     _loadMembers();
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (_) => _SellDialog(
         items: items,
         members: members,
@@ -120,8 +123,8 @@ class _SellDialogState extends State<_SellDialog> {
   }
 
   void _showError(String message) {
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (_) => AlertDialog(
         title: const Text('Error'),
         content: Text(message),

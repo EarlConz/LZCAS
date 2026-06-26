@@ -77,6 +77,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
               const SizedBox(height: 12),
               TextFormField(
                 key: _nameKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 controller: nameController,
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
@@ -90,6 +91,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
               const SizedBox(height: 16),
               TextFormField(
                 key: _categoryKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 controller: categoryController,
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
@@ -107,6 +109,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
               const SizedBox(height: 12),
               TextFormField(
                 key: _stockKey,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
                 controller: stockController,
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
