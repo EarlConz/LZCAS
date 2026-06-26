@@ -8,7 +8,6 @@ import 'analyticspage.dart';
 import 'helpsupportpage.dart';
 import '../widgets/stockpile_sidebar.dart';
 import '../widgets/stockpile_topbar.dart';
-import '../dialogs/add_product_dialog.dart';
 
 class HomePage extends StatefulWidget {
   final void Function(bool)? onToggleTheme;
@@ -59,18 +58,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _openAddProduct() {
-    showDialog(
-      context: context,
-      builder: (_) => AddProductDialog(
-        onProductAdded: (_) {
-          // Trigger a refresh via the repository change stream
-          // The inventory table listens to repository.changes
-        },
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.sizeOf(context).width >= 900;
@@ -101,7 +88,6 @@ class _HomePageState extends State<HomePage> {
                   pageTitle: _titles[_selectedIndex],
                   showMenu: !isDesktop,
                   onMenuTap: _toggleSidebar,
-                  onAddNewItem: _openAddProduct,
                 ),
                 Expanded(child: pages[_selectedIndex]),
               ],

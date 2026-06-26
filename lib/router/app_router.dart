@@ -20,9 +20,9 @@ Route<dynamic>? appRouter(RouteSettings settings) {
   // Public routes — no guard needed.
   switch (settings.name) {
     case AppRoutes.login:
-      return _buildRoute(settings, const LoginPage());
+      return _fadeRoute(settings, (_) => const LoginPage());
     case AppRoutes.forbidden:
-      return _buildRoute(settings, const ForbiddenPage());
+      return _fadeRoute(settings, (_) => const ForbiddenPage());
   }
 
   // Protected routes — wrap with a guard-aware builder.
@@ -53,50 +53,51 @@ Route<dynamic>? appRouter(RouteSettings settings) {
   });
 }
 
-MaterialPageRoute _buildRoute(RouteSettings settings, Widget page) {
-  return MaterialPageRoute<dynamic>(settings: settings, builder: (_) => page);
+PageRouteBuilder _fadeRoute(RouteSettings settings, WidgetBuilder builder) {
+  return PageRouteBuilder(
+    settings: settings,
+    pageBuilder: (context, _, __) => builder(context),
+    transitionsBuilder: (context, anim, _, child) => FadeTransition(
+      opacity: CurvedAnimation(parent: anim, curve: Curves.easeInOut),
+      child: child,
+    ),
+    transitionDuration: const Duration(milliseconds: 200),
+  );
 }
 
 /// Build a route that checks [RouteGuard.checkAccess] before rendering.
 /// If access is denied the user is redirected to login or forbidden page.
-MaterialPageRoute _buildGuardedRoute(
+PageRouteBuilder _buildGuardedRoute(
   RouteSettings settings,
   Widget? Function() pageBuilder,
 ) {
-  return MaterialPageRoute<dynamic>(
-    settings: settings,
-    builder: (context) {
-      final auth = context.read<AuthState>();
-      final redirect = RouteGuard.checkAccess(
-        context,
-        settings.name ?? '',
-        auth,
-      );
+  return _fadeRoute(settings, (context) {
+    final auth = context.read<AuthState>();
+    final redirect = RouteGuard.checkAccess(context, settings.name ?? '', auth);
 
-      if (redirect != null) {
-        // Defer the navigation to avoid building during build phase.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          Navigator.of(
-            context,
-          ).pushNamedAndRemoveUntil(redirect.destination, (_) => false);
-        });
-        // Show a loading indicator while the redirect happens.
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      }
+    if (redirect != null) {
+      // Defer the navigation to avoid building during build phase.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(redirect.destination, (_) => false);
+      });
+      // Show a loading indicator while the redirect happens.
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-      final page = pageBuilder();
-      if (page == null) {
-        // Unknown route — redirect to login or dashboard.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final dest = auth.isAuthenticated && auth.userRole != null
-              ? AppRoutes.defaultForRole(auth.userRole!)
-              : AppRoutes.login;
-          Navigator.of(context).pushNamedAndRemoveUntil(dest, (_) => false);
-        });
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      }
+    final page = pageBuilder();
+    if (page == null) {
+      // Unknown route — redirect to login or dashboard.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final dest = auth.isAuthenticated && auth.userRole != null
+            ? AppRoutes.defaultForRole(auth.userRole!)
+            : AppRoutes.login;
+        Navigator.of(context).pushNamedAndRemoveUntil(dest, (_) => false);
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
-      return page;
-    },
-  );
+    return page;
+  });
 }

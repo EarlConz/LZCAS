@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 import '/widgets/memberstable.dart';
 import '/widgets/memberdetails.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
@@ -58,8 +59,8 @@ class _MembersPageState extends State<MembersPage>
   }
 
   void _openEditDialog(Map<String, dynamic> member) {
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (context) => EditMemberDialog(
         member: member,
         onMemberUpdated: (updatedMember) =>

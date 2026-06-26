@@ -116,9 +116,15 @@ class AuthState extends ChangeNotifier {
         _userRole = UserRole.fromString(profile.role);
         _username = profile.username.isNotEmpty ? profile.username : _username;
       } else {
+        // No profile row — auto-create one via handle_new_user trigger won't
+        // fire on re-login. Default to cashier but log so we can diagnose.
+        debugPrint(
+          '[Stockpile] No profile row for uid=$uid — defaulting to cashier',
+        );
         _userRole = UserRole.cashier;
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[Stockpile] Failed to load profile for uid=$uid: $e');
       _userRole = UserRole.cashier;
     }
     _status = AuthStatus.authenticated;
@@ -132,10 +138,23 @@ class AuthState extends ChangeNotifier {
     _error = '';
     notifyListeners();
 
-    // Allow shorthand: "admin" maps to admin@stockpile.local
+    // Resolve username/email input:
+    //   "john@abc.com"  → used directly (already an email)
+    //   "john"          → profiles.email or fallback to john@lzcas.local
     var loginEmail = email.trim();
-    if (loginEmail == 'admin') {
-      loginEmail = 'admin@stockpile.local';
+    if (!loginEmail.contains('@')) {
+      String? profilesEmail;
+      try {
+        final profile = await _sb
+            .from('profiles')
+            .select('email')
+            .eq('username', loginEmail)
+            .maybeSingle();
+        profilesEmail = profile?['email'] as String?;
+      } catch (_) {}
+      loginEmail = (profilesEmail != null && profilesEmail.isNotEmpty)
+          ? profilesEmail
+          : '$loginEmail@lzcas.local';
     }
 
     try {
@@ -187,9 +206,15 @@ class AuthState extends ChangeNotifier {
               ? profile.username
               : _username;
         } else {
+          debugPrint(
+            '[Stockpile] tryRestoreSession: no profile row for uid=${s.user.id}',
+          );
           _userRole = UserRole.cashier;
         }
-      } catch (_) {
+      } catch (e) {
+        debugPrint(
+          '[Stockpile] tryRestoreSession: profile query failed for uid=${s.user.id}: $e',
+        );
         _userRole = UserRole.cashier;
       }
       _status = AuthStatus.authenticated;
@@ -204,14 +229,16 @@ class AuthState extends ChangeNotifier {
 
   Future<void> logout() async {
     try {
-      await _sb.auth.signOut();
-    } catch (_) {}
-    _status = AuthStatus.unauthenticated;
-    _userRole = null;
-    _username = '';
-    _userId = null;
-    _error = '';
-    notifyListeners();
+      await _sb.auth.signOut(); // onAuthStateChange handler resets everything
+    } catch (_) {
+      // Only reset if signOut itself failed (network error)
+      _status = AuthStatus.unauthenticated;
+      _userRole = null;
+      _username = '';
+      _userId = null;
+      _error = '';
+      notifyListeners();
+    }
   }
 
   Future<void> forceLogout() async {
@@ -229,6 +256,7 @@ class AuthState extends ChangeNotifier {
     required String email,
     required String password,
     required UserRole role,
+    String? username,
   }) async {
     if (_userRole != UserRole.admin) {
       _error = 'Only admins can create users.';
@@ -241,14 +269,64 @@ class AuthState extends ChangeNotifier {
           'email': email,
           'password': password,
           'role': role.name,
-          'username': email,
+          'username': username ?? email,
         },
       );
       if (result.status == 200) return true;
-      _error = 'Failed to create user.';
+
+      // Extract error message from the Edge Function response body
+      if (result.data is Map) {
+        _error =
+            (result.data as Map)['error']?.toString() ??
+            'Failed to create user (status ${result.status}).';
+      } else {
+        _error = 'Failed to create user (status ${result.status}).';
+      }
       return false;
     } catch (e) {
       _error = 'Could not create user: $e';
+      return false;
+    }
+  }
+
+  // ── Fetch Users ──────────────────────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> fetchUsers() async {
+    if (_userRole != UserRole.admin) return [];
+    try {
+      final data = await _sb
+          .from('profiles')
+          .select()
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // ── Delete User ──────────────────────────────────────────────────────────
+
+  Future<bool> deleteUser(String userId) async {
+    if (_userRole != UserRole.admin) {
+      _error = 'Only admins can delete users.';
+      return false;
+    }
+    try {
+      final result = await _sb.functions.invoke(
+        'delete-user',
+        body: {'user_id': userId},
+      );
+      if (result.status == 200) return true;
+      if (result.data is Map) {
+        _error =
+            (result.data as Map)['error']?.toString() ??
+            'Failed to delete user (status ${result.status}).';
+      } else {
+        _error = 'Failed to delete user (status ${result.status}).';
+      }
+      return false;
+    } catch (e) {
+      _error = 'Could not delete user: $e';
       return false;
     }
   }

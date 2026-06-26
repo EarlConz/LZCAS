@@ -156,14 +156,14 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
 
-                    // ── Email ────────────────────────────────────────────
+                    // ── Username or Email ───────────────────────────────
                     TextFormField(
                       controller: _emailCtrl,
                       enabled: !isAuthenticating,
-                      keyboardType: TextInputType.emailAddress,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                       decoration: InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: const Icon(Icons.email_outlined),
+                        labelText: 'Username or Email',
+                        prefixIcon: const Icon(Icons.person_outline_rounded),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -171,12 +171,6 @@ class _LoginPageState extends State<LoginPage> {
                       textInputAction: TextInputAction.next,
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) return 'Required';
-                        final val = v.trim();
-                        // Allow "admin" shorthand
-                        if (val == 'admin') return null;
-                        if (!val.contains('@') || !val.contains('.')) {
-                          return 'Enter a valid email';
-                        }
                         return null;
                       },
                     ),
@@ -186,6 +180,7 @@ class _LoginPageState extends State<LoginPage> {
                     TextFormField(
                       controller: _passwordCtrl,
                       enabled: !isAuthenticating,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                       obscureText: _obscurePassword,
                       decoration: InputDecoration(
                         labelText: 'Password',
@@ -243,7 +238,7 @@ class _LoginPageState extends State<LoginPage> {
 
                     const SizedBox(height: 24),
                     Text(
-                      'Accounts are provisioned by your administrator.\nSign in with your email and password.',
+                      'Accounts are provisioned by your administrator.\nSign in with your username or email and password.',
                       textAlign: TextAlign.center,
                       style: StockpileFonts.satoshi(
                         fontSize: 12,

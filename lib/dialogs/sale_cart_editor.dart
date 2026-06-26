@@ -158,6 +158,8 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                                 Expanded(
                                   child: TextFormField(
                                     initialValue: line.quantity.toString(),
+                                    autovalidateMode:
+                                        AutovalidateMode.onUserInteraction,
                                     keyboardType: TextInputType.number,
                                     inputFormatters: [
                                       FilteringTextInputFormatter.digitsOnly,
@@ -165,6 +167,13 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                                     decoration: const InputDecoration(
                                       labelText: 'Qty',
                                     ),
+                                    validator: (v) {
+                                      if (v == null || v.trim().isEmpty)
+                                        return 'Required';
+                                      if (int.tryParse(v.trim()) == null)
+                                        return 'Enter a number';
+                                      return null;
+                                    },
                                     onChanged: (v) {
                                       final newQ = int.tryParse(v) ?? 1;
                                       setState(
@@ -179,6 +188,8 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                                 Expanded(
                                   child: TextFormField(
                                     initialValue: line.price.toString(),
+                                    autovalidateMode:
+                                        AutovalidateMode.onUserInteraction,
                                     keyboardType: TextInputType.number,
                                     inputFormatters: [
                                       FilteringTextInputFormatter.digitsOnly,
@@ -186,6 +197,13 @@ class _SaleCartEditorState extends State<SaleCartEditor> {
                                     decoration: const InputDecoration(
                                       labelText: 'Price',
                                     ),
+                                    validator: (v) {
+                                      if (v == null || v.trim().isEmpty)
+                                        return 'Required';
+                                      if (int.tryParse(v.trim()) == null)
+                                        return 'Enter a number';
+                                      return null;
+                                    },
                                     onChanged: (v) => setState(
                                       () => lines[idx] = lines[idx].copyWith(
                                         price: int.tryParse(v) ?? 0,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 import '../widgets/memberstable.dart';
 import '../widgets/memberdetails.dart';
 import '../dialogs/edit_member_dialog.dart';
@@ -57,8 +58,8 @@ class _SuppliersPageState extends State<SuppliersPage>
       member['lastName'],
     ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
 
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (ctx) => Dialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
         child: ConstrainedBox(
@@ -127,8 +128,8 @@ class _SuppliersPageState extends State<SuppliersPage>
   }
 
   void _openEditDialog(Map<String, dynamic> member) {
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (_) => EditMemberDialog(
         member: member,
         onMemberUpdated: (updated) {

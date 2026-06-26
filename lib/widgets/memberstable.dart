@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
@@ -138,8 +139,8 @@ class MembersTableState extends State<MembersTable> {
     final fullName =
         '${member.firstName ?? ''} ${member.middleName ?? ''} ${member.lastName ?? ''}'
             .trim();
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
@@ -228,8 +229,8 @@ class MembersTableState extends State<MembersTable> {
   }
 
   void _onAddMemberPressed() {
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (context) => AddMemberDialog(onMemberAdded: addMember),
     );
   }
@@ -238,8 +239,8 @@ class MembersTableState extends State<MembersTable> {
     if (!safeContext.mounted) return;
 
     // Show loading dialog
-    showDialog(
-      context: safeContext,
+    showAnimatedDialog(
+      safeContext,
       barrierDismissible: false,
       builder: (ctx) => const Center(child: CircularProgressIndicator()),
     );
@@ -610,43 +611,46 @@ class MembersTableState extends State<MembersTable> {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final reserved = 140.0;
+            // headingRowHeight(52) + internalPad(~62) + footer(~56) + card ≈ 200
+            final reserved = 200.0;
             var available = constraints.maxHeight - reserved;
-            if (available < 56) available = 56;
-            final estimated = (available ~/ 56).clamp(1, 7);
+            if (available < 62) available = 62;
+            final estimated = (available ~/ 62).clamp(1, 7);
             final tableWidth = constraints.hasBoundedWidth
                 ? constraints.maxWidth
                 : (constraints.minWidth.isFinite && constraints.minWidth > 0
                       ? constraints.minWidth
                       : MediaQuery.sizeOf(context).width);
 
-            return SizedBox(
-              width: tableWidth,
-              child: PaginatedDataTable(
-                horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
-                columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
-                rowsPerPage: estimated,
-                headingRowHeight: 52,
-                dataRowMinHeight: 56,
-                dataRowMaxHeight: 62,
-                showCheckboxColumn: true,
-                columns: const [
-                  DataColumn(label: Text('Last Name')),
-                  DataColumn(label: Text('First Name')),
-                  DataColumn(label: Text('Middle Name')),
-                  DataColumn(label: Text('Role')),
-                  DataColumn(label: Text('Contact No.')),
-                  DataColumn(label: Text('Birthday')),
-                  DataColumn(label: Text('Address')),
-                  DataColumn(label: Text('Level')),
-                  DataColumn(label: Text('QR')),
-                ],
-                source: _MembersDataSource(
-                  filteredMembers,
-                  widget.onRowSelected,
-                  _selectedMemberIds,
-                  _setMemberSelected,
-                  context,
+            return ClipRect(
+              child: SizedBox(
+                width: tableWidth,
+                child: PaginatedDataTable(
+                  horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
+                  columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
+                  rowsPerPage: estimated,
+                  headingRowHeight: 52,
+                  dataRowMinHeight: 56,
+                  dataRowMaxHeight: 62,
+                  showCheckboxColumn: true,
+                  columns: const [
+                    DataColumn(label: Text('Last Name')),
+                    DataColumn(label: Text('First Name')),
+                    DataColumn(label: Text('Middle Name')),
+                    DataColumn(label: Text('Role')),
+                    DataColumn(label: Text('Contact No.')),
+                    DataColumn(label: Text('Birthday')),
+                    DataColumn(label: Text('Address')),
+                    DataColumn(label: Text('Level')),
+                    DataColumn(label: Text('QR')),
+                  ],
+                  source: _MembersDataSource(
+                    filteredMembers,
+                    widget.onRowSelected,
+                    _selectedMemberIds,
+                    _setMemberSelected,
+                    context,
+                  ),
                 ),
               ),
             );
@@ -670,12 +674,15 @@ class MembersTableState extends State<MembersTable> {
       separatorBuilder: (_, index) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final member = filteredMembers[index];
-        return _MemberListCard(
-          member: member,
-          selected:
-              (member['id'] as int?) != null &&
-              _selectedMemberIds.contains(member['id'] as int),
-          onTap: () => widget.onRowSelected(member),
+        return StaggeredItem(
+          index: index,
+          child: _MemberListCard(
+            member: member,
+            selected:
+                (member['id'] as int?) != null &&
+                _selectedMemberIds.contains(member['id'] as int),
+            onTap: () => widget.onRowSelected(member),
+          ),
         );
       },
     );
@@ -956,8 +963,8 @@ class _QrIconButton extends StatelessWidget {
       member['lastName'],
     ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
 
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(

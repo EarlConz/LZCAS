@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/buttons/inventoryfilterbutton.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/dialogs/edit_stock_dialog.dart' show EditProductDialog;
@@ -140,54 +141,59 @@ class _InventoryTableState extends State<InventoryTable> {
                             tableConstraints.hasBoundedHeight
                             ? tableConstraints.maxHeight
                             : MediaQuery.sizeOf(context).height;
-                        final rowsPerPage = ((availableHeight - 124) ~/ 48)
+                        // headingRowHeight(52) + internalPad(~62) + footer(~56) ≈ 170
+                        final rowsPerPage = ((availableHeight - 170) ~/ 62)
                             .clamp(1, 7);
 
                         return SizedBox(
+                          height: availableHeight,
                           width: double.infinity,
-                          child: Theme(
-                            data: Theme.of(context).copyWith(
-                              cardTheme: CardThemeData(
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    appRadius,
+                          child: ClipRect(
+                            child: Theme(
+                              data: Theme.of(context).copyWith(
+                                cardTheme: CardThemeData(
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      appRadius,
+                                    ),
+                                    side: BorderSide(
+                                      color: Theme.of(context).dividerColor,
+                                      width: 1,
+                                    ),
                                   ),
-                                  side: BorderSide(
-                                    color: Theme.of(context).dividerColor,
-                                    width: 1,
-                                  ),
+                                  color: Theme.of(context).colorScheme.surface,
                                 ),
-                                color: Theme.of(context).colorScheme.surface,
                               ),
-                            ),
-                            child: SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: SizedBox(
-                                width: tableWidth < minTableWidth
-                                    ? minTableWidth
-                                    : tableWidth,
-                                child: PaginatedDataTable(
-                                  rowsPerPage: rowsPerPage,
-                                  horizontalMargin: isTablet ? 12 : 16,
-                                  columnSpacing: isTablet ? 20 : 36,
-                                  headingRowHeight: 52,
-                                  dataRowMinHeight: 56,
-                                  dataRowMaxHeight: 62,
-                                  showCheckboxColumn: false,
-                                  columns: const [
-                                    DataColumn(label: Text("Item Name")),
-                                    DataColumn(label: Text("Category")),
-                                    DataColumn(label: Text("Stock")),
-                                    DataColumn(label: Text("Last Updated")),
-                                    DataColumn(label: Text("Status")),
-                                    DataColumn(label: Text("Action")),
-                                  ],
-                                  source: _InventoryDataSource(
-                                    filteredItems,
-                                    _getStatusColor,
-                                    _onUpdate,
-                                    context,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: SizedBox(
+                                  height: availableHeight,
+                                  width: tableWidth < minTableWidth
+                                      ? minTableWidth
+                                      : tableWidth,
+                                  child: PaginatedDataTable(
+                                    rowsPerPage: rowsPerPage,
+                                    horizontalMargin: isTablet ? 12 : 16,
+                                    columnSpacing: isTablet ? 20 : 36,
+                                    headingRowHeight: 52,
+                                    dataRowMinHeight: 56,
+                                    dataRowMaxHeight: 62,
+                                    showCheckboxColumn: false,
+                                    columns: const [
+                                      DataColumn(label: Text("Item Name")),
+                                      DataColumn(label: Text("Category")),
+                                      DataColumn(label: Text("Stock")),
+                                      DataColumn(label: Text("Last Updated")),
+                                      DataColumn(label: Text("Status")),
+                                      DataColumn(label: Text("Action")),
+                                    ],
+                                    source: _InventoryDataSource(
+                                      filteredItems,
+                                      _getStatusColor,
+                                      _onUpdate,
+                                      context,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -271,19 +277,22 @@ class _InventoryTableState extends State<InventoryTable> {
       separatorBuilder: (_, index) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final item = filteredItems[index];
-        return _InventoryListCard(
-          item: item,
-          statusColor: _getStatusColor(item['status']?.toString() ?? ''),
-          onEdit: () {
-            showDialog(
-              context: context,
-              builder: (dialogContext) => EditProductDialog(
-                item: item,
-                onUpdated: () => _onUpdate(item),
-              ),
-            );
-          },
-          onDelete: () => _deleteItem(context, item),
+        return StaggeredItem(
+          index: index,
+          child: _InventoryListCard(
+            item: item,
+            statusColor: _getStatusColor(item['status']?.toString() ?? ''),
+            onEdit: () {
+              showAnimatedDialog(
+                context,
+                builder: (dialogContext) => EditProductDialog(
+                  item: item,
+                  onUpdated: () => _onUpdate(item),
+                ),
+              );
+            },
+            onDelete: () => _deleteItem(context, item),
+          ),
         );
       },
     );
@@ -344,8 +353,8 @@ class _InventoryTableState extends State<InventoryTable> {
   }
 
   void _openAddProductDialog(BuildContext parentCtx) {
-    showDialog(
-      context: parentCtx,
+    showAnimatedDialog(
+      parentCtx,
       builder: (context) => AddProductDialog(
         onProductAdded: (p) async {
           await repository.addItem(
@@ -733,8 +742,8 @@ class _InventoryDataSource extends DataTableSource {
               icon: const Icon(Icons.more_vert),
               onSelected: (value) async {
                 if (value == 'edit') {
-                  showDialog(
-                    context: cellContext,
+                  showAnimatedDialog(
+                    cellContext,
                     builder: (dialogContext) => EditProductDialog(
                       item: item,
                       onUpdated: () => onUpdate(item),

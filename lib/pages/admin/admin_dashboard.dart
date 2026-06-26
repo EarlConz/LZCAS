@@ -10,10 +10,12 @@ import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 import 'package:lzcas/widgets/stockpile_topbar.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/memberstable.dart';
+import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/data/supabase_config.dart';
@@ -114,10 +116,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   pageTitle: _pageTitles[_selectedIndex],
                   showMenu: !isDesktop,
                   onMenuTap: _toggleSidebar,
-                  onAddNewItem: () {
-                    // Admin can add products from any page; default to
-                    // opening the add-product dialog.
-                  },
                 ),
                 // ── Page Content ───────────────────────────────────────
                 Expanded(child: pages[_selectedIndex]),
@@ -150,18 +148,36 @@ class _UserManagementTab extends StatefulWidget {
   State<_UserManagementTab> createState() => _UserManagementTabState();
 }
 
-class _UserManagementTabState extends State<_UserManagementTab> {
+class _UserManagementTabState extends State<_UserManagementTab>
+    with SingleTickerProviderStateMixin {
+  final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
   final _passwordCtrls = List.generate(1, (_) => TextEditingController());
+  final _confirmPasswordCtrl = TextEditingController();
   UserRole _selectedRole = UserRole.cashier;
   bool _creating = false;
   String? _createError;
+  String? _successMessage;
+  bool _passwordVisible = false;
+  bool _confirmPasswordVisible = false;
+  List<Map<String, dynamic>> _users = [];
+  bool _usersLoading = false;
+  String _userSearchTerm = '';
+  String? _userRoleFilter;
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _fetchUsers();
+  }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _nameCtrl.dispose();
-    _emailCtrl.dispose();
+    _confirmPasswordCtrl.dispose();
     for (final c in _passwordCtrls) {
       c.dispose();
     }
@@ -169,14 +185,18 @@ class _UserManagementTabState extends State<_UserManagementTab> {
   }
 
   Future<void> _createUser() async {
-    final name = _nameCtrl.text.trim();
-    final email = _emailCtrl.text.trim();
-    final password = _passwordCtrls[0].text;
+    if (!_formKey.currentState!.validate()) return;
 
-    if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      setState(() => _createError = 'All fields are required.');
+    final username = _nameCtrl.text.trim();
+    final password = _passwordCtrls[0].text;
+    final confirm = _confirmPasswordCtrl.text;
+
+    if (password != confirm) {
+      setState(() => _createError = 'Passwords do not match.');
       return;
     }
+    // Supabase Auth requires email format — auto-generate from username
+    final email = '$username@lzcas.local';
 
     setState(() {
       _creating = true;
@@ -186,11 +206,11 @@ class _UserManagementTabState extends State<_UserManagementTab> {
     try {
       final auth = context.read<AuthState>();
 
-      // Create the user via Supabase Auth (online)
       final ok = await auth.createUser(
         email: email,
         password: password,
         role: _selectedRole,
+        username: username,
       );
 
       if (!ok) {
@@ -204,13 +224,14 @@ class _UserManagementTabState extends State<_UserManagementTab> {
 
       if (!mounted) return;
       _nameCtrl.clear();
-      _emailCtrl.clear();
       _passwordCtrls[0].clear();
+      _confirmPasswordCtrl.clear();
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('User created successfully.')),
-      );
+      setState(() => _successMessage = 'User created successfully.');
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _successMessage = null);
+      });
+      _fetchUsers();
     } catch (e) {
       setState(() => _createError = e.toString());
     } finally {
@@ -218,132 +239,604 @@ class _UserManagementTabState extends State<_UserManagementTab> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  Future<void> _fetchUsers() async {
+    setState(() => _usersLoading = true);
+    try {
+      final auth = context.read<AuthState>();
+      final users = await auth.fetchUsers();
+      if (!mounted) return;
+      setState(() {
+        _users = users;
+        _usersLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _usersLoading = false);
+    }
+  }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Create New User',
-            style: StockpileFonts.satoshi(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
-            ),
+  Future<void> _deleteUser(String userId, String username) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete User'),
+        content: Text('Delete "$username"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Provision a new account. Users cannot self-register.',
-            style: StockpileFonts.satoshi(
-              fontSize: 13,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          if (_createError != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: StockpileColors.dangerBg,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                _createError!,
-                style: const TextStyle(color: StockpileColors.danger),
-              ),
-            ),
-
-          TextFormField(
-            controller: _nameCtrl,
-            enabled: !_creating,
-            decoration: const InputDecoration(
-              labelText: 'Full Name',
-              prefixIcon: Icon(Icons.person_outline_rounded),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _emailCtrl,
-            enabled: !_creating,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(
-              labelText: 'Email / Username',
-              prefixIcon: Icon(Icons.email_outlined),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _passwordCtrls[0],
-            enabled: !_creating,
-            obscureText: true,
-            decoration: const InputDecoration(
-              labelText: 'Temporary Password',
-              prefixIcon: Icon(Icons.lock_outline_rounded),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Role selector
-          Text(
-            'Role',
-            style: StockpileFonts.satoshi(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<UserRole>(
-            initialValue: _selectedRole,
-            items: UserRole.values
-                .map(
-                  (r) => DropdownMenuItem(value: r, child: Text(r.displayName)),
-                )
-                .toList(),
-            onChanged: (v) {
-              if (v != null) setState(() => _selectedRole = v);
-            },
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.badge_outlined),
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: FilledButton.icon(
-              icon: _creating
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.person_add_rounded),
-              label: Text(_creating ? 'Creating…' : 'Create User'),
-              onPressed: _creating ? null : _createUser,
-            ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
           ),
         ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final auth = context.read<AuthState>();
+      final ok = await auth.deleteUser(userId);
+      if (!mounted) return;
+      if (ok) {
+        setState(() => _successMessage = 'User deleted.');
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) setState(() => _successMessage = null);
+        });
+        _fetchUsers();
+      } else {
+        setState(
+          () => _createError = auth.error.isNotEmpty
+              ? auth.error
+              : 'Failed to delete user.',
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => _createError = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+
+    return Stack(
+      children: [
+        Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? StockpileColors.darkInputBg
+                      : StockpileColors.inputBg,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: TabBar(
+                  controller: _tabController,
+                  padding: const EdgeInsets.all(5),
+                  labelStyle: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  unselectedLabelStyle: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  indicator: BoxDecoration(
+                    color: isDark ? surfaceColor : Colors.white,
+                    borderRadius: BorderRadius.circular(11),
+                    boxShadow: [
+                      BoxShadow(
+                        color: isDark
+                            ? Colors.white.withAlpha(10)
+                            : Colors.black.withAlpha(15),
+                        blurRadius: 6,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  labelColor: isDark
+                      ? StockpileColors.darkTextPrimary
+                      : StockpileColors.primary900,
+                  unselectedLabelColor: isDark
+                      ? StockpileColors.darkTextMuted
+                      : StockpileColors.mutedText,
+                  dividerColor: Colors.transparent,
+                  splashFactory: NoSplash.splashFactory,
+                  tabs: const [
+                    Tab(
+                      height: 44,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.person_add_rounded, size: 20),
+                          SizedBox(width: 8),
+                          Text('Create'),
+                        ],
+                      ),
+                    ),
+                    Tab(
+                      height: 44,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.people_alt_rounded, size: 20),
+                          SizedBox(width: 8),
+                          Text('Users'),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child: TabBarView(
+                  key: ValueKey(_tabController.index),
+                  controller: _tabController,
+                  children: [
+                    SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Create New User',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: isDark
+                                  ? StockpileColors.darkTextPrimary
+                                  : StockpileColors.darkText,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Provision a new account. Users cannot self-register.',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 13,
+                              color: isDark
+                                  ? StockpileColors.darkTextMuted
+                                  : StockpileColors.mutedText,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
+                          if (_createError != null)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              margin: const EdgeInsets.only(bottom: 16),
+                              decoration: BoxDecoration(
+                                color: StockpileColors.dangerBg,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                _createError!,
+                                style: const TextStyle(
+                                  color: StockpileColors.danger,
+                                ),
+                              ),
+                            ),
+
+                          Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                TextFormField(
+                                  controller: _nameCtrl,
+                                  enabled: !_creating,
+                                  autovalidateMode:
+                                      AutovalidateMode.onUserInteraction,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Username',
+                                    prefixIcon: Icon(
+                                      Icons.person_outline_rounded,
+                                    ),
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  validator: (v) =>
+                                      v == null || v.trim().isEmpty
+                                      ? 'Username is required'
+                                      : null,
+                                ),
+                                const SizedBox(height: 12),
+                                TextFormField(
+                                  controller: _passwordCtrls[0],
+                                  enabled: !_creating,
+                                  autovalidateMode:
+                                      AutovalidateMode.onUserInteraction,
+                                  obscureText: !_passwordVisible,
+                                  decoration: InputDecoration(
+                                    labelText: 'Password',
+                                    prefixIcon: const Icon(
+                                      Icons.lock_outline_rounded,
+                                    ),
+                                    border: const OutlineInputBorder(),
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        _passwordVisible
+                                            ? Icons.visibility
+                                            : Icons.visibility_off,
+                                      ),
+                                      onPressed: () => setState(
+                                        () => _passwordVisible =
+                                            !_passwordVisible,
+                                      ),
+                                    ),
+                                  ),
+                                  validator: (v) => v == null || v.isEmpty
+                                      ? 'Password is required'
+                                      : null,
+                                ),
+                                const SizedBox(height: 12),
+                                TextFormField(
+                                  controller: _confirmPasswordCtrl,
+                                  enabled: !_creating,
+                                  autovalidateMode:
+                                      AutovalidateMode.onUserInteraction,
+                                  obscureText: !_confirmPasswordVisible,
+                                  decoration: InputDecoration(
+                                    labelText: 'Confirm Password',
+                                    prefixIcon: const Icon(
+                                      Icons.lock_outline_rounded,
+                                    ),
+                                    border: const OutlineInputBorder(),
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        _confirmPasswordVisible
+                                            ? Icons.visibility
+                                            : Icons.visibility_off,
+                                      ),
+                                      onPressed: () => setState(
+                                        () => _confirmPasswordVisible =
+                                            !_confirmPasswordVisible,
+                                      ),
+                                    ),
+                                  ),
+                                  validator: (v) {
+                                    if (v == null || v.isEmpty) {
+                                      return 'Confirm password is required';
+                                    }
+                                    if (v != _passwordCtrls[0].text) {
+                                      return 'Passwords do not match';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 16),
+
+                                // Role selector
+                                Text(
+                                  'Role',
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                DropdownButtonFormField<UserRole>(
+                                  initialValue: _selectedRole,
+                                  items: UserRole.values
+                                      .map(
+                                        (r) => DropdownMenuItem(
+                                          value: r,
+                                          child: Text(r.displayName),
+                                        ),
+                                      )
+                                      .toList(),
+                                  onChanged: (v) {
+                                    if (v != null)
+                                      setState(() => _selectedRole = v);
+                                  },
+                                  decoration: const InputDecoration(
+                                    prefixIcon: Icon(Icons.badge_outlined),
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ScaleTap(
+                              child: FilledButton.icon(
+                                icon: _creating
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : const Icon(Icons.person_add_rounded),
+                                label: Text(
+                                  _creating ? 'Creating…' : 'Create User',
+                                ),
+                                onPressed: _creating ? null : _createUser,
+                              ),
+                            ),
+                          ),
+                          // ── End of Create tab ──────────────────────────
+                        ],
+                      ),
+                    ),
+                    // ── Users tab ─────────────────────────────────────
+                    SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Existing Users',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: isDark
+                                  ? StockpileColors.darkTextPrimary
+                                  : StockpileColors.darkText,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'View and manage registered accounts.',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 13,
+                              color: isDark
+                                  ? StockpileColors.darkTextMuted
+                                  : StockpileColors.mutedText,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  decoration: const InputDecoration(
+                                    hintText: 'Search by username…',
+                                    prefixIcon: Icon(Icons.search, size: 20),
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                  ),
+                                  onChanged: (v) =>
+                                      setState(() => _userSearchTerm = v),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              SizedBox(
+                                width: 160,
+                                child: DropdownButtonFormField<String?>(
+                                  value: _userRoleFilter,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Role',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 10,
+                                    ),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: null,
+                                      child: Text('All'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'admin',
+                                      child: Text('Admin'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'inventory',
+                                      child: Text('Inventory'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'cashier',
+                                      child: Text('Cashier'),
+                                    ),
+                                  ],
+                                  onChanged: (v) =>
+                                      setState(() => _userRoleFilter = v),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          if (_usersLoading)
+                            const SkeletonList(count: 4)
+                          else
+                            ..._buildUserList(context),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        // ── Success notification bubble (top-right) ──────────────
+        if (_successMessage != null)
+          Positioned(
+            top: 16,
+            right: 16,
+            child: SlideDownFromTop(
+              key: ValueKey(_successMessage),
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(12),
+                color: const Color(0xFF166534),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.check_circle,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        _successMessage!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      GestureDetector(
+                        onTap: () => setState(() => _successMessage = null),
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.white70,
+                          size: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  List<Widget> _buildUserList(BuildContext context) {
+    final filtered = _users.where((u) {
+      final matchesSearch =
+          _userSearchTerm.isEmpty ||
+          (u['username']?.toString() ?? '').toLowerCase().contains(
+            _userSearchTerm.toLowerCase(),
+          );
+      final matchesRole =
+          _userRoleFilter == null || u['role']?.toString() == _userRoleFilter;
+      return matchesSearch && matchesRole;
+    }).toList();
+
+    if (filtered.isEmpty) {
+      return [
+        const Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(child: Text('No users found.')),
+        ),
+      ];
+    }
+
+    return [
+      Card(
+        child: ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: filtered.length,
+          separatorBuilder: (_, __) =>
+              const Divider(height: 1, indent: 16, endIndent: 16),
+          itemBuilder: (_, i) {
+            final u = filtered[i];
+            final role = u['role']?.toString() ?? '';
+            return ListTile(
+              leading: CircleAvatar(
+                backgroundColor: _roleColor(role).withAlpha(30),
+                child: Icon(_roleIcon(role), color: _roleColor(role), size: 20),
+              ),
+              title: Text(
+                u['username']?.toString() ?? '',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(
+                u['email']?.toString().isNotEmpty == true
+                    ? u['email'].toString()
+                    : '${u['username']}@lzcas.local',
+                style: const TextStyle(fontSize: 12),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _roleColor(role).withAlpha(25),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      role.isNotEmpty
+                          ? role[0].toUpperCase() + role.substring(1)
+                          : '',
+                      style: TextStyle(
+                        color: _roleColor(role),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.red,
+                      size: 20,
+                    ),
+                    tooltip: 'Delete user',
+                    onPressed: () => _deleteUser(
+                      u['id']?.toString() ?? '',
+                      u['username']?.toString() ?? '',
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    ];
+  }
+
+  Color _roleColor(String role) {
+    switch (role) {
+      case 'admin':
+        return Colors.green.shade700;
+      case 'inventory':
+        return Colors.blue.shade700;
+      case 'cashier':
+        return Colors.grey.shade700;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _roleIcon(String role) {
+    switch (role) {
+      case 'admin':
+        return Icons.admin_panel_settings;
+      case 'inventory':
+        return Icons.inventory_2;
+      case 'cashier':
+        return Icons.point_of_sale;
+      default:
+        return Icons.person;
+    }
   }
 }
 
@@ -1347,13 +1840,74 @@ class _AdminMembersPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.all(16),
-      child: MembersTable(onRowSelected: _noOpMemberSelect),
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: MembersTable(
+        onRowSelected: (member) => _showMemberDetail(context, member),
+      ),
     );
   }
 
-  static void _noOpMemberSelect(Map<String, dynamic> _) {}
+  static void _showMemberDetail(
+    BuildContext context,
+    Map<String, dynamic> member,
+  ) {
+    final fullName = [
+      member['firstName'],
+      member['middleName'],
+      member['lastName'],
+    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+
+    showAnimatedDialog(
+      context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 700,
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        fullName.isEmpty ? 'Member Details' : fullName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: MemberDetailsCard(
+                      member: member,
+                      showHeader: false,
+                      showCardStyling: false,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ─── Admin · Delete Request Management — review requests from Cashiers ─────

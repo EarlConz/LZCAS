@@ -55,9 +55,7 @@ class RoleVisibility extends StatelessWidget {
 void assertRoleOrThrow(BuildContext context, Set<UserRole> allowedRoles) {
   final auth = context.read<AuthState>();
   final role = auth.userRole;
-  if (role == null) {
-    throw RoleAccessException('No role assigned. Authentication required.');
-  }
+  if (role == null) return; // Still logging out — RouteGuard handles redirect
   // Admin always passes all role assertions.
   if (role == UserRole.admin) return;
   if (!allowedRoles.contains(role)) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 import 'memberqr.dart';
 
 class InteractiveMemberAvatar extends StatefulWidget {
@@ -38,8 +39,8 @@ class _InteractiveMemberAvatarState extends State<InteractiveMemberAvatar> {
   bool _hovering = false;
 
   void _showQrDialog() {
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (ctx) {
         final dialogTheme = Theme.of(ctx).dialogTheme;
         return Dialog(

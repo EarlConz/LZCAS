@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/borrow_receipt_dialog.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
@@ -26,6 +27,7 @@ class _BorrowButtonState extends State<BorrowButton> {
 
   Future<void> _loadItems() async {
     final rows = await repository.fetchItems();
+    if (!mounted) return;
     setState(() {
       items = inventoryItemsFromRows(
         rows,
@@ -35,6 +37,7 @@ class _BorrowButtonState extends State<BorrowButton> {
 
   Future<void> _loadMembers() async {
     final memberRows = await repository.fetchMembers();
+    if (!mounted) return;
     setState(() {
       members = membersFromRows(memberRows);
     });
@@ -43,8 +46,8 @@ class _BorrowButtonState extends State<BorrowButton> {
   void _showBorrowDialog(BuildContext context) {
     _loadItems();
     _loadMembers();
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (_) => _BorrowDialog(
         items: items,
         members: members,
@@ -128,8 +131,8 @@ class _BorrowDialogState extends State<_BorrowDialog> {
   }
 
   void _showError(String message) {
-    showDialog(
-      context: context,
+    showAnimatedDialog(
+      context,
       builder: (_) => AlertDialog(
         title: const Text('Error'),
         content: Text(message),

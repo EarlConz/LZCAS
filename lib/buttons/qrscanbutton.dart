@@ -2,6 +2,7 @@
 // Falls back to manual text-paste lookup if the camera is unavailable.
 
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
 
@@ -71,8 +72,8 @@ class QRScanButton extends StatelessWidget {
         return;
       }
 
-      showDialog(
-        context: context,
+      showAnimatedDialog(
+        context,
         builder: (_) => AlertDialog(
           title: const Text('Member Found'),
           content: Column(
@@ -98,8 +99,8 @@ class QRScanButton extends StatelessWidget {
         ),
       );
     } else {
-      showDialog(
-        context: context,
+      showAnimatedDialog(
+        context,
         builder: (_) => AlertDialog(
           title: const Text('Not Found'),
           content: Text('No member matches QR: $qrValue'),
