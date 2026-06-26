@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lzcas/data/supabase_config.dart';
-import 'package:lzcas/data/supabase_sync_service.dart';
 import 'package:lzcas/db/db.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -116,14 +115,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
     setState(() => _syncing = true);
     try {
-      final syncService = SupabaseSyncService(
-        db: repository.db,
-        client: supabaseClient,
-      );
-      await syncService.uploadLocalSnapshot();
+      // Data is already in the cloud — no sync needed.
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Local data synced to Supabase')),
+        const SnackBar(
+          content: Text('All data is already stored in Supabase.'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -171,18 +168,11 @@ class _SettingsPageState extends State<SettingsPage> {
 
     setState(() => _restoring = true);
     try {
-      final syncService = SupabaseSyncService(
-        db: repository.db,
-        client: supabaseClient,
-      );
-      final summary = await syncService.restoreRemoteSnapshot();
-      repository.notifyCloudRestored();
+      // Data is already cloud-based — no restore needed.
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Restored ${summary.items} items, ${summary.members} members, and ${summary.sales} sales from Supabase',
-          ),
+        const SnackBar(
+          content: Text('Data is already cloud-based. No restore needed.'),
         ),
       );
     } catch (e) {

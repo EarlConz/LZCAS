@@ -26,7 +26,7 @@ class ReceiptLineItem {
 class ReceiptDialog extends StatefulWidget {
   final List<ReceiptLineItem> lineItems;
   final String? buyerName;
-  final DateTime transactionTime;
+  final DateTime? transactionTime;
 
   const ReceiptDialog({
     super.key,
@@ -61,7 +61,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
   final _receiptKey = GlobalKey();
 
   String get _ref {
-    final d = widget.transactionTime;
+    final d = widget.transactionTime ?? DateTime.now();
     return 'TXN-${d.year}${d.month.toString().padLeft(2, '0')}'
         '${d.day.toString().padLeft(2, '0')}'
         '-${d.hour.toString().padLeft(2, '0')}'
@@ -112,7 +112,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
     );
     final fmtDate = DateFormat(
       'MMMM dd, yyyy  hh:mm a',
-    ).format(widget.transactionTime);
+    ).format(widget.transactionTime ?? DateTime.now());
 
     return AlertDialog(
       shape: RoundedRectangleBorder(
@@ -123,7 +123,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
           : const EdgeInsets.symmetric(horizontal: 40, vertical: 40),
       contentPadding: EdgeInsets.zero,
       content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
+        constraints: const BoxConstraints(maxWidth: 560),
         child: RepaintBoundary(
           key: _receiptKey,
           child: SingleChildScrollView(
@@ -132,7 +132,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
               children: [
                 _ReceiptHeader(colorScheme: colorScheme),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                   child: Column(
                     children: [
                       _InfoRow(
@@ -140,7 +140,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                         value: fmtDate,
                         colorScheme: colorScheme,
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       _InfoRow(
                         label: 'Ref #',
                         value: _ref,
@@ -148,7 +148,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                       ),
                       if (widget.buyerName != null &&
                           widget.buyerName!.isNotEmpty) ...[
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 8),
                         _InfoRow(
                           label: 'Buyer',
                           value: widget.buyerName!,
@@ -158,17 +158,17 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 const _DashedDivider(),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: isMobile
                       ? _mobileItems(theme, colorScheme)
                       : _desktopItems(theme, colorScheme),
                 ),
                 const _DashedDivider(),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
                   child: Column(
                     children: [
                       Row(
@@ -176,7 +176,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                         children: [
                           Text(
                             'TOTAL',
-                            style: theme.textTheme.titleLarge?.copyWith(
+                            style: theme.textTheme.headlineSmall?.copyWith(
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -189,10 +189,10 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 12),
                       Text(
                         '— Thank you for your purchase! —',
-                        style: theme.textTheme.labelMedium?.copyWith(
+                        style: theme.textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                           fontStyle: FontStyle.italic,
                         ),
@@ -200,35 +200,33 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                       const SizedBox(height: 4),
                       Text(
                         'LZCAS Sales System',
-                        style: theme.textTheme.labelSmall?.copyWith(
+                        style: theme.textTheme.bodySmall?.copyWith(
                           color: colorScheme.outline,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
                   child: Row(
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: _print,
-                          icon: const Icon(Icons.print_outlined, size: 18),
+                          icon: const Icon(Icons.print_outlined, size: 20),
                           label: const Text('Print'),
-                          style: OutlinedButton.styleFrom(
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: FilledButton.icon(
                           onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.check_circle_outline),
+                          icon: const Icon(
+                            Icons.check_circle_outline,
+                            size: 20,
+                          ),
                           label: const Text('Done'),
                         ),
                       ),
@@ -283,10 +281,10 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
   Widget _hdr(String text, ThemeData theme, {bool rightAlign = false}) {
     final w = Text(
       text,
-      style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
     );
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: rightAlign ? Align(alignment: Alignment.centerRight, child: w) : w,
     );
   }
@@ -297,11 +295,11 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
     bool rightAlign = false,
     bool bold = false,
   }) {
-    final style = theme.textTheme.bodyMedium?.copyWith(
-      fontWeight: bold ? FontWeight.w600 : null,
+    final style = theme.textTheme.bodyLarge?.copyWith(
+      fontWeight: bold ? FontWeight.w700 : null,
     );
     final t = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Text(text, style: style),
     );
     return rightAlign ? Align(alignment: Alignment.centerRight, child: t) : t;
@@ -319,7 +317,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
               color: colorScheme.outline.withValues(alpha: 0.4),
             ),
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: 10),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -330,15 +328,15 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                     children: [
                       Text(
                         widget.lineItems[i].itemName,
-                        style: theme.textTheme.bodyMedium?.copyWith(
+                        style: theme.textTheme.bodyLarge?.copyWith(
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 4),
                       Text(
                         'Qty: ${widget.lineItems[i].quantity}  ×  '
                         '₱${widget.lineItems[i].unitPrice}',
-                        style: theme.textTheme.bodySmall?.copyWith(
+                        style: theme.textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
@@ -347,8 +345,8 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                 ),
                 Text(
                   '₱${widget.lineItems[i].subtotal}',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
@@ -424,15 +422,16 @@ class _InfoRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 60,
+          width: 70,
           child: Text(
             label,
-            style: theme.textTheme.labelMedium?.copyWith(
+            style: theme.textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
-        Expanded(child: Text(value, style: theme.textTheme.bodyMedium)),
+        Expanded(child: Text(value, style: theme.textTheme.bodyLarge)),
       ],
     );
   }
@@ -445,7 +444,7 @@ class _DashedDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme.outline;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: CustomPaint(
         size: const Size(double.infinity, 1),
         painter: _DashPainter(color: color),

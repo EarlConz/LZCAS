@@ -1,53 +1,56 @@
 import 'package:flutter/material.dart';
-import 'pages/homepage.dart';
+import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'
+    hide AuthState; // Our AuthState is in auth/auth.dart
 import 'theme.dart';
-import 'data/db_init.dart';
 import 'data/supabase_config.dart';
-import 'package:lzcas/db/db.dart';
-
-late final DbRepository repository;
+import 'db/db.dart';
+import 'auth/auth.dart';
+import 'router/app_router.dart';
+import 'router/route_guard.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ── Initialize Supabase (mandatory for cloud mode) ─────────────────
   final supabaseEnabled = await initSupabase();
-  if (supabaseEnabled) {
-    // ignore: avoid_print
-    print('Supabase initialized');
-  } else {
-    // ignore: avoid_print
-    print('Supabase not configured; running in local SQLite mode');
+  if (!supabaseEnabled) {
+    throw Exception(
+      'Supabase is not configured. '
+      'Set SUPABASE_URL and SUPABASE_ANON_KEY environment variables '
+      'or configure assets/supabase_config.json.',
+    );
   }
 
-  final db = await initDb();
-  repository = DbRepository(db);
-  // Run one-off migrations at startup. Both are idempotent.
-  try {
-    await repository.ensureVerifiedResellerConsistency();
-  } catch (e) {
-    // ignore: avoid_print
-    print('ensureVerifiedResellerConsistency failed: $e');
-  }
-  // Backfill referrerId for members that only have a referrer name string
-  try {
-    await repository.ensureReferrerIdBackfill();
-  } catch (e) {
-    // ignore: avoid_print
-    print('ensureReferrerIdBackfill failed: $e');
-  }
-  // If you need initial data, use CSV import helpers on the repository
-  // e.g. `await repository.importItemsCsv(csvString)` or use your own seed script.
+  final supabase = Supabase.instance.client;
 
-  runApp(const MyApp());
+  // ── Initialize cloud repository ────────────────────────────────────
+  setRepository(SupabaseRepository(supabase: supabase));
+
+  // ── Initialize AuthState with Supabase ─────────────────────────────
+  final authState = AuthState(supabase: supabase);
+
+  // Attempt to restore a previous session from Supabase Auth persistence.
+  await authState.tryRestoreSession();
+
+  runApp(
+    ChangeNotifierProvider<AuthState>.value(
+      value: authState,
+      child: const LzcasApp(),
+    ),
+  );
 }
 
-class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+/// Root application widget with Provider-based auth state management,
+/// role-based routing, and theme support.
+class LzcasApp extends StatefulWidget {
+  const LzcasApp({super.key});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  State<LzcasApp> createState() => _LzcasAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _LzcasAppState extends State<LzcasApp> {
   ThemeMode _mode = ThemeMode.light;
 
   void toggleThemeMode(bool dark) {
@@ -58,16 +61,21 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
+    // Read auth state to determine the initial route.
+    final auth = context.watch<AuthState>();
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Admin App',
-      theme: appTheme,
-      darkTheme: appDarkTheme,
+      title: 'LZCAS',
+      theme: stockpileTheme,
+      darkTheme: stockpileDarkTheme,
       themeMode: _mode,
-      home: HomePage(
-        onToggleTheme: toggleThemeMode,
-        isDark: _mode == ThemeMode.dark,
-      ),
+      // Use onGenerateRoute for centralized, role-aware routing.
+      onGenerateRoute: appRouter,
+      // Initial route depends on authentication status.
+      initialRoute: auth.isAuthenticated && auth.userRole != null
+          ? AppRoutes.defaultForRole(auth.userRole!)
+          : AppRoutes.login,
     );
   }
 }

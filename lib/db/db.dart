@@ -1,7 +1,31 @@
-export 'app_db.dart' show AppDb, Item, Member, Sale, ResellerLevel;
-export 'db_repository.dart' show DbRepository, MemberTransactionEntry;
-// Export helper mappers and utilities from seed_data.dart (seed lists removed).
-export 'seed_data.dart'
-    show inventoryItemsFromRows, membersFromRows, statusFromStock;
-// Re-export repository from main so UI can import a single shim
-export '../main.dart' show repository;
+// lib/db/db.dart
+// Barrel export — now points to Supabase-backed models and repository.
+
+import '../data/supabase_repository.dart';
+
+export '../data/models.dart'
+    show
+        Item,
+        Member,
+        Sale,
+        Borrow,
+        StockMovement,
+        ResellerLevel,
+        MemberTransactionEntry,
+        inventoryItemsFromRows,
+        membersFromRows,
+        statusFromStock;
+export '../data/supabase_repository.dart' show SupabaseRepository;
+
+/// Global repository instance. Set by main() before the app runs.
+SupabaseRepository get repository {
+  final r = _repository;
+  if (r == null) throw StateError('Repository not initialized');
+  return r;
+}
+
+SupabaseRepository? _repository;
+
+void setRepository(SupabaseRepository repo) {
+  _repository = repo;
+}

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../theme.dart';
 import 'memberqr.dart';
 
 class QrGenerator extends StatelessWidget {
@@ -32,9 +33,11 @@ class QrGenerator extends StatelessWidget {
     return Center(
       child: Card(
         elevation: 6,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(appRadius),
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -48,21 +51,25 @@ class QrGenerator extends StatelessWidget {
                 address: address,
                 referrer: referrer,
                 qrToken: qrToken,
-                size: 200,
+                size: 240,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Flexible(
                     child: Text(
                       clipboardText,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   IconButton(
+                    iconSize: 28,
                     icon: const Icon(Icons.copy),
+                    tooltip: 'Copy name',
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: clipboardText));
                       ScaffoldMessenger.of(context).showSnackBar(

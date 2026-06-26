@@ -5,6 +5,7 @@ import 'dart:convert';
 import '../db/db.dart' show Sale, repository;
 import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
+import '../buttons/borrowbutton.dart';
 import 'package:file_selector/file_selector.dart' as fs;
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'dart:io';
@@ -20,7 +21,7 @@ import '../theme.dart';
 /// Represents a single checkout — one or more [sales] rows that share the
 /// same timestamp and buyerId.
 class TransactionGroup {
-  final DateTime timestamp;
+  final DateTime? timestamp;
   final int? buyerId;
   final String buyerName;
   final List<Sale> sales;
@@ -87,31 +88,38 @@ class _TransactionsTableState extends State<TransactionsTable> {
           m.firstName,
           m.lastName,
         ].where((p) => p != null && p.trim().isNotEmpty);
-        memberNames[m.id] = parts.isNotEmpty ? parts.join(' ') : 'Unnamed';
+        if (m.id != null) {
+          memberNames[m.id!] = parts.isNotEmpty ? parts.join(' ') : 'Unnamed';
+        }
       }
 
       // Group sales by (timestamp ms, buyerId)
       final Map<String, List<Sale>> groups = {};
       for (final s in allSales) {
-        final key = '${s.timestamp.millisecondsSinceEpoch}_${s.buyerId}';
+        final key = '${s.timestamp?.millisecondsSinceEpoch ?? 0}_${s.buyerId}';
         groups.putIfAbsent(key, () => []).add(s);
       }
 
       if (!mounted) return;
       setState(() {
-        _txnGroups = groups.entries.map((entry) {
-          final sales = entry.value;
-          final first = sales.first;
-          final buyerName = first.buyerId != null
-              ? (memberNames[first.buyerId] ?? 'Unknown')
-              : 'Walk-in';
-          return TransactionGroup(
-            timestamp: first.timestamp,
-            buyerId: first.buyerId,
-            buyerName: buyerName,
-            sales: sales,
-          );
-        }).toList()..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        _txnGroups =
+            groups.entries.map((entry) {
+              final sales = entry.value;
+              final first = sales.first;
+              final buyerName = first.buyerId != null
+                  ? (memberNames[first.buyerId] ?? 'Unknown')
+                  : 'Walk-in';
+              return TransactionGroup(
+                timestamp: first.timestamp,
+                buyerId: first.buyerId,
+                buyerName: buyerName,
+                sales: sales,
+              );
+            }).toList()..sort((a, b) {
+              final ta = a.timestamp ?? DateTime(2000);
+              final tb = b.timestamp ?? DateTime(2000);
+              return tb.compareTo(ta);
+            });
         _loading = false;
       });
     } catch (e, st) {
@@ -304,10 +312,9 @@ class _TransactionsTableState extends State<TransactionsTable> {
     );
     if (ok != true) return;
     try {
-      final res = await repository.deleteSaleGroup(
-        group.timestamp,
-        buyerId: group.buyerId,
-      );
+      final ts = group.timestamp;
+      if (ts == null) return;
+      final res = await repository.deleteSaleGroup(ts, buyerId: group.buyerId);
       if (!mounted || !localCtx.mounted) return;
       if (res == -1) {
         await showDialog<void>(
@@ -392,6 +399,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
                         const SizedBox(width: 8),
                         const SellButton(),
                         const SizedBox(width: 8),
+                        const BorrowButton(),
+                        const SizedBox(width: 8),
                         CustomElevatedButton(
                           onPressed: () => _onExportCsvPressed(context),
                           icon: const Icon(Icons.upload_file),
@@ -429,6 +438,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             const SellButton(compact: true),
+                            const SizedBox(width: 8),
+                            const BorrowButton(compact: true),
                             const SizedBox(width: 8),
                             IconButton.filled(
                               tooltip: 'Export CSV',
@@ -485,33 +496,36 @@ class _TransactionsTableState extends State<TransactionsTable> {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final reserved = 140.0;
+            final reserved = 108.0; // header (52) + footer (56)
             var available = constraints.maxHeight - reserved;
             if (available < 56) available = 56;
-            final estimated = (available ~/ 56).clamp(1, 10);
+            final estimated = (available ~/ 62).clamp(1, 10);
 
-            return PaginatedDataTable(
-              horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
-              columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
-              rowsPerPage: estimated,
-              headingRowHeight: 42,
-              dataRowMinHeight: 44,
-              dataRowMaxHeight: 52,
-              showCheckboxColumn: false,
-              columns: const [
-                DataColumn(label: Text('Buyer')),
-                DataColumn(label: Text('Date')),
-                DataColumn(label: Text('Items')),
-                DataColumn(label: Text('Total')),
-                DataColumn(label: Text('Actions')),
-              ],
-              source: _TxnDataSource(
-                filtered,
-                context,
-                onDelete: _deleteTransaction,
-                onReceipt: _viewReceipt,
+            return SizedBox(
+              height: constraints.maxHeight,
+              child: PaginatedDataTable(
+                horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
+                columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
+                rowsPerPage: estimated,
+                headingRowHeight: 52,
+                dataRowMinHeight: 56,
+                dataRowMaxHeight: 62,
+                showCheckboxColumn: false,
+                columns: const [
+                  DataColumn(label: Text('Buyer')),
+                  DataColumn(label: Text('Date')),
+                  DataColumn(label: Text('Items')),
+                  DataColumn(label: Text('Total')),
+                  DataColumn(label: Text('Actions')),
+                ],
+                source: _TxnDataSource(
+                  filtered,
+                  context,
+                  onDelete: _deleteTransaction,
+                  onReceipt: _viewReceipt,
+                ),
               ),
-            );
+            ); // PaginatedDataTable + SizedBox + return
           },
         ),
       ),

@@ -123,12 +123,12 @@ class _BirthdayPickerDialogState extends State<BirthdayPickerDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 380,
-          maxHeight: MediaQuery.of(context).size.height * 0.75,
+          maxWidth: 440,
+          maxHeight: MediaQuery.of(context).size.height * 0.80,
         ),
         child: ClipRect(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -137,29 +137,31 @@ class _BirthdayPickerDialogState extends State<BirthdayPickerDialog> {
                     Expanded(
                       child: Text(
                         'Select Birthday',
-                        style: theme.textTheme.titleLarge?.copyWith(
+                        style: theme.textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
                     IconButton(
+                      iconSize: 28,
                       tooltip: 'Clear birthday',
                       onPressed: () => Navigator.pop(context, DateTime(1)),
                       icon: const Icon(Icons.close),
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
                 DecoratedBox(
                   decoration: BoxDecoration(
                     color: colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+                    padding: const EdgeInsets.fromLTRB(8, 10, 8, 12),
                     child: Row(
                       children: [
                         IconButton(
+                          iconSize: 28,
                           tooltip: 'Previous month',
                           onPressed: () => _changeMonth(-1),
                           icon: const Icon(Icons.chevron_left),
@@ -226,20 +228,20 @@ class _BirthdayPickerDialogState extends State<BirthdayPickerDialog> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 GridView.count(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   crossAxisCount: 7,
-                  mainAxisSpacing: 6,
-                  crossAxisSpacing: 6,
-                  childAspectRatio: 1.15,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 1.0,
                   children: [
                     for (final day in weekdays)
                       Center(
                         child: Text(
                           _weekdayFormat.format(day).substring(0, 1),
-                          style: theme.textTheme.labelMedium?.copyWith(
+                          style: theme.textTheme.titleSmall?.copyWith(
                             color: colorScheme.onSurfaceVariant,
                             fontWeight: FontWeight.w700,
                           ),
@@ -261,7 +263,7 @@ class _BirthdayPickerDialogState extends State<BirthdayPickerDialog> {
                       ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 18),
                 Row(
                   children: [
                     TextButton(
@@ -273,8 +275,8 @@ class _BirthdayPickerDialogState extends State<BirthdayPickerDialog> {
                       onPressed: () => Navigator.pop(context, DateTime(1)),
                       child: const Text('Clear'),
                     ),
-                    const SizedBox(width: 8),
-                    ElevatedButton(
+                    const SizedBox(width: 12),
+                    FilledButton(
                       onPressed: _selectedDate == null
                           ? null
                           : () => Navigator.pop(context, _selectedDate),
@@ -313,21 +315,22 @@ class _DayCell extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: isSelected ? colorScheme.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isToday && !isSelected
                 ? colorScheme.primary
                 : Colors.transparent,
+            width: 2,
           ),
         ),
         child: Center(
           child: Text(
             date!.day.toString(),
-            style: theme.textTheme.bodyMedium?.copyWith(
+            style: theme.textTheme.bodyLarge?.copyWith(
               color: isSelected ? colorScheme.onPrimary : colorScheme.onSurface,
               fontWeight: isSelected || isToday
                   ? FontWeight.w700
