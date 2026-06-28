@@ -806,6 +806,41 @@ class SupabaseRepository {
     return 0;
   }
 
+  /// Submit a borrow request for admin approval.
+  /// Cashiers and inventory users route through this instead of direct borrow.
+  Future<int> submitBorrowRequest({
+    required int memberId,
+    required String memberName,
+    required int itemId,
+    required String itemName,
+    required int quantity,
+    int price = 0,
+    String? notes,
+  }) async {
+    final result = await _supabase
+        .from('pending_requests')
+        .insert({
+          'user_id': _uid,
+          'member_id': memberId,
+          'member_name': memberName,
+          'item_id': itemId,
+          'item_name': itemName,
+          'request_type': 'borrow',
+          'quantity': quantity,
+          'price': price,
+          if (notes != null) 'notes': notes,
+          'status': 'pending',
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .select('id');
+
+    _changes.add('pending_request_added');
+    if (result is List && result.isNotEmpty) {
+      return (result.first['id'] as num).toInt();
+    }
+    return 0;
+  }
+
   /// Fetch all pending requests (status = 'pending').
   Future<List<PendingRequest>> fetchPendingRequests() async {
     final data = await _supabase
@@ -822,6 +857,17 @@ class SupabaseRepository {
         .from('pending_requests')
         .select()
         .neq('status', 'pending')
+        .order('created_at', ascending: false);
+    return (data as List).map((j) => PendingRequest.fromJson(j)).toList();
+  }
+
+  /// Fetch all requests (pending + resolved) made by the current user,
+  /// ordered by most recent first. Used by cashiers to track their requests.
+  Future<List<PendingRequest>> fetchMyRequests() async {
+    final data = await _supabase
+        .from('pending_requests')
+        .select()
+        .eq('user_id', _uid)
         .order('created_at', ascending: false);
     return (data as List).map((j) => PendingRequest.fromJson(j)).toList();
   }
@@ -863,7 +909,8 @@ class SupabaseRepository {
     return 0;
   }
 
-  /// Approve a pending request — executes the actual action (delete or reduce).
+  /// Approve a pending request — executes the actual action.
+  /// Supports: delete, reduce_stock, delete_member, borrow.
   /// Returns null on success, or an error message string on failure.
   Future<String?> approveRequest(int requestId) async {
     final data = await _supabase
@@ -893,6 +940,17 @@ class SupabaseRepository {
       } else if (req.requestType == 'delete_member' && req.memberId != null) {
         final ok = await deleteMemberById(req.memberId!);
         if (!ok) return 'Failed to delete member';
+      } else if (req.requestType == 'borrow') {
+        // Create the actual borrow record (addBorrow deducts stock)
+        await addBorrow(
+          memberId: req.memberId!,
+          memberName: req.memberName,
+          itemId: req.itemId!,
+          itemName: req.itemName!,
+          quantity: req.quantity ?? 0,
+          price: req.price ?? 0,
+          notes: req.notes,
+        );
       }
     } catch (e) {
       return e.toString().replaceFirst('Exception: ', '');
@@ -909,12 +967,18 @@ class SupabaseRepository {
   }
 
   /// Reject a pending request — no action taken, just marks status.
-  Future<bool> rejectRequest(int requestId) async {
+  /// Optionally records a [rejectionReason] from the admin.
+  Future<bool> rejectRequest(int requestId, {String? rejectionReason}) async {
     final now = DateTime.now().toUtc().toIso8601String();
 
     await _supabase
         .from('pending_requests')
-        .update({'status': 'rejected', 'reviewed_by': _uid, 'reviewed_at': now})
+        .update({
+          'status': 'rejected',
+          'reviewed_by': _uid,
+          'reviewed_at': now,
+          if (rejectionReason != null) 'rejection_reason': rejectionReason,
+        })
         .eq('id', requestId)
         .eq('status', 'pending');
 
