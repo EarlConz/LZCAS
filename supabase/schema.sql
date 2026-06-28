@@ -38,8 +38,13 @@ create table public.members (
   last_name text, first_name text, middle_name text, role text,
   contact_no text, birthday text, address text, referrer text,
   referrer_id bigint, qr text, id_type text, id_number text,
-  id_image_path text, level integer not null default 1
+  id_image_path text, level integer not null default 1,
+  is_deleted boolean not null default false
 );
+
+-- Buyer / member name stored at transaction time so names survive deletion
+alter table public.sales add column if not exists buyer_name text;
+alter table public.borrows add column if not exists member_name text;
 
 create table public.sales (
   id bigint generated always as identity primary key,
@@ -86,11 +91,13 @@ create table public.stock_movements (
 create table public.pending_requests (
   id bigint generated always as identity primary key,
   user_id uuid not null,
-  item_id bigint not null,
-  item_name text not null,
-  request_type text not null,         -- 'delete' or 'reduce_stock'
-  quantity integer,                   -- only for reduce_stock
-  reason text,                        -- only for reduce_stock
+  item_id bigint,                      -- nullable: NULL for member requests
+  item_name text,                      -- nullable: NULL for member requests
+  member_id bigint,                    -- for delete_member requests
+  member_name text,                    -- stored name (survives deletion)
+  request_type text not null,          -- 'delete', 'reduce_stock', 'delete_member'
+  quantity integer,                    -- only for reduce_stock
+  reason text,                         -- reason for the request
   status text not null default 'pending', -- pending, approved, rejected
   reviewed_by uuid,
   reviewed_at timestamptz,

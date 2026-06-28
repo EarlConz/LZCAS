@@ -1,5 +1,6 @@
 // ...existing code...
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/db/db.dart';
@@ -82,27 +83,19 @@ class _EditProductDialogState extends State<EditProductDialog> {
     final reason = reasonController.text.trim();
 
     if (addAmount == 0 && reduceAmount == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No stock change requested')),
-      );
+      BotToast.showText(text: 'No stock change requested');
       return;
     }
 
     if (addAmount > 0 && reduceAmount > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Choose either Add Stock or Reduce Stock, not both'),
-        ),
+      BotToast.showText(
+        text: 'Choose either Add Stock or Reduce Stock, not both',
       );
       return;
     }
 
     if (reduceAmount > 0 && reason.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('A reason is required for stock reduction'),
-        ),
-      );
+      BotToast.showText(text: 'A reason is required for stock reduction');
       return;
     }
 
@@ -126,9 +119,7 @@ class _EditProductDialogState extends State<EditProductDialog> {
     final row = await repository.getItemById(id);
     if (row == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Item not found')));
+      BotToast.showText(text: 'Item not found');
       return;
     }
 
@@ -152,9 +143,7 @@ class _EditProductDialogState extends State<EditProductDialog> {
       );
       if (!ok) {
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Failed to add stock')));
+        BotToast.showText(text: 'Failed to add stock');
         return;
       }
     }
@@ -172,10 +161,8 @@ class _EditProductDialogState extends State<EditProductDialog> {
           reason: reason,
         );
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Stock reduction request sent to admin for approval'),
-          ),
+        BotToast.showText(
+          text: 'Stock reduction request sent to admin for approval',
         );
       } else {
         final ok = await repository.reduceStock(
@@ -186,9 +173,7 @@ class _EditProductDialogState extends State<EditProductDialog> {
         );
         if (!ok) {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Failed to reduce stock')),
-          );
+          BotToast.showText(text: 'Failed to reduce stock');
           return;
         }
       }

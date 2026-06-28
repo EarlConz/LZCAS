@@ -180,6 +180,7 @@ class SupabaseRepository {
     required int quantity,
     int price = 0,
     String? notes,
+    String? memberName,
   }) async {
     final item = await getItemById(itemId);
     if (item == null) throw Exception('Item not found: $itemId');
@@ -199,6 +200,7 @@ class SupabaseRepository {
         .insert({
           'user_id': _uid,
           'member_id': memberId,
+          if (memberName != null) 'member_name': memberName,
           'item_id': itemId,
           'item_name': itemName,
           'quantity': quantity,
@@ -227,6 +229,16 @@ class SupabaseRepository {
         .from('borrows')
         .select()
         .eq('member_id', memberId);
+    return (data as List).map((j) => Borrow.fromJson(j)).toList();
+  }
+
+  /// Fetch only active (unsettled) borrows for a single member.
+  Future<List<Borrow>> fetchActiveBorrowsForMember(int memberId) async {
+    final data = await _supabase
+        .from('borrows')
+        .select()
+        .eq('member_id', memberId)
+        .inFilter('status', ['active', 'overdue', 'partially_settled']);
     return (data as List).map((j) => Borrow.fromJson(j)).toList();
   }
 
@@ -530,6 +542,7 @@ class SupabaseRepository {
     int price = 0,
     DateTime? timestamp,
     int? buyerId,
+    String? buyerName,
   }) async {
     final result = await _supabase
         .from('sales')
@@ -540,6 +553,7 @@ class SupabaseRepository {
           'quantity': quantity,
           'price': price,
           if (buyerId != null) 'buyer_id': buyerId,
+          if (buyerName != null) 'buyer_name': buyerName,
           'timestamp': (timestamp ?? DateTime.now()).toUtc().toIso8601String(),
         })
         .select('id');
@@ -622,6 +636,16 @@ class SupabaseRepository {
     return (data as List).isNotEmpty;
   }
 
+  /// Returns true if [memberId] has any unsettled borrows.
+  Future<bool> hasActiveBorrowsForMember(int memberId) async {
+    final data = await _supabase
+        .from('borrows')
+        .select('id')
+        .eq('member_id', memberId)
+        .inFilter('status', ['active', 'overdue', 'partially_settled']);
+    return (data as List).isNotEmpty;
+  }
+
   Future<int> deleteItemById(int id) async {
     // Guard: block deletion if the item has active borrows
     final active = await hasActiveBorrows(id);
@@ -636,10 +660,44 @@ class SupabaseRepository {
     return 1;
   }
 
-  Future<int> deleteMemberById(int id) async {
+  Future<bool> deleteMemberById(int id) async {
+    // Guard: block deletion if member has active borrows
+    final active = await hasActiveBorrowsForMember(id);
+    if (active) {
+      throw Exception(
+        'Cannot delete member #$id — they have unsettled borrows. '
+        'Settle or return all borrows first.',
+      );
+    }
+
+    // Backfill buyer_name on existing sales so names survive deletion
+    final member = await _supabase
+        .from('members')
+        .select('first_name, last_name')
+        .eq('id', id)
+        .maybeSingle();
+    if (member != null) {
+      final fullName = [
+        member['first_name'] as String?,
+        member['last_name'] as String?,
+      ].where((p) => p != null && p.trim().isNotEmpty).join(' ');
+      if (fullName.isNotEmpty) {
+        await _supabase
+            .from('sales')
+            .update({'buyer_name': fullName})
+            .eq('buyer_id', id)
+            .filter('buyer_name', 'is', null);
+        await _supabase
+            .from('borrows')
+            .update({'member_name': fullName})
+            .eq('member_id', id)
+            .filter('member_name', 'is', null);
+      }
+    }
+
     await _supabase.from('members').delete().eq('id', id);
     _changes.add('member_deleted');
-    return 1;
+    return true;
   }
 
   Future<int> deleteSaleById(int id) async {
@@ -758,11 +816,12 @@ class SupabaseRepository {
     return (data as List).map((j) => PendingRequest.fromJson(j)).toList();
   }
 
-  /// Fetch all requests (pending, approved, and rejected) for history view.
+  /// Fetch all non-pending requests (approved and rejected) for history view.
   Future<List<PendingRequest>> fetchAllRequests() async {
     final data = await _supabase
         .from('pending_requests')
         .select()
+        .neq('status', 'pending')
         .order('created_at', ascending: false);
     return (data as List).map((j) => PendingRequest.fromJson(j)).toList();
   }
@@ -778,15 +837,42 @@ class SupabaseRepository {
     );
   }
 
+  /// Submit a member deletion request for admin approval.
+  Future<int> submitMemberDeletionRequest({
+    required int memberId,
+    required String memberName,
+    required String reason,
+  }) async {
+    final result = await _supabase
+        .from('pending_requests')
+        .insert({
+          'user_id': _uid,
+          'member_id': memberId,
+          'member_name': memberName,
+          'request_type': 'delete_member',
+          'reason': reason,
+          'status': 'pending',
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .select('id');
+
+    _changes.add('pending_request_added');
+    if (result is List && result.isNotEmpty) {
+      return (result.first['id'] as num).toInt();
+    }
+    return 0;
+  }
+
   /// Approve a pending request — executes the actual action (delete or reduce).
-  Future<bool> approveRequest(int requestId) async {
+  /// Returns null on success, or an error message string on failure.
+  Future<String?> approveRequest(int requestId) async {
     final data = await _supabase
         .from('pending_requests')
         .select()
         .eq('id', requestId)
         .eq('status', 'pending')
         .maybeSingle();
-    if (data == null) return false;
+    if (data == null) return 'Request not found';
 
     final req = PendingRequest.fromJson(data);
     final now = DateTime.now().toUtc().toIso8601String();
@@ -794,19 +880,22 @@ class SupabaseRepository {
     // Execute the actual action
     try {
       if (req.requestType == 'delete') {
-        await deleteItemById(req.itemId);
+        await deleteItemById(req.itemId!);
       } else if (req.requestType == 'reduce_stock') {
         final ok = await reduceStock(
-          itemId: req.itemId,
-          itemName: req.itemName,
+          itemId: req.itemId!,
+          itemName: req.itemName!,
           quantity: req.quantity ?? 0,
           reason: req.reason ?? 'Admin-approved stock reduction',
           overriddenUserId: req.userId, // credit the original requester
         );
-        if (!ok) return false;
+        if (!ok) return 'Insufficient stock for this item';
+      } else if (req.requestType == 'delete_member' && req.memberId != null) {
+        final ok = await deleteMemberById(req.memberId!);
+        if (!ok) return 'Failed to delete member';
       }
-    } catch (_) {
-      return false;
+    } catch (e) {
+      return e.toString().replaceFirst('Exception: ', '');
     }
 
     // Mark as approved
@@ -816,7 +905,7 @@ class SupabaseRepository {
         .eq('id', requestId);
 
     _changes.add('pending_request_approved');
-    return true;
+    return null; // success
   }
 
   /// Reject a pending request — no action taken, just marks status.

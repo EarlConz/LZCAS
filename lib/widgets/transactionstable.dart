@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import '../utils/formatters.dart';
 import 'dart:async';
@@ -107,9 +108,11 @@ class _TransactionsTableState extends State<TransactionsTable> {
             groups.entries.map((entry) {
               final sales = entry.value;
               final first = sales.first;
-              final buyerName = first.buyerId != null
-                  ? (memberNames[first.buyerId] ?? 'Unknown')
-                  : 'Walk-in';
+              final buyerName =
+                  first.buyerName ??
+                  (first.buyerId != null
+                      ? (memberNames[first.buyerId] ?? 'Unknown')
+                      : 'Walk-in');
               return TransactionGroup(
                 timestamp: first.timestamp,
                 buyerId: first.buyerId,
@@ -161,9 +164,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
           );
           await xfile.saveTo(loc.path);
           if (!mounted || !safeContext.mounted) return;
-          ScaffoldMessenger.of(
-            safeContext,
-          ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+          BotToast.showText(text: 'Exported to ${loc.path}');
         }
       } catch (_) {
         final dir = Directory.current.path;
@@ -171,16 +172,12 @@ class _TransactionsTableState extends State<TransactionsTable> {
         final file = File(savePath);
         await file.writeAsString(csv);
         if (!mounted || !safeContext.mounted) return;
-        ScaffoldMessenger.of(
-          safeContext,
-        ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+        BotToast.showText(text: 'Exported to $savePath');
       }
     } catch (e) {
       if (!mounted || !safeContext.mounted) return;
       Navigator.pop(safeContext);
-      ScaffoldMessenger.of(
-        safeContext,
-      ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+      BotToast.showText(text: 'Export failed: $e');
     }
   }
 
@@ -279,10 +276,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
     if (!mounted || !localCtx.mounted) return;
     await _loadData();
     if (!mounted || !localCtx.mounted) return;
-    ScaffoldMessenger.of(localCtx).showSnackBar(
-      SnackBar(
-        content: Text('Inserted $inserted new sale${inserted == 1 ? '' : 's'}'),
-      ),
+    BotToast.showText(
+      text: 'Inserted $inserted new sale${inserted == 1 ? '' : 's'}',
     );
   }
 
@@ -500,7 +495,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final reserved = 108.0; // header (52) + footer (56)
+            final reserved =
+                120.0; // header (52) + footer (56) + internal padding
             var available = constraints.maxHeight - reserved;
             if (available < 56) available = 56;
             final estimated = (available ~/ 62).clamp(1, 10);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/data/supabase_config.dart';
 import 'package:lzcas/db/db.dart';
 
@@ -29,11 +30,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _syncToCloud() async {
     if (!SupabaseConfig.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Supabase is not configured for this run'),
-        ),
-      );
+      BotToast.showText(text: 'Supabase is not configured for this run');
       return;
     }
 
@@ -117,16 +114,10 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       // Data is already in the cloud — no sync needed.
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('All data is already stored in Supabase.'),
-        ),
-      );
+      BotToast.showText(text: 'All data is already stored in Supabase.');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to sync to Supabase: $e')));
+      BotToast.showText(text: 'Failed to sync to Supabase: $e');
     } finally {
       if (mounted) {
         setState(() => _syncing = false);
@@ -136,11 +127,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _restoreFromCloud() async {
     if (!SupabaseConfig.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Supabase is not configured for this run'),
-        ),
-      );
+      BotToast.showText(text: 'Supabase is not configured for this run');
       return;
     }
 
@@ -170,16 +157,12 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       // Data is already cloud-based — no restore needed.
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Data is already cloud-based. No restore needed.'),
-        ),
+      BotToast.showText(
+        text: 'Data is already cloud-based. No restore needed.',
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to restore from Supabase: $e')),
-      );
+      BotToast.showText(text: 'Failed to restore from Supabase: $e');
     } finally {
       if (mounted) {
         setState(() => _restoring = false);
@@ -245,9 +228,7 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Reseller levels saved')));
+    BotToast.showText(text: 'Reseller levels saved');
   }
 
   @override
@@ -429,21 +410,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   try {
                     await repository.clearAllData();
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          '⚠ Database cleared. Do NOT sync to cloud '
-                          'or cloud data will be lost.',
-                        ),
-                        duration: Duration(seconds: 8),
-                        backgroundColor: Colors.red,
-                      ),
+                    BotToast.showText(
+                      text:
+                          '⚠ Database cleared. Do NOT sync to cloud or cloud data will be lost.',
+                      duration: const Duration(seconds: 4),
                     );
                   } catch (e) {
                     if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to clear database: $e')),
-                    );
+                    BotToast.showText(text: 'Failed to clear database: $e');
                   }
                 }
               },

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import '/widgets/memberstable.dart';
 import '/widgets/memberdetails.dart';
@@ -89,9 +90,7 @@ class _MembersPageState extends State<MembersPage>
       selectedMember = {...oldMember, ...updatedMember};
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Member updated successfully!")),
-    );
+    BotToast.showText(text: 'Member updated successfully!');
   }
 
   void _deleteMember(Map<String, dynamic> member) {
@@ -102,9 +101,7 @@ class _MembersPageState extends State<MembersPage>
       }
     });
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("Member deleted")));
+    BotToast.showText(text: 'Member deleted');
   }
 
   void _closeMemberPanel() {

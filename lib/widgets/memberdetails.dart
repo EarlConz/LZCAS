@@ -30,25 +30,30 @@ Widget buildIdImage(
       fit: fit,
       height: height,
       width: width,
-      errorBuilder: (_, __, ___) => Container(
-        height: 60,
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: const Center(child: Text('Image not available')),
-      ),
+      errorBuilder: (_, __, ___) => _missingImage(context),
     );
   }
+  // Local file path — validate it exists before displaying to avoid
+  // crashes from stale paths after app restarts, reinstalls, or
+  // content:// URIs that dart:io File() cannot open.
+  final file = File(source);
+  if (!file.existsSync()) {
+    return _missingImage(context);
+  }
   return Image.file(
-    File(source),
+    file,
     fit: fit,
     height: height,
     width: width,
-    errorBuilder: (_, __, ___) => Container(
-      height: 60,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: const Center(child: Text('Image not available')),
-    ),
+    errorBuilder: (_, __, ___) => _missingImage(context),
   );
 }
+
+Widget _missingImage(BuildContext context) => Container(
+  height: 60,
+  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+  child: const Center(child: Text('Image not available')),
+);
 
 class MemberDetailsCard extends StatefulWidget {
   final Map<String, dynamic> member;

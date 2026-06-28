@@ -297,15 +297,6 @@ final stockpileTheme = ThemeData(
     elevation: 4,
     shadowColor: Colors.black.withAlpha((0.12 * 255).round()),
   ),
-  snackBarTheme: SnackBarThemeData(
-    behavior: SnackBarBehavior.floating,
-    shape: _pillShape,
-    contentTextStyle: StockpileFonts.satoshi(
-      fontSize: 15,
-      fontWeight: FontWeight.w500,
-      color: Colors.white,
-    ),
-  ),
   chipTheme: ChipThemeData(
     shape: _pillShape,
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -453,15 +444,6 @@ final stockpileDarkTheme = ThemeData(
     shape: _cardShape,
     elevation: 4,
     backgroundColor: StockpileColors.darkSurface,
-  ),
-  snackBarTheme: SnackBarThemeData(
-    behavior: SnackBarBehavior.floating,
-    shape: _pillShape,
-    contentTextStyle: StockpileFonts.satoshi(
-      fontSize: 15,
-      fontWeight: FontWeight.w500,
-      color: StockpileColors.darkBg,
-    ),
   ),
   chipTheme: ChipThemeData(
     shape: _pillShape,

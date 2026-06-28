@@ -5,6 +5,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/auth/auth.dart';
@@ -40,7 +41,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'Inventory · Reports',
     'POS Terminal',
     'Members',
-    'Deletion Requests',
+    'Requests',
     'Borrow Stock',
     'Settings',
     'Help & Support',
@@ -920,20 +921,14 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
       );
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Reseller levels saved')));
+    BotToast.showText(text: 'Reseller levels saved');
   }
 
   // ── Cloud Sync ────────────────────────────────────────────────────────
 
   Future<void> _syncToCloud() async {
     if (!SupabaseConfig.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Supabase is not configured for this run'),
-        ),
-      );
+      BotToast.showText(text: 'Supabase is not configured for this run');
       return;
     }
 
@@ -1014,16 +1009,10 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     try {
       // Data is already in the cloud — no sync needed.
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('All data is already stored in Supabase.'),
-        ),
-      );
+      BotToast.showText(text: 'All data is already stored in Supabase.');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      BotToast.showText(text: 'Error: $e');
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
@@ -1031,11 +1020,7 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
 
   Future<void> _restoreFromCloud() async {
     if (!SupabaseConfig.isConfigured) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Supabase is not configured for this run'),
-        ),
-      );
+      BotToast.showText(text: 'Supabase is not configured for this run');
       return;
     }
 
@@ -1065,16 +1050,12 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     try {
       // Data is already cloud-based — no restore needed.
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Data is already cloud-based. No restore needed.'),
-        ),
+      BotToast.showText(
+        text: 'Data is already cloud-based. No restore needed.',
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to restore from Supabase: $e')),
-      );
+      BotToast.showText(text: 'Failed to restore from Supabase: $e');
     } finally {
       if (mounted) setState(() => _restoring = false);
     }
@@ -1108,9 +1089,7 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     if (confirmed != true || !mounted) return;
     await repository.clearAllData();
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Local database cleared')));
+    BotToast.showText(text: 'Local database cleared');
   }
 
   @override
@@ -1928,6 +1907,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   String _historyFilter = 'all'; // all, approved, rejected
   String _historyTypeFilter = 'all'; // all, delete, reduce
   bool _loading = true;
+  final Map<int, bool> _memberBorrowStatus = {}; // memberId → hasActiveBorrows
   StreamSubscription<String>? _changeSub;
 
   @override
@@ -1953,10 +1933,25 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     try {
       final requests = await repository.fetchPendingRequests();
       final profiles = await repository.fetchProfilesMap();
+
+      // Pre-check borrow status for member-deletion requests
+      final Map<int, bool> borrowStatus = {};
+      for (final req in requests) {
+        if (req.requestType == 'delete_member' && req.memberId != null) {
+          final hasBorrows = await repository.hasActiveBorrowsForMember(
+            req.memberId!,
+          );
+          borrowStatus[req.memberId!] = hasBorrows;
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _pendingRequests = requests;
         _profiles = profiles;
+        _memberBorrowStatus
+          ..clear()
+          ..addAll(borrowStatus);
         _loading = false;
       });
     } catch (e) {
@@ -1986,7 +1981,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
 
     // Pre-check: if this is a delete request, verify no active borrows exist
     if (req.requestType == 'delete') {
-      final hasBorrows = await repository.hasActiveBorrows(req.itemId);
+      final hasBorrows = await repository.hasActiveBorrows(req.itemId!);
       if (!mounted) return;
       if (hasBorrows) {
         await showDialog<void>(
@@ -2010,16 +2005,28 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
       }
     }
 
-    final ok = await repository.approveRequest(req.id!);
-    if (!mounted) return;
-    if (ok) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${req.summary} — approved')));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to approve ${req.summary}')),
+    // Pre-check: if this is a member deletion, verify no active borrows
+    if (req.requestType == 'delete_member' && req.memberId != null) {
+      final hasBorrows = await repository.hasActiveBorrowsForMember(
+        req.memberId!,
       );
+      if (!mounted) return;
+      if (hasBorrows) {
+        final borrows = await repository.fetchActiveBorrowsForMember(
+          req.memberId!,
+        );
+        if (!mounted) return;
+        await _showBorrowsModal(req.memberName ?? 'Member', borrows);
+        return;
+      }
+    }
+
+    final err = await repository.approveRequest(req.id!);
+    if (!mounted) return;
+    if (err == null) {
+      BotToast.showText(text: '${req.summary} — approved');
+    } else {
+      BotToast.showText(text: 'Failed to approve ${req.summary}: $err');
     }
     _loadRequests();
   }
@@ -2029,15 +2036,369 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     final ok = await repository.rejectRequest(req.id!);
     if (!mounted) return;
     if (ok) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${req.summary} — rejected')));
+      BotToast.showText(text: '${req.summary} — rejected');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to reject ${req.summary}')),
-      );
+      BotToast.showText(text: 'Failed to reject ${req.summary}');
     }
     _loadRequests();
+  }
+
+  /// Shows a modal listing the member's active borrows.
+  Future<void> _showBorrowsModal(
+    String memberName,
+    List<Borrow> borrows,
+  ) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    final totalOutstanding = borrows.fold<int>(
+      0,
+      (s, b) => s + b.outstandingQuantity,
+    );
+    final overdueCount = borrows.where((b) => b.isOverdue).length;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: cs.surface,
+        titlePadding: EdgeInsets.zero,
+        contentPadding: EdgeInsets.zero,
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Header ───────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+                decoration: BoxDecoration(
+                  color: Colors.purple.shade50.withAlpha(isDark ? 30 : 200),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.shade100,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            Icons.person_remove_rounded,
+                            color: Colors.purple.shade700,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Member Deletion Blocked',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.purple.shade700,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                memberName,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark
+                                      ? StockpileColors.darkTextPrimary
+                                      : StockpileColors.darkText,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // ── Summary Bar ──────────────────────────────────
+              Container(
+                margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color:
+                      (overdueCount > 0
+                              ? StockpileColors.error500
+                              : StockpileColors.success)
+                          .withAlpha(20),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color:
+                        (overdueCount > 0
+                                ? StockpileColors.error500
+                                : StockpileColors.success)
+                            .withAlpha(60),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      overdueCount > 0
+                          ? Icons.warning_amber_rounded
+                          : Icons.inventory_2_outlined,
+                      size: 20,
+                      color: overdueCount > 0
+                          ? StockpileColors.error500
+                          : StockpileColors.success,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      '$totalOutstanding outstanding items across ${borrows.length} borrow${borrows.length == 1 ? '' : 's'}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isDark
+                            ? StockpileColors.darkTextBody
+                            : StockpileColors.bodyText,
+                      ),
+                    ),
+                    if (overdueCount > 0) ...[
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: StockpileColors.error500.withAlpha(25),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '$overdueCount overdue',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: StockpileColors.error500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              // ── Borrow List ──────────────────────────────────
+              Flexible(
+                child: borrows.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Center(
+                          child: Text(
+                            'No unsettled borrows found.',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: isDark
+                                  ? StockpileColors.darkTextMuted
+                                  : StockpileColors.mutedText,
+                            ),
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+                        itemCount: borrows.length,
+                        itemBuilder: (_, i) {
+                          final b = borrows[i];
+                          final isOverdue = b.isOverdue;
+                          final statusColor = isOverdue
+                              ? StockpileColors.error500
+                              : b.outstandingQuantity < b.quantity
+                              ? Colors.amber.shade700
+                              : Colors.teal.shade600;
+
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? StockpileColors.darkSurface
+                                  : StockpileColors.tableHead,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: statusColor.withAlpha(50),
+                                width: 1,
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        isOverdue
+                                            ? Icons.schedule_rounded
+                                            : b.outstandingQuantity < b.quantity
+                                            ? Icons.sync_rounded
+                                            : Icons.check_circle_outline,
+                                        size: 18,
+                                        color: statusColor,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          b.itemName,
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                            color: isDark
+                                                ? StockpileColors
+                                                      .darkTextPrimary
+                                                : StockpileColors.darkText,
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: statusColor.withAlpha(25),
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          b.statusLabel.toUpperCase(),
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            color: statusColor,
+                                            letterSpacing: 0.6,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      _BorrowStat(
+                                        icon: Icons.inventory_2_outlined,
+                                        label: 'Total',
+                                        value: '${b.quantity}',
+                                      ),
+                                      const SizedBox(width: 16),
+                                      _BorrowStat(
+                                        icon: Icons.assignment_return_outlined,
+                                        label: 'Outstanding',
+                                        value: '${b.outstandingQuantity}',
+                                        valueColor: b.outstandingQuantity > 0
+                                            ? statusColor
+                                            : null,
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        'Due ${_formatDate(b.dueDate)}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                          color: isOverdue
+                                              ? StockpileColors.error500
+                                              : isDark
+                                              ? StockpileColors.darkTextMuted
+                                              : StockpileColors.mutedText,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+
+              // ── Footer ───────────────────────────────────────
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.close, size: 18),
+                  label: const Text('Close'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Tiny stat pill used in borrow details modal.
+  Widget _BorrowStat({
+    required IconData icon,
+    required String label,
+    required String value,
+    Color? valueColor,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          icon,
+          size: 14,
+          color: isDark
+              ? StockpileColors.darkTextMuted
+              : StockpileColors.mutedText,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '$label ',
+          style: TextStyle(
+            fontSize: 12,
+            color: isDark
+                ? StockpileColors.darkTextMuted
+                : StockpileColors.mutedText,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color:
+                valueColor ??
+                (isDark
+                    ? StockpileColors.darkTextBody
+                    : StockpileColors.bodyText),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -2249,19 +2610,97 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
             itemCount: _pendingRequests.length,
             itemBuilder: (context, index) {
               final req = _pendingRequests[index];
+              final isMemberDelete = req.requestType == 'delete_member';
               final isDelete = req.requestType == 'delete';
-              final icon = isDelete
+              final icon = isMemberDelete
+                  ? Icons.person_remove_rounded
+                  : isDelete
                   ? Icons.delete_forever_rounded
                   : Icons.arrow_downward_rounded;
-              final iconColor = isDelete
+              final iconColor = isMemberDelete
+                  ? Colors.purple.shade700
+                  : isDelete
                   ? StockpileColors.error500
                   : Colors.orange.shade700;
 
-              String subtitle = req.itemName;
-              if (req.requestType == 'reduce_stock' && req.quantity != null) {
-                subtitle = 'Reduce "${req.itemName}" by ${req.quantity}';
-                if (req.reason != null && req.reason!.isNotEmpty) {
-                  subtitle += ' — ${req.reason}';
+              if (isMemberDelete) {
+                String subtitle = req.memberName ?? 'Unknown';
+                if (req.createdAt != null) {
+                  subtitle += '\nSubmitted ${_formatDate(req.createdAt!)}';
+                }
+                // Show borrow warning if member has active borrows
+                final hasBorrows = _memberBorrowStatus[req.memberId] ?? false;
+                if (hasBorrows) {
+                  subtitle += '\n⚠ This member has unsettled borrows';
+                }
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.purple.shade100,
+                      child: Icon(icon, color: iconColor),
+                    ),
+                    title: const Text(
+                      'Delete Member',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(subtitle),
+                    isThreeLine: hasBorrows,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (hasBorrows)
+                          IconButton(
+                            icon: Icon(
+                              Icons.info_outline_rounded,
+                              color: Colors.blue.shade600,
+                            ),
+                            tooltip: 'View unsettled borrows',
+                            onPressed: () async {
+                              final borrows = await repository
+                                  .fetchActiveBorrowsForMember(req.memberId!);
+                              if (!mounted) return;
+                              await _showBorrowsModal(
+                                req.memberName ?? 'Member',
+                                borrows,
+                              );
+                            },
+                          ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.check_circle_outline,
+                            color: hasBorrows
+                                ? Colors.grey.shade400
+                                : StockpileColors.success,
+                          ),
+                          tooltip: hasBorrows
+                              ? 'Cannot approve — unsettled borrows'
+                              : 'Approve',
+                          onPressed: hasBorrows ? null : () => _approve(req),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.cancel_outlined,
+                            color: StockpileColors.error500,
+                          ),
+                          tooltip: 'Reject',
+                          onPressed: () => _reject(req),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              String subtitle = req.itemName ?? '';
+              String title;
+              if (isDelete) {
+                title = 'Delete "${req.itemName}"';
+              } else {
+                title = 'Reduce Stock';
+                if (req.quantity != null) {
+                  subtitle = 'Reduce "${req.itemName}" by ${req.quantity}';
                 }
               }
               if (req.createdAt != null) {
@@ -2272,13 +2711,15 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: isDelete
+                    backgroundColor: isMemberDelete
+                        ? Colors.purple.shade100
+                        : isDelete
                         ? StockpileColors.error100
                         : Colors.orange.shade100,
                     child: Icon(icon, color: iconColor),
                   ),
                   title: Text(
-                    isDelete ? 'Delete "${req.itemName}"' : 'Reduce Stock',
+                    title,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   subtitle: Text(subtitle),
@@ -2405,6 +2846,12 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                       onTap: () =>
                           setState(() => _historyTypeFilter = 'reduce_stock'),
                     ),
+                    _FilterChip(
+                      label: 'Member',
+                      isSelected: _historyTypeFilter == 'delete_member',
+                      onTap: () =>
+                          setState(() => _historyTypeFilter = 'delete_member'),
+                    ),
                   ],
                 ),
               ),
@@ -2439,7 +2886,9 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
           child: Icon(statusIcon, color: statusColor),
         ),
         title: Text(
-          req.itemName,
+          req.requestType == 'delete_member'
+              ? (req.memberName ?? 'Unknown')
+              : (req.itemName ?? ''),
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         subtitle: Column(
@@ -2726,7 +3175,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${b.itemName} — ${_memberName(b.memberId)}'),
+            Text('${b.itemName} — ${b.memberName ?? _memberName(b.memberId)}'),
             const SizedBox(height: 4),
             Text(
               'Borrowed: ${b.quantity}  |  '
@@ -2777,7 +3226,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${b.itemName} — ${_memberName(b.memberId)}'),
+            Text('${b.itemName} — ${b.memberName ?? _memberName(b.memberId)}'),
             const SizedBox(height: 4),
             Text(
               'Borrowed: ${b.quantity}  |  '
@@ -2945,7 +3394,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                     itemCount: _filtered.length,
                     itemBuilder: (context, index) {
                       final b = _filtered[index];
-                      final memName = _memberName(b.memberId);
+                      final memName = b.memberName ?? _memberName(b.memberId);
                       final statusLbl = _statusLabel(b);
                       final overdue = b.isOverdue && b.outstandingQuantity > 0;
                       final statusCol = _statusColor(b.status, overdue, isDark);

@@ -179,6 +179,7 @@ class Sale {
   final int? id;
   final int itemId;
   final int? buyerId;
+  final String? buyerName;
   final String itemName;
   final int quantity;
   final int price;
@@ -189,6 +190,7 @@ class Sale {
     this.id,
     required this.itemId,
     this.buyerId,
+    this.buyerName,
     required this.itemName,
     required this.quantity,
     this.price = 0,
@@ -200,6 +202,7 @@ class Sale {
     id: json['id'] as int?,
     itemId: json['item_id'] as int? ?? 0,
     buyerId: json['buyer_id'] as int?,
+    buyerName: json['buyer_name'] as String?,
     itemName: json['item_name'] as String? ?? '',
     quantity: json['quantity'] as int? ?? 0,
     price: json['price'] as int? ?? 0,
@@ -212,6 +215,7 @@ class Sale {
   Map<String, dynamic> toJson() => {
     'item_id': itemId,
     if (buyerId != null) 'buyer_id': buyerId,
+    if (buyerName != null) 'buyer_name': buyerName,
     'item_name': itemName,
     'quantity': quantity,
     'price': price,
@@ -223,6 +227,7 @@ class Sale {
     int? id,
     int? itemId,
     int? buyerId,
+    String? buyerName,
     String? itemName,
     int? quantity,
     int? price,
@@ -232,6 +237,7 @@ class Sale {
     id: id ?? this.id,
     itemId: itemId ?? this.itemId,
     buyerId: buyerId ?? this.buyerId,
+    buyerName: buyerName ?? this.buyerName,
     itemName: itemName ?? this.itemName,
     quantity: quantity ?? this.quantity,
     price: price ?? this.price,
@@ -370,17 +376,18 @@ class StockMovement {
   };
 }
 
-/// A pending request submitted by an inventory user for admin approval
-/// (product deletion or stock reduction).
+/// A pending request for admin approval (inventory delete/reduce, or member delete).
 class PendingRequest {
   final int? id;
   final String? userId;
-  final int itemId;
-  final String itemName;
-  final String requestType; // 'delete' or 'reduce_stock'
-  final int? quantity; // only for reduce_stock
-  final String? reason; // only for reduce_stock
-  final String status; // 'pending', 'approved', 'rejected'
+  final int? itemId;
+  final String? itemName;
+  final int? memberId;
+  final String? memberName;
+  final String requestType; // 'delete', 'reduce_stock', 'delete_member'
+  final int? quantity;
+  final String? reason;
+  final String status;
   final String? reviewedBy;
   final DateTime? reviewedAt;
   final DateTime? createdAt;
@@ -388,9 +395,11 @@ class PendingRequest {
   const PendingRequest({
     this.id,
     this.userId,
-    required this.itemId,
-    required this.itemName,
-    required this.requestType,
+    this.itemId,
+    this.itemName,
+    this.memberId,
+    this.memberName,
+    this.requestType = 'delete',
     this.quantity,
     this.reason,
     this.status = 'pending',
@@ -399,23 +408,26 @@ class PendingRequest {
     this.createdAt,
   });
 
-  /// Whether the request is still awaiting admin action.
   bool get isPending => status == 'pending';
 
-  /// Human-readable summary of the request.
   String get summary {
     if (requestType == 'delete') return 'Delete "$itemName"';
     if (requestType == 'reduce_stock') {
       return 'Reduce "$itemName" by ${quantity ?? 0}';
     }
-    return '$requestType: $itemName';
+    if (requestType == 'delete_member') {
+      return 'Delete member "$memberName"';
+    }
+    return '$requestType: ${itemName ?? memberName ?? ''}';
   }
 
   factory PendingRequest.fromJson(Map<String, dynamic> json) => PendingRequest(
     id: json['id'] as int?,
     userId: json['user_id'] as String?,
-    itemId: json['item_id'] as int? ?? 0,
-    itemName: json['item_name'] as String? ?? '',
+    itemId: json['item_id'] as int?,
+    itemName: json['item_name'] as String?,
+    memberId: json['member_id'] as int?,
+    memberName: json['member_name'] as String?,
     requestType: json['request_type'] as String? ?? 'delete',
     quantity: json['quantity'] as int?,
     reason: json['reason'] as String?,
@@ -431,8 +443,10 @@ class PendingRequest {
 
   Map<String, dynamic> toJson() => {
     if (userId != null) 'user_id': userId,
-    'item_id': itemId,
-    'item_name': itemName,
+    if (itemId != null) 'item_id': itemId,
+    if (itemName != null) 'item_name': itemName,
+    if (memberId != null) 'member_id': memberId,
+    if (memberName != null) 'member_name': memberName,
     'request_type': requestType,
     if (quantity != null) 'quantity': quantity,
     if (reason != null) 'reason': reason,
@@ -447,6 +461,8 @@ class PendingRequest {
     String? userId,
     int? itemId,
     String? itemName,
+    int? memberId,
+    String? memberName,
     String? requestType,
     int? quantity,
     String? reason,
@@ -459,6 +475,8 @@ class PendingRequest {
     userId: userId ?? this.userId,
     itemId: itemId ?? this.itemId,
     itemName: itemName ?? this.itemName,
+    memberId: memberId ?? this.memberId,
+    memberName: memberName ?? this.memberName,
     requestType: requestType ?? this.requestType,
     quantity: quantity ?? this.quantity,
     reason: reason ?? this.reason,
@@ -522,6 +540,7 @@ class Borrow {
   final int? id;
   final String? userId;
   final int memberId;
+  final String? memberName;
   final int itemId;
   final String itemName;
   final int quantity;
@@ -538,6 +557,7 @@ class Borrow {
     this.id,
     this.userId,
     required this.memberId,
+    this.memberName,
     required this.itemId,
     required this.itemName,
     required this.quantity,
@@ -579,6 +599,7 @@ class Borrow {
     id: json['id'] as int?,
     userId: json['user_id'] as String?,
     memberId: json['member_id'] as int? ?? 0,
+    memberName: json['member_name'] as String?,
     itemId: json['item_id'] as int? ?? 0,
     itemName: json['item_name'] as String? ?? '',
     quantity: json['quantity'] as int? ?? 0,
@@ -601,6 +622,7 @@ class Borrow {
   Map<String, dynamic> toJson() => {
     if (userId != null) 'user_id': userId,
     'member_id': memberId,
+    if (memberName != null) 'member_name': memberName,
     'item_id': itemId,
     'item_name': itemName,
     'quantity': quantity,

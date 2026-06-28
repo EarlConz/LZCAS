@@ -360,15 +360,13 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
     });
 
     try {
-      // POST request to initiate deletion request for admin approval.
-      // final client = context.read<ApiClient>();
-      // await client.post('/api/cashier/delete-member-request', data: {
-      //   'memberId': member.id,
-      //   'reason': reason,
-      // });
-
-      // Simulate API delay
-      await Future.delayed(const Duration(milliseconds: 800));
+      final memberName = '${member.firstName ?? ''} ${member.lastName ?? ''}'
+          .trim();
+      await repository.submitMemberDeletionRequest(
+        memberId: member.id!,
+        memberName: memberName,
+        reason: reason,
+      );
 
       if (!mounted) return;
       _searchCtrl.clear();
@@ -793,7 +791,7 @@ class _BorrowStockTabState extends State<_BorrowStockTab> {
         itemCount: _borrows.length,
         itemBuilder: (context, index) {
           final b = _borrows[index];
-          final memName = _memberName(b.memberId);
+          final memName = b.memberName ?? _memberName(b.memberId);
           final overdue = b.isOverdue && b.outstandingQuantity > 0;
 
           return Card(
