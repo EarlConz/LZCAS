@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/rendering.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -93,9 +94,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Print failed: $e')));
+        BotToast.showText(text: 'Print failed: $e');
       }
     }
   }

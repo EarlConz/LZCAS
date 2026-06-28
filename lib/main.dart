@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'
     hide AuthState; // Our AuthState is in auth/auth.dart
+import 'package:bot_toast/bot_toast.dart';
 import 'theme.dart';
 import 'data/supabase_config.dart';
 import 'db/db.dart';
@@ -70,12 +71,14 @@ class _LzcasAppState extends State<LzcasApp> {
       theme: stockpileTheme,
       darkTheme: stockpileDarkTheme,
       themeMode: _mode,
+      builder: BotToastInit(),
       // Use onGenerateRoute for centralized, role-aware routing.
       onGenerateRoute: appRouter,
       // Initial route depends on authentication status.
       initialRoute: auth.isAuthenticated && auth.userRole != null
           ? AppRoutes.defaultForRole(auth.userRole!)
           : AppRoutes.login,
+      navigatorObservers: [BotToastNavigatorObserver()],
     );
   }
 }

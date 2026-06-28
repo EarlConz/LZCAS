@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
@@ -267,9 +268,7 @@ class MembersTableState extends State<MembersTable> {
           );
           await xfile.saveTo(loc.path);
           if (!mounted || !safeContext.mounted) return;
-          ScaffoldMessenger.of(
-            safeContext,
-          ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+          BotToast.showText(text: 'Exported to ${loc.path}');
         }
       } catch (e) {
         final dir = Directory.current.path;
@@ -277,16 +276,12 @@ class MembersTableState extends State<MembersTable> {
         final file = File(savePath);
         await file.writeAsString(csv);
         if (!mounted || !safeContext.mounted) return;
-        ScaffoldMessenger.of(
-          safeContext,
-        ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+        BotToast.showText(text: 'Exported to $savePath');
       }
     } catch (e) {
       if (!mounted || !safeContext.mounted) return;
       Navigator.pop(safeContext); // Close loading dialog
-      ScaffoldMessenger.of(
-        safeContext,
-      ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
+      BotToast.showText(text: 'Export failed: $e');
     }
   }
 
@@ -381,12 +376,8 @@ class MembersTableState extends State<MembersTable> {
     if (!mounted || !localCtx.mounted) return;
     await _loadMembers();
     if (!mounted || !localCtx.mounted) return;
-    ScaffoldMessenger.of(localCtx).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Inserted $inserted new member${inserted == 1 ? '' : 's'}',
-        ),
-      ),
+    BotToast.showText(
+      text: 'Inserted $inserted new member${inserted == 1 ? '' : 's'}',
     );
   }
 

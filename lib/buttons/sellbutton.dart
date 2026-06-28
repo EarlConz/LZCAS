@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/receipt_dialog.dart';
@@ -163,23 +164,14 @@ class _SellDialogState extends State<_SellDialog> {
         selectedBuyerId = memberRow['id'] as int?;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
+        BotToast.showText(
+          text:
               'Buyer set to ${memberRow['firstName'] ?? ''} ${memberRow['lastName'] ?? ''}',
-            ),
-            duration: const Duration(seconds: 2),
-          ),
         );
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No member matches this QR code'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        BotToast.showText(text: 'No member matches this QR code');
       }
     }
   }
@@ -492,6 +484,20 @@ class _SellDialogState extends State<_SellDialog> {
               ? () async {
                   final safeContext = context;
                   final transactionTs = DateTime.now();
+
+                  // Compute buyer name once before the sale loop
+                  String? buyerName;
+                  if (selectedBuyerId != null) {
+                    final m = widget.members.firstWhere(
+                      (m) => (m['id'] as int?) == selectedBuyerId,
+                      orElse: () => <String, dynamic>{},
+                    );
+                    final first = (m['firstName'] ?? '').toString().trim();
+                    final last = (m['lastName'] ?? '').toString().trim();
+                    buyerName = '$first $last'.trim();
+                    if (buyerName.isEmpty) buyerName = null;
+                  }
+
                   for (var entry in cart) {
                     final dbItem = (await repository.fetchItems()).firstWhere(
                       (r) => r.name == entry['item'],
@@ -515,6 +521,7 @@ class _SellDialogState extends State<_SellDialog> {
                       price: price,
                       timestamp: transactionTs,
                       buyerId: selectedBuyerId,
+                      buyerName: buyerName,
                     );
                   }
 
@@ -530,19 +537,6 @@ class _SellDialogState extends State<_SellDialog> {
                       unitPrice: int.tryParse(priceStr) ?? 0,
                     );
                   }).toList();
-
-                  // Lookup buyer name
-                  String? buyerName;
-                  if (selectedBuyerId != null) {
-                    final m = widget.members.firstWhere(
-                      (m) => (m['id'] as int?) == selectedBuyerId,
-                      orElse: () => <String, dynamic>{},
-                    );
-                    final first = (m['firstName'] ?? '').toString().trim();
-                    final last = (m['lastName'] ?? '').toString().trim();
-                    buyerName = '$first $last'.trim();
-                    if (buyerName.isEmpty) buyerName = null;
-                  }
 
                   // Show receipt, only pop sell dialog after receipt is dismissed
                   if (!mounted) return;

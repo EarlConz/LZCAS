@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:bot_toast/bot_toast.dart';
 import '../theme.dart';
 import 'memberqr.dart';
 
@@ -72,11 +73,7 @@ class QrGenerator extends StatelessWidget {
                     tooltip: 'Copy name',
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: clipboardText));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Name Copied to Clipboard'),
-                        ),
-                      );
+                      BotToast.showText(text: 'Name Copied to Clipboard');
                     },
                   ),
                 ],

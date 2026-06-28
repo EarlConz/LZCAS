@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/utils/animations.dart';
@@ -380,9 +381,7 @@ class _InventoryTableState extends State<InventoryTable> {
           );
           await _loadItems();
           if (!mounted) return;
-          ScaffoldMessenger.of(
-            parentCtx,
-          ).showSnackBar(const SnackBar(content: Text('Product added')));
+          BotToast.showText(text: 'Product added');
         },
       ),
     );
@@ -404,18 +403,14 @@ class _InventoryTableState extends State<InventoryTable> {
         );
         await xfile.saveTo(loc.path);
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          parentCtx,
-        ).showSnackBar(SnackBar(content: Text('Exported to ${loc.path}')));
+        BotToast.showText(text: 'Exported to ${loc.path}');
       }
     } catch (e) {
       final dir = Directory.current.path;
       final savePath = p.join(dir, suggested);
       await File(savePath).writeAsString(csv);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        parentCtx,
-      ).showSnackBar(SnackBar(content: Text('Exported to $savePath')));
+      BotToast.showText(text: 'Exported to $savePath');
     }
   }
 
@@ -493,9 +488,7 @@ class _InventoryTableState extends State<InventoryTable> {
     final count = await repository.importItemsCsv(selectedCsv);
     if (!mounted) return;
     await _loadItems();
-    ScaffoldMessenger.of(localCtx).showSnackBar(
-      SnackBar(content: Text('Imported $count rows from ${xfile.name}')),
-    );
+    BotToast.showText(text: 'Imported $count rows from ${xfile.name}');
   }
 
   Future<void> _deleteItem(
@@ -567,11 +560,7 @@ class _InventoryTableState extends State<InventoryTable> {
         requestType: 'delete',
       );
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Deletion request sent to admin for approval'),
-        ),
-      );
+      BotToast.showText(text: 'Deletion request sent to admin for approval');
     } else {
       // Guard: block deletion if the item has active borrows
       final hasBorrows = await repository.hasActiveBorrows(id);
@@ -601,9 +590,7 @@ class _InventoryTableState extends State<InventoryTable> {
       await repository.fetchItems();
       _onUpdate(item);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Product deleted')));
+      BotToast.showText(text: 'Product deleted');
     }
   }
 
@@ -878,9 +865,7 @@ class _InventoryDataSource extends DataTableSource {
                         await repository.deleteItemById(id);
                         await repository.fetchItems();
                         onUpdate(item);
-                        ScaffoldMessenger.of(cellContext).showSnackBar(
-                          const SnackBar(content: Text('Product deleted')),
-                        );
+                        BotToast.showText(text: 'Product deleted');
                       }
                     }
                   }

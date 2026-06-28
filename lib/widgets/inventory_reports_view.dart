@@ -27,14 +27,12 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
   bool _loading = true;
 
   // ── Filters ──────────────────────────────────────────────
-  DateTimeRange _dateRange = DateTimeRange(
-    start: DateTime.now().subtract(const Duration(days: 30)),
-    end: DateTime.now(),
-  );
+  String _period = 'Monthly'; // Weekly, Monthly, Yearly
   String _typeFilter = 'All';
   static const _pageSize = 25;
   int _visibleCount = 25;
 
+  static const _periodOptions = ['Weekly', 'Monthly', 'Yearly'];
   static const _typeOptions = [
     'All',
     'Stock In',
@@ -45,6 +43,36 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     'Remit',
     'Sale',
   ];
+
+  /// Compute start and end UTC dates from the selected period,
+  /// using Philippine time (UTC+8) for the period boundaries.
+  DateTimeRange _computeDateRange() {
+    final utcNow = DateTime.now().toUtc();
+
+    // Philippine time = UTC + 8h — use this to find the correct PHT date components
+    final phtNow = utcNow.add(const Duration(hours: 8));
+
+    // Start of the period expressed as a PHT date (year/month/day correct for PH)
+    final DateTime phtStart = switch (_period) {
+      'Weekly' => DateTime(
+        phtNow.year,
+        phtNow.month,
+        phtNow.day - (phtNow.weekday % 7),
+      ),
+      'Yearly' => DateTime(phtNow.year, 1, 1),
+      _ => DateTime(phtNow.year, phtNow.month, 1),
+    };
+
+    // Convert PHT midnight → UTC: use DateTime.utc() to avoid local timezone interference,
+    // then subtract 8h since PHT midnight = previous day 16:00 UTC.
+    final utcStart = DateTime.utc(
+      phtStart.year,
+      phtStart.month,
+      phtStart.day,
+    ).subtract(const Duration(hours: 8));
+
+    return DateTimeRange(start: utcStart, end: utcNow);
+  }
 
   @override
   void initState() {
@@ -57,17 +85,16 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     _visibleCount = _pageSize;
     try {
       final supabase = repository.supabase;
-      final start = _dateRange.start.toIso8601String();
-      final end = _dateRange.end
+      final range = _computeDateRange();
+      final start = range.start.toIso8601String();
+      final end = range.end
           .add(const Duration(days: 1))
           .toIso8601String(); // inclusive end
 
-      // Fetch only date-filtered data from Supabase
-      final borrowsRaw = await supabase
-          .from('borrows')
-          .select()
-          .gte('borrowed_at', start)
-          .lt('borrowed_at', end);
+      // Fetch only date-filtered data from Supabase.
+      // Borrows are fetched unfiltered because a borrow may have been
+      // created outside the period but returned/remitted within it.
+      final borrowsRaw = await supabase.from('borrows').select();
       final salesRaw = await supabase
           .from('sales')
           .select()
@@ -152,33 +179,53 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           activeCount += outstanding;
           if (b.dueDate.isBefore(now)) overdueCount++;
         }
-        final mem = members.cast<Member?>().firstWhere(
-          (m) => m?.id == b.memberId,
-          orElse: () => null,
-        );
-        final memName = mem != null
-            ? '${mem.firstName ?? ''} ${mem.lastName ?? ''}'.trim()
-            : 'Member #${b.memberId}';
-        movements.add({
-          'type': 'Borrow',
-          'item': b.itemName,
-          'qty': b.quantity,
-          'user': memName,
-          'date': b.borrowedAt ?? now,
-          'isOverdue': b.dueDate.isBefore(now) && outstanding > 0,
-          'remaining': outstanding,
-        });
-        if (b.quantityReturned > 0)
+        // Use stored member_name, fall back to member lookup
+        final memName =
+            b.memberName ??
+            ((() {
+              final mem = members.cast<Member?>().firstWhere(
+                (m) => m?.id == b.memberId,
+                orElse: () => null,
+              );
+              return mem != null
+                  ? '${mem.firstName ?? ''} ${mem.lastName ?? ''}'.trim()
+                  : 'Member #${b.memberId}';
+            })());
+
+        // Only show borrow entries if the borrow was created within the period
+        if (b.borrowedAt != null &&
+            b.borrowedAt!.isAfter(range.start) &&
+            b.borrowedAt!.isBefore(range.end)) {
+          movements.add({
+            'type': 'Borrow',
+            'item': b.itemName,
+            'qty': b.quantity,
+            'user': memName,
+            'date': b.borrowedAt!,
+            'isOverdue': b.dueDate.isBefore(now) && outstanding > 0,
+            'remaining': outstanding,
+          });
+        }
+
+        // Return/Remit entries show when the settlement happened within the period
+        if (b.quantityReturned > 0 &&
+            b.settledAt != null &&
+            b.settledAt!.isAfter(range.start) &&
+            b.settledAt!.isBefore(range.end)) {
           movements.add({
             'type': 'Return',
             'item': b.itemName,
             'qty': b.quantityReturned,
             'user': memName,
-            'date': b.settledAt ?? now,
+            'date': b.settledAt!,
             'isOverdue': false,
             'remaining': 0,
           });
-        if (b.quantityRemitted > 0)
+        }
+        if (b.quantityRemitted > 0 &&
+            b.settledAt != null &&
+            b.settledAt!.isAfter(range.start) &&
+            b.settledAt!.isBefore(range.end)) {
           movements.add({
             'type': 'Remit',
             'item': b.itemName,
@@ -188,20 +235,26 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
             'isOverdue': false,
             'remaining': 0,
           });
+        }
       }
 
       for (final s in sales) {
-        final mem = members.cast<Member?>().firstWhere(
-          (m) => m?.id == s.buyerId,
-          orElse: () => null,
-        );
+        final userName =
+            s.buyerName ??
+            ((() {
+              final mem = members.cast<Member?>().firstWhere(
+                (m) => m?.id == s.buyerId,
+                orElse: () => null,
+              );
+              return mem != null
+                  ? '${mem.firstName ?? ''} ${mem.lastName ?? ''}'.trim()
+                  : 'Walk-in';
+            })());
         movements.add({
           'type': 'Sale',
           'item': s.itemName,
           'qty': s.quantity,
-          'user': mem != null
-              ? '${mem.firstName ?? ''} ${mem.lastName ?? ''}'.trim()
-              : 'Walk-in',
+          'user': userName,
           'date': s.timestamp ?? now,
           'isOverdue': false,
           'remaining': 0,
@@ -231,24 +284,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
 
   void _loadMore() {
     setState(() => _visibleCount += _pageSize);
-  }
-
-  Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2020),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
-      initialDateRange: _dateRange,
-    );
-    if (picked != null) {
-      setState(() => _dateRange = picked);
-      _loadData();
-    }
-  }
-
-  String _formatDate(DateTime dt) {
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}'
-        '-${dt.day.toString().padLeft(2, '0')}';
   }
 
   String _formatDateTime(DateTime dt) {
@@ -336,56 +371,67 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
             // ── Filter Bar ─────────────────────────────────
             Row(
               children: [
-                // Date range button
+                // Period selector (Weekly / Monthly / Yearly)
                 Expanded(
                   flex: 2,
-                  child: InkWell(
-                    onTap: _pickDateRange,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? StockpileColors.darkInputBg
+                          : StockpileColors.inputBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
                         color: isDark
-                            ? StockpileColors.darkInputBg
-                            : StockpileColors.inputBg,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isDark
-                              ? StockpileColors.darkDivider
-                              : StockpileColors.divider,
-                        ),
+                            ? StockpileColors.darkDivider
+                            : StockpileColors.divider,
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.date_range,
-                            size: 18,
-                            color: isDark
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '${_formatDate(_dateRange.start)} → ${_formatDate(_dateRange.end)}',
-                              style: StockpileFonts.satoshi(
-                                fontSize: 13,
-                                color: isDark
-                                    ? StockpileColors.darkTextPrimary
-                                    : StockpileColors.darkText,
-                              ),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _period,
+                        isExpanded: true,
+                        icon: Icon(
+                          Icons.arrow_drop_down,
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText,
+                        ),
+                        style: StockpileFonts.satoshi(
+                          fontSize: 13,
+                          color: isDark
+                              ? StockpileColors.darkTextPrimary
+                              : StockpileColors.darkText,
+                        ),
+                        items: _periodOptions.map((p) {
+                          final icon = switch (p) {
+                            'Weekly' => Icons.date_range_rounded,
+                            'Yearly' => Icons.view_list_rounded,
+                            _ => Icons.calendar_month_rounded,
+                          };
+                          return DropdownMenuItem(
+                            value: p,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  icon,
+                                  size: 16,
+                                  color: isDark
+                                      ? StockpileColors.darkTextMuted
+                                      : StockpileColors.mutedText,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(p),
+                              ],
                             ),
-                          ),
-                          Icon(
-                            Icons.arrow_drop_down,
-                            color: isDark
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
-                          ),
-                        ],
+                          );
+                        }).toList(),
+                        onChanged: (v) {
+                          if (v != null) {
+                            setState(() => _period = v);
+                            _loadData();
+                          }
+                        },
                       ),
                     ),
                   ),

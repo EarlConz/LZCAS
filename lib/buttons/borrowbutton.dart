@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/borrow_receipt_dialog.dart';
@@ -100,6 +101,7 @@ class _BorrowDialog extends StatefulWidget {
 class _BorrowDialogState extends State<_BorrowDialog> {
   String? selectedItem;
   int? selectedBuyerId;
+  String? _borrowerName;
   int quantity = 1;
   List<Map<String, dynamic>> cart = [];
 
@@ -168,26 +170,21 @@ class _BorrowDialogState extends State<_BorrowDialog> {
     if (memberRow != null) {
       setState(() {
         selectedBuyerId = memberRow['id'] as int?;
+        final first = (memberRow['firstName'] ?? '').toString().trim();
+        final last = (memberRow['lastName'] ?? '').toString().trim();
+        _borrowerName = '$first $last'.trim();
+        if (_borrowerName!.isEmpty) _borrowerName = null;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
+        BotToast.showText(
+          text:
               'Borrower set to ${memberRow['firstName'] ?? ''} '
               '${memberRow['lastName'] ?? ''}',
-            ),
-            duration: const Duration(seconds: 2),
-          ),
         );
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No member matches this QR code'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+        BotToast.showText(text: 'No member matches this QR code');
       }
     }
   }
@@ -546,6 +543,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                         itemId: dbItem.id!,
                         itemName: dbItem.name,
                         quantity: q,
+                        memberName: _borrowerName,
                       );
                       borrows.add(
                         Borrow(

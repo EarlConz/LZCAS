@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import '../widgets/memberstable.dart';
 import '../widgets/memberdetails.dart';
@@ -137,9 +138,7 @@ class _SuppliersPageState extends State<SuppliersPage>
           setState(() {
             _selectedMember = {...member, ...updated};
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Member updated successfully!')),
-          );
+          BotToast.showText(text: 'Member updated successfully!');
         },
       ),
     );
@@ -156,9 +155,7 @@ class _SuppliersPageState extends State<SuppliersPage>
           if (_selectedMember?['id'] == member['id']) {
             setState(() => _selectedMember = null);
           }
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Member deleted')));
+          BotToast.showText(text: 'Member deleted');
         },
       ),
     );
