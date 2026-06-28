@@ -18,6 +18,15 @@ import 'package:lzcas/dialogs/import_preview_dialog.dart';
 import 'package:csv/csv.dart';
 import '../db/csv_header_utils.dart';
 import '../theme.dart';
+import '../utils/formatters.dart';
+
+/// Formats a raw ISO 8601 string using the shared POS timestamp format.
+String _formatLastUpdated(dynamic raw) {
+  if (raw == null) return '';
+  final dt = raw is DateTime ? raw : DateTime.tryParse(raw.toString());
+  if (dt == null) return raw.toString();
+  return formatDisplayDate(dt);
+}
 
 class InventoryTable extends StatefulWidget {
   const InventoryTable({super.key});
@@ -705,7 +714,7 @@ class _InventoryListCard extends StatelessWidget {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      lastUpdated,
+                      _formatLastUpdated(lastUpdated),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -799,7 +808,7 @@ class _InventoryDataSource extends DataTableSource {
         DataCell(Text(item["name"] ?? "")),
         DataCell(Text(item["category"] ?? "")),
         DataCell(Text((item["stock"] ?? 0).toString())),
-        DataCell(Text(item["lastUpdated"] ?? "")),
+        DataCell(Text(_formatLastUpdated(item["lastUpdated"]))),
         DataCell(
           Text(
             item["status"]?.toString() ?? "",
