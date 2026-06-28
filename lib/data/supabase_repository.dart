@@ -609,7 +609,26 @@ class SupabaseRepository {
 
   // ── Delete Methods ───────────────────────────────────────────────────────
 
+  /// Returns true if [itemId] has any unsettled borrows (active, overdue,
+  /// or partially_settled). Deletion should be blocked when this is true.
+  Future<bool> hasActiveBorrows(int itemId) async {
+    final data = await _supabase
+        .from('borrows')
+        .select('id')
+        .eq('item_id', itemId)
+        .inFilter('status', ['active', 'overdue', 'partially_settled']);
+    return (data as List).isNotEmpty;
+  }
+
   Future<int> deleteItemById(int id) async {
+    // Guard: block deletion if the item has active borrows
+    final active = await hasActiveBorrows(id);
+    if (active) {
+      throw Exception(
+        'Cannot delete item #$id — it has unsettled borrows. '
+        'Settle or return all borrows first.',
+      );
+    }
     await _supabase.from('items').delete().eq('id', id);
     _changes.add('item_deleted');
     return 1;

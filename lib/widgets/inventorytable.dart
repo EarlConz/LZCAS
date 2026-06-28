@@ -528,6 +528,30 @@ class _InventoryTableState extends State<InventoryTable> {
     if (confirm != true) return;
 
     if (needsApproval) {
+      // Guard: block request if the item has active borrows
+      final hasBorrows = await repository.hasActiveBorrows(id);
+      if (!context.mounted) return;
+      if (hasBorrows) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Cannot request deletion'),
+            content: const Text(
+              'This product has unsettled borrows. '
+              'All borrowed items must be returned or paid for '
+              'before a deletion request can be submitted.',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
       await repository.submitPendingRequest(
         itemId: id,
         itemName: item['name']?.toString() ?? '',
@@ -540,6 +564,30 @@ class _InventoryTableState extends State<InventoryTable> {
         ),
       );
     } else {
+      // Guard: block deletion if the item has active borrows
+      final hasBorrows = await repository.hasActiveBorrows(id);
+      if (!context.mounted) return;
+      if (hasBorrows) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Cannot delete'),
+            content: const Text(
+              'This product has unsettled borrows. '
+              'All borrowed items must be returned or paid for '
+              'before this product can be deleted.',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
       await repository.deleteItemById(id);
       await repository.fetchItems();
       _onUpdate(item);
@@ -797,10 +845,30 @@ class _InventoryDataSource extends DataTableSource {
                       ),
                     );
                     if (confirm == true) {
-                      await repository.deleteItemById(id);
-                      await repository.fetchItems();
-                      onUpdate(item);
-                      if (cellContext.mounted) {
+                      // Guard: block deletion if the item has active borrows
+                      final hasBorrows = await repository.hasActiveBorrows(id);
+                      if (cellContext.mounted && hasBorrows) {
+                        await showDialog<void>(
+                          context: cellContext,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Cannot delete'),
+                            content: const Text(
+                              'This product has unsettled borrows. '
+                              'All borrowed items must be returned or paid for '
+                              'before this product can be deleted.',
+                            ),
+                            actions: [
+                              FilledButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('OK'),
+                              ),
+                            ],
+                          ),
+                        );
+                      } else if (cellContext.mounted) {
+                        await repository.deleteItemById(id);
+                        await repository.fetchItems();
+                        onUpdate(item);
                         ScaffoldMessenger.of(cellContext).showSnackBar(
                           const SnackBar(content: Text('Product deleted')),
                         );

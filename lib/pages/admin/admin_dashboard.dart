@@ -1960,6 +1960,33 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
 
   Future<void> _approve(PendingRequest req) async {
     if (req.id == null) return;
+
+    // Pre-check: if this is a delete request, verify no active borrows exist
+    if (req.requestType == 'delete') {
+      final hasBorrows = await repository.hasActiveBorrows(req.itemId);
+      if (!mounted) return;
+      if (hasBorrows) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Cannot approve deletion'),
+            content: Text(
+              '"${req.itemName}" has unsettled borrows. '
+              'All borrowed items must be returned or paid for '
+              'before this product can be deleted.',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+    }
+
     final ok = await repository.approveRequest(req.id!);
     if (!mounted) return;
     if (ok) {
