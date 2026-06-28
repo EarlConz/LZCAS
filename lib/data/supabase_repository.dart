@@ -12,6 +12,7 @@ import 'models.dart';
 /// as the previous DbRepository (imports, exports, change notifications).
 class SupabaseRepository {
   final SupabaseClient _supabase;
+
   /// Public access for raw Supabase queries (reports, filters, etc.)
   SupabaseClient get supabase => _supabase;
   final StreamController<String> _changes =
@@ -693,6 +694,105 @@ class SupabaseRepository {
     _changes.add('sale_deleted');
     return (result as List?)?.length ?? sales.length;
   }
+
+  // ── Pending Request Methods (Approval Workflow) ──────────────────────────
+
+  /// Submit an approval request for admin review (delete or reduce_stock).
+  /// Inventory users cannot delete/reduce directly; they go through this.
+  Future<int> submitPendingRequest({
+    required int itemId,
+    required String itemName,
+    required String requestType,
+    int? quantity,
+    String? reason,
+  }) async {
+    final result = await _supabase
+        .from('pending_requests')
+        .insert({
+          'user_id': _uid,
+          'item_id': itemId,
+          'item_name': itemName,
+          'request_type': requestType,
+          if (quantity != null) 'quantity': quantity,
+          if (reason != null) 'reason': reason,
+          'status': 'pending',
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .select('id');
+
+    _changes.add('pending_request_added');
+    if (result is List && result.isNotEmpty) {
+      return (result.first['id'] as num).toInt();
+    }
+    return 0;
+  }
+
+  /// Fetch all pending requests (status = 'pending').
+  Future<List<PendingRequest>> fetchPendingRequests() async {
+    final data = await _supabase
+        .from('pending_requests')
+        .select()
+        .eq('status', 'pending')
+        .order('created_at', ascending: false);
+    return (data as List).map((j) => PendingRequest.fromJson(j)).toList();
+  }
+
+  /// Approve a pending request — executes the actual action (delete or reduce).
+  Future<bool> approveRequest(int requestId) async {
+    final data = await _supabase
+        .from('pending_requests')
+        .select()
+        .eq('id', requestId)
+        .eq('status', 'pending')
+        .maybeSingle();
+    if (data == null) return false;
+
+    final req = PendingRequest.fromJson(data);
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    // Execute the actual action
+    try {
+      if (req.requestType == 'delete') {
+        await deleteItemById(req.itemId);
+      } else if (req.requestType == 'reduce_stock') {
+        final ok = await reduceStock(
+          itemId: req.itemId,
+          itemName: req.itemName,
+          quantity: req.quantity ?? 0,
+          reason: req.reason ?? 'Admin-approved stock reduction',
+        );
+        if (!ok) return false;
+      }
+    } catch (_) {
+      return false;
+    }
+
+    // Mark as approved
+    await _supabase
+        .from('pending_requests')
+        .update({'status': 'approved', 'reviewed_by': _uid, 'reviewed_at': now})
+        .eq('id', requestId);
+
+    _changes.add('pending_request_approved');
+    return true;
+  }
+
+  /// Reject a pending request — no action taken, just marks status.
+  Future<bool> rejectRequest(int requestId) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    final result = await _supabase
+        .from('pending_requests')
+        .update({'status': 'rejected', 'reviewed_by': _uid, 'reviewed_at': now})
+        .eq('id', requestId)
+        .eq('status', 'pending');
+
+    if (result == null) return false;
+    _changes.add('pending_request_rejected');
+    return true;
+  }
+
+  // ── Bulk Data Operations ─────────────────────────────────────────────────
 
   Future<void> clearAllData() async {
     await _supabase.from('member_transactions').delete().neq('id', 0);

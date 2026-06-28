@@ -1,5 +1,7 @@
 // ...existing code...
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/theme.dart';
 
@@ -158,18 +160,37 @@ class _EditProductDialogState extends State<EditProductDialog> {
     }
 
     if (reduceAmount > 0 && currentStock >= reduceAmount) {
-      final ok = await repository.reduceStock(
-        itemId: id,
-        itemName: row.name,
-        quantity: reduceAmount,
-        reason: reason,
-      );
-      if (!ok) {
+      final role = context.read<AuthState>().userRole;
+      final needsApproval = role == UserRole.inventory;
+
+      if (needsApproval) {
+        await repository.submitPendingRequest(
+          itemId: id,
+          itemName: row.name,
+          requestType: 'reduce_stock',
+          quantity: reduceAmount,
+          reason: reason,
+        );
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Failed to reduce stock')));
-        return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Stock reduction request sent to admin for approval'),
+          ),
+        );
+      } else {
+        final ok = await repository.reduceStock(
+          itemId: id,
+          itemName: row.name,
+          quantity: reduceAmount,
+          reason: reason,
+        );
+        if (!ok) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to reduce stock')),
+          );
+          return;
+        }
       }
     }
 

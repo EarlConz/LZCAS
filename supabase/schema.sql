@@ -6,6 +6,7 @@ drop table if exists public.borrows cascade;
 drop table if exists public.stock_movements cascade;
 drop table if exists public.items cascade;
 drop table if exists public.members cascade;
+drop table if exists public.pending_requests cascade;
 drop table if exists public.reseller_levels cascade;
 
 -- Profiles: create only if missing — never drop (preserves admin users)
@@ -82,6 +83,20 @@ create table public.stock_movements (
   created_at timestamptz not null default now()
 );
 
+create table public.pending_requests (
+  id bigint generated always as identity primary key,
+  user_id uuid not null,
+  item_id bigint not null,
+  item_name text not null,
+  request_type text not null,         -- 'delete' or 'reduce_stock'
+  quantity integer,                   -- only for reduce_stock
+  reason text,                        -- only for reduce_stock
+  status text not null default 'pending', -- pending, approved, rejected
+  reviewed_by uuid,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create table public.reseller_levels (
   level integer not null, user_id uuid not null,
   remittance_min integer not null default 0,
@@ -115,6 +130,7 @@ alter table public.sales disable row level security;
 alter table public.borrows disable row level security;
 alter table public.stock_movements disable row level security;
 alter table public.member_transactions disable row level security;
+alter table public.pending_requests disable row level security;
 alter table public.reseller_levels disable row level security;
 
 -- ── First admin setup (run once manually) ────────────────────────
