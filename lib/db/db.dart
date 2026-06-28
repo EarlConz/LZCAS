@@ -10,6 +10,7 @@ export '../data/models.dart'
         Sale,
         Borrow,
         StockMovement,
+        PendingRequest,
         ResellerLevel,
         MemberTransactionEntry,
         inventoryItemsFromRows,

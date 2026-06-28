@@ -3,6 +3,7 @@
 // The admin role passes every role assertion and can access every tab
 // from every dashboard (admin, inventory, and cashier).
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -1910,7 +1911,7 @@ class _AdminMembersPage extends StatelessWidget {
   }
 }
 
-// ─── Admin · Delete Request Management — review requests from Cashiers ─────
+// ─── Admin · Pending Requests — review deletion/reduction requests ─────────
 
 class _AdminDeleteRequestTab extends StatefulWidget {
   const _AdminDeleteRequestTab();
@@ -1920,12 +1921,82 @@ class _AdminDeleteRequestTab extends StatefulWidget {
 }
 
 class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
-  // Placeholder list — in production, fetch from API/repository.
-  final List<Map<String, String>> _pendingRequests = [];
+  List<PendingRequest> _pendingRequests = [];
+  bool _loading = true;
+  StreamSubscription<String>? _changeSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRequests();
+    _changeSub = repository.changes.listen((event) {
+      if (event == 'pending_request_added' ||
+          event == 'pending_request_approved' ||
+          event == 'pending_request_rejected') {
+        _loadRequests();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _changeSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadRequests() async {
+    try {
+      final requests = await repository.fetchPendingRequests();
+      if (!mounted) return;
+      setState(() {
+        _pendingRequests = requests;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _approve(PendingRequest req) async {
+    if (req.id == null) return;
+    final ok = await repository.approveRequest(req.id!);
+    if (!mounted) return;
+    if (ok) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${req.summary} — approved')));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to approve ${req.summary}')),
+      );
+    }
+    _loadRequests();
+  }
+
+  Future<void> _reject(PendingRequest req) async {
+    if (req.id == null) return;
+    final ok = await repository.rejectRequest(req.id!);
+    if (!mounted) return;
+    if (ok) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${req.summary} — rejected')));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to reject ${req.summary}')),
+      );
+    }
+    _loadRequests();
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
     if (_pendingRequests.isEmpty) {
       return Center(
@@ -1933,13 +2004,13 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.person_remove_rounded,
+              Icons.pending_actions_rounded,
               size: 48,
-              color: StockpileColors.error500,
+              color: StockpileColors.success,
             ),
             const SizedBox(height: 12),
             Text(
-              'No Pending Deletion Requests',
+              'No Pending Requests',
               style: StockpileFonts.satoshi(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -1950,8 +2021,8 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Member deletion requests submitted by cashiers will appear here '
-              'for your review and approval.',
+              'Deletion and stock reduction requests submitted by inventory '
+              'staff will appear here for your review and approval.',
               textAlign: TextAlign.center,
               style: StockpileFonts.satoshi(
                 fontSize: 13,
@@ -1969,19 +2040,41 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
       padding: const EdgeInsets.all(16),
       itemCount: _pendingRequests.length,
       itemBuilder: (context, index) {
-        final request = _pendingRequests[index];
+        final req = _pendingRequests[index];
+        final isDelete = req.requestType == 'delete';
+        final icon = isDelete
+            ? Icons.delete_forever_rounded
+            : Icons.arrow_downward_rounded;
+        final iconColor = isDelete
+            ? StockpileColors.error500
+            : Colors.orange.shade700;
+
+        String subtitle = req.itemName;
+        if (req.requestType == 'reduce_stock' && req.quantity != null) {
+          subtitle = 'Reduce "${req.itemName}" by ${req.quantity}';
+          if (req.reason != null && req.reason!.isNotEmpty) {
+            subtitle += ' — ${req.reason}';
+          }
+        }
+        if (req.createdAt != null) {
+          subtitle += '\nSubmitted ${_formatDate(req.createdAt!)}';
+        }
+
         return Card(
           margin: const EdgeInsets.only(bottom: 8),
           child: ListTile(
             leading: CircleAvatar(
-              backgroundColor: StockpileColors.error100,
-              child: const Icon(
-                Icons.person_remove_rounded,
-                color: StockpileColors.error500,
-              ),
+              backgroundColor: isDelete
+                  ? StockpileColors.error100
+                  : Colors.orange.shade100,
+              child: Icon(icon, color: iconColor),
             ),
-            title: Text(request['memberName'] ?? 'Unknown'),
-            subtitle: Text(request['reason'] ?? ''),
+            title: Text(
+              isDelete ? 'Delete "${req.itemName}"' : 'Reduce Stock',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(subtitle),
+            isThreeLine: true,
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1991,9 +2084,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                     color: StockpileColors.success,
                   ),
                   tooltip: 'Approve',
-                  onPressed: () {
-                    // TODO: approve deletion
-                  },
+                  onPressed: () => _approve(req),
                 ),
                 IconButton(
                   icon: const Icon(
@@ -2001,9 +2092,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                     color: StockpileColors.error500,
                   ),
                   tooltip: 'Reject',
-                  onPressed: () {
-                    // TODO: reject deletion
-                  },
+                  onPressed: () => _reject(req),
                 ),
               ],
             ),
@@ -2011,6 +2100,17 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         );
       },
     );
+  }
+
+  String _formatDate(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
+        '${dt.day.toString().padLeft(2, '0')}';
   }
 }
 
