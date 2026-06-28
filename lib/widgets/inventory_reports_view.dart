@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/db/db.dart';
 
 /// Shared read-only reports view showing stock movement history.
@@ -73,6 +74,9 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           .gte('timestamp', start)
           .lt('timestamp', end);
       final membersData = await supabase.from('members').select();
+      final profilesData = await supabase
+          .from('profiles')
+          .select('id, username');
       final stockRaw = await supabase
           .from('stock_movements')
           .select()
@@ -88,6 +92,14 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
       final members = (membersData as List)
           .map((j) => Member.fromJson(j as Map<String, dynamic>))
           .toList();
+      final profiles = Map<String, String>.fromEntries(
+        (profilesData as List).map(
+          (p) => MapEntry(
+            p['id'] as String,
+            p['username'] as String? ?? 'Unknown',
+          ),
+        ),
+      );
       final stockMovements = (stockRaw as List)
           .map((j) => StockMovement.fromJson(j as Map<String, dynamic>))
           .toList();
@@ -107,13 +119,27 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           stockIn += sm.quantity;
         else
           stockOut += sm.quantity;
+
+        String userLabel = '';
+        String? reasonLabel;
+        if (!isNewProduct) {
+          reasonLabel = sm.reason;
+          // For stock out, show who requested it instead of the reason
+          if (!isIn && sm.userId != null) {
+            userLabel = profiles[sm.userId] ?? 'Unknown';
+          } else {
+            userLabel = sm.reason ?? '';
+          }
+        }
+
         movements.add({
           'type': isNewProduct
               ? 'New Product'
               : (isIn ? 'Stock In' : 'Stock Out'),
           'item': sm.itemName,
           'qty': sm.quantity,
-          'user': isNewProduct ? '' : (sm.reason ?? ''),
+          'user': userLabel,
+          'reason': reasonLabel,
           'date': sm.createdAt ?? now,
           'isOverdue': false,
           'remaining': 0,
@@ -223,6 +249,10 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
   String _formatDate(DateTime dt) {
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}'
         '-${dt.day.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDateTime(DateTime dt) {
+    return formatDisplayDate(dt);
   }
 
   @override
@@ -536,31 +566,69 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                       subtitle: Text(
-                        m['user'] != null && (m['user'] as String).isNotEmpty
-                            ? '${m['type']} · ${m['user']} · ${_formatDate(m['date'] as DateTime)}'
-                            : '${m['type']} · ${_formatDate(m['date'] as DateTime)}',
+                        (m['user'] as String?)?.isNotEmpty == true
+                            ? '${m['type']} · ${m['user']} · ${_formatDateTime(m['date'] as DateTime)}'
+                            : '${m['type']} · ${_formatDateTime(m['date'] as DateTime)}',
                         style: const TextStyle(fontSize: 12),
                       ),
-                      trailing: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           if (isOverdue)
-                            const Text(
-                              'OVERDUE',
-                              style: TextStyle(
-                                color: StockpileColors.error500,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
+                            const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: Text(
+                                'OVERDUE',
+                                style: TextStyle(
+                                  color: StockpileColors.error500,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           if ((m['remaining'] as int) > 0)
-                            Text(
-                              '${m['remaining']} left',
-                              style: TextStyle(
-                                color: Colors.orange.shade700,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Text(
+                                '${m['remaining']} left',
+                                style: TextStyle(
+                                  color: Colors.orange.shade700,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          if ((m['reason'] as String?)?.isNotEmpty == true)
+                            Tooltip(
+                              message: m['reason'] as String,
+                              child: GestureDetector(
+                                onTap: () => showDialog<void>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Reason'),
+                                    content: Text(m['reason'] as String),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: const Text('OK'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                child: Container(
+                                  width: 24,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: StockpileColors.mutedText.withAlpha(
+                                      30,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.info_outline,
+                                    size: 16,
+                                  ),
+                                ),
                               ),
                             ),
                         ],

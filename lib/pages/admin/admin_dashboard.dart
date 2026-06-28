@@ -1922,6 +1922,11 @@ class _AdminDeleteRequestTab extends StatefulWidget {
 
 class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   List<PendingRequest> _pendingRequests = [];
+  List<PendingRequest> _historyRequests = [];
+  Map<String, String> _profiles = {};
+  bool _showHistory = false;
+  String _historyFilter = 'all'; // all, approved, rejected
+  String _historyTypeFilter = 'all'; // all, delete, reduce
   bool _loading = true;
   StreamSubscription<String>? _changeSub;
 
@@ -1947,9 +1952,27 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   Future<void> _loadRequests() async {
     try {
       final requests = await repository.fetchPendingRequests();
+      final profiles = await repository.fetchProfilesMap();
       if (!mounted) return;
       setState(() {
         _pendingRequests = requests;
+        _profiles = profiles;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final all = await repository.fetchAllRequests();
+      final profiles = await repository.fetchProfilesMap();
+      if (!mounted) return;
+      setState(() {
+        _historyRequests = all;
+        _profiles = profiles;
         _loading = false;
       });
     } catch (e) {
@@ -2020,112 +2043,437 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_pendingRequests.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    // Show history view
+    if (_showHistory) {
+      if (_historyRequests.isEmpty) {
+        return Column(
           children: [
-            Icon(
-              Icons.pending_actions_rounded,
-              size: 48,
-              color: StockpileColors.success,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'No Pending Requests',
-              style: StockpileFonts.satoshi(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: isDark
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(
+                children: [
+                  _ToggleChip(
+                    label: 'Pending',
+                    count: _pendingRequests.length,
+                    isSelected: false,
+                    onTap: () => setState(() {
+                      _showHistory = false;
+                      _loading = true;
+                      _loadRequests();
+                    }),
+                  ),
+                  const SizedBox(width: 8),
+                  _ToggleChip(label: 'History', isSelected: true, onTap: () {}),
+                ],
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Deletion and stock reduction requests submitted by inventory '
-              'staff will appear here for your review and approval.',
-              textAlign: TextAlign.center,
-              style: StockpileFonts.satoshi(
-                fontSize: 13,
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.history_rounded,
+                      size: 48,
+                      color: StockpileColors.success,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No history yet',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? StockpileColors.darkTextPrimary
+                            : StockpileColors.darkText,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Approved and rejected requests will appear here.',
+                      textAlign: TextAlign.center,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 13,
+                        color: isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
-        ),
+        );
+      }
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
+              children: [
+                _ToggleChip(
+                  label: 'Pending',
+                  count: _pendingRequests.length,
+                  isSelected: false,
+                  onTap: () => setState(() {
+                    _showHistory = false;
+                    _loading = true;
+                    _loadRequests();
+                  }),
+                ),
+                const SizedBox(width: 8),
+                _ToggleChip(label: 'History', isSelected: true, onTap: () {}),
+              ],
+            ),
+          ),
+          _buildHistoryFilterRow(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: _loadHistory,
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                itemCount: _filteredHistory.length,
+                itemBuilder: (context, index) =>
+                    _buildHistoryCard(_filteredHistory[index], isDark, theme),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _pendingRequests.length,
-      itemBuilder: (context, index) {
-        final req = _pendingRequests[index];
-        final isDelete = req.requestType == 'delete';
-        final icon = isDelete
-            ? Icons.delete_forever_rounded
-            : Icons.arrow_downward_rounded;
-        final iconColor = isDelete
-            ? StockpileColors.error500
-            : Colors.orange.shade700;
-
-        String subtitle = req.itemName;
-        if (req.requestType == 'reduce_stock' && req.quantity != null) {
-          subtitle = 'Reduce "${req.itemName}" by ${req.quantity}';
-          if (req.reason != null && req.reason!.isNotEmpty) {
-            subtitle += ' — ${req.reason}';
-          }
-        }
-        if (req.createdAt != null) {
-          subtitle += '\nSubmitted ${_formatDate(req.createdAt!)}';
-        }
-
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: isDelete
-                  ? StockpileColors.error100
-                  : Colors.orange.shade100,
-              child: Icon(icon, color: iconColor),
-            ),
-            title: Text(
-              isDelete ? 'Delete "${req.itemName}"' : 'Reduce Stock',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Text(subtitle),
-            isThreeLine: true,
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
+    // Pending view
+    if (_pendingRequests.isEmpty) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
               children: [
-                IconButton(
-                  icon: const Icon(
-                    Icons.check_circle_outline,
-                    color: StockpileColors.success,
-                  ),
-                  tooltip: 'Approve',
-                  onPressed: () => _approve(req),
+                _ToggleChip(
+                  label: 'Pending',
+                  count: 0,
+                  isSelected: true,
+                  onTap: () {},
                 ),
-                IconButton(
-                  icon: const Icon(
-                    Icons.cancel_outlined,
-                    color: StockpileColors.error500,
-                  ),
-                  tooltip: 'Reject',
-                  onPressed: () => _reject(req),
+                const SizedBox(width: 8),
+                _ToggleChip(
+                  label: 'History',
+                  isSelected: false,
+                  onTap: () => setState(() {
+                    _showHistory = true;
+                    _loading = true;
+                    _loadHistory();
+                  }),
                 ),
               ],
             ),
           ),
-        );
-      },
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.pending_actions_rounded,
+                    size: 48,
+                    color: StockpileColors.success,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No Pending Requests',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: isDark
+                          ? StockpileColors.darkTextPrimary
+                          : StockpileColors.darkText,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Deletion and stock reduction requests submitted by inventory '
+                    'staff will appear here for your review and approval.',
+                    textAlign: TextAlign.center,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 13,
+                      color: isDark
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        // Toggle row
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(
+            children: [
+              _ToggleChip(
+                label: 'Pending',
+                count: _pendingRequests.length,
+                isSelected: true,
+                onTap: () {},
+              ),
+              const SizedBox(width: 8),
+              _ToggleChip(
+                label: 'History',
+                isSelected: false,
+                onTap: () => setState(() {
+                  _showHistory = true;
+                  _loading = true;
+                  _loadHistory();
+                }),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            itemCount: _pendingRequests.length,
+            itemBuilder: (context, index) {
+              final req = _pendingRequests[index];
+              final isDelete = req.requestType == 'delete';
+              final icon = isDelete
+                  ? Icons.delete_forever_rounded
+                  : Icons.arrow_downward_rounded;
+              final iconColor = isDelete
+                  ? StockpileColors.error500
+                  : Colors.orange.shade700;
+
+              String subtitle = req.itemName;
+              if (req.requestType == 'reduce_stock' && req.quantity != null) {
+                subtitle = 'Reduce "${req.itemName}" by ${req.quantity}';
+                if (req.reason != null && req.reason!.isNotEmpty) {
+                  subtitle += ' — ${req.reason}';
+                }
+              }
+              if (req.createdAt != null) {
+                subtitle += '\nSubmitted ${_formatDate(req.createdAt!)}';
+              }
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: isDelete
+                        ? StockpileColors.error100
+                        : Colors.orange.shade100,
+                    child: Icon(icon, color: iconColor),
+                  ),
+                  title: Text(
+                    isDelete ? 'Delete "${req.itemName}"' : 'Reduce Stock',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(subtitle),
+                  isThreeLine: true,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.check_circle_outline,
+                          color: StockpileColors.success,
+                        ),
+                        tooltip: 'Approve',
+                        onPressed: () => _approve(req),
+                      ),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.cancel_outlined,
+                          color: StockpileColors.error500,
+                        ),
+                        tooltip: 'Reject',
+                        onPressed: () => _reject(req),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<PendingRequest> get _filteredHistory {
+    return _historyRequests.where((r) {
+      if (_historyFilter != 'all' && r.status != _historyFilter) return false;
+      if (_historyTypeFilter != 'all' && r.requestType != _historyTypeFilter)
+        return false;
+      return true;
+    }).toList();
+  }
+
+  Widget _buildHistoryFilterRow() {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Status filter row
+          Row(
+            children: [
+              SizedBox(
+                width: 52,
+                child: Text(
+                  'Status',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface.withAlpha(180),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    _FilterChip(
+                      label: 'All',
+                      isSelected: _historyFilter == 'all',
+                      onTap: () => setState(() => _historyFilter = 'all'),
+                    ),
+                    _FilterChip(
+                      label: 'Approved',
+                      isSelected: _historyFilter == 'approved',
+                      onTap: () => setState(() => _historyFilter = 'approved'),
+                    ),
+                    _FilterChip(
+                      label: 'Rejected',
+                      isSelected: _historyFilter == 'rejected',
+                      onTap: () => setState(() => _historyFilter = 'rejected'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          // Action filter row
+          Row(
+            children: [
+              SizedBox(
+                width: 52,
+                child: Text(
+                  'Action',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface.withAlpha(180),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    _FilterChip(
+                      label: 'All',
+                      isSelected: _historyTypeFilter == 'all',
+                      onTap: () => setState(() => _historyTypeFilter = 'all'),
+                    ),
+                    _FilterChip(
+                      label: 'Delete',
+                      isSelected: _historyTypeFilter == 'delete',
+                      onTap: () =>
+                          setState(() => _historyTypeFilter = 'delete'),
+                    ),
+                    _FilterChip(
+                      label: 'Reduce',
+                      isSelected: _historyTypeFilter == 'reduce_stock',
+                      onTap: () =>
+                          setState(() => _historyTypeFilter = 'reduce_stock'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryCard(PendingRequest req, bool isDark, ThemeData theme) {
+    final isApproved = req.status == 'approved';
+    final statusColor = isApproved
+        ? StockpileColors.success
+        : StockpileColors.error500;
+    final statusBg = isApproved
+        ? StockpileColors.success.withAlpha(25)
+        : StockpileColors.error100;
+    final statusIcon = isApproved
+        ? Icons.check_circle_rounded
+        : Icons.cancel_rounded;
+    final submitter = _profiles[req.userId] ?? 'Unknown';
+    final reviewer = req.reviewedBy != null
+        ? _profiles[req.reviewedBy] ?? 'Unknown'
+        : null;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: statusBg,
+          child: Icon(statusIcon, color: statusColor),
+        ),
+        title: Text(
+          req.itemName,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(req.summary, style: const TextStyle(fontSize: 12)),
+            Text(
+              'By $submitter'
+              '${reviewer != null ? ' · Reviewed by $reviewer' : ''}'
+              '${req.createdAt != null ? ' · ${_formatDate(req.createdAt!)}' : ''}',
+              style: TextStyle(
+                fontSize: 11,
+                color: theme.colorScheme.onSurface.withAlpha(150),
+              ),
+            ),
+          ],
+        ),
+        isThreeLine: true,
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: statusBg,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            isApproved ? 'Approved' : 'Rejected',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: statusColor,
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -2138,6 +2486,128 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     if (diff.inDays < 7) return '${diff.inDays}d ago';
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
         '${dt.day.toString().padLeft(2, '0')}';
+  }
+}
+
+/// Toggle chip for Pending | History tab bar.
+class _ToggleChip extends StatelessWidget {
+  final String label;
+  final int? count;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _ToggleChip({
+    required this.label,
+    this.count,
+    required this.isSelected,
+    required this.onTap,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? theme.colorScheme.primary
+              : theme.colorScheme.surfaceContainerHighest.withAlpha(80),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected
+                ? theme.colorScheme.primary
+                : theme.dividerColor.withAlpha(120),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: isSelected
+                    ? theme.colorScheme.onPrimary
+                    : theme.colorScheme.onSurface,
+              ),
+            ),
+            if (count != null) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? theme.colorScheme.onPrimary.withAlpha(40)
+                      : theme.colorScheme.primary.withAlpha(25),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  count.toString(),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: isSelected
+                        ? theme.colorScheme.onPrimary
+                        : theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Small filter chip for history view.
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? theme.colorScheme.primary
+              : theme.colorScheme.surfaceContainerHighest.withAlpha(80),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected
+                ? theme.colorScheme.primary
+                : theme.dividerColor.withAlpha(120),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isSelected
+                ? theme.colorScheme.onPrimary
+                : theme.colorScheme.onSurface,
+          ),
+        ),
+      ),
+    );
   }
 }
 

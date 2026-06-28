@@ -402,6 +402,8 @@ class SupabaseRepository {
     required String itemName,
     required int quantity,
     required String reason,
+    String?
+    overriddenUserId, // if set, uses this user_id for audit instead of _uid
   }) async {
     final item = await getItemById(itemId);
     if (item == null) return false;
@@ -416,7 +418,7 @@ class SupabaseRepository {
     await updateItem(updated);
 
     await _supabase.from('stock_movements').insert({
-      'user_id': _uid,
+      'user_id': overriddenUserId ?? _uid,
       'item_id': itemId,
       'item_name': itemName,
       'quantity': quantity,
@@ -756,6 +758,26 @@ class SupabaseRepository {
     return (data as List).map((j) => PendingRequest.fromJson(j)).toList();
   }
 
+  /// Fetch all requests (pending, approved, and rejected) for history view.
+  Future<List<PendingRequest>> fetchAllRequests() async {
+    final data = await _supabase
+        .from('pending_requests')
+        .select()
+        .order('created_at', ascending: false);
+    return (data as List).map((j) => PendingRequest.fromJson(j)).toList();
+  }
+
+  /// Fetch a map of userId → username from profiles table.
+  Future<Map<String, String>> fetchProfilesMap() async {
+    final data = await _supabase.from('profiles').select('id, username');
+    return Map<String, String>.fromEntries(
+      (data as List).map(
+        (p) =>
+            MapEntry(p['id'] as String, p['username'] as String? ?? 'Unknown'),
+      ),
+    );
+  }
+
   /// Approve a pending request — executes the actual action (delete or reduce).
   Future<bool> approveRequest(int requestId) async {
     final data = await _supabase
@@ -779,6 +801,7 @@ class SupabaseRepository {
           itemName: req.itemName,
           quantity: req.quantity ?? 0,
           reason: req.reason ?? 'Admin-approved stock reduction',
+          overriddenUserId: req.userId, // credit the original requester
         );
         if (!ok) return false;
       }
@@ -800,13 +823,12 @@ class SupabaseRepository {
   Future<bool> rejectRequest(int requestId) async {
     final now = DateTime.now().toUtc().toIso8601String();
 
-    final result = await _supabase
+    await _supabase
         .from('pending_requests')
         .update({'status': 'rejected', 'reviewed_by': _uid, 'reviewed_at': now})
         .eq('id', requestId)
         .eq('status', 'pending');
 
-    if (result == null) return false;
     _changes.add('pending_request_rejected');
     return true;
   }
