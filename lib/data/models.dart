@@ -370,6 +370,105 @@ class StockMovement {
   };
 }
 
+/// A pending request submitted by an inventory user for admin approval
+/// (product deletion or stock reduction).
+class PendingRequest {
+  final int? id;
+  final String? userId;
+  final int itemId;
+  final String itemName;
+  final String requestType; // 'delete' or 'reduce_stock'
+  final int? quantity; // only for reduce_stock
+  final String? reason; // only for reduce_stock
+  final String status; // 'pending', 'approved', 'rejected'
+  final String? reviewedBy;
+  final DateTime? reviewedAt;
+  final DateTime? createdAt;
+
+  const PendingRequest({
+    this.id,
+    this.userId,
+    required this.itemId,
+    required this.itemName,
+    required this.requestType,
+    this.quantity,
+    this.reason,
+    this.status = 'pending',
+    this.reviewedBy,
+    this.reviewedAt,
+    this.createdAt,
+  });
+
+  /// Whether the request is still awaiting admin action.
+  bool get isPending => status == 'pending';
+
+  /// Human-readable summary of the request.
+  String get summary {
+    if (requestType == 'delete') return 'Delete "$itemName"';
+    if (requestType == 'reduce_stock') {
+      return 'Reduce "$itemName" by ${quantity ?? 0}';
+    }
+    return '$requestType: $itemName';
+  }
+
+  factory PendingRequest.fromJson(Map<String, dynamic> json) => PendingRequest(
+    id: json['id'] as int?,
+    userId: json['user_id'] as String?,
+    itemId: json['item_id'] as int? ?? 0,
+    itemName: json['item_name'] as String? ?? '',
+    requestType: json['request_type'] as String? ?? 'delete',
+    quantity: json['quantity'] as int?,
+    reason: json['reason'] as String?,
+    status: json['status'] as String? ?? 'pending',
+    reviewedBy: json['reviewed_by'] as String?,
+    reviewedAt: json['reviewed_at'] != null
+        ? DateTime.tryParse(json['reviewed_at'].toString())
+        : null,
+    createdAt: json['created_at'] != null
+        ? DateTime.tryParse(json['created_at'].toString())
+        : null,
+  );
+
+  Map<String, dynamic> toJson() => {
+    if (userId != null) 'user_id': userId,
+    'item_id': itemId,
+    'item_name': itemName,
+    'request_type': requestType,
+    if (quantity != null) 'quantity': quantity,
+    if (reason != null) 'reason': reason,
+    'status': status,
+    if (reviewedBy != null) 'reviewed_by': reviewedBy,
+    if (reviewedAt != null) 'reviewed_at': reviewedAt!.toIso8601String(),
+    if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+  };
+
+  PendingRequest copyWith({
+    int? id,
+    String? userId,
+    int? itemId,
+    String? itemName,
+    String? requestType,
+    int? quantity,
+    String? reason,
+    String? status,
+    String? reviewedBy,
+    DateTime? reviewedAt,
+    DateTime? createdAt,
+  }) => PendingRequest(
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    itemId: itemId ?? this.itemId,
+    itemName: itemName ?? this.itemName,
+    requestType: requestType ?? this.requestType,
+    quantity: quantity ?? this.quantity,
+    reason: reason ?? this.reason,
+    status: status ?? this.status,
+    reviewedBy: reviewedBy ?? this.reviewedBy,
+    reviewedAt: reviewedAt ?? this.reviewedAt,
+    createdAt: createdAt ?? this.createdAt,
+  );
+}
+
 /// User profile linked to Supabase Auth.
 class UserProfile {
   final String id; // matches auth.users.id (UUID)

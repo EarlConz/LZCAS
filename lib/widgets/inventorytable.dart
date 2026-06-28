@@ -1,6 +1,8 @@
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/buttons/inventoryfilterbutton.dart';
 import 'package:lzcas/widgets/search.dart';
@@ -494,12 +496,18 @@ class _InventoryTableState extends State<InventoryTable> {
     final id = item['id'] as int?;
     if (id == null) return;
 
+    // Check if current user is inventory (needs admin approval)
+    final role = context.read<AuthState>().userRole;
+    final needsApproval = role == UserRole.inventory;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete product'),
-        content: const Text(
-          'Are you sure you want to delete this product? This action cannot be undone.',
+        title: Text(needsApproval ? 'Request deletion' : 'Delete product'),
+        content: Text(
+          needsApproval
+              ? 'This will send a deletion request to an admin for approval. The product "${item['name']}" will not be deleted until approved.'
+              : 'Are you sure you want to delete this product? This action cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -508,7 +516,10 @@ class _InventoryTableState extends State<InventoryTable> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: needsApproval ? Colors.orange.shade700 : null,
+            ),
+            child: Text(needsApproval ? 'Send Request' : 'Delete'),
           ),
         ],
       ),
@@ -516,13 +527,27 @@ class _InventoryTableState extends State<InventoryTable> {
 
     if (confirm != true) return;
 
-    await repository.deleteItemById(id);
-    await repository.fetchItems();
-    _onUpdate(item);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Product deleted')));
+    if (needsApproval) {
+      await repository.submitPendingRequest(
+        itemId: id,
+        itemName: item['name']?.toString() ?? '',
+        requestType: 'delete',
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Deletion request sent to admin for approval'),
+        ),
+      );
+    } else {
+      await repository.deleteItemById(id);
+      await repository.fetchItems();
+      _onUpdate(item);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Product deleted')));
+    }
   }
 
   @override
