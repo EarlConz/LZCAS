@@ -95,9 +95,12 @@ create table public.pending_requests (
   item_name text,                      -- nullable: NULL for member requests
   member_id bigint,                    -- for delete_member requests
   member_name text,                    -- stored name (survives deletion)
-  request_type text not null,          -- 'delete', 'reduce_stock', 'delete_member'
-  quantity integer,                    -- only for reduce_stock
+  request_type text not null,          -- 'delete', 'reduce_stock', 'delete_member', 'borrow'
+  quantity integer,                    -- for reduce_stock / borrow
+  price integer,                       -- for borrow: price per item
+  notes text,                          -- for borrow: optional notes
   reason text,                         -- reason for the request
+  rejection_reason text,               -- admin's reason when rejecting
   status text not null default 'pending', -- pending, approved, rejected
   reviewed_by uuid,
   reviewed_at timestamptz,

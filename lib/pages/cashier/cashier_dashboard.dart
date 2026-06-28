@@ -5,6 +5,7 @@
 //   2. Members — Read-only member lookup.
 //   3. Request Member Deletion — POST-based deletion request for Admin approval.
 //   4. Request Borrow Stock — POST-based borrow stock request for review.
+//   5. My Requests — Track status of submitted deletion and borrow requests.
 // Cashier role CANNOT see: inventory CRUD, reports, admin panels, or user mgmt.
 
 import 'package:flutter/material.dart';
@@ -33,7 +34,7 @@ class _CashierDashboardState extends State<CashierDashboard>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -161,6 +162,16 @@ class _CashierDashboardState extends State<CashierDashboard>
                       ],
                     ),
                   ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.history_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text('My Requests'),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -181,6 +192,9 @@ class _CashierDashboardState extends State<CashierDashboard>
 
                   // Tab 4: Request Borrow Stock
                   _BorrowStockTab(isDark: isDark),
+
+                  // Tab 5: My Requests
+                  _MyRequestsTab(isDark: isDark),
                 ],
               ),
             ),
@@ -708,6 +722,12 @@ class _BorrowStockTabState extends State<_BorrowStockTab> {
   List<Member> _members = [];
   bool _loading = true;
 
+  static const _amber = Color(0xFFF59E0B);
+  static const _emerald = Color(0xFF10B981);
+  static const _rose = Color(0xFFEF4444);
+  static const _slate = Color(0xFF64748B);
+  static const _indigo = Color(0xFF6366F1);
+
   @override
   void initState() {
     super.initState();
@@ -739,174 +759,407 @@ class _BorrowStockTabState extends State<_BorrowStockTab> {
     return '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+  int get _overdueCount =>
+      _borrows.where((b) => b.isOverdue && b.outstandingQuantity > 0).length;
 
-    if (_borrows.isEmpty) {
-      return Center(
+  int get _activeCount => _borrows.length - _overdueCount;
+
+  int get _totalOutstanding =>
+      _borrows.fold(0, (s, b) => s + b.outstandingQuantity);
+
+  String _formatDue(DateTime dt) {
+    final now = DateTime.now();
+    final diff = dt.difference(now);
+    if (diff.isNegative) return 'Overdue';
+    if (diff.inDays == 0) return 'Today';
+    if (diff.inDays == 1) return 'Tomorrow';
+    if (diff.inDays < 7) return '${diff.inDays}d left';
+    return '${dt.day}/${dt.month}/${dt.year}';
+  }
+
+  // ── Stat pill ────────────────────────────────────────────────────
+  Widget _statPill(String label, int count, Color color, IconData icon) {
+    final isDark = widget.isDark;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: color.withAlpha(isDark ? 25 : 15),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withAlpha(isDark ? 60 : 40)),
+        ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.swap_horiz_rounded,
-              size: 48,
-              color: widget.isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'No Active Borrows',
-              style: StockpileFonts.satoshi(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: widget.isDark
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
-              ),
-            ),
+            Icon(icon, size: 18, color: color),
             const SizedBox(height: 4),
             Text(
-              'Borrow stock via the POS Terminal using the Borrow button.',
-              textAlign: TextAlign.center,
-              style: StockpileFonts.satoshi(
-                fontSize: 13,
-                color: widget.isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
+              '$count',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: color.withAlpha(200),
               ),
             ),
           ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: ListView.builder(
+  // ── Card builder ─────────────────────────────────────────────────
+  Widget _buildCard(Borrow b) {
+    final isDark = widget.isDark;
+    final isOverdue = b.isOverdue && b.outstandingQuantity > 0;
+    final accentColor = isOverdue ? _rose : _amber;
+    final memberName = b.memberName ?? _memberName(b.memberId);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isOverdue
+              ? _rose.withAlpha(isDark ? 50 : 30)
+              : (isDark ? Colors.white10 : Colors.grey.shade200),
+          width: isOverdue ? 1.5 : 1,
+        ),
+      ),
+      color: isOverdue
+          ? _rose.withAlpha(isDark ? 8 : 5)
+          : (isDark ? Colors.grey.shade900 : Colors.white),
+      child: Padding(
         padding: const EdgeInsets.all(16),
-        itemCount: _borrows.length,
-        itemBuilder: (context, index) {
-          final b = _borrows[index];
-          final memName = b.memberName ?? _memberName(b.memberId);
-          final overdue = b.isOverdue && b.outstandingQuantity > 0;
-
-          return Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(
-                color: overdue
-                    ? StockpileColors.error500.withAlpha(120)
-                    : Colors.transparent,
-                width: overdue ? 1.5 : 0,
-              ),
-            ),
-            color: overdue ? StockpileColors.error50.withAlpha(80) : null,
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 16,
-                    backgroundColor: overdue
-                        ? StockpileColors.error100
-                        : StockpileColors.secondary100,
-                    child: Icon(
-                      Icons.swap_horiz_rounded,
-                      size: 18,
-                      color: overdue
-                          ? StockpileColors.error500
-                          : StockpileColors.secondary700,
-                    ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Row 1: Avatar + item name + status
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: accentColor.withAlpha(isDark ? 30 : 20),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          b.itemName,
-                          style: StockpileFonts.satoshi(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: widget.isDark
-                                ? StockpileColors.darkTextPrimary
-                                : StockpileColors.darkText,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          memName,
-                          style: StockpileFonts.satoshi(
-                            fontSize: 12,
-                            color: widget.isDark
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Borrowed: ${b.quantity}  ·  '
-                          'Outstanding: ${b.outstandingQuantity}',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 12,
-                            color: widget.isDark
-                                ? StockpileColors.darkTextBody
-                                : StockpileColors.bodyText,
-                          ),
-                        ),
-                      ],
-                    ),
+                  child: Icon(
+                    Icons.swap_horiz_rounded,
+                    size: 22,
+                    color: accentColor,
                   ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: overdue
-                              ? StockpileColors.error500.withAlpha(30)
-                              : Colors.blue.withAlpha(30),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          overdue ? 'Overdue' : 'Active',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: overdue
-                                ? StockpileColors.error500
-                                : Colors.blue,
-                          ),
+                      Text(
+                        b.itemName,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? Colors.white
+                              : const Color(0xFF1E293B),
+                          height: 1.2,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text(
-                        'Due: ${b.dueDate.day}/${b.dueDate.month}/${b.dueDate.year}',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 11,
-                          color: overdue
-                              ? StockpileColors.error500
-                              : (widget.isDark
-                                    ? StockpileColors.darkTextMuted
-                                    : StockpileColors.mutedText),
+                        memberName,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.white54 : _slate,
                         ),
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isOverdue
+                        ? _rose.withAlpha(isDark ? 25 : 15)
+                        : _emerald.withAlpha(isDark ? 25 : 15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: (isOverdue ? _rose : _emerald).withAlpha(
+                        isDark ? 60 : 40,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isOverdue
+                            ? Icons.warning_rounded
+                            : Icons.check_circle_rounded,
+                        size: 13,
+                        color: isOverdue ? _rose : _emerald,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isOverdue ? 'Overdue' : 'Active',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isOverdue ? _rose : _emerald,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          );
-        },
+
+            // Progress / detail row
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                // Borrowed
+                _detailPill(
+                  icon: Icons.arrow_downward_rounded,
+                  label: 'Borrowed',
+                  value: '${b.quantity}',
+                  color: _indigo,
+                ),
+                const SizedBox(width: 8),
+                // Outstanding
+                _detailPill(
+                  icon: isOverdue
+                      ? Icons.warning_rounded
+                      : Icons.hourglass_empty_rounded,
+                  label: 'Outstanding',
+                  value: '${b.outstandingQuantity}',
+                  color: isOverdue ? _rose : _amber,
+                ),
+                const Spacer(),
+                // Due date
+                Icon(
+                  Icons.calendar_today_rounded,
+                  size: 12,
+                  color: isDark ? Colors.white24 : Colors.grey.shade400,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _formatDue(b.dueDate),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: isOverdue ? FontWeight.w700 : FontWeight.w500,
+                    color: isOverdue
+                        ? _rose
+                        : (isDark ? Colors.white38 : Colors.grey.shade500),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _detailPill({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    final isDark = widget.isDark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withAlpha(isDark ? 20 : 12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: color.withAlpha(180),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : CustomScrollView(
+              slivers: [
+                // ── Header ──────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Active Borrows',
+                                style: StockpileFonts.satoshi(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark
+                                      ? Colors.white
+                                      : const Color(0xFF1E293B),
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white10
+                                    : Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${_borrows.length} borrow${_borrows.length == 1 ? '' : 's'}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: _slate,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        // Stats row
+                        Row(
+                          children: [
+                            _statPill(
+                              'Active',
+                              _activeCount,
+                              _emerald,
+                              Icons.check_circle_rounded,
+                            ),
+                            const SizedBox(width: 8),
+                            _statPill(
+                              'Overdue',
+                              _overdueCount,
+                              _rose,
+                              Icons.warning_rounded,
+                            ),
+                            const SizedBox(width: 8),
+                            _statPill(
+                              'Outstanding',
+                              _totalOutstanding,
+                              _amber,
+                              Icons.hourglass_empty_rounded,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // ── Content ─────────────────────────────────────
+                if (_borrows.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withAlpha(15)
+                                  : Colors.grey.shade100,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.swap_horiz_rounded,
+                              size: 40,
+                              color: isDark
+                                  ? Colors.white24
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No Active Borrows',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: isDark
+                                  ? Colors.white38
+                                  : Colors.grey.shade500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Borrow stock via the POS Terminal\nusing the Borrow button.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? Colors.white.withAlpha(51)
+                                  : Colors.grey.shade400,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (_, i) => _buildCard(_borrows[i]),
+                        childCount: _borrows.length,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
     );
   }
 }
@@ -954,4 +1207,712 @@ class _LogoutButton extends StatelessWidget {
       },
     );
   }
+}
+
+// ─── Tab 5: My Requests ────────────────────────────────────────────────────
+
+class _MyRequestsTab extends StatefulWidget {
+  final bool isDark;
+  const _MyRequestsTab({required this.isDark});
+
+  @override
+  State<_MyRequestsTab> createState() => _MyRequestsTabState();
+}
+
+class _MyRequestsTabState extends State<_MyRequestsTab> {
+  List<PendingRequest> _requests = [];
+  bool _loading = true;
+  String _statusFilter = 'all';
+  String _typeFilter = 'all';
+  bool _newestFirst = true;
+
+  static const _orange = Color(0xFFF59E0B);
+  static const _emerald = Color(0xFF10B981);
+  static const _rose = Color(0xFFEF4444);
+  static const _slate = Color(0xFF64748B);
+  static const _indigo = Color(0xFF6366F1);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRequests();
+  }
+
+  Future<void> _loadRequests() async {
+    try {
+      final requests = await repository.fetchMyRequests();
+      if (!mounted) return;
+      setState(() {
+        _requests = requests;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  List<PendingRequest> get _filteredRequests {
+    return _requests.where((r) {
+      if (_statusFilter != 'all' && r.status != _statusFilter) return false;
+      if (_typeFilter != 'all' && r.requestType != _typeFilter) return false;
+      return true;
+    }).toList()..sort((a, b) {
+      final aTime = a.createdAt ?? DateTime(2000);
+      final bTime = b.createdAt ?? DateTime(2000);
+      return _newestFirst ? bTime.compareTo(aTime) : aTime.compareTo(bTime);
+    });
+  }
+
+  int _countBy(String status) =>
+      _requests.where((r) => r.status == status).length;
+
+  String _formatDate(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
+        '${dt.day.toString().padLeft(2, '0')}';
+  }
+
+  // ── Stat pill (compact count card) ───────────────────────────────
+  Widget _statPill(String label, int count, Color color, IconData icon) {
+    final selected = _statusFilter == label.toLowerCase();
+    final isDark = widget.isDark;
+    final bg = selected
+        ? color
+        : (isDark ? Colors.white10 : Colors.grey.shade50);
+    final fg = selected
+        ? Colors.white
+        : isDark
+        ? Colors.white70
+        : _slate;
+    final borderColor = selected
+        ? color
+        : (isDark ? Colors.white12 : Colors.grey.shade200);
+
+    return GestureDetector(
+      onTap: () => setState(() => _statusFilter = label.toLowerCase()),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor, width: 1),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: color.withAlpha(40),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 18, color: fg),
+            const SizedBox(height: 4),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: fg,
+              ),
+            ),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: fg.withAlpha(200),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Segmented status filter ──────────────────────────────────────
+  Widget _segmentedFilter() {
+    final isDark = widget.isDark;
+    final items = [
+      _FilterSegment('All', 'all', Icons.inbox_rounded, _requests.length),
+      _FilterSegment(
+        'Pending',
+        'pending',
+        Icons.hourglass_empty_rounded,
+        _countBy('pending'),
+      ),
+      _FilterSegment(
+        'Approved',
+        'approved',
+        Icons.check_circle_rounded,
+        _countBy('approved'),
+      ),
+      _FilterSegment(
+        'Rejected',
+        'rejected',
+        Icons.cancel_rounded,
+        _countBy('rejected'),
+      ),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withAlpha(20) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: items.map((item) {
+          final selected = _statusFilter == item.value;
+          final bgColor = selected
+              ? (isDark ? Colors.grey.shade800 : Colors.white)
+              : Colors.transparent;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _statusFilter = item.value),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(11),
+                  boxShadow: selected
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withAlpha(isDark ? 30 : 10),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      item.icon,
+                      size: 16,
+                      color: selected ? _indigo : _slate,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${item.count}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: selected
+                            ? (isDark ? Colors.white : _indigo)
+                            : _slate,
+                      ),
+                    ),
+                    Text(
+                      item.label,
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                        color: selected
+                            ? (isDark ? Colors.white70 : _indigo.withAlpha(180))
+                            : _slate.withAlpha(180),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // ── Type filter row ──────────────────────────────────────────────
+  Widget _typeFilterRow() {
+    final isDark = widget.isDark;
+    final items = [
+      _FilterSegment('All', 'all', Icons.layers_rounded, _requests.length),
+      _FilterSegment('Delete', 'delete_member', Icons.person_remove_rounded, 0),
+      _FilterSegment('Borrow', 'borrow', Icons.swap_horiz_rounded, 0),
+    ];
+
+    return Row(
+      children: items.map((item) {
+        final selected = _typeFilter == item.value;
+        return Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: GestureDetector(
+            onTap: () => setState(() => _typeFilter = item.value),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: selected
+                    ? (isDark ? _indigo.withAlpha(40) : _indigo.withAlpha(20))
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: selected
+                      ? _indigo
+                      : (isDark ? Colors.white12 : Colors.grey.shade200),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(item.icon, size: 15, color: selected ? _indigo : _slate),
+                  const SizedBox(width: 5),
+                  Text(
+                    item.label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? _indigo : _slate,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // ── Card builder ─────────────────────────────────────────────────
+  Widget _buildCard(PendingRequest req) {
+    final isDark = widget.isDark;
+    final isPending = req.status == 'pending';
+    final isApproved = req.status == 'approved';
+
+    final statusColor = isPending ? _orange : (isApproved ? _emerald : _rose);
+    final statusLabel = isPending
+        ? 'Pending'
+        : (isApproved ? 'Approved' : 'Rejected');
+    final statusIcon = isPending
+        ? Icons.hourglass_empty_rounded
+        : (isApproved ? Icons.check_circle_rounded : Icons.cancel_rounded);
+    final statusBg = isPending
+        ? _orange.withAlpha(20)
+        : (isApproved ? _emerald.withAlpha(20) : _rose.withAlpha(20));
+
+    final isBorrow = req.requestType == 'borrow';
+    final typeColor = isBorrow ? _orange : _rose;
+    final typeIcon = isBorrow
+        ? Icons.swap_horiz_rounded
+        : Icons.person_remove_rounded;
+    final title = isBorrow
+        ? (req.itemName ?? 'Unknown')
+        : (req.memberName ?? 'Unknown');
+    final subtitle = isBorrow
+        ? 'For ${req.memberName ?? 'Unknown'}  ·  ×${req.quantity ?? 0}${req.price != null && req.price! > 0 ? '  ·  ₱${req.price} each' : ''}'
+        : 'Requested deletion';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+          width: 1,
+        ),
+      ),
+      color: isDark ? Colors.grey.shade900 : Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Row 1: Avatar + title + status
+            Row(
+              children: [
+                // Leading avatar
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: typeColor.withAlpha(isDark ? 30 : 20),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(typeIcon, size: 20, color: typeColor),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? Colors.white
+                              : const Color(0xFF1E293B),
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.white54 : _slate,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Status chip
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusBg,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: statusColor.withAlpha(60),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(statusIcon, size: 13, color: statusColor),
+                      const SizedBox(width: 4),
+                      Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: statusColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            // Reason section
+            if (req.reason != null && req.reason!.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withAlpha(15)
+                      : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.format_quote_rounded,
+                      size: 15,
+                      color: _slate.withAlpha(150),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        req.reason!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                          color: isDark ? Colors.white54 : _slate,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Rejection reason
+            if (req.status == 'rejected' &&
+                req.rejectionReason != null &&
+                req.rejectionReason!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: _rose.withAlpha(isDark ? 20 : 15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _rose.withAlpha(40), width: 1),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.block_rounded, size: 15, color: _rose),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        req.rejectionReason!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _rose,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Timestamp
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  Icons.schedule_rounded,
+                  size: 12,
+                  color: isDark ? Colors.white24 : Colors.grey.shade400,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  req.createdAt != null ? _formatDate(req.createdAt!) : '',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white24 : Colors.grey.shade400,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final filtered = _filteredRequests;
+
+    return RefreshIndicator(
+      onRefresh: _loadRequests,
+      child: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : CustomScrollView(
+              slivers: [
+                // ── Header ──────────────────────────────────────
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Title row
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'My Requests',
+                                style: StockpileFonts.satoshi(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark
+                                      ? Colors.white
+                                      : const Color(0xFF1E293B),
+                                ),
+                              ),
+                            ),
+                            // Sort toggle
+                            GestureDetector(
+                              onTap: () =>
+                                  setState(() => _newestFirst = !_newestFirst),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 7,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? Colors.white10
+                                      : Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    AnimatedRotation(
+                                      turns: _newestFirst ? 0 : 0.5,
+                                      duration: const Duration(
+                                        milliseconds: 300,
+                                      ),
+                                      child: Icon(
+                                        Icons.arrow_downward_rounded,
+                                        size: 15,
+                                        color: _slate,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _newestFirst ? 'Newest' : 'Oldest',
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: _slate,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        // Stats row
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _statPill(
+                                'All',
+                                _requests.length,
+                                _indigo,
+                                Icons.inbox_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _statPill(
+                                'Pending',
+                                _countBy('pending'),
+                                _orange,
+                                Icons.hourglass_empty_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _statPill(
+                                'Approved',
+                                _countBy('approved'),
+                                _emerald,
+                                Icons.check_circle_rounded,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _statPill(
+                                'Rejected',
+                                _countBy('rejected'),
+                                _rose,
+                                Icons.cancel_rounded,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        // Type filter
+                        _typeFilterRow(),
+                        const SizedBox(height: 8),
+                        // Result count
+                        Text(
+                          'Showing ${filtered.length} of ${_requests.length} request${_requests.length == 1 ? '' : 's'}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark
+                                ? Colors.white24
+                                : Colors.grey.shade400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // ── Content ─────────────────────────────────────
+                if (filtered.isEmpty)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withAlpha(15)
+                                  : Colors.grey.shade100,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              _statusFilter != 'all' || _typeFilter != 'all'
+                                  ? Icons.filter_list_off_rounded
+                                  : Icons.inbox_rounded,
+                              size: 40,
+                              color: isDark
+                                  ? Colors.white24
+                                  : Colors.grey.shade300,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _statusFilter != 'all' || _typeFilter != 'all'
+                                ? 'No matching requests'
+                                : 'No requests yet',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: isDark
+                                  ? Colors.white38
+                                  : Colors.grey.shade500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _statusFilter != 'all' || _typeFilter != 'all'
+                                ? 'Try adjusting the filters above'
+                                : 'Submitted deletion & borrow requests\nwill appear here',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? Colors.white.withAlpha(51)
+                                  : Colors.grey.shade400,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    sliver: SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (_, i) => _buildCard(filtered[i]),
+                        childCount: filtered.length,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+class _FilterSegment {
+  final String label;
+  final String value;
+  final IconData icon;
+  final int count;
+  const _FilterSegment(this.label, this.value, this.icon, this.count);
 }

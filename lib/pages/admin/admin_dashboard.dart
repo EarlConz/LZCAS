@@ -1903,6 +1903,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   List<PendingRequest> _pendingRequests = [];
   List<PendingRequest> _historyRequests = [];
   Map<String, String> _profiles = {};
+  Map<String, String> _roles = {};
   bool _showHistory = false;
   String _historyFilter = 'all'; // all, approved, rejected
   String _historyTypeFilter = 'all'; // all, delete, reduce
@@ -1927,6 +1928,21 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   void dispose() {
     _changeSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _loadProfiles() async {
+    final profiles = await repository.fetchProfilesMap();
+    final rolesData =
+        await repository.supabase.from('profiles').select('id, role');
+    final roles = <String, String>{};
+    for (final r in (rolesData as List)) {
+      roles[r['id'] as String] = r['role'] as String? ?? 'cashier';
+    }
+    if (!mounted) return;
+    setState(() {
+      _profiles = profiles;
+      _roles = roles;
+    });
   }
 
   Future<void> _loadRequests() async {
@@ -1954,6 +1970,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
           ..addAll(borrowStatus);
         _loading = false;
       });
+      _loadProfiles(); // also load roles
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -1970,6 +1987,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         _profiles = profiles;
         _loading = false;
       });
+      _loadProfiles(); // also load roles
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -2021,6 +2039,37 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
       }
     }
 
+    // Pre-check: if this is a borrow request, verify stock is sufficient
+    if (req.requestType == 'borrow' && req.itemId != null) {
+      final item = await repository.getItemById(req.itemId!);
+      if (!mounted) return;
+      if (item == null) {
+        BotToast.showText(text: 'Item no longer exists');
+        _loadRequests();
+        return;
+      }
+      final needed = req.quantity ?? 0;
+      if (item.stock < needed) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Cannot approve borrow'),
+            content: Text(
+              'Insufficient stock for "${req.itemName}". '
+              'Current stock: ${item.stock}, requested: $needed.',
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+    }
+
     final err = await repository.approveRequest(req.id!);
     if (!mounted) return;
     if (err == null) {
@@ -2033,7 +2082,56 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
 
   Future<void> _reject(PendingRequest req) async {
     if (req.id == null) return;
-    final ok = await repository.rejectRequest(req.id!);
+
+    // Show rejection reason dialog
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject Request'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(req.summary, style: Theme.of(ctx).textTheme.bodyMedium),
+            const SizedBox(height: 16),
+            TextField(
+              controller: reasonController,
+              autofocus: true,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Rejection reason',
+                hintText: 'Explain why this request is being rejected',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: StockpileColors.error500,
+            ),
+            onPressed: () {
+              if (reasonController.text.trim().isEmpty) {
+                BotToast.showText(text: 'Please provide a rejection reason');
+                return;
+              }
+              Navigator.pop(ctx, reasonController.text.trim());
+            },
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    reasonController.dispose();
+    if (!mounted || reason == null) return;
+
+    final ok = await repository.rejectRequest(req.id!, rejectionReason: reason);
     if (!mounted) return;
     if (ok) {
       BotToast.showText(text: '${req.summary} — rejected');
@@ -2612,15 +2710,20 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
               final req = _pendingRequests[index];
               final isMemberDelete = req.requestType == 'delete_member';
               final isDelete = req.requestType == 'delete';
+              final isBorrow = req.requestType == 'borrow';
               final icon = isMemberDelete
                   ? Icons.person_remove_rounded
                   : isDelete
                   ? Icons.delete_forever_rounded
+                  : isBorrow
+                  ? Icons.swap_horiz_rounded
                   : Icons.arrow_downward_rounded;
               final iconColor = isMemberDelete
                   ? Colors.purple.shade700
                   : isDelete
                   ? StockpileColors.error500
+                  : isBorrow
+                  ? Colors.orange.shade700
                   : Colors.orange.shade700;
 
               if (isMemberDelete) {
@@ -2693,6 +2796,58 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                 );
               }
 
+              if (isBorrow) {
+                String subtitle =
+                    'For ${req.memberName ?? 'Unknown'}'
+                    ' — ×${req.quantity ?? 0}';
+                if (req.price != null && req.price! > 0) {
+                  subtitle += ' @ ₱${req.price} each';
+                }
+                if (req.notes != null && req.notes!.isNotEmpty) {
+                  subtitle += '\n📝 ${req.notes}';
+                }
+                if (req.createdAt != null) {
+                  subtitle += '\nSubmitted ${_formatDate(req.createdAt!)}';
+                }
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.orange.shade100,
+                      child: Icon(icon, color: iconColor),
+                    ),
+                    title: Text(
+                      'Borrow: ${req.itemName ?? ''}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(subtitle),
+                    isThreeLine: true,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.check_circle_outline,
+                            color: StockpileColors.success,
+                          ),
+                          tooltip: 'Approve borrow',
+                          onPressed: () => _approve(req),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.cancel_outlined,
+                            color: StockpileColors.error500,
+                          ),
+                          tooltip: 'Reject',
+                          onPressed: () => _reject(req),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
               String subtitle = req.itemName ?? '';
               String title;
               if (isDelete) {
@@ -2711,9 +2866,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: isMemberDelete
-                        ? Colors.purple.shade100
-                        : isDelete
+                    backgroundColor: isDelete
                         ? StockpileColors.error100
                         : Colors.orange.shade100,
                     child: Icon(icon, color: iconColor),
@@ -2835,13 +2988,13 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                       onTap: () => setState(() => _historyTypeFilter = 'all'),
                     ),
                     _FilterChip(
-                      label: 'Delete',
+                      label: 'Deleted Stock',
                       isSelected: _historyTypeFilter == 'delete',
                       onTap: () =>
                           setState(() => _historyTypeFilter = 'delete'),
                     ),
                     _FilterChip(
-                      label: 'Reduce',
+                      label: 'Reduced Stock',
                       isSelected: _historyTypeFilter == 'reduce_stock',
                       onTap: () =>
                           setState(() => _historyTypeFilter = 'reduce_stock'),
@@ -2851,6 +3004,12 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                       isSelected: _historyTypeFilter == 'delete_member',
                       onTap: () =>
                           setState(() => _historyTypeFilter = 'delete_member'),
+                    ),
+                    _FilterChip(
+                      label: 'Borrow',
+                      isSelected: _historyTypeFilter == 'borrow',
+                      onTap: () =>
+                          setState(() => _historyTypeFilter = 'borrow'),
                     ),
                   ],
                 ),
@@ -2874,9 +3033,8 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         ? Icons.check_circle_rounded
         : Icons.cancel_rounded;
     final submitter = _profiles[req.userId] ?? 'Unknown';
-    final reviewer = req.reviewedBy != null
-        ? _profiles[req.reviewedBy] ?? 'Unknown'
-        : null;
+    final role = _roles[req.userId];
+    final submitterWithRole = role != null ? '$submitter (${role[0].toUpperCase()}${role.substring(1)})' : submitter;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -2895,9 +3053,22 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(req.summary, style: const TextStyle(fontSize: 12)),
+            if (req.status == 'rejected' &&
+                req.rejectionReason != null &&
+                req.rejectionReason!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  'Reason: ${req.rejectionReason}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: StockpileColors.error500,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
             Text(
-              'By $submitter'
-              '${reviewer != null ? ' · Reviewed by $reviewer' : ''}'
+              'Requested by $submitterWithRole'
               '${req.createdAt != null ? ' · ${_formatDate(req.createdAt!)}' : ''}',
               style: TextStyle(
                 fontSize: 11,

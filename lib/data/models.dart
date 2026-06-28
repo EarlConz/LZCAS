@@ -384,9 +384,13 @@ class PendingRequest {
   final String? itemName;
   final int? memberId;
   final String? memberName;
-  final String requestType; // 'delete', 'reduce_stock', 'delete_member'
+  final String
+  requestType; // 'delete', 'reduce_stock', 'delete_member', 'borrow'
   final int? quantity;
+  final int? price; // for borrow: price per item
+  final String? notes; // for borrow: optional notes
   final String? reason;
+  final String? rejectionReason; // admin's reason when rejecting
   final String status;
   final String? reviewedBy;
   final DateTime? reviewedAt;
@@ -401,7 +405,10 @@ class PendingRequest {
     this.memberName,
     this.requestType = 'delete',
     this.quantity,
+    this.price,
+    this.notes,
     this.reason,
+    this.rejectionReason,
     this.status = 'pending',
     this.reviewedBy,
     this.reviewedAt,
@@ -409,6 +416,7 @@ class PendingRequest {
   });
 
   bool get isPending => status == 'pending';
+  bool get isBorrowRequest => requestType == 'borrow';
 
   String get summary {
     if (requestType == 'delete') return 'Delete "$itemName"';
@@ -417,6 +425,9 @@ class PendingRequest {
     }
     if (requestType == 'delete_member') {
       return 'Delete member "$memberName"';
+    }
+    if (requestType == 'borrow') {
+      return 'Borrow "$itemName" (×${quantity ?? 0}) for "$memberName"';
     }
     return '$requestType: ${itemName ?? memberName ?? ''}';
   }
@@ -430,7 +441,10 @@ class PendingRequest {
     memberName: json['member_name'] as String?,
     requestType: json['request_type'] as String? ?? 'delete',
     quantity: json['quantity'] as int?,
+    price: json['price'] as int?,
+    notes: json['notes'] as String?,
     reason: json['reason'] as String?,
+    rejectionReason: json['rejection_reason'] as String?,
     status: json['status'] as String? ?? 'pending',
     reviewedBy: json['reviewed_by'] as String?,
     reviewedAt: json['reviewed_at'] != null
@@ -449,7 +463,10 @@ class PendingRequest {
     if (memberName != null) 'member_name': memberName,
     'request_type': requestType,
     if (quantity != null) 'quantity': quantity,
+    if (price != null) 'price': price,
+    if (notes != null) 'notes': notes,
     if (reason != null) 'reason': reason,
+    if (rejectionReason != null) 'rejection_reason': rejectionReason,
     'status': status,
     if (reviewedBy != null) 'reviewed_by': reviewedBy,
     if (reviewedAt != null) 'reviewed_at': reviewedAt!.toIso8601String(),
@@ -465,7 +482,10 @@ class PendingRequest {
     String? memberName,
     String? requestType,
     int? quantity,
+    int? price,
+    String? notes,
     String? reason,
+    String? rejectionReason,
     String? status,
     String? reviewedBy,
     DateTime? reviewedAt,
@@ -479,7 +499,10 @@ class PendingRequest {
     memberName: memberName ?? this.memberName,
     requestType: requestType ?? this.requestType,
     quantity: quantity ?? this.quantity,
+    price: price ?? this.price,
+    notes: notes ?? this.notes,
     reason: reason ?? this.reason,
+    rejectionReason: rejectionReason ?? this.rejectionReason,
     status: status ?? this.status,
     reviewedBy: reviewedBy ?? this.reviewedBy,
     reviewedAt: reviewedAt ?? this.reviewedAt,
