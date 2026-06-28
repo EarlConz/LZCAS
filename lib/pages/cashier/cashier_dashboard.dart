@@ -295,6 +295,8 @@ class _MembersLookupTab extends StatelessWidget {
 }
 
 // ─── Tab 3: Request Member Deletion ─────────────────────────────────────────
+// Uses Autocomplete<Member> dropdown with live search for member selection,
+// matching the pattern established in add_member_dialog.dart / edit_member_dialog.dart.
 
 class _RequestDeletionTab extends StatefulWidget {
   final bool isDark;
@@ -305,24 +307,50 @@ class _RequestDeletionTab extends StatefulWidget {
 }
 
 class _RequestDeletionTabState extends State<_RequestDeletionTab> {
-  final _memberIdCtrl = TextEditingController();
+  final _searchCtrl = TextEditingController();
   final _reasonCtrl = TextEditingController();
+  final _focusNode = FocusNode();
+  List<Member> _members = [];
+  Member? _selectedMember;
+  bool _loadingMembers = true;
   bool _submitting = false;
   String? _feedback;
 
   @override
+  void initState() {
+    super.initState();
+    _loadMembers();
+  }
+
+  @override
   void dispose() {
-    _memberIdCtrl.dispose();
+    _searchCtrl.dispose();
     _reasonCtrl.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
+  Future<void> _loadMembers() async {
+    try {
+      final members = await repository.fetchMembers();
+      if (!mounted) return;
+      setState(() {
+        _members = members;
+        _loadingMembers = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMembers = false);
+    }
+  }
+
   Future<void> _submitDeletionRequest() async {
-    final memberId = _memberIdCtrl.text.trim();
+    final member = _selectedMember;
     final reason = _reasonCtrl.text.trim();
 
-    if (memberId.isEmpty || reason.isEmpty) {
-      setState(() => _feedback = 'Please fill in all fields.');
+    if (member == null || reason.isEmpty) {
+      setState(
+        () => _feedback = 'Please select a member and provide a reason.',
+      );
       return;
     }
 
@@ -335,7 +363,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
       // POST request to initiate deletion request for admin approval.
       // final client = context.read<ApiClient>();
       // await client.post('/api/cashier/delete-member-request', data: {
-      //   'memberId': int.tryParse(memberId),
+      //   'memberId': member.id,
       //   'reason': reason,
       // });
 
@@ -343,9 +371,10 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
       await Future.delayed(const Duration(milliseconds: 800));
 
       if (!mounted) return;
-      _memberIdCtrl.clear();
+      _searchCtrl.clear();
       _reasonCtrl.clear();
       setState(() {
+        _selectedMember = null;
         _feedback = 'Deletion request submitted for Admin approval.';
       });
     } catch (e) {
@@ -358,6 +387,11 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
 
   @override
   Widget build(BuildContext context) {
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
+    );
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: ConstrainedBox(
@@ -433,41 +467,204 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                 ),
               ),
 
-            TextFormField(
-              controller: _memberIdCtrl,
-              enabled: !_submitting,
-              autovalidateMode: AutovalidateMode.onUserInteraction,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Member ID',
-                hintText: 'Enter the member ID to delete',
-                prefixIcon: Icon(Icons.person_search_rounded),
-                border: OutlineInputBorder(),
+            // ── Member Search Dropdown (Autocomplete) ──────────────
+            if (_selectedMember != null)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: StockpileColors.primary50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: StockpileColors.primary200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.person_rounded,
+                      size: 20,
+                      color: StockpileColors.primary700,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${_selectedMember!.firstName ?? ''} '
+                                    '${_selectedMember!.lastName ?? ''}'
+                                .trim(),
+                            style: StockpileFonts.satoshi(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: StockpileColors.primary900,
+                            ),
+                          ),
+                          Text(
+                            'ID: ${_selectedMember!.id} · '
+                            '${_selectedMember!.role ?? 'Member'}',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 12,
+                              color: StockpileColors.primary600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Change member',
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() => _selectedMember = null);
+                      },
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Required' : null,
-            ),
+
+            if (_selectedMember == null)
+              Autocomplete<Member>(
+                optionsBuilder: (textEditingValue) {
+                  if (textEditingValue.text.isEmpty) return [];
+                  final query = textEditingValue.text.toLowerCase();
+                  return _members.where((m) {
+                    final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                        .toLowerCase();
+                    final idStr = m.id?.toString() ?? '';
+                    return name.contains(query) || idStr.contains(query);
+                  });
+                },
+                displayStringForOption: (m) =>
+                    '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim(),
+                fieldViewBuilder: (context, controller, focusNode, onSubmit) {
+                  return TextFormField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    enabled: !_submitting,
+                    decoration: InputDecoration(
+                      labelText: 'Search Member',
+                      hintText: 'Type a name or ID to search...',
+                      prefixIcon: const Icon(Icons.person_search_rounded),
+                      border: border,
+                    ),
+                  );
+                },
+                optionsViewBuilder: (context, onSelected, options) {
+                  return Align(
+                    alignment: Alignment.topLeft,
+                    child: Material(
+                      elevation: 4,
+                      borderRadius: BorderRadius.circular(10),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: 220,
+                          maxWidth: MediaQuery.of(context).size.width * 0.45,
+                        ),
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: options.length,
+                          itemBuilder: (context, index) {
+                            final m = options.elementAt(index);
+                            final name =
+                                '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                                    .trim();
+                            return ListTile(
+                              dense: true,
+                              leading: CircleAvatar(
+                                radius: 16,
+                                backgroundColor: StockpileColors.primary100,
+                                child: Text(
+                                  '${m.firstName?.isNotEmpty == true ? m.firstName![0] : '?'}',
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: StockpileColors.primary900,
+                                  ),
+                                ),
+                              ),
+                              title: Text(
+                                name,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: Text(
+                                'ID: ${m.id} · ${m.role ?? 'Member'}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              trailing: Text(
+                                '#${m.id}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: widget.isDark
+                                      ? StockpileColors.darkTextMuted
+                                      : StockpileColors.mutedText,
+                                ),
+                              ),
+                              onTap: () {
+                                onSelected(m);
+                                _searchCtrl.text = name;
+                                setState(() => _selectedMember = m);
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                },
+                onSelected: (m) {
+                  final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'
+                      .trim();
+                  _searchCtrl.text = name;
+                  setState(() => _selectedMember = m);
+                },
+              ),
+
+            if (_loadingMembers && _selectedMember == null)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Loading members…',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ),
+
             const SizedBox(height: 12),
+
+            // ── Reason for Deletion ────────────────────────────────
             TextFormField(
               controller: _reasonCtrl,
               enabled: !_submitting,
-              autovalidateMode: AutovalidateMode.onUserInteraction,
               maxLines: 3,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Reason for Deletion',
                 hintText: 'Explain why this member should be removed',
                 alignLabelWithHint: true,
-                prefixIcon: Padding(
+                prefixIcon: const Padding(
                   padding: EdgeInsets.only(bottom: 48),
                   child: Icon(Icons.edit_note_rounded),
                 ),
-                border: OutlineInputBorder(),
+                border: border,
               ),
               validator: (v) =>
                   v == null || v.trim().isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 20),
 
+            // ── Submit Button ──────────────────────────────────────
             SizedBox(
               width: double.infinity,
               height: 48,
