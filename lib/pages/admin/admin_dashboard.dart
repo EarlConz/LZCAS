@@ -1452,7 +1452,7 @@ class _AdminSidebar extends StatelessWidget {
     _NavItem(Icons.history_rounded, 'Reports'),
     _NavItem(Icons.point_of_sale_rounded, 'POS Terminal'),
     _NavItem(Icons.people_alt_rounded, 'Members'),
-    _NavItem(Icons.person_remove_rounded, 'Del. Requests'),
+    _NavItem(Icons.person_remove_rounded, 'Requests'),
     _NavItem(Icons.add_box_rounded, 'Borrow Stock'),
   ];
 
