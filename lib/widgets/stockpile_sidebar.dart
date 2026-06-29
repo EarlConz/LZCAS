@@ -100,7 +100,6 @@ class StockpileSidebar extends StatelessWidget {
                   isDark: isDark,
                   onTap: () => onItemSelected(5),
                 ),
-
               ],
             ),
           ),
