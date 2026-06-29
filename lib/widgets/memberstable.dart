@@ -4,16 +4,11 @@ import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
-import 'package:file_selector/file_selector.dart' as fs;
-import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
 import 'package:lzcas/db/db.dart';
 import 'package:path/path.dart' as p;
 import 'dart:async';
-import 'package:csv/csv.dart';
-import 'package:lzcas/dialogs/import_preview_dialog.dart';
-import '../db/csv_header_utils.dart';
 import '../theme.dart';
 import 'memberqr.dart';
 
@@ -236,151 +231,6 @@ class MembersTableState extends State<MembersTable> {
     );
   }
 
-  Future<void> _onExportCsvPressed(BuildContext safeContext) async {
-    if (!safeContext.mounted) return;
-
-    // Show loading dialog
-    showAnimatedDialog(
-      safeContext,
-      barrierDismissible: false,
-      builder: (ctx) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      final csv = await repository.exportMembersCsvString();
-      final suggested =
-          'members_export_${DateTime.now().millisecondsSinceEpoch}.csv';
-
-      if (!mounted || !safeContext.mounted) return;
-      Navigator.pop(safeContext); // Close loading dialog
-
-      try {
-        final fs.FileSaveLocation? loc = await fs.getSaveLocation(
-          suggestedName: suggested,
-        );
-        if (loc != null) {
-          // Use UTF-8 encoding instead of codeUnits for better compatibility
-          final csvBytes = utf8.encode(csv);
-          final xfile = fs.XFile.fromData(
-            csvBytes,
-            mimeType: 'text/csv',
-            name: suggested,
-          );
-          await xfile.saveTo(loc.path);
-          if (!mounted || !safeContext.mounted) return;
-          BotToast.showText(text: 'Exported to ${loc.path}');
-        }
-      } catch (e) {
-        final dir = Directory.current.path;
-        final savePath = p.join(dir, suggested);
-        final file = File(savePath);
-        await file.writeAsString(csv);
-        if (!mounted || !safeContext.mounted) return;
-        BotToast.showText(text: 'Exported to $savePath');
-      }
-    } catch (e) {
-      if (!mounted || !safeContext.mounted) return;
-      Navigator.pop(safeContext); // Close loading dialog
-      BotToast.showText(text: 'Export failed: $e');
-    }
-  }
-
-  Future<void> _onImportCsvPressed(BuildContext localCtx) async {
-    final files = await fs.openFiles(
-      acceptedTypeGroups: [
-        fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
-      ],
-    );
-    if (files.isEmpty) return;
-    final xfile = files.first;
-    final content = await xfile.readAsString();
-    final conv = const CsvToListConverter();
-    final parsed = conv.convert(content);
-    if (parsed.isEmpty) return;
-    final headers = parsed.first.map((e) => e.toString()).toList();
-    final rows = parsed
-        .sublist(1)
-        .map((r) => r.map((c) => c?.toString() ?? '').toList())
-        .toList();
-    if (!mounted || !localCtx.mounted) return;
-
-    final expected = [
-      'id',
-      'lastname',
-      'firstname',
-      'middlename',
-      'role',
-      'phonenumber',
-      'birthday',
-      'address',
-      'referrer',
-      'level',
-    ];
-    final missing = findMissingHeaders(headers.cast<String>(), expected);
-    if (missing.isNotEmpty) {
-      if (!mounted || !localCtx.mounted) return;
-      await showDialog<void>(
-        context: localCtx,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Invalid CSV'),
-          content: Text('Missing headers: ${missing.join(', ')}'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    final existingRows = await repository.fetchMembers();
-    final existingIds = <int>{};
-    final existingNames = <String>{};
-    for (final m in existingRows) {
-      if (m.id != null) existingIds.add(m.id!);
-      existingNames.add(
-        ('${m.firstName ?? ''}||${m.lastName ?? ''}').trim().toLowerCase(),
-      );
-    }
-
-    bool fastExists(Map<String, String> map) {
-      final idStr = (map['id'] ?? '').trim();
-      if (idStr.isNotEmpty) {
-        final id = int.tryParse(idStr);
-        if (id != null && existingIds.contains(id)) return true;
-      }
-      final lastName = (map['lastName'] ?? '').trim();
-      final firstName = (map['firstName'] ?? '').trim();
-      if (lastName.isEmpty && firstName.isEmpty) return false;
-      return existingNames.contains(
-        ('$firstName||$lastName').trim().toLowerCase(),
-      );
-    }
-
-    if (!mounted || !localCtx.mounted) return;
-    final sel = await showImportPreviewDialogWithSelection(
-      localCtx,
-      headers,
-      rows,
-      exists: (m) async => fastExists(m),
-    );
-    if (sel == null || sel.isEmpty) return;
-
-    final rowsToImport = sel.map((i) => rows[i]).toList();
-    final inserted = await repository.importMembersFromRows(
-      headers.cast<String>(),
-      rowsToImport,
-    );
-    if (!mounted || !localCtx.mounted) return;
-    await _loadMembers();
-    if (!mounted || !localCtx.mounted) return;
-    BotToast.showText(
-      text: 'Inserted $inserted new member${inserted == 1 ? '' : 's'}',
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final filteredMembers = members.where((member) {
@@ -463,38 +313,6 @@ class MembersTableState extends State<MembersTable> {
                           backgroundColor: Colors.blue[700],
                           onPressed: _onAddMemberPressed,
                         ),
-                        const SizedBox(width: 8),
-                        CustomElevatedButton(
-                          icon: Icon(
-                            Icons.upload_file,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                          label: const Text(
-                            'Export CSV',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          backgroundColor: Colors.grey[700],
-                          onPressed: () => _onExportCsvPressed(context),
-                        ),
-                        const SizedBox(width: 8),
-                        CustomElevatedButton(
-                          icon: Icon(
-                            Icons.download,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                          label: const Text(
-                            'Import CSV',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          backgroundColor: Colors.grey[700],
-                          onPressed: () => _onImportCsvPressed(context),
-                        ),
                       ],
                     )
                   : Column(
@@ -548,24 +366,6 @@ class MembersTableState extends State<MembersTable> {
                                 backgroundColor: Colors.blue[700],
                               ),
                               onPressed: _onAddMemberPressed,
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filled(
-                              tooltip: 'Export CSV',
-                              icon: const Icon(Icons.upload_file),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.grey[700],
-                              ),
-                              onPressed: () => _onExportCsvPressed(context),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filled(
-                              tooltip: 'Import CSV',
-                              icon: const Icon(Icons.download),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.grey[700],
-                              ),
-                              onPressed: () => _onImportCsvPressed(context),
                             ),
                           ],
                         ),

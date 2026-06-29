@@ -3,18 +3,10 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import '../utils/formatters.dart';
 import 'dart:async';
-import 'dart:convert';
 import '../db/db.dart' show Sale, repository;
 import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
 import '../buttons/borrowbutton.dart';
-import 'package:file_selector/file_selector.dart' as fs;
-import 'package:lzcas/widgets/custom_elevated_button.dart';
-import 'dart:io';
-import 'package:path/path.dart' as p;
-import 'package:csv/csv.dart';
-import 'package:lzcas/dialogs/import_preview_dialog.dart';
-import '../db/csv_header_utils.dart';
 import '../dialogs/receipt_dialog.dart';
 import '../theme.dart';
 
@@ -136,151 +128,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
     }
   }
 
-  // ── Export / Import (unchanged) ─────────────────────────────────────
-
-  Future<void> _onExportCsvPressed(BuildContext safeContext) async {
-    if (!safeContext.mounted) return;
-    showAnimatedDialog(
-      safeContext,
-      barrierDismissible: false,
-      builder: (ctx) => const Center(child: CircularProgressIndicator()),
-    );
-    try {
-      final csv = await repository.exportSalesCsvString();
-      final suggested =
-          'sales_export_${DateTime.now().millisecondsSinceEpoch}.csv';
-      if (!mounted || !safeContext.mounted) return;
-      Navigator.pop(safeContext);
-      try {
-        final fs.FileSaveLocation? loc = await fs.getSaveLocation(
-          suggestedName: suggested,
-        );
-        if (loc != null) {
-          final csvBytes = utf8.encode(csv);
-          final xfile = fs.XFile.fromData(
-            csvBytes,
-            mimeType: 'text/csv',
-            name: suggested,
-          );
-          await xfile.saveTo(loc.path);
-          if (!mounted || !safeContext.mounted) return;
-          BotToast.showText(text: 'Exported to ${loc.path}');
-        }
-      } catch (_) {
-        final dir = Directory.current.path;
-        final savePath = p.join(dir, suggested);
-        final file = File(savePath);
-        await file.writeAsString(csv);
-        if (!mounted || !safeContext.mounted) return;
-        BotToast.showText(text: 'Exported to $savePath');
-      }
-    } catch (e) {
-      if (!mounted || !safeContext.mounted) return;
-      Navigator.pop(safeContext);
-      BotToast.showText(text: 'Export failed: $e');
-    }
-  }
-
-  Future<void> _onImportCsvPressed(BuildContext localCtx) async {
-    final files = await fs.openFiles(
-      acceptedTypeGroups: [
-        fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
-      ],
-    );
-    if (files.isEmpty) return;
-    final xfile = files.first;
-    final content = await xfile.readAsString();
-    final conv = const CsvToListConverter();
-    final parsed = conv.convert(content);
-    if (parsed.isEmpty) return;
-    final headers = parsed.first.map((e) => e.toString()).toList();
-    final rows = parsed
-        .sublist(1)
-        .map((r) => r.map((c) => c?.toString() ?? '').toList())
-        .toList();
-    if (!mounted || !localCtx.mounted) return;
-    final expected = [
-      'id',
-      'itemid',
-      'itemname',
-      'quantity',
-      'price',
-      'createdat',
-      'points',
-    ];
-    final missing = findMissingHeaders(headers.cast<String>(), expected);
-    if (missing.isNotEmpty) {
-      if (!mounted || !localCtx.mounted) return;
-      await showDialog<void>(
-        context: localCtx,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Invalid CSV'),
-          content: Text(
-            'This file does not look like a Sales export. '
-            'Missing headers: ${missing.join(', ')}',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-    if (!mounted || !localCtx.mounted) return;
-    final existingSales = await repository.fetchSales();
-    bool fastExists(Map<String, String> map) {
-      final idStr = (map['id'] ?? '').trim();
-      if (idStr.isNotEmpty) {
-        final id = int.tryParse(idStr);
-        if (id != null) {
-          if (existingSales.any((s) => s.id == id)) return true;
-        }
-      }
-      final itemIdStr = (map['itemid'] ?? map['itemId'] ?? '').trim();
-      final itemName = (map['itemname'] ?? map['itemName'] ?? '').trim();
-      final quantityStr = (map['quantity'] ?? '').trim();
-      final priceStr = (map['price'] ?? '').trim();
-      final buyerIdStr = (map['buyerid'] ?? map['buyerId'] ?? '').trim();
-      final itemId = int.tryParse(itemIdStr) ?? -1;
-      final quantity = int.tryParse(quantityStr) ?? -1;
-      final price = int.tryParse(priceStr) ?? -1;
-      final buyerId = int.tryParse(buyerIdStr);
-      return existingSales.any((s) {
-        final sameCore =
-            s.itemId == itemId &&
-            s.itemName == itemName &&
-            s.quantity == quantity &&
-            s.price == price &&
-            (buyerId == null ? s.buyerId == null : s.buyerId == buyerId);
-        return sameCore;
-      });
-    }
-
-    if (!mounted || !localCtx.mounted) return;
-    final sel = await showImportPreviewDialogWithSelection(
-      localCtx,
-      headers,
-      rows,
-      exists: (m) async => fastExists(m),
-    );
-    if (sel == null || sel.isEmpty) return;
-    final rowsToImport = sel.map((i) => rows[i]).toList();
-    final selectedCsv = const ListToCsvConverter().convert([
-      headers,
-      ...rowsToImport,
-    ]);
-    final inserted = await repository.importSalesCsv(selectedCsv);
-    if (!mounted || !localCtx.mounted) return;
-    await _loadData();
-    if (!mounted || !localCtx.mounted) return;
-    BotToast.showText(
-      text: 'Inserted $inserted new sale${inserted == 1 ? '' : 's'}',
-    );
-  }
-
   // ── Actions ─────────────────────────────────────────────────────────
 
   Future<void> _deleteTransaction(TransactionGroup group) async {
@@ -396,26 +243,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
                         const SellButton(),
                         const SizedBox(width: 8),
                         const BorrowButton(),
-                        const SizedBox(width: 8),
-                        CustomElevatedButton(
-                          onPressed: () => _onExportCsvPressed(context),
-                          icon: const Icon(Icons.upload_file),
-                          label: const Text('Export'),
-                          backgroundColor: Colors.grey[700],
-                          foregroundColor: Theme.of(
-                            context,
-                          ).colorScheme.onPrimary,
-                        ),
-                        const SizedBox(width: 8),
-                        CustomElevatedButton(
-                          onPressed: () => _onImportCsvPressed(context),
-                          icon: const Icon(Icons.download),
-                          label: const Text('Import'),
-                          backgroundColor: Colors.grey[700],
-                          foregroundColor: Theme.of(
-                            context,
-                          ).colorScheme.onPrimary,
-                        ),
                       ],
                     )
                   : Column(
@@ -436,24 +263,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
                             const SellButton(compact: true),
                             const SizedBox(width: 8),
                             const BorrowButton(compact: true),
-                            const SizedBox(width: 8),
-                            IconButton.filled(
-                              tooltip: 'Export CSV',
-                              icon: const Icon(Icons.upload_file),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.grey[700],
-                              ),
-                              onPressed: () => _onExportCsvPressed(context),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filled(
-                              tooltip: 'Import CSV',
-                              icon: const Icon(Icons.download),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.grey[700],
-                              ),
-                              onPressed: () => _onImportCsvPressed(context),
-                            ),
                           ],
                         ),
                       ],

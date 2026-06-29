@@ -5,15 +5,11 @@ import 'settingspage.dart';
 import 'supplierspage.dart';
 import 'orderspage.dart';
 import 'analyticspage.dart';
-import 'helpsupportpage.dart';
 import '../widgets/stockpile_sidebar.dart';
 import '../widgets/stockpile_topbar.dart';
 
 class HomePage extends StatefulWidget {
-  final void Function(bool)? onToggleTheme;
-  final bool isDark;
-
-  const HomePage({super.key, this.onToggleTheme, this.isDark = false});
+  const HomePage({super.key});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -31,17 +27,15 @@ class _HomePageState extends State<HomePage> {
     'Transactions',
     'Reports',
     'Settings',
-    'Help & Support',
   ];
 
-  List<Widget> _buildPages() => [
-    const DashboardPage(),
-    const InventoryPage(),
-    const SuppliersPage(),
-    const OrdersPage(),
-    const AnalyticsPage(),
-    SettingsPage(onToggle: widget.onToggleTheme, initialDark: widget.isDark),
-    const HelpSupportPage(),
+  List<Widget> _buildPages() => const [
+    DashboardPage(),
+    InventoryPage(),
+    SuppliersPage(),
+    OrdersPage(),
+    AnalyticsPage(),
+    SettingsPage(),
   ];
 
   void _onItemTapped(int index) {
