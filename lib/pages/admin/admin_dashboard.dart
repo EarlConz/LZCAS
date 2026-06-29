@@ -20,7 +20,6 @@ import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
-import 'package:lzcas/data/supabase_config.dart';
 import 'package:lzcas/db/db.dart';
 
 class AdminDashboard extends StatefulWidget {
@@ -44,7 +43,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'Requests',
     'Borrow Stock',
     'Settings',
-    'Help & Support',
   ];
 
   List<Widget> _buildPages() => const [
@@ -66,8 +64,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _AdminBorrowStockTab(),
     // 8: Settings — Global Config moved here
     _AdminSettingsTab(),
-    // 9: Help & Support
-    _AdminHelpTab(),
   ];
 
   void _onItemTapped(int index) {
@@ -854,8 +850,6 @@ class _AdminSettingsTab extends StatefulWidget {
 class _AdminSettingsTabState extends State<_AdminSettingsTab>
     with SingleTickerProviderStateMixin {
   late final TabController _settingsTabController;
-  bool _syncing = false;
-  bool _restoring = false;
   List<ResellerLevel> _levels = [];
   bool _levelsLoading = true;
   final Map<int, TextEditingController> _remMinCtls = {};
@@ -865,7 +859,7 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   @override
   void initState() {
     super.initState();
-    _settingsTabController = TabController(length: 3, vsync: this);
+    _settingsTabController = TabController(length: 2, vsync: this);
     _loadLevels();
   }
 
@@ -924,174 +918,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     BotToast.showText(text: 'Reseller levels saved');
   }
 
-  // ── Cloud Sync ────────────────────────────────────────────────────────
-
-  Future<void> _syncToCloud() async {
-    if (!SupabaseConfig.isConfigured) {
-      BotToast.showText(text: 'Supabase is not configured for this run');
-      return;
-    }
-
-    final items = await repository.fetchItems();
-    final members = await repository.fetchMembers();
-    final sales = await repository.fetchSales();
-    final isEmpty = items.isEmpty && members.isEmpty && sales.isEmpty;
-
-    if (!mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sync to Cloud'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'This will overwrite the cloud snapshot with your local data.',
-            ),
-            const SizedBox(height: 12),
-            Text('• ${items.length} items'),
-            Text('• ${members.length} members'),
-            Text('• ${sales.length} sales'),
-            if (isEmpty) ...[
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.error.withAlpha(30),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.error.withAlpha(80),
-                  ),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.red,
-                      size: 20,
-                    ),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Your local database is empty. Syncing now '
-                        'will DELETE all cloud data.',
-                        style: TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: isEmpty
-                ? ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.error,
-                    foregroundColor: Colors.white,
-                  )
-                : null,
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(isEmpty ? 'Sync Anyway' : 'Sync'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
-    setState(() => _syncing = true);
-    try {
-      // Data is already in the cloud — no sync needed.
-      if (!mounted) return;
-      BotToast.showText(text: 'All data is already stored in Supabase.');
-    } catch (e) {
-      if (!mounted) return;
-      BotToast.showText(text: 'Error: $e');
-    } finally {
-      if (mounted) setState(() => _syncing = false);
-    }
-  }
-
-  Future<void> _restoreFromCloud() async {
-    if (!SupabaseConfig.isConfigured) {
-      BotToast.showText(text: 'Supabase is not configured for this run');
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Restore from cloud'),
-        content: const Text(
-          'This will replace your local inventory, members, and transactions '
-          'with the current Supabase snapshot.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Restore'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
-    setState(() => _restoring = true);
-    try {
-      // Data is already cloud-based — no restore needed.
-      if (!mounted) return;
-      BotToast.showText(
-        text: 'Data is already cloud-based. No restore needed.',
-      );
-    } catch (e) {
-      if (!mounted) return;
-      BotToast.showText(text: 'Failed to restore from Supabase: $e');
-    } finally {
-      if (mounted) setState(() => _restoring = false);
-    }
-  }
-
-  Future<void> _clearDatabase() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Clear database'),
-        content: const Text(
-          'This will permanently delete all records from the local database.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
-    await repository.clearAllData();
-    if (!mounted) return;
-    BotToast.showText(text: 'Local database cleared');
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1117,7 +943,7 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
           ),
         ),
         const SizedBox(height: 8),
-        // Tab bar: General | Cloud Sync | Reseller Levels
+        // Tab bar: General | Reseller Levels
         TabBar(
           controller: _settingsTabController,
           labelColor: StockpileColors.primary900,
@@ -1127,7 +953,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
           indicatorColor: StockpileColors.primary900,
           tabs: const [
             Tab(text: 'General'),
-            Tab(text: 'Cloud Sync'),
             Tab(text: 'Reseller Levels'),
           ],
         ),
@@ -1138,8 +963,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
             children: [
               // ── General Tab ─────────────────────────────────────────
               _buildGeneralTab(isDark),
-              // ── Cloud Sync Tab ──────────────────────────────────────
-              _buildCloudSyncTab(isDark),
               // ── Reseller Levels Tab ─────────────────────────────────
               _buildResellerLevelsTab(isDark),
             ],
@@ -1167,17 +990,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
           ),
           const SizedBox(height: 16),
           _ConfigTile(
-            icon: Icons.palette_outlined,
-            title: 'Dark Mode',
-            subtitle: 'Toggle between light and dark appearance',
-            trailing: Switch(
-              value: isDark,
-              onChanged: (_) {
-                // The theme toggle is handled at the app level
-              },
-            ),
-          ),
-          _ConfigTile(
             icon: Icons.notifications_outlined,
             title: 'Notifications',
             subtitle: 'Configure system alerts and email notifications',
@@ -1188,92 +1000,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
             title: 'Session Timeout',
             subtitle: 'Auto-logout after period of inactivity',
             trailing: const Text('30 min'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCloudSyncTab(bool isDark) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Supabase Cloud Sync',
-            style: StockpileFonts.satoshi(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            SupabaseConfig.isConfigured
-                ? 'Connected to ${SupabaseConfig.url}'
-                : 'Supabase not configured',
-            style: StockpileFonts.satoshi(
-              fontSize: 13,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _syncing || _restoring ? null : _syncToCloud,
-              icon: _syncing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.cloud_upload_outlined),
-              label: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                child: Text(_syncing ? 'Syncing...' : 'Sync to Cloud'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _syncing || _restoring ? null : _restoreFromCloud,
-              icon: _restoring
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.cloud_download_outlined),
-              label: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                child: Text(_restoring ? 'Restoring...' : 'Restore from Cloud'),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: StockpileColors.error500,
-                foregroundColor: Colors.white,
-              ),
-              onPressed: _clearDatabase,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                child: Text('Clear Local Database'),
-              ),
-            ),
           ),
         ],
       ),
@@ -1363,55 +1089,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   }
 }
 
-// ─── Admin · Help & Support Tab ─────────────────────────────────────────────
-
-class _AdminHelpTab extends StatelessWidget {
-  const _AdminHelpTab();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.help_outline_rounded,
-              size: 64,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Help & Support',
-              style: StockpileFonts.satoshi(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: isDark
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Contact support@lzcas.app for assistance.',
-              style: StockpileFonts.satoshi(
-                fontSize: 16,
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ─── Admin Sidebar (styled after StockpileSidebar from UI Changes) ─────────
 
 class _AdminSidebar extends StatelessWidget {
@@ -1438,7 +1115,6 @@ class _AdminSidebar extends StatelessWidget {
 
   static const _bottomItems = <_NavItem>[
     _NavItem(Icons.settings_rounded, 'Settings'),
-    _NavItem(Icons.help_outline_rounded, 'Help & Support'),
   ];
 
   @override
@@ -1516,14 +1192,6 @@ class _AdminSidebar extends StatelessWidget {
                   activeBg: activeBg,
                   isDark: isDark,
                   onTap: () => onItemSelected(8),
-                ),
-                // Help & Support → index 9
-                _AdminSidebarTile(
-                  item: _bottomItems[1],
-                  isSelected: selectedIndex == 9,
-                  activeBg: activeBg,
-                  isDark: isDark,
-                  onTap: () => onItemSelected(9),
                 ),
               ],
             ),

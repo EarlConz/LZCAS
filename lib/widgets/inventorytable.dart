@@ -11,13 +11,6 @@ import 'package:lzcas/dialogs/edit_stock_dialog.dart' show EditProductDialog;
 import 'package:lzcas/dialogs/add_product_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
-import 'package:file_selector/file_selector.dart' as fs;
-import 'dart:typed_data';
-import 'dart:io';
-import 'package:path/path.dart' as p;
-import 'package:lzcas/dialogs/import_preview_dialog.dart';
-import 'package:csv/csv.dart';
-import '../db/csv_header_utils.dart';
 import '../theme.dart';
 import '../utils/formatters.dart';
 
@@ -241,14 +234,6 @@ class _InventoryTableState extends State<InventoryTable> {
         ),
         const SizedBox(height: 12),
         Row(children: [Expanded(child: _buildAddButton(context))]),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(child: _buildExportButton(context)),
-            const SizedBox(width: 8),
-            Expanded(child: _buildImportButton(context)),
-          ],
-        ),
       ],
     );
   }
@@ -267,10 +252,6 @@ class _InventoryTableState extends State<InventoryTable> {
         ),
         const SizedBox(width: 12),
         _buildAddButton(context),
-        const SizedBox(width: 8),
-        _buildExportButton(context),
-        const SizedBox(width: 8),
-        _buildImportButton(context),
       ],
     );
   }
@@ -334,36 +315,6 @@ class _InventoryTableState extends State<InventoryTable> {
     );
   }
 
-  Widget _buildExportButton(BuildContext context) {
-    return CustomElevatedButton(
-      icon: Icon(
-        Icons.upload_file,
-        color: Theme.of(context).colorScheme.onPrimary,
-      ),
-      label: const Text(
-        'Export CSV',
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-      ),
-      backgroundColor: Colors.grey[700],
-      onPressed: () => _handleExportCsv(context),
-    );
-  }
-
-  Widget _buildImportButton(BuildContext context) {
-    return CustomElevatedButton(
-      icon: Icon(
-        Icons.download,
-        color: Theme.of(context).colorScheme.onPrimary,
-      ),
-      label: const Text(
-        'Import CSV',
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-      ),
-      backgroundColor: Colors.grey[700],
-      onPressed: () => _handleImportCsv(context),
-    );
-  }
-
   void _openAddProductDialog(BuildContext parentCtx) {
     showAnimatedDialog(
       parentCtx,
@@ -385,110 +336,6 @@ class _InventoryTableState extends State<InventoryTable> {
         },
       ),
     );
-  }
-
-  Future<void> _handleExportCsv(BuildContext parentCtx) async {
-    final csv = await repository.exportItemsCsvString();
-    final suggested =
-        'items_export_${DateTime.now().millisecondsSinceEpoch}.csv';
-    try {
-      final fs.FileSaveLocation? loc = await fs.getSaveLocation(
-        suggestedName: suggested,
-      );
-      if (loc != null) {
-        final xfile = fs.XFile.fromData(
-          Uint8List.fromList(csv.codeUnits),
-          mimeType: 'text/csv',
-          name: suggested,
-        );
-        await xfile.saveTo(loc.path);
-        if (!mounted) return;
-        BotToast.showText(text: 'Exported to ${loc.path}');
-      }
-    } catch (e) {
-      final dir = Directory.current.path;
-      final savePath = p.join(dir, suggested);
-      await File(savePath).writeAsString(csv);
-      if (!mounted) return;
-      BotToast.showText(text: 'Exported to $savePath');
-    }
-  }
-
-  Future<void> _handleImportCsv(BuildContext localCtx) async {
-    final files = await fs.openFiles(
-      acceptedTypeGroups: [
-        fs.XTypeGroup(label: 'CSV', extensions: ['csv']),
-      ],
-    );
-    if (files.isEmpty) return;
-    final xfile = files.first;
-    final content = await xfile.readAsString();
-    final parsed = const CsvToListConverter().convert(content);
-    if (parsed.isEmpty) return;
-    final headers = parsed.first.map((e) => e.toString()).toList();
-    final rows = parsed
-        .sublist(1)
-        .map((r) => r.map((c) => c?.toString() ?? '').toList())
-        .toList();
-    if (!mounted) return;
-
-    final expected = [
-      'id',
-      'name',
-      'category',
-      'stock',
-      'lastupdated',
-      'status',
-    ];
-    final missing = findMissingHeaders(headers.cast<String>(), expected);
-    if (missing.isNotEmpty) {
-      await showDialog<void>(
-        context: localCtx,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Invalid CSV'),
-          content: Text('Missing headers: ${missing.join(', ')}'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    final sel = await showImportPreviewDialogWithSelection(
-      localCtx,
-      headers,
-      rows,
-      exists: (m) async {
-        final idStr = (m['id'] ?? '').trim();
-        if (idStr.isNotEmpty) {
-          final id = int.tryParse(idStr);
-          if (id != null) {
-            final all = await repository.fetchItems();
-            if (all.any((it) => it.id == id)) return true;
-          }
-        }
-        final name = (m['name'] ?? '').trim();
-        if (name.isEmpty) return false;
-        final all = await repository.fetchItems();
-        return all.any(
-          (it) => it.name.trim().toLowerCase() == name.toLowerCase(),
-        );
-      },
-    );
-    if (sel == null || sel.isEmpty) return;
-    final rowsToImport = sel.map((i) => rows[i]).toList();
-    final selectedCsv = const ListToCsvConverter().convert([
-      headers,
-      ...rowsToImport,
-    ]);
-    final count = await repository.importItemsCsv(selectedCsv);
-    if (!mounted) return;
-    await _loadItems();
-    BotToast.showText(text: 'Imported $count rows from ${xfile.name}');
   }
 
   Future<void> _deleteItem(

@@ -52,14 +52,6 @@ class LzcasApp extends StatefulWidget {
 }
 
 class _LzcasAppState extends State<LzcasApp> {
-  ThemeMode _mode = ThemeMode.light;
-
-  void toggleThemeMode(bool dark) {
-    setState(() {
-      _mode = dark ? ThemeMode.dark : ThemeMode.light;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     // Read auth state to determine the initial route.
@@ -69,8 +61,6 @@ class _LzcasAppState extends State<LzcasApp> {
       debugShowCheckedModeBanner: false,
       title: 'LZCAS',
       theme: stockpileTheme,
-      darkTheme: stockpileDarkTheme,
-      themeMode: _mode,
       builder: BotToastInit(),
       // Use onGenerateRoute for centralized, role-aware routing.
       onGenerateRoute: appRouter,
