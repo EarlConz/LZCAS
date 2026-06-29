@@ -22,7 +22,6 @@ class StockpileSidebar extends StatelessWidget {
 
   static const _bottomItems = <_NavItem>[
     _NavItem(Icons.settings_rounded, 'Settings'),
-    _NavItem(Icons.help_outline_rounded, 'Help & Support'),
   ];
 
   @override
@@ -100,14 +99,6 @@ class StockpileSidebar extends StatelessWidget {
                   activeBg: activeBg,
                   isDark: isDark,
                   onTap: () => onItemSelected(5),
-                ),
-                // Help & Support â†’ index 6
-                _SidebarTile(
-                  item: _bottomItems[1],
-                  isSelected: selectedIndex == 6,
-                  activeBg: activeBg,
-                  isDark: isDark,
-                  onTap: () => onItemSelected(6),
                 ),
               ],
             ),

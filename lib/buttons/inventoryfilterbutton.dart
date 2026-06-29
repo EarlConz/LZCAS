@@ -40,14 +40,6 @@ class InventoryFilterButton extends StatelessWidget {
           child: Text("Out of Stock"),
         ),
         const PopupMenuDivider(),
-        const PopupMenuItem(enabled: false, child: Text("Filter by Category")),
-        const PopupMenuItem(value: "category:Powder", child: Text("Powder")),
-        const PopupMenuItem(value: "category:Oil", child: Text("Oil")),
-        const PopupMenuItem(
-          value: "category:Tablet/Capsules",
-          child: Text("Tablet/Capsules"),
-        ),
-        const PopupMenuDivider(),
         const PopupMenuItem(value: "clear", child: Text("Clear Filters")),
       ],
     );

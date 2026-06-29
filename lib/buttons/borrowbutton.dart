@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:bot_toast/bot_toast.dart';
+import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/borrow_receipt_dialog.dart';
@@ -521,84 +523,150 @@ class _BorrowDialogState extends State<_BorrowDialog> {
           onPressed: (isCartValid() && selectedBuyerId != null)
               ? () async {
                   final safeContext = context;
-                  final borrows = <Borrow>[];
-                  String? errorMsg;
+                  final auth = context.read<AuthState>();
+                  final isAdmin = auth.userRole == UserRole.admin;
 
-                  for (var entry in cart) {
-                    final dbItem = (await repository.fetchItems()).firstWhere(
-                      (r) => r.name == entry['item'],
-                    );
-                    final q = entry['quantity'] as int;
+                  if (isAdmin) {
+                    // ── Admin: instant borrow ────────────────────────
+                    final borrows = <Borrow>[];
+                    String? errorMsg;
 
-                    if (dbItem.stock < q) {
-                      errorMsg =
-                          'Insufficient stock for ${dbItem.name} '
-                          '(available: ${dbItem.stock})';
-                      break;
-                    }
-
-                    try {
-                      final borrowId = await repository.addBorrow(
-                        memberId: selectedBuyerId!,
-                        itemId: dbItem.id!,
-                        itemName: dbItem.name,
-                        quantity: q,
-                        memberName: _borrowerName,
+                    for (var entry in cart) {
+                      final dbItem = (await repository.fetchItems()).firstWhere(
+                        (r) => r.name == entry['item'],
                       );
-                      borrows.add(
-                        Borrow(
-                          id: borrowId,
+                      final q = entry['quantity'] as int;
+
+                      if (dbItem.stock < q) {
+                        errorMsg =
+                            'Insufficient stock for ${dbItem.name} '
+                            '(available: ${dbItem.stock})';
+                        break;
+                      }
+
+                      try {
+                        final borrowId = await repository.addBorrow(
                           memberId: selectedBuyerId!,
                           itemId: dbItem.id!,
                           itemName: dbItem.name,
                           quantity: q,
-                          borrowedAt: DateTime.now(),
-                          dueDate: DateTime.now().add(const Duration(days: 10)),
-                        ),
-                      );
-                    } catch (e) {
-                      errorMsg = e.toString();
-                      break;
+                          memberName: _borrowerName,
+                        );
+                        borrows.add(
+                          Borrow(
+                            id: borrowId,
+                            memberId: selectedBuyerId!,
+                            itemId: dbItem.id!,
+                            itemName: dbItem.name,
+                            quantity: q,
+                            borrowedAt: DateTime.now(),
+                            dueDate: DateTime.now().add(
+                              const Duration(days: 10),
+                            ),
+                          ),
+                        );
+                      } catch (e) {
+                        errorMsg = e.toString();
+                        break;
+                      }
                     }
-                  }
 
-                  if (errorMsg != null) {
+                    if (errorMsg != null) {
+                      if (!mounted) return;
+                      _showError(errorMsg);
+                      return;
+                    }
+
+                    widget.onBorrowConfirmed();
+
+                    // Lookup member name
+                    String? memberName;
+                    if (selectedBuyerId != null) {
+                      final m = widget.members.firstWhere(
+                        (m) => (m['id'] as int?) == selectedBuyerId,
+                        orElse: () => <String, dynamic>{},
+                      );
+                      final first = (m['firstName'] ?? '').toString().trim();
+                      final last = (m['lastName'] ?? '').toString().trim();
+                      memberName = '$first $last'.trim();
+                      if (memberName.isEmpty) memberName = null;
+                    }
+
                     if (!mounted) return;
-                    _showError(errorMsg);
-                    return;
-                  }
-
-                  widget.onBorrowConfirmed();
-
-                  // Lookup member name
-                  String? memberName;
-                  if (selectedBuyerId != null) {
-                    final m = widget.members.firstWhere(
-                      (m) => (m['id'] as int?) == selectedBuyerId,
-                      orElse: () => <String, dynamic>{},
+                    await showDialog<void>(
+                      context: safeContext,
+                      builder: (_) => BorrowReceiptDialog(
+                        borrows: borrows,
+                        memberName: memberName,
+                        borrowedAt: DateTime.now(),
+                        dueDate: DateTime.now().add(const Duration(days: 10)),
+                      ),
                     );
-                    final first = (m['firstName'] ?? '').toString().trim();
-                    final last = (m['lastName'] ?? '').toString().trim();
-                    memberName = '$first $last'.trim();
-                    if (memberName.isEmpty) memberName = null;
+
+                    if (!mounted) return;
+                    // ignore: use_build_context_synchronously
+                    Navigator.pop(safeContext, cart);
+                  } else {
+                    // ── Cashier / Inventory: submit borrow request ───
+                    String? errorMsg;
+                    int submitted = 0;
+
+                    // Lookup member name for the request
+                    String? memberName;
+                    if (selectedBuyerId != null) {
+                      final m = widget.members.firstWhere(
+                        (m) => (m['id'] as int?) == selectedBuyerId,
+                        orElse: () => <String, dynamic>{},
+                      );
+                      final first = (m['firstName'] ?? '').toString().trim();
+                      final last = (m['lastName'] ?? '').toString().trim();
+                      memberName = '$first $last'.trim();
+                      if (memberName.isEmpty) memberName = null;
+                    }
+
+                    for (var entry in cart) {
+                      final dbItem = (await repository.fetchItems()).firstWhere(
+                        (r) => r.name == entry['item'],
+                      );
+                      final q = entry['quantity'] as int;
+
+                      if (dbItem.stock < q) {
+                        errorMsg =
+                            'Insufficient stock for ${dbItem.name} '
+                            '(available: ${dbItem.stock})';
+                        break;
+                      }
+
+                      try {
+                        await repository.submitBorrowRequest(
+                          memberId: selectedBuyerId!,
+                          memberName: memberName ?? 'Member #$selectedBuyerId',
+                          itemId: dbItem.id!,
+                          itemName: dbItem.name,
+                          quantity: q,
+                        );
+                        submitted++;
+                      } catch (e) {
+                        errorMsg = e.toString();
+                        break;
+                      }
+                    }
+
+                    if (!mounted) return;
+                    if (errorMsg != null) {
+                      _showError(errorMsg);
+                      if (submitted > 0) widget.onBorrowConfirmed();
+                      return;
+                    }
+
+                    widget.onBorrowConfirmed();
+                    BotToast.showText(
+                      text:
+                          '$submitted borrow request${submitted == 1 ? '' : 's'} submitted for admin approval',
+                    );
+                    // ignore: use_build_context_synchronously
+                    Navigator.pop(safeContext);
                   }
-
-                  if (!mounted) return;
-                  // Show borrow receipt
-                  await showDialog<void>(
-                    context: safeContext,
-                    builder: (_) => BorrowReceiptDialog(
-                      borrows: borrows,
-                      memberName: memberName,
-                      borrowedAt: DateTime.now(),
-                      dueDate: DateTime.now().add(const Duration(days: 10)),
-                    ),
-                  );
-
-                  if (!mounted) return;
-                  // ignore: use_build_context_synchronously
-                  Navigator.pop(safeContext, cart);
-                  cart.clear();
                 }
               : null,
           child: const Text('Confirm Borrow'),
