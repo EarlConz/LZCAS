@@ -63,11 +63,11 @@ class _BorrowButtonState extends State<BorrowButton> {
   @override
   Widget build(BuildContext context) {
     if (widget.compact) {
-      return IconButton.filled(
-        tooltip: 'Borrow Stock',
-        icon: const Icon(Icons.swap_horiz_rounded),
+      return ElevatedButton.icon(
+        icon: const Icon(Icons.swap_horiz_rounded, size: 20),
+        label: const Text('Borrow'),
         onPressed: () => _showBorrowDialog(context),
-        style: IconButton.styleFrom(
+        style: ElevatedButton.styleFrom(
           backgroundColor: Colors.orange.shade700,
           foregroundColor: Colors.white,
         ),
@@ -362,9 +362,16 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                 Row(
                   children: [
                     Expanded(
+                      flex: 3,
                       child: DropdownButtonFormField<String>(
                         isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Item'),
+                        decoration: const InputDecoration(
+                          labelText: 'Item',
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 14,
+                          ),
+                        ),
                         initialValue: selectedItem,
                         items: widget.items
                             .map(
@@ -374,9 +381,9 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                         onChanged: (v) => setState(() => selectedItem = v),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 110,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
                       child: TextField(
                         controller: _qtyController,
                         focusNode: _qtyFocusNode,
@@ -384,7 +391,13 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
                         ],
-                        decoration: const InputDecoration(labelText: 'Qty'),
+                        decoration: const InputDecoration(
+                          labelText: 'Qty',
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 14,
+                          ),
+                        ),
                         onChanged: (v) =>
                             setState(() => quantity = int.tryParse(v) ?? 1),
                       ),

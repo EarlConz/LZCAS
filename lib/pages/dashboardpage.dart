@@ -156,8 +156,9 @@ class _DashboardPageState extends State<DashboardPage> {
     final revUp = monthlyRevenue >= previousMonthRevenue;
     final ordUp = activeOrders >= previousMonthOrders;
 
+    final mobilePad = isMobile ? 12.0 : appSpacing;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(appSpacing),
+      padding: EdgeInsets.all(mobilePad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -171,6 +172,10 @@ class _DashboardPageState extends State<DashboardPage> {
             _buildProductsTableCompact(isDark),
           ] else
             _buildChartAndProductsRow(isDark),
+          SizedBox(height: isMobile ? 20 : 32),
+          _revenueChart(isDark, isMobile),
+          SizedBox(height: isMobile ? 20 : 32),
+          _buildProductsTable(isDark),
         ],
       ),
     );
@@ -250,17 +255,20 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // â”€â”€ Card Wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  Widget _card(bool d, Widget c) => Container(
-    decoration: BoxDecoration(
-      color: d ? StockpileColors.darkSurface : StockpileColors.surface,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(
-        color: d ? StockpileColors.darkDivider : StockpileColors.divider,
+  Widget _card(bool d, Widget c) {
+    final mobile = MediaQuery.sizeOf(context).width < 750;
+    return Container(
+      decoration: BoxDecoration(
+        color: d ? StockpileColors.darkSurface : StockpileColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: d ? StockpileColors.darkDivider : StockpileColors.divider,
+        ),
       ),
-    ),
-    padding: const EdgeInsets.all(20),
-    child: c,
-  );
+      padding: EdgeInsets.all(mobile ? 14 : 20),
+      child: c,
+    );
+  }
 
   // â”€â”€ Revenue By Category Chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -505,6 +513,34 @@ class _DashboardPageState extends State<DashboardPage> {
                       ? Colors.amber.withAlpha(d ? 40 : 30)
                       : (d ? Colors.white10 : Colors.grey.shade100),
                   borderRadius: BorderRadius.circular(8),
+        Row(
+          children: [
+            Text(
+              'Top Selling Products',
+              style: StockpileFonts.satoshi(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: d
+                    ? StockpileColors.darkTextPrimary
+                    : StockpileColors.darkText,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        topProducts.isEmpty
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Text(
+                    'No sales data yet',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 14,
+                      color: d
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                  ),
                 ),
                 alignment: Alignment.center,
                 child: Text(
@@ -516,6 +552,56 @@ class _DashboardPageState extends State<DashboardPage> {
                         ? Colors.amber.shade800
                         : (d ? Colors.white38 : Colors.grey.shade600),
                   ),
+                  columns: const [
+                    DataColumn(label: Text('Rank')),
+                    DataColumn(label: Text('Product')),
+                    DataColumn(label: Text('Item ID'), numeric: true),
+                    DataColumn(label: Text('Revenue'), numeric: true),
+                    DataColumn(label: Text('Units Sold'), numeric: true),
+                    DataColumn(label: Text('Margin')),
+                  ],
+                  rows: topProducts.asMap().entries.map((e) {
+                    final i = e.key;
+                    final p = e.value;
+                    final nm = (p['productName'] as String?) ?? '\u2014';
+                    return DataRow(
+                      cells: [
+                        DataCell(Text('${i + 1}')),
+                        DataCell(
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: StockpileColors.primary900.withAlpha(
+                                    (0.12 * 255).round(),
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  nm.isNotEmpty ? nm[0].toUpperCase() : '?',
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: StockpileColors.primary900,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(nm),
+                            ],
+                          ),
+                        ),
+                        DataCell(Text('#${p['itemId']}')),
+                        DataCell(Text(_fmt(p['revenue'] as int))),
+                        DataCell(Text('${p['unitsSold']}')),
+                        const DataCell(Text('\u2014')),
+                      ],
+                    );
+                  }).toList(),
                 ),
               ),
               title: Text(
@@ -543,31 +629,6 @@ class _DashboardPageState extends State<DashboardPage> {
             );
           }),
       ],
-    ),
-  );
-
-  // â”€â”€ Filter Chip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-  Widget _chip(String l, bool s) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-    decoration: BoxDecoration(
-      color: s
-          ? StockpileColors.primary900.withAlpha((0.12 * 255).round())
-          : Colors.transparent,
-      borderRadius: BorderRadius.circular(100),
-      border: Border.all(
-        color: s
-            ? StockpileColors.primary900.withAlpha((0.3 * 255).round())
-            : StockpileColors.divider,
-      ),
-    ),
-    child: Text(
-      l,
-      style: StockpileFonts.satoshi(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-        color: s ? StockpileColors.primary900 : StockpileColors.mutedText,
-      ),
     ),
   );
 }

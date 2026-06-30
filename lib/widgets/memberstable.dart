@@ -27,6 +27,9 @@ class MembersTableState extends State<MembersTable> {
   List<Map<String, dynamic>> members = [];
   final Set<int> _selectedMemberIds = {};
 
+  static const _pageSize = 25;
+  int _visibleCount = _pageSize;
+
   late final StreamSubscription<String> _changesSub;
 
   @override
@@ -383,18 +386,20 @@ class MembersTableState extends State<MembersTable> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            IconButton.filled(
-                              tooltip: 'Add Member',
-                              icon: const Icon(Icons.person_add),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.blue[700],
-                              ),
-                              onPressed: _onAddMemberPressed,
+                        CustomElevatedButton(
+                          icon: Icon(
+                            Icons.person_add,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                          ),
+                          label: const Text(
+                            "Add Member",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
                             ),
-                          ],
+                          ),
+                          backgroundColor: Colors.blue[700],
+                          onPressed: _onAddMemberPressed,
                         ),
                       ],
                     ),
@@ -486,23 +491,45 @@ class MembersTableState extends State<MembersTable> {
       return const Center(child: Text('No members found'));
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-      itemCount: filteredMembers.length,
-      separatorBuilder: (_, index) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final member = filteredMembers[index];
-        return StaggeredItem(
-          index: index,
-          child: _MemberListCard(
-            member: member,
-            selected:
-                (member['id'] as int?) != null &&
-                _selectedMemberIds.contains(member['id'] as int),
-            onTap: () => widget.onRowSelected(member),
+    final visible = filteredMembers.take(_visibleCount).toList();
+    final hasMore = _visibleCount < filteredMembers.length;
+
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+            itemCount: visible.length,
+            separatorBuilder: (_, index) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final member = visible[index];
+              return StaggeredItem(
+                index: index,
+                child: _MemberListCard(
+                  member: member,
+                  selected:
+                      (member['id'] as int?) != null &&
+                      _selectedMemberIds.contains(member['id'] as int),
+                  onTap: () => widget.onRowSelected(member),
+                ),
+              );
+            },
           ),
-        );
-      },
+        ),
+        if (hasMore)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => setState(() => _visibleCount += _pageSize),
+                child: Text(
+                  'Load More (${visible.length} of ${filteredMembers.length})',
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 

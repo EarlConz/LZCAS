@@ -126,6 +126,19 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 // ── Page Content ───────────────────────────────────────
                 Expanded(child: pages[_selectedIndex]),
               ],
+            child: SafeArea(
+              child: Column(
+                children: [
+                  // ── Top Bar ────────────────────────────────────────────
+                  StockpileTopBar(
+                    pageTitle: _pageTitles[_selectedIndex],
+                    showMenu: !isDesktop,
+                    onMenuTap: _toggleSidebar,
+                  ),
+                  // ── Page Content ───────────────────────────────────────
+                  Expanded(child: pages[_selectedIndex]),
+                ],
+              ),
             ),
           ),
         ],
@@ -2805,11 +2818,13 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Status filter row
-          Row(
+          // Status filter row — label inline with chips
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
             children: [
-              SizedBox(
-                width: 52,
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 5),
                 child: Text(
                   'Status',
                   style: TextStyle(
@@ -2819,39 +2834,32 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                   ),
                 ),
               ),
-              Expanded(
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    _FilterChip(
-                      label: 'All',
-                      isSelected: _historyFilter == 'all',
-                      onTap: () => setState(() => _historyFilter = 'all'),
-                    ),
-                    _FilterChip(
-                      label: 'Approved',
-                      isSelected: _historyFilter == 'approved',
-                      onTap: () => setState(() => _historyFilter = 'approved'),
-                    ),
-                    _FilterChip(
-                      label: 'Rejected',
-                      isSelected: _historyFilter == 'rejected',
-                      onTap: () => setState(() => _historyFilter = 'rejected'),
-                    ),
-                  ],
-                ),
+              _FilterChip(
+                label: 'All',
+                isSelected: _historyFilter == 'all',
+                onTap: () => setState(() => _historyFilter = 'all'),
+              ),
+              _FilterChip(
+                label: 'Approved',
+                isSelected: _historyFilter == 'approved',
+                onTap: () => setState(() => _historyFilter = 'approved'),
+              ),
+              _FilterChip(
+                label: 'Rejected',
+                isSelected: _historyFilter == 'rejected',
+                onTap: () => setState(() => _historyFilter = 'rejected'),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          // Action filter row
+          // Action filter row — hanging indent: chips wrap under themselves
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 52,
+              Padding(
+                padding: const EdgeInsets.only(top: 5),
                 child: Text(
-                  'Action',
+                  'Action:',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

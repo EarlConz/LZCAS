@@ -76,15 +76,17 @@ class _HomePageState extends State<HomePage> {
 
           // Main content area
           Expanded(
-            child: Column(
-              children: [
-                StockpileTopBar(
-                  pageTitle: _titles[_selectedIndex],
-                  showMenu: !isDesktop,
-                  onMenuTap: _toggleSidebar,
-                ),
-                Expanded(child: pages[_selectedIndex]),
-              ],
+            child: SafeArea(
+              child: Column(
+                children: [
+                  StockpileTopBar(
+                    pageTitle: _titles[_selectedIndex],
+                    showMenu: !isDesktop,
+                    onMenuTap: _toggleSidebar,
+                  ),
+                  Expanded(child: pages[_selectedIndex]),
+                ],
+              ),
             ),
           ),
         ],
