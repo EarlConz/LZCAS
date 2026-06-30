@@ -60,9 +60,9 @@ class _SellButtonState extends State<SellButton> {
   @override
   Widget build(BuildContext context) {
     if (widget.compact) {
-      return IconButton.filled(
-        tooltip: 'Sell',
-        icon: const Icon(Icons.point_of_sale),
+      return ElevatedButton.icon(
+        icon: const Icon(Icons.point_of_sale, size: 20),
+        label: const Text('Sell'),
         onPressed: () => _showSellDialog(context),
       );
     }
@@ -313,9 +313,16 @@ class _SellDialogState extends State<_SellDialog> {
                 Row(
                   children: [
                     Expanded(
+                      flex: 3,
                       child: DropdownButtonFormField<String>(
                         isExpanded: true,
-                        decoration: const InputDecoration(labelText: 'Item'),
+                        decoration: const InputDecoration(
+                          labelText: 'Item',
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 14,
+                          ),
+                        ),
                         initialValue: selectedItem,
                         items: widget.items
                             .map(
@@ -325,9 +332,9 @@ class _SellDialogState extends State<_SellDialog> {
                         onChanged: (v) => setState(() => selectedItem = v),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 110,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
                       child: TextField(
                         controller: _qtyController,
                         focusNode: _qtyFocusNode,
@@ -335,12 +342,18 @@ class _SellDialogState extends State<_SellDialog> {
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
                         ],
-                        decoration: const InputDecoration(labelText: 'Qty'),
+                        decoration: const InputDecoration(
+                          labelText: 'Qty',
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 14,
+                          ),
+                        ),
                         onChanged: (v) =>
                             setState(() => quantity = int.tryParse(v) ?? 1),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     FilledButton(
                       onPressed: () {
                         if (selectedItem == null) {

@@ -256,13 +256,12 @@ class _TransactionsTableState extends State<TransactionsTable> {
                             horizontal: 16,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
                           children: [
-                            const SellButton(compact: true),
-                            const SizedBox(width: 8),
-                            const BorrowButton(compact: true),
+                            const Expanded(child: SellButton(compact: true)),
+                            const SizedBox(width: 10),
+                            const Expanded(child: BorrowButton(compact: true)),
                           ],
                         ),
                       ],
