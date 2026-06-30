@@ -172,10 +172,6 @@ class _DashboardPageState extends State<DashboardPage> {
             _buildProductsTableCompact(isDark),
           ] else
             _buildChartAndProductsRow(isDark),
-          SizedBox(height: isMobile ? 20 : 32),
-          _revenueChart(isDark, isMobile),
-          SizedBox(height: isMobile ? 20 : 32),
-          _buildProductsTable(isDark),
         ],
       ),
     );
@@ -567,97 +563,6 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
             );
           }),
-      ],
-    ),
-  );
-
-  Widget _buildProductsTable(bool d) => _card(
-    d,
-    Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              'Top Selling Products',
-              style: StockpileFonts.satoshi(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: d
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        topProducts.isEmpty
-            ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Text(
-                    'No sales data yet',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 14,
-                      color: d
-                          ? StockpileColors.darkTextMuted
-                          : StockpileColors.mutedText,
-                    ),
-                  ),
-                ),
-              )
-            : DataTable(
-                columns: const [
-                  DataColumn(label: Text('Rank')),
-                  DataColumn(label: Text('Product')),
-                  DataColumn(label: Text('Item ID'), numeric: true),
-                  DataColumn(label: Text('Revenue'), numeric: true),
-                  DataColumn(label: Text('Units Sold'), numeric: true),
-                  DataColumn(label: Text('Margin')),
-                ],
-                rows: topProducts.asMap().entries.map((e) {
-                  final i = e.key;
-                  final p = e.value;
-                  final nm = (p['productName'] as String?) ?? '\u2014';
-                  return DataRow(
-                    cells: [
-                      DataCell(Text('${i + 1}')),
-                      DataCell(
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 32,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                color: StockpileColors.primary900.withAlpha(
-                                  (0.12 * 255).round(),
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                nm.isNotEmpty ? nm[0].toUpperCase() : '?',
-                                style: StockpileFonts.satoshi(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: StockpileColors.primary900,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Text(nm),
-                          ],
-                        ),
-                      ),
-                      DataCell(Text('#${p['itemId']}')),
-                      DataCell(Text(_fmt(p['revenue'] as int))),
-                      DataCell(Text('${p['unitsSold']}')),
-                      const DataCell(Text('\u2014')),
-                    ],
-                  );
-                }).toList(),
-              ),
       ],
     ),
   );

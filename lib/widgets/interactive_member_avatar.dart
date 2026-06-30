@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/theme.dart';
 import 'memberqr.dart';
 
 class InteractiveMemberAvatar extends StatefulWidget {
@@ -46,9 +47,10 @@ class _InteractiveMemberAvatarState extends State<InteractiveMemberAvatar> {
         return Dialog(
           backgroundColor:
               dialogTheme.backgroundColor ?? Theme.of(ctx).cardColor,
-          shape:
-              dialogTheme.shape ??
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+            side: BorderSide(color: StockpileColors.primary900, width: 4),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(20.0),
             child: Column(

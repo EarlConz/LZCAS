@@ -29,12 +29,30 @@ class MembersTableState extends State<MembersTable> {
 
   static const _pageSize = 25;
   int _visibleCount = _pageSize;
+  int _currentPage = 0;
+  bool _hasMore = true;
+  bool _loading = false;
+
+  // ── Server-page state for desktop PaginatedDataTable ──────────────
+  final List<Map<String, dynamic>> _serverPage = [];
+  int _totalCount = 0;
+  int _currentServerPage = 1;
+  late final _MembersDataSource _membersSource;
 
   late final StreamSubscription<String> _changesSub;
 
   @override
   void initState() {
     super.initState();
+    _membersSource = _MembersDataSource(
+      _serverPage,
+      () => _totalCount,
+      () => _currentServerPage,
+      _pageSize,
+      widget.onRowSelected,
+      _selectedMemberIds,
+      _setMemberSelected,
+    );
     _loadMembers();
     _changesSub = repository.changes.listen((e) {
       if (e == 'member_added' ||
@@ -48,16 +66,83 @@ class MembersTableState extends State<MembersTable> {
   }
 
   Future<void> _loadMembers() async {
-    final rows = await repository.fetchMembers();
-    if (!mounted) return;
-    setState(() {
-      members = membersFromRows(rows);
-      final currentIds = members
-          .map((member) => member['id'])
-          .whereType<int>()
-          .toSet();
-      _selectedMemberIds.removeWhere((id) => !currentIds.contains(id));
-    });
+    await _fetchServerPage(1);
+    if (mounted) {
+      setState(() {
+        members = List.of(_serverPage);
+        _currentPage = 1;
+        _hasMore = _totalCount > _pageSize;
+        _visibleCount = _pageSize;
+        final currentIds = members
+            .map((member) => member['id'])
+            .whereType<int>()
+            .toSet();
+        _selectedMemberIds.removeWhere((id) => !currentIds.contains(id));
+      });
+    }
+  }
+
+  /// Fetch a specific server page — updates desktop PaginatedDataTable.
+  Future<void> _fetchServerPage(int serverPage) async {
+    if (_loading) return;
+    _loading = true;
+    if (mounted) setState(() {});
+    try {
+      final page = await repository.fetchMembersPaginated(
+        page: serverPage,
+        pageSize: _pageSize,
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        roleFilter: (roleFilter != null && roleFilter!.isNotEmpty)
+            ? roleFilter
+            : null,
+        sortColumn: 'last_name',
+        sortAscending: true,
+      );
+      if (!mounted) return;
+      _serverPage.clear();
+      _serverPage.addAll(membersFromRows(page.rows));
+      setState(() {
+        _totalCount = page.totalCount;
+        _currentServerPage = serverPage;
+        _loading = false;
+      });
+      _membersSource.refresh();
+    } catch (e) {
+      debugPrint('MembersTable: failed to load page $serverPage: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadNextPage() async {
+    if (_loading || !_hasMore) return;
+    _loading = true;
+    setState(() {});
+    try {
+      final page = await repository.fetchMembersPaginated(
+        page: _currentPage + 1,
+        pageSize: _pageSize,
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        roleFilter: (roleFilter != null && roleFilter!.isNotEmpty)
+            ? roleFilter
+            : null,
+        sortColumn: 'last_name',
+        sortAscending: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        final newMembers = membersFromRows(page.rows);
+        members.addAll(newMembers);
+        _currentPage = page.page;
+        _hasMore = page.hasMore;
+        _visibleCount = members.length;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('MembersTable: failed to load more: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
   }
 
   void _setMemberSelected(int id, bool selected) {
@@ -111,7 +196,6 @@ class MembersTableState extends State<MembersTable> {
     }
 
     // Upload image to Supabase Storage for cross-device access.
-    // Web data URLs are stored directly (already cross-device compatible).
     if (finalImagePath != null) {
       if (kIsWeb) {
         final created = await repository.getMemberById(memberId);
@@ -125,9 +209,7 @@ class MembersTableState extends State<MembersTable> {
           if (await srcFile.exists()) {
             final bytes = await srcFile.readAsBytes();
             final ext = p.extension(finalImagePath).isNotEmpty
-                ? p
-                      .extension(finalImagePath)
-                      .substring(1) // drop leading dot
+                ? p.extension(finalImagePath).substring(1)
                 : 'jpg';
             final url = await repository.uploadMemberImage(
               memberId,
@@ -141,7 +223,7 @@ class MembersTableState extends State<MembersTable> {
                 await repository.updateMember(updated);
               }
             }
-            await srcFile.delete(); // clean up local temp file
+            await srcFile.delete();
           }
         } catch (e) {
           debugPrint(
@@ -151,9 +233,8 @@ class MembersTableState extends State<MembersTable> {
       }
     }
 
-    await _loadMembers();
+    _loadMembers();
 
-    // Show QR code dialog for the newly created member
     if (!mounted) return;
     final created = await repository.getMemberById(memberId);
     if (created != null && mounted) {
@@ -168,7 +249,10 @@ class MembersTableState extends State<MembersTable> {
     showAnimatedDialog(
       context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: StockpileColors.primary900, width: 4),
+        ),
         title: Row(
           children: [
             Icon(Icons.qr_code, color: Theme.of(ctx).colorScheme.primary),
@@ -216,12 +300,48 @@ class MembersTableState extends State<MembersTable> {
   ) async {
     final id = oldMember['id'] as int?;
     if (id == null) return;
-    final row = (await repository.fetchMembers()).firstWhere((r) => r.id == id);
+    final row = await repository.getMemberById(id);
+    if (row == null) return;
 
-    // Auto-verify if an ID photo is present
-    final newIdImagePath =
-        updatedMember['idImagePath']?.toString() ?? row.idImagePath;
-    final hasId = (newIdImagePath ?? '').isNotEmpty;
+    // Determine the final idImagePath — if it's a new local file, upload
+    // to Supabase Storage first so the image is accessible cross-device.
+    final rawImagePath = updatedMember['idImagePath']?.toString();
+    String? finalImagePath;
+    if (rawImagePath != null && rawImagePath.isNotEmpty) {
+      if (rawImagePath.startsWith('http://') ||
+          rawImagePath.startsWith('https://') ||
+          rawImagePath.startsWith('data:')) {
+        finalImagePath = rawImagePath;
+      } else if (!kIsWeb) {
+        try {
+          final srcFile = File(rawImagePath);
+          if (await srcFile.exists()) {
+            final bytes = await srcFile.readAsBytes();
+            final ext = p.extension(rawImagePath).isNotEmpty
+                ? p.extension(rawImagePath).substring(1)
+                : 'jpg';
+            final url = await repository.uploadMemberImage(id, bytes, ext);
+            if (url != null) {
+              finalImagePath = url;
+              try {
+                await srcFile.delete();
+              } catch (_) {}
+            } else {
+              finalImagePath = row.idImagePath;
+            }
+          } else {
+            finalImagePath = row.idImagePath;
+          }
+        } catch (e) {
+          debugPrint('[MembersTable] Image upload failed: $e');
+          finalImagePath = row.idImagePath;
+        }
+      } else {
+        finalImagePath = rawImagePath;
+      }
+    }
+
+    final hasId = (finalImagePath ?? '').isNotEmpty;
     final newRole = hasId ? 'Verified Reseller' : (row.role ?? 'Member');
 
     final updated = row.copyWith(
@@ -241,17 +361,17 @@ class MembersTableState extends State<MembersTable> {
           : null,
       idType: updatedMember['idType']?.toString(),
       idNumber: updatedMember['idNumber']?.toString(),
-      idImagePath: updatedMember['idImagePath']?.toString(),
+      idImagePath: finalImagePath,
     );
     await repository.updateMember(updated);
-    await _loadMembers();
+    _loadMembers();
   }
 
   Future<void> removeMember(Map<String, dynamic> member) async {
     final id = member['id'] as int?;
     if (id == null) return;
     await repository.deleteMemberById(id);
-    await _loadMembers();
+    _loadMembers();
   }
 
   void _onAddMemberPressed() {
@@ -289,8 +409,10 @@ class MembersTableState extends State<MembersTable> {
                       children: [
                         Expanded(
                           child: SearchBarWidget(
-                            onChanged: (value) =>
-                                setState(() => searchTerm = value),
+                            onChanged: (value) => setState(() {
+                              searchTerm = value;
+                              _loadMembers();
+                            }),
                             hintText: "Search members...",
                             borderRadius: 12,
                             contentPadding: const EdgeInsets.symmetric(
@@ -324,7 +446,10 @@ class MembersTableState extends State<MembersTable> {
                                 child: Text('Member'),
                               ),
                             ],
-                            onChanged: (v) => setState(() => roleFilter = v),
+                            onChanged: (v) {
+                              setState(() => roleFilter = v);
+                              _loadMembers();
+                            },
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -348,8 +473,10 @@ class MembersTableState extends State<MembersTable> {
                   : Column(
                       children: [
                         SearchBarWidget(
-                          onChanged: (value) =>
-                              setState(() => searchTerm = value),
+                          onChanged: (value) => setState(() {
+                            searchTerm = value;
+                            _loadMembers();
+                          }),
                           hintText: "Search members...",
                           borderRadius: 12,
                           contentPadding: const EdgeInsets.symmetric(
@@ -382,7 +509,10 @@ class MembersTableState extends State<MembersTable> {
                                 child: Text('Member'),
                               ),
                             ],
-                            onChanged: (v) => setState(() => roleFilter = v),
+                            onChanged: (v) {
+                              setState(() => roleFilter = v);
+                              _loadMembers();
+                            },
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -419,6 +549,13 @@ class MembersTableState extends State<MembersTable> {
     BuildContext context,
     List<Map<String, dynamic>> filteredMembers,
   ) {
+    if (_loading && members.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (filteredMembers.isEmpty && !_loading) {
+      return const Center(child: Text('No members found'));
+    }
+
     return SizedBox(
       width: double.infinity,
       child: Theme(
@@ -434,11 +571,10 @@ class MembersTableState extends State<MembersTable> {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // headingRowHeight(52) + internalPad(~62) + footer(~56) + card ≈ 200
             final reserved = 200.0;
             var available = constraints.maxHeight - reserved;
             if (available < 62) available = 62;
-            final estimated = (available ~/ 62).clamp(1, 7);
+            final estimated = (available ~/ 62).clamp(1, 20);
             final tableWidth = constraints.hasBoundedWidth
                 ? constraints.maxWidth
                 : (constraints.minWidth.isFinite && constraints.minWidth > 0
@@ -467,13 +603,8 @@ class MembersTableState extends State<MembersTable> {
                     DataColumn(label: Text('Level')),
                     DataColumn(label: Text('QR')),
                   ],
-                  source: _MembersDataSource(
-                    filteredMembers,
-                    widget.onRowSelected,
-                    _selectedMemberIds,
-                    _setMemberSelected,
-                    context,
-                  ),
+                  source: _membersSource,
+                  onPageChanged: (pageIndex) => _fetchServerPage(pageIndex + 1),
                 ),
               ),
             );
@@ -487,6 +618,9 @@ class MembersTableState extends State<MembersTable> {
     BuildContext context,
     List<Map<String, dynamic>> filteredMembers,
   ) {
+    if (_loading && members.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (filteredMembers.isEmpty) {
       return const Center(child: Text('No members found'));
     }
@@ -516,18 +650,31 @@ class MembersTableState extends State<MembersTable> {
             },
           ),
         ),
-        if (hasMore)
+        if (hasMore && !_loading)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: SizedBox(
               width: double.infinity,
               child: OutlinedButton(
-                onPressed: () => setState(() => _visibleCount += _pageSize),
+                onPressed: () {
+                  if (_visibleCount + _pageSize > members.length && _hasMore) {
+                    _loadNextPage().then((_) {
+                      if (mounted) setState(() => _visibleCount += _pageSize);
+                    });
+                  } else {
+                    setState(() => _visibleCount += _pageSize);
+                  }
+                },
                 child: Text(
-                  'Load More (${visible.length} of ${filteredMembers.length})',
+                  'Load More (${_visibleCount.clamp(0, filteredMembers.length)} of ${filteredMembers.length}${_hasMore ? "+" : ""})',
                 ),
               ),
             ),
+          ),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Center(child: CircularProgressIndicator()),
           ),
       ],
     );
@@ -536,44 +683,55 @@ class MembersTableState extends State<MembersTable> {
   @override
   void dispose() {
     _changesSub.cancel();
+
     super.dispose();
   }
 }
 
 class _MembersDataSource extends DataTableSource {
-  final List<Map<String, dynamic>> members;
+  final List<Map<String, dynamic>> _items;
+  final int Function() _getTotalCount;
+  final int Function() _getPageNumber;
+  final int _pageSize;
   final Function(Map<String, dynamic>) onRowSelected;
   final Set<int> selectedMemberIds;
   final void Function(int id, bool selected) onSelectionChanged;
-  final BuildContext _context;
 
   _MembersDataSource(
-    this.members,
+    this._items,
+    this._getTotalCount,
+    this._getPageNumber,
+    this._pageSize,
     this.onRowSelected,
     this.selectedMemberIds,
     this.onSelectionChanged,
-    this._context,
   );
 
   @override
+  int get rowCount => _getTotalCount();
+
+  @override
   DataRow getRow(int index) {
-    if (index >= members.length) return const DataRow(cells: []);
-    final member = members[index];
+    final pageNumber = _getPageNumber();
+    final pageStart = (pageNumber - 1) * _pageSize;
+    final localIndex = index - pageStart;
+    if (localIndex < 0 || localIndex >= _items.length) {
+      return DataRow(cells: List.filled(9, const DataCell(Text(''))));
+    }
+    final member = _items[localIndex];
     final id = member['id'] as int?;
     final isEven = index % 2 == 0;
     return DataRow(
       selected: id != null && selectedMemberIds.contains(id),
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
         if (states.contains(WidgetState.selected)) {
-          return Theme.of(_context).colorScheme.primary.withAlpha(28);
+          return Colors.blue.withAlpha(28);
         }
         if (states.contains(WidgetState.hovered)) {
-          return Theme.of(_context).colorScheme.primary.withAlpha(18);
+          return Colors.blue.withAlpha(18);
         }
         if (isEven) {
-          return Theme.of(
-            _context,
-          ).colorScheme.surfaceContainerHighest.withAlpha(90);
+          return Colors.grey.withAlpha(20);
         }
         return null;
       }),
@@ -648,10 +806,10 @@ class _MembersDataSource extends DataTableSource {
   bool get isRowCountApproximate => false;
 
   @override
-  int get rowCount => members.length;
-
-  @override
   int get selectedRowCount => selectedMemberIds.length;
+
+  /// Call after external data changes to refresh the table.
+  void refresh() => notifyListeners();
 }
 
 class _MemberListCard extends StatelessWidget {
@@ -811,7 +969,10 @@ class _QrIconButton extends StatelessWidget {
     showAnimatedDialog(
       context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: StockpileColors.primary900, width: 4),
+        ),
         title: Row(
           children: [
             Icon(Icons.qr_code, color: Theme.of(ctx).colorScheme.primary),

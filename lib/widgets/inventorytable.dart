@@ -40,10 +40,28 @@ class _InventoryTableState extends State<InventoryTable> {
 
   static const _pageSize = 25;
   int _visibleCount = _pageSize;
+  int _currentPage = 0;
+  bool _hasMore = true;
+  bool _loading = false;
+
+  // ── Server-page state for desktop PaginatedDataTable ──────────────
+  final List<Map<String, dynamic>> _serverPage = [];
+  int _totalCount = 0;
+  int _currentServerPage = 1;
+  late final _InventoryDataSource _inventorySource;
 
   @override
   void initState() {
     super.initState();
+    _inventorySource = _InventoryDataSource(
+      _serverPage,
+      () => _totalCount,
+      () => _currentServerPage,
+      _pageSize,
+      _getStatusColor,
+      _onUpdate,
+      _deleteItem,
+    );
     _loadItems();
     _sub = repository.changes.listen((e) {
       if (e == 'item_updated' ||
@@ -56,27 +74,99 @@ class _InventoryTableState extends State<InventoryTable> {
     });
   }
 
+  /// Load from page 1 — resets both mobile and desktop data.
   Future<void> _loadItems() async {
+    await _fetchServerPage(1);
+    // For mobile: keep accumulated items in sync with page 1
+    if (mounted) {
+      setState(() {
+        items = List.of(_serverPage);
+        _currentPage = 1;
+        _hasMore = _totalCount > _pageSize;
+        _visibleCount = _pageSize;
+      });
+    }
+  }
+
+  /// Fetch a specific server page — updates desktop PaginatedDataTable.
+  Future<void> _fetchServerPage(int serverPage) async {
+    if (_loading) return;
+    _loading = true;
+    if (mounted) setState(() {});
     try {
-      final rows = await repository.fetchItems();
+      final page = await repository.fetchItemsPaginated(
+        page: serverPage,
+        pageSize: _pageSize,
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        categoryFilter:
+            (selectedCategory != null && selectedCategory!.isNotEmpty)
+            ? selectedCategory
+            : null,
+        sortColumn: 'name',
+        sortAscending: true,
+      );
+      if (!mounted) return;
+      final threshold = context.read<ConfigService>().lowStockThreshold;
+      _serverPage.clear();
+      _serverPage.addAll(
+        inventoryItemsFromRows(page.rows).map((m) {
+          final stockVal = (m['stock'] ?? 0) is int
+              ? m['stock'] as int
+              : int.tryParse(m['stock']?.toString() ?? '0') ?? 0;
+          m['status'] = statusFromStock(stockVal, threshold: threshold);
+          return m;
+        }).toList(),
+      );
+      setState(() {
+        _totalCount = page.totalCount;
+        _currentServerPage = serverPage;
+        _loading = false;
+      });
+      _inventorySource.refresh();
+    } catch (e, st) {
+      print('InventoryTable: failed to load page $serverPage: $e\n$st');
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  /// Append the next page — called by "Load More".
+  Future<void> _loadNextPage() async {
+    if (_loading || !_hasMore) return;
+    _loading = true;
+    setState(() {});
+    try {
+      final page = await repository.fetchItemsPaginated(
+        page: _currentPage + 1,
+        pageSize: _pageSize,
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        categoryFilter:
+            (selectedCategory != null && selectedCategory!.isNotEmpty)
+            ? selectedCategory
+            : null,
+        sortColumn: 'name',
+        sortAscending: true,
+      );
       if (!mounted) return;
       final threshold = context.read<ConfigService>().lowStockThreshold;
       setState(() {
-        items = inventoryItemsFromRows(rows).map((m) {
+        final newItems = inventoryItemsFromRows(page.rows).map((m) {
           final stockVal = (m['stock'] ?? 0) is int
               ? m['stock'] as int
               : int.tryParse(m['stock']?.toString() ?? '0') ?? 0;
           m['status'] = statusFromStock(stockVal, threshold: threshold);
           return m;
         }).toList();
+        items.addAll(newItems);
+        _currentPage = page.page;
+        _hasMore = page.hasMore;
+        _visibleCount = items.length;
+        _loading = false;
       });
     } catch (e, st) {
-      // ignore: avoid_print
-      print('InventoryTable: failed to load items: $e\n$st');
+      print('InventoryTable: failed to load more: $e\n$st');
       if (!mounted) return;
-      setState(() {
-        items = [];
-      });
+      setState(() => _loading = false);
     }
   }
 
@@ -142,7 +232,6 @@ class _InventoryTableState extends State<InventoryTable> {
                   ? _buildMobileActionBar(context)
                   : _buildDesktopActionBar(context, isTablet),
             ),
-
             Expanded(
               child: isMobile
                   ? _buildInventoryList(context, filteredItems)
@@ -152,7 +241,6 @@ class _InventoryTableState extends State<InventoryTable> {
                             tableConstraints.hasBoundedHeight
                             ? tableConstraints.maxHeight
                             : MediaQuery.sizeOf(context).height;
-                        // headingRowHeight(52) + internalPad(~62) + footer(~56) ≈ 170
                         final rowsPerPage = ((availableHeight - 170) ~/ 62)
                             .clamp(1, 7);
 
@@ -199,12 +287,9 @@ class _InventoryTableState extends State<InventoryTable> {
                                       DataColumn(label: Text("Status")),
                                       DataColumn(label: Text("Action")),
                                     ],
-                                    source: _InventoryDataSource(
-                                      filteredItems,
-                                      _getStatusColor,
-                                      _onUpdate,
-                                      context,
-                                    ),
+                                    source: _inventorySource,
+                                    onPageChanged: (pageIndex) =>
+                                        _fetchServerPage(pageIndex + 1),
                                   ),
                                 ),
                               ),
@@ -220,6 +305,8 @@ class _InventoryTableState extends State<InventoryTable> {
     );
   }
 
+  // ── Action Bar ─────────────────────────────────────────────────────
+
   Widget _buildMobileActionBar(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -233,8 +320,10 @@ class _InventoryTableState extends State<InventoryTable> {
               selectedCategory: selectedCategory,
               onStatusChanged: (status) =>
                   setState(() => selectedStatus = status),
-              onCategoryChanged: (category) =>
-                  setState(() => selectedCategory = category),
+              onCategoryChanged: (category) {
+                setState(() => selectedCategory = category);
+                _loadItems();
+              },
             ),
           ],
         ),
@@ -253,8 +342,10 @@ class _InventoryTableState extends State<InventoryTable> {
           selectedStatus: selectedStatus,
           selectedCategory: selectedCategory,
           onStatusChanged: (status) => setState(() => selectedStatus = status),
-          onCategoryChanged: (category) =>
-              setState(() => selectedCategory = category),
+          onCategoryChanged: (category) {
+            setState(() => selectedCategory = category);
+            _loadItems();
+          },
         ),
         const SizedBox(width: 12),
         _buildAddButton(context),
@@ -262,10 +353,16 @@ class _InventoryTableState extends State<InventoryTable> {
     );
   }
 
+  // ── Mobile List ────────────────────────────────────────────────────
+
   Widget _buildInventoryList(
     BuildContext context,
     List<Map<String, dynamic>> filteredItems,
   ) {
+    if (_loading && items.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     if (filteredItems.isEmpty) {
       return const Center(child: Text('No items found'));
     }
@@ -304,26 +401,45 @@ class _InventoryTableState extends State<InventoryTable> {
             },
           ),
         ),
-        if (hasMore)
+        if (hasMore && !_loading)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: SizedBox(
               width: double.infinity,
               child: OutlinedButton(
-                onPressed: () => setState(() => _visibleCount += _pageSize),
+                onPressed: () {
+                  if (_visibleCount + _pageSize > items.length && _hasMore) {
+                    _loadNextPage().then((_) {
+                      if (mounted) setState(() => _visibleCount += _pageSize);
+                    });
+                  } else {
+                    setState(() => _visibleCount += _pageSize);
+                  }
+                },
                 child: Text(
-                  'Load More (${visible.length} of ${filteredItems.length})',
+                  'Load More (${_visibleCount.clamp(0, filteredItems.length)} of ${filteredItems.length}${_hasMore ? "+" : ""})',
                 ),
               ),
             ),
+          ),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Center(child: CircularProgressIndicator()),
           ),
       ],
     );
   }
 
+  // ── Desktop Table ──────────────────────────────────────────────────
+  // (uses PaginatedDataTable which paginates the already-loaded data in-memory)
+
   Widget _buildSearchBar() {
     return SearchBarWidget(
-      onChanged: (value) => setState(() => searchTerm = value),
+      onChanged: (value) {
+        searchTerm = value;
+        _loadItems();
+      },
       hintText: "Search items...",
       borderRadius: 12,
       contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -375,7 +491,6 @@ class _InventoryTableState extends State<InventoryTable> {
     final id = item['id'] as int?;
     if (id == null) return;
 
-    // Check if current user is inventory (needs admin approval)
     final role = context.read<AuthState>().userRole;
     final needsApproval = role == UserRole.inventory;
 
@@ -407,7 +522,6 @@ class _InventoryTableState extends State<InventoryTable> {
     if (confirm != true) return;
 
     if (needsApproval) {
-      // Guard: block request if the item has active borrows
       final hasBorrows = await repository.hasActiveBorrows(id);
       if (!context.mounted) return;
       if (hasBorrows) {
@@ -439,7 +553,6 @@ class _InventoryTableState extends State<InventoryTable> {
       if (!context.mounted) return;
       BotToast.showText(text: 'Deletion request sent to admin for approval');
     } else {
-      // Guard: block deletion if the item has active borrows
       final hasBorrows = await repository.hasActiveBorrows(id);
       if (!context.mounted) return;
       if (hasBorrows) {
@@ -638,33 +751,45 @@ class _InventoryMetaPill extends StatelessWidget {
 }
 
 class _InventoryDataSource extends DataTableSource {
-  final List<Map<String, dynamic>> items;
+  final List<Map<String, dynamic>> _items;
+  final int Function() _getTotalCount;
+  final int Function() _getPageNumber;
+  final int _pageSize;
   final Color Function(String) getStatusColor;
   final void Function(Map<String, dynamic>) onUpdate;
-  final BuildContext _context;
+  final Future<void> Function(BuildContext, Map<String, dynamic>) onDelete;
 
   _InventoryDataSource(
-    this.items,
+    this._items,
+    this._getTotalCount,
+    this._getPageNumber,
+    this._pageSize,
     this.getStatusColor,
     this.onUpdate,
-    this._context,
+    this.onDelete,
   );
 
   @override
+  int get rowCount => _getTotalCount();
+
+  @override
   DataRow getRow(int index) {
-    if (index >= items.length) return const DataRow(cells: []);
-    final item = items[index];
+    final pageNumber = _getPageNumber();
+    final pageStart = (pageNumber - 1) * _pageSize;
+    final localIndex = index - pageStart;
+    if (localIndex < 0 || localIndex >= _items.length) {
+      return DataRow(cells: List.filled(6, const DataCell(Text(''))));
+    }
+    final item = _items[localIndex];
     final isEven = index % 2 == 0;
 
     return DataRow(
       color: WidgetStateProperty.resolveWith<Color?>((states) {
         if (states.contains(WidgetState.hovered)) {
-          return Theme.of(_context).colorScheme.primary.withAlpha(18);
+          return Colors.grey.withAlpha(18);
         }
         if (isEven) {
-          return Theme.of(
-            _context,
-          ).colorScheme.surfaceContainerHighest.withAlpha(90);
+          return Colors.grey.withAlpha(20);
         }
         return null;
       }),
@@ -696,56 +821,7 @@ class _InventoryDataSource extends DataTableSource {
                     ),
                   );
                 } else if (value == 'delete') {
-                  final id = item['id'] as int?;
-                  if (id != null) {
-                    final confirm = await showDialog<bool>(
-                      context: cellContext,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Delete product'),
-                        content: const Text(
-                          'Are you sure you want to delete this product? This action cannot be undone.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('Cancel'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: const Text('Delete'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirm == true) {
-                      // Guard: block deletion if the item has active borrows
-                      final hasBorrows = await repository.hasActiveBorrows(id);
-                      if (cellContext.mounted && hasBorrows) {
-                        await showDialog<void>(
-                          context: cellContext,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Cannot delete'),
-                            content: const Text(
-                              'This product has unsettled borrows. '
-                              'All borrowed items must be returned or paid for '
-                              'before this product can be deleted.',
-                            ),
-                            actions: [
-                              FilledButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                child: const Text('OK'),
-                              ),
-                            ],
-                          ),
-                        );
-                      } else if (cellContext.mounted) {
-                        await repository.deleteItemById(id);
-                        await repository.fetchItems();
-                        onUpdate(item);
-                        BotToast.showText(text: 'Product deleted');
-                      }
-                    }
-                  }
+                  await onDelete(cellContext, item);
                 }
               },
               itemBuilder: (menuContext) => [
@@ -765,7 +841,8 @@ class _InventoryDataSource extends DataTableSource {
   @override
   bool get isRowCountApproximate => false;
   @override
-  int get rowCount => items.length;
-  @override
   int get selectedRowCount => 0;
+
+  /// Call after external data changes to refresh the table.
+  void refresh() => notifyListeners();
 }

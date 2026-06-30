@@ -92,24 +92,40 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final isDesktop = MediaQuery.sizeOf(context).width >= 900;
     final pages = _buildPages();
 
-    final sidebar = _AdminSidebar(
+    final sharedSidebarArgs = (
       selectedIndex: _selectedIndex,
       auth: auth,
       pendingCount: notifService.pendingCount,
-      onItemSelected: (i) {
+      onItemSelected: (int i) {
         if (!isDesktop) Navigator.pop(context);
         if (i == 6) notifService.markPendingSeen(); // Requests tab
         _onItemTapped(i);
       },
     );
 
+    final mobileDrawer = _AdminSidebar(
+      selectedIndex: sharedSidebarArgs.selectedIndex,
+      auth: sharedSidebarArgs.auth,
+      pendingCount: sharedSidebarArgs.pendingCount,
+      onItemSelected: sharedSidebarArgs.onItemSelected,
+      useDrawer: true,
+    );
+
+    final desktopSidebar = _AdminSidebar(
+      selectedIndex: sharedSidebarArgs.selectedIndex,
+      auth: sharedSidebarArgs.auth,
+      pendingCount: sharedSidebarArgs.pendingCount,
+      onItemSelected: sharedSidebarArgs.onItemSelected,
+      useDrawer: false,
+    );
+
     return Scaffold(
       key: _scaffoldKey,
-      drawer: isDesktop ? null : sidebar,
+      drawer: isDesktop ? null : mobileDrawer,
       body: Row(
         children: [
           // Desktop sidebar
-          if (isDesktop) SizedBox(width: 260, child: sidebar),
+          if (isDesktop) SizedBox(width: 260, child: desktopSidebar),
           if (isDesktop) const VerticalDivider(width: 1),
 
           // Main content area
@@ -1246,11 +1262,16 @@ class _AdminSidebar extends StatelessWidget {
   final ValueChanged<int> onItemSelected;
   final int pendingCount;
 
+  /// When true wraps the content in a [Drawer] (for Scaffold.drawer on mobile).
+  /// When false uses a plain Container (for inline desktop sidebar).
+  final bool useDrawer;
+
   const _AdminSidebar({
     required this.selectedIndex,
     required this.auth,
     required this.onItemSelected,
     this.pendingCount = 0,
+    this.useDrawer = true,
   });
 
   static const _navItems = <_NavItem>[
@@ -1278,175 +1299,177 @@ class _AdminSidebar extends StatelessWidget {
         ? StockpileColors.darkSidebarActive
         : StockpileColors.sidebarActive;
 
-    return Drawer(
-      width: 260,
-      backgroundColor: surface,
-      elevation: 0,
-      child: Column(
-        children: [
-          // ── Brand ────────────────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
+    final content = Column(
+      children: [
+        // ── Brand ────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
+          child: Row(
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: StockpileColors.primary900,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'LZCAS · Admin',
+                style: StockpileFonts.satoshi(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: isDark
+                      ? StockpileColors.darkTextPrimary
+                      : StockpileColors.darkText,
+                  height: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // ── Navigation Items ─────────────────────────────────────────
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            children: [
+              ...List.generate(_navItems.length, (i) {
+                final tile = _AdminSidebarTile(
+                  item: _navItems[i],
+                  isSelected: selectedIndex == i,
+                  activeBg: activeBg,
+                  isDark: isDark,
+                  onTap: () => onItemSelected(i),
+                );
+                // Show badge on Requests item (index 6)
+                if (i == 6 && pendingCount > 0) {
+                  return Badge(
+                    backgroundColor: StockpileColors.primary900,
+                    label: Text(
+                      '$pendingCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                    child: tile,
+                  );
+                }
+                return tile;
+              }),
+              const SizedBox(height: 12),
+              Divider(
+                color: isDark
+                    ? StockpileColors.darkDivider
+                    : StockpileColors.divider,
+                indent: 12,
+                endIndent: 12,
+              ),
+              const SizedBox(height: 12),
+              // Settings → index 8
+              _AdminSidebarTile(
+                item: _bottomItems[0],
+                isSelected: selectedIndex == 8,
+                activeBg: activeBg,
+                isDark: isDark,
+                onTap: () => onItemSelected(8),
+              ),
+            ],
+          ),
+        ),
+
+        // ── User Profile Card ─────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? StockpileColors.darkInputBg
+                  : StockpileColors.inputBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
             child: Row(
               children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: StockpileColors.primary900,
-                    borderRadius: BorderRadius.circular(3),
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: StockpileColors.primary900,
+                  child: Text(
+                    auth.username.isNotEmpty
+                        ? auth.username[0].toUpperCase()
+                        : 'A',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  'LZCAS · Admin',
-                  style: StockpileFonts.satoshi(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        auth.username.isNotEmpty ? auth.username : 'Admin',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? StockpileColors.darkTextPrimary
+                              : StockpileColors.darkText,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Admin',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText,
+                          height: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Logout button in profile card
+                IconButton(
+                  icon: Icon(
+                    Icons.logout_rounded,
+                    size: 20,
                     color: isDark
-                        ? StockpileColors.darkTextPrimary
-                        : StockpileColors.darkText,
-                    height: 1.2,
+                        ? StockpileColors.darkTextMuted
+                        : StockpileColors.mutedText,
+                  ),
+                  onPressed: () => _confirmLogout(context, auth),
+                  tooltip: 'Logout',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 36,
+                    minHeight: 36,
                   ),
                 ),
               ],
             ),
           ),
-
-          // ── Navigation Items ─────────────────────────────────────────
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: [
-                ...List.generate(_navItems.length, (i) {
-                  final tile = _AdminSidebarTile(
-                    item: _navItems[i],
-                    isSelected: selectedIndex == i,
-                    activeBg: activeBg,
-                    isDark: isDark,
-                    onTap: () => onItemSelected(i),
-                  );
-                  // Show badge on Requests item (index 6)
-                  if (i == 6 && pendingCount > 0) {
-                    return Badge(
-                      backgroundColor: StockpileColors.primary900,
-                      label: Text(
-                        '$pendingCount',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                        ),
-                      ),
-                      child: tile,
-                    );
-                  }
-                  return tile;
-                }),
-                const SizedBox(height: 12),
-                Divider(
-                  color: isDark
-                      ? StockpileColors.darkDivider
-                      : StockpileColors.divider,
-                  indent: 12,
-                  endIndent: 12,
-                ),
-                const SizedBox(height: 12),
-                // Settings → index 8
-                _AdminSidebarTile(
-                  item: _bottomItems[0],
-                  isSelected: selectedIndex == 8,
-                  activeBg: activeBg,
-                  isDark: isDark,
-                  onTap: () => onItemSelected(8),
-                ),
-              ],
-            ),
-          ),
-
-          // ── User Profile Card ─────────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? StockpileColors.darkInputBg
-                    : StockpileColors.inputBg,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor: StockpileColors.primary900,
-                    child: Text(
-                      auth.username.isNotEmpty
-                          ? auth.username[0].toUpperCase()
-                          : 'A',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          auth.username.isNotEmpty ? auth.username : 'Admin',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: isDark
-                                ? StockpileColors.darkTextPrimary
-                                : StockpileColors.darkText,
-                            height: 1.2,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Admin',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: isDark
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
-                            height: 1.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Logout button in profile card
-                  IconButton(
-                    icon: Icon(
-                      Icons.logout_rounded,
-                      size: 20,
-                      color: isDark
-                          ? StockpileColors.darkTextMuted
-                          : StockpileColors.mutedText,
-                    ),
-                    onPressed: () => _confirmLogout(context, auth),
-                    tooltip: 'Logout',
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 36,
-                      minHeight: 36,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
+
+    if (useDrawer) {
+      return Drawer(
+        width: 260,
+        backgroundColor: surface,
+        elevation: 0,
+        child: content,
+      );
+    }
+    return Container(width: 260, color: surface, child: content);
   }
 
   Future<void> _confirmLogout(BuildContext context, AuthState auth) async {
@@ -1680,6 +1703,10 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     showAnimatedDialog(
       context,
       builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(28),
+          side: BorderSide(color: StockpileColors.primary900, width: 4),
+        ),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -1709,7 +1736,15 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                         Navigator.pop(ctx);
                         _openEditDialog(member);
                       },
-                      icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                      icon: CircleAvatar(
+                        radius: 16,
+                        backgroundColor: StockpileColors.primary900,
+                        child: const Icon(
+                          Icons.edit_outlined,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
                     ),
                     IconButton(
                       tooltip: 'Delete member',
@@ -1791,7 +1826,15 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   String _historyFilter = 'all'; // all, approved, rejected
   String _historyTypeFilter = 'all'; // all, delete, reduce
   bool _loading = true;
-  final Map<int, bool> _memberBorrowStatus = {}; // memberId → hasActiveBorrows
+  bool _loadingMore = false;
+  static const _pageSize = 25;
+  int _pendingVisibleCount = _pageSize;
+  int _pendingPage = 0;
+  bool _pendingHasMore = true;
+  int _historyVisibleCount = _pageSize;
+  int _historyPage = 0;
+  bool _historyHasMore = true;
+  final Map<int, bool> _memberBorrowStatus = {};
   StreamSubscription<String>? _changeSub;
 
   @override
@@ -1830,13 +1873,19 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   }
 
   Future<void> _loadRequests() async {
+    _loading = true;
+    if (mounted) setState(() {});
     try {
-      final requests = await repository.fetchPendingRequests();
+      final page = await repository.fetchRequestsPaginated(
+        page: 1,
+        pageSize: _pageSize,
+        statusFilter: 'pending',
+      );
       final profiles = await repository.fetchProfilesMap();
 
       // Pre-check borrow status for member-deletion requests
       final Map<int, bool> borrowStatus = {};
-      for (final req in requests) {
+      for (final req in page.rows) {
         if (req.requestType == 'delete_member' && req.memberId != null) {
           final hasBorrows = await repository.hasActiveBorrowsForMember(
             req.memberId!,
@@ -1847,34 +1896,92 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
 
       if (!mounted) return;
       setState(() {
-        _pendingRequests = requests;
+        _pendingRequests = page.rows;
+        _pendingPage = 1;
+        _pendingHasMore = page.hasMore;
+        _pendingVisibleCount = _pageSize;
         _profiles = profiles;
         _memberBorrowStatus
           ..clear()
           ..addAll(borrowStatus);
         _loading = false;
       });
-      _loadProfiles(); // also load roles
+      _loadProfiles();
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
     }
   }
 
-  Future<void> _loadHistory() async {
+  Future<void> _loadPendingNextPage() async {
+    if (_loadingMore || !_pendingHasMore) return;
+    _loadingMore = true;
+    setState(() {});
     try {
-      final all = await repository.fetchAllRequests();
+      final page = await repository.fetchRequestsPaginated(
+        page: _pendingPage + 1,
+        pageSize: _pageSize,
+        statusFilter: 'pending',
+      );
+      if (!mounted) return;
+      setState(() {
+        _pendingRequests.addAll(page.rows);
+        _pendingPage = page.page;
+        _pendingHasMore = page.hasMore;
+        _pendingVisibleCount = _pendingRequests.length;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMore = false);
+    }
+  }
+
+  Future<void> _loadHistory() async {
+    _loading = true;
+    if (mounted) setState(() {});
+    try {
+      final page = await repository.fetchRequestsPaginated(
+        page: 1,
+        pageSize: _pageSize,
+        statusFilter: 'history',
+      );
       final profiles = await repository.fetchProfilesMap();
       if (!mounted) return;
       setState(() {
-        _historyRequests = all;
+        _historyRequests = page.rows;
+        _historyPage = 1;
+        _historyHasMore = page.hasMore;
+        _historyVisibleCount = _pageSize;
         _profiles = profiles;
         _loading = false;
       });
-      _loadProfiles(); // also load roles
+      _loadProfiles();
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadHistoryNextPage() async {
+    if (_loadingMore || !_historyHasMore) return;
+    _loadingMore = true;
+    setState(() {});
+    try {
+      final page = await repository.fetchRequestsPaginated(
+        page: _historyPage + 1,
+        pageSize: _pageSize,
+        statusFilter: 'history',
+      );
+      if (!mounted) return;
+      setState(() {
+        _historyRequests.addAll(page.rows);
+        _historyPage = page.page;
+        _historyHasMore = page.hasMore;
+        _historyVisibleCount = _historyRequests.length;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -2478,14 +2585,64 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
           ),
           _buildHistoryFilterRow(),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _loadHistory,
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                itemCount: _filteredHistory.length,
-                itemBuilder: (context, index) =>
-                    _buildHistoryCard(_filteredHistory[index], isDark, theme),
-              ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _loadHistory,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      itemCount: _filteredHistory
+                          .take(_historyVisibleCount)
+                          .length,
+                      itemBuilder: (context, index) => _buildHistoryCard(
+                        _filteredHistory[index],
+                        isDark,
+                        theme,
+                      ),
+                    ),
+                  ),
+                ),
+                if (_historyVisibleCount < _filteredHistory.length ||
+                    _historyHasMore)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: _loadingMore
+                            ? null
+                            : () {
+                                if (_historyVisibleCount + _pageSize >
+                                        _historyRequests.length &&
+                                    _historyHasMore) {
+                                  _loadHistoryNextPage().then((_) {
+                                    if (mounted)
+                                      setState(
+                                        () => _historyVisibleCount += _pageSize,
+                                      );
+                                  });
+                                } else {
+                                  setState(
+                                    () => _historyVisibleCount += _pageSize,
+                                  );
+                                }
+                              },
+                        child: _loadingMore
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(
+                                'Load More (${_historyVisibleCount.clamp(0, _filteredHistory.length)} of ${_filteredHistory.length}${_historyHasMore ? "+" : ""})',
+                              ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
@@ -2589,7 +2746,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            itemCount: _pendingRequests.length,
+            itemCount: _pendingRequests.take(_pendingVisibleCount).length,
             itemBuilder: (context, index) {
               final req = _pendingRequests[index];
               final isMemberDelete = req.requestType == 'delete_member';
@@ -2787,6 +2944,38 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
             },
           ),
         ),
+        if (_pendingVisibleCount < _pendingRequests.length || _pendingHasMore)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: _loadingMore
+                    ? null
+                    : () {
+                        if (_pendingVisibleCount + _pageSize >
+                                _pendingRequests.length &&
+                            _pendingHasMore) {
+                          _loadPendingNextPage().then((_) {
+                            if (mounted)
+                              setState(() => _pendingVisibleCount += _pageSize);
+                          });
+                        } else {
+                          setState(() => _pendingVisibleCount += _pageSize);
+                        }
+                      },
+                child: _loadingMore
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(
+                        'Load More (${_pendingVisibleCount.clamp(0, _pendingRequests.length)} of ${_pendingRequests.length}${_pendingHasMore ? "+" : ""})',
+                      ),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -3002,7 +3191,6 @@ class _ToggleChip extends StatelessWidget {
     this.count,
     required this.isSelected,
     required this.onTap,
-    super.key,
   });
 
   @override
@@ -3076,7 +3264,6 @@ class _FilterChip extends StatelessWidget {
     required this.label,
     required this.isSelected,
     required this.onTap,
-    super.key,
   });
 
   @override

@@ -16,7 +16,7 @@ export '../data/models.dart'
         inventoryItemsFromRows,
         membersFromRows,
         statusFromStock;
-export '../data/supabase_repository.dart' show SupabaseRepository;
+export '../data/supabase_repository.dart' show SupabaseRepository, PageResult;
 
 /// Global repository instance. Set by main() before the app runs.
 SupabaseRepository get repository {

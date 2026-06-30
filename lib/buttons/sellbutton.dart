@@ -5,6 +5,7 @@ import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/receipt_dialog.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
+import 'package:lzcas/theme.dart';
 
 class SellButton extends StatefulWidget {
   final bool compact;
@@ -127,6 +128,10 @@ class _SellDialogState extends State<_SellDialog> {
     showAnimatedDialog(
       context,
       builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(28),
+          side: BorderSide(color: StockpileColors.primary900, width: 4),
+        ),
         title: const Text('Error'),
         content: Text(message),
         actions: [
@@ -365,7 +370,25 @@ class _SellDialogState extends State<_SellDialog> {
                           _showError('Invalid item');
                           return;
                         }
-                        repository.fetchItems().then((_) {
+                        repository.fetchItems().then((allItems) {
+                          final dbItem = allItems.firstWhere(
+                            (r) => r.name == selectedItem,
+                            orElse: () => Item(name: '', stock: 0),
+                          );
+                          final alreadyInCart = cart
+                              .where((e) => e['item'] == selectedItem)
+                              .fold<int>(
+                                0,
+                                (sum, e) => sum + (e['quantity'] as int),
+                              );
+                          final totalNeeded = alreadyInCart + quantity;
+                          if (totalNeeded > dbItem.stock) {
+                            _showError(
+                              'Insufficient stock for "$selectedItem". '
+                              'Available: ${dbItem.stock}, in cart: $alreadyInCart, requested: $quantity.',
+                            );
+                            return;
+                          }
                           setState(() {
                             cart.add({
                               'item': selectedItem,
@@ -511,8 +534,35 @@ class _SellDialogState extends State<_SellDialog> {
                     if (buyerName.isEmpty) buyerName = null;
                   }
 
+                  // ── Stock validation before sale ──────────────────
+                  final allItems = await repository.fetchItems();
+                  final stockMap = <String, int>{};
+                  for (final item in allItems) {
+                    stockMap[item.name] = item.stock;
+                  }
+                  final cartQtyByItem = <String, int>{};
                   for (var entry in cart) {
-                    final dbItem = (await repository.fetchItems()).firstWhere(
+                    final name = entry['item'] as String;
+                    final q = entry['quantity'] as int;
+                    cartQtyByItem[name] = (cartQtyByItem[name] ?? 0) + q;
+                  }
+                  final insufficient = <String>[];
+                  for (final name in cartQtyByItem.keys) {
+                    final needed = cartQtyByItem[name]!;
+                    final available = stockMap[name] ?? 0;
+                    if (needed > available) {
+                      insufficient.add('$name (need $needed, have $available)');
+                    }
+                  }
+                  if (insufficient.isNotEmpty) {
+                    _showError(
+                      'Not enough stock for:\n${insufficient.join('\n')}',
+                    );
+                    return;
+                  }
+
+                  for (var entry in cart) {
+                    final dbItem = allItems.firstWhere(
                       (r) => r.name == entry['item'],
                     );
                     final q = entry['quantity'] as int;

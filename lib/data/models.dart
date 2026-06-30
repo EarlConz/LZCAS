@@ -514,12 +514,15 @@ class PendingRequest {
 class UserProfile {
   final String id; // matches auth.users.id (UUID)
   final String username;
+  final String?
+  email; // auth.users.email — populated via handle_new_user trigger
   final String role; // admin, inventory, cashier
   final DateTime? createdAt;
 
   const UserProfile({
     required this.id,
     required this.username,
+    this.email,
     this.role = 'cashier',
     this.createdAt,
   });
@@ -527,6 +530,7 @@ class UserProfile {
   factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
     id: json['id'] as String? ?? '',
     username: json['username'] as String? ?? '',
+    email: json['email'] as String?,
     role: json['role'] as String? ?? 'cashier',
     createdAt: json['created_at'] != null
         ? DateTime.tryParse(json['created_at'].toString())
@@ -537,6 +541,7 @@ class UserProfile {
     'id': id,
     'username': username,
     'role': role,
+    if (email != null) 'email': email,
     if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
   };
 }

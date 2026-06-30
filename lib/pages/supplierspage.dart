@@ -62,6 +62,10 @@ class _SuppliersPageState extends State<SuppliersPage>
     showAnimatedDialog(
       context,
       builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(28),
+          side: BorderSide(color: StockpileColors.primary900, width: 4),
+        ),
         insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
         child: ConstrainedBox(
           constraints: BoxConstraints(
