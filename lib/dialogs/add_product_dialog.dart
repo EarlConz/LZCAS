@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/config_service.dart';
 
 class AddProductDialog extends StatefulWidget {
   final Function(Map<String, dynamic>) onProductAdded;
@@ -155,7 +157,9 @@ class _AddProductDialogState extends State<AddProductDialog> {
       'lastUpdated': DateTime.now(),
       'status': stock <= 0
           ? 'Out of Stock'
-          : (stock < 50 ? 'Low Stock' : 'Good'),
+          : (stock < context.read<ConfigService>().lowStockThreshold
+                ? 'Low Stock'
+                : 'Good'),
     });
     Navigator.pop(context);
   }

@@ -4,6 +4,7 @@
 
 import 'dart:async';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:csv/csv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'models.dart';
@@ -50,8 +51,9 @@ class SupabaseRepository {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
 
-    final tables = ['items', 'members', 'sales', 'reseller_levels'];
-    for (final table in tables) {
+    // Tables filtered by the current user's user_id
+    final userTables = ['items', 'members', 'sales', 'reseller_levels'];
+    for (final table in userTables) {
       _supabase
           .channel('public:$table')
           .onPostgresChanges(
@@ -69,6 +71,19 @@ class SupabaseRepository {
           )
           .subscribe();
     }
+
+    // pending_requests — no user_id filter (admin must see all requests)
+    _supabase
+        .channel('public:pending_requests')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'pending_requests',
+          callback: (payload) {
+            _changes.add('pending_requests_changed');
+          },
+        )
+        .subscribe();
   }
 
   void notifyCloudRestored() {
@@ -170,15 +185,41 @@ class SupabaseRepository {
     return levels;
   }
 
+  // ── App Config ───────────────────────────────────────────────────────────
+
+  /// Fetch all app config entries as a map of key → value.
+  Future<Map<String, String>> fetchAppConfig() async {
+    try {
+      final data = await _supabase.from('app_config').select();
+      final map = <String, String>{};
+      for (final row in (data as List)) {
+        final j = row as Map<String, dynamic>;
+        map[j['key'] as String] = j['value'] as String? ?? '';
+      }
+      return map;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Upsert a single app config entry.
+  Future<void> updateAppConfig(String key, String value) async {
+    await _supabase.from('app_config').upsert({
+      'key': key,
+      'value': value,
+    }, onConflict: 'key');
+  }
+
   // ── Borrow Methods ───────────────────────────────────────────────────────
 
-  /// Record a borrow — deducts stock immediately, sets due date 10 days out.
+  /// Record a borrow — deducts stock immediately, sets due date.
   Future<int> addBorrow({
     required int memberId,
     required int itemId,
     required String itemName,
     required int quantity,
     int price = 0,
+    int dueDays = 10,
     String? notes,
     String? memberName,
   }) async {
@@ -193,7 +234,7 @@ class SupabaseRepository {
     await updateItem(updated);
 
     final now = DateTime.now();
-    final dueDate = now.add(const Duration(days: 10));
+    final dueDate = now.add(Duration(days: dueDays));
 
     final result = await _supabase
         .from('borrows')
@@ -535,6 +576,29 @@ class SupabaseRepository {
     return 0;
   }
 
+  /// Upload a member ID image to Supabase Storage so it's accessible
+  /// from any device. Returns the public URL on success, null on failure.
+  Future<String?> uploadMemberImage(
+    int memberId,
+    Uint8List bytes,
+    String ext,
+  ) async {
+    try {
+      final path = '$memberId.$ext';
+      await _supabase.storage
+          .from('member-ids')
+          .uploadBinary(
+            path,
+            bytes,
+            fileOptions: const FileOptions(upsert: true),
+          );
+      return _supabase.storage.from('member-ids').getPublicUrl(path);
+    } catch (e) {
+      print('[Stockpile] uploadMemberImage failed: $e');
+      return null;
+    }
+  }
+
   Future<int> addSale({
     required int itemId,
     String? itemName,
@@ -849,6 +913,15 @@ class SupabaseRepository {
         .eq('status', 'pending')
         .order('created_at', ascending: false);
     return (data as List).map((j) => PendingRequest.fromJson(j)).toList();
+  }
+
+  /// Get the count of pending requests (for notification badge).
+  Future<int> fetchPendingCount() async {
+    final data = await _supabase
+        .from('pending_requests')
+        .select('id')
+        .eq('status', 'pending');
+    return (data as List).length;
   }
 
   /// Fetch all non-pending requests (approved and rejected) for history view.

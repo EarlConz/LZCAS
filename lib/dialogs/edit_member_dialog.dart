@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:bot_toast/bot_toast.dart';
 import 'package:file_selector/file_selector.dart' as fs;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member;
@@ -109,14 +110,25 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   }
 
   Future<void> _pickIdImage() async {
-    final files = await fs.openFiles(
-      acceptedTypeGroups: [
-        const fs.XTypeGroup(
-          label: 'Images',
-          extensions: ['jpg', 'jpeg', 'png'],
-        ),
-      ],
-    );
+    List<fs.XFile> files;
+    try {
+      files = await fs.openFiles(
+        acceptedTypeGroups: [
+          const fs.XTypeGroup(
+            label: 'Images',
+            extensions: ['jpg', 'jpeg', 'png'],
+          ),
+        ],
+      );
+    } catch (e) {
+      debugPrint('[EditMemberDialog] openFiles failed (hot reload?): $e');
+      if (mounted) {
+        BotToast.showText(
+          text: 'File picker unavailable. Please restart the app.',
+        );
+      }
+      return;
+    }
     if (files.isEmpty || !mounted) return;
 
     final xfile = files.first;

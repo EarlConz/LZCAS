@@ -20,7 +20,11 @@ import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
+import 'package:lzcas/dialogs/edit_member_dialog.dart';
+import 'package:lzcas/dialogs/confirmation_dialog.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/notification_service.dart';
+import 'package:lzcas/services/config_service.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -84,14 +88,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
     assertRoleOrThrow(context, {UserRole.admin});
 
     final auth = context.watch<AuthState>();
+    final notifService = context.watch<NotificationService>();
     final isDesktop = MediaQuery.sizeOf(context).width >= 900;
     final pages = _buildPages();
 
     final sidebar = _AdminSidebar(
       selectedIndex: _selectedIndex,
       auth: auth,
+      pendingCount: notifService.pendingCount,
       onItemSelected: (i) {
         if (!isDesktop) Navigator.pop(context);
+        if (i == 6) notifService.markPendingSeen(); // Requests tab
         _onItemTapped(i);
       },
     );
@@ -114,6 +121,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   pageTitle: _pageTitles[_selectedIndex],
                   showMenu: !isDesktop,
                   onMenuTap: _toggleSidebar,
+                  onNavigateToTab: (i) => setState(() => _selectedIndex = i),
                 ),
                 // ── Page Content ───────────────────────────────────────
                 Expanded(child: pages[_selectedIndex]),
@@ -856,11 +864,20 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   final Map<int, TextEditingController> _remMaxCtls = {};
   final Map<int, TextEditingController> _cashAdvCtls = {};
 
+  // General config state
+  bool _configLoading = true;
+  final _lowStockCtrl = TextEditingController();
+  final _borrowDaysCtrl = TextEditingController();
+  final _overdueDaysCtrl = TextEditingController();
+  final _currencyCtrl = TextEditingController();
+  bool _notificationsOn = true;
+
   @override
   void initState() {
     super.initState();
     _settingsTabController = TabController(length: 2, vsync: this);
     _loadLevels();
+    _loadConfig();
   }
 
   @override
@@ -873,7 +890,45 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     ]) {
       c.dispose();
     }
+    _lowStockCtrl.dispose();
+    _borrowDaysCtrl.dispose();
+    _overdueDaysCtrl.dispose();
+    _currencyCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadConfig() async {
+    final config = await repository.fetchAppConfig();
+    if (!mounted) return;
+    setState(() {
+      _lowStockCtrl.text = config['low_stock_threshold'] ?? '50';
+      _borrowDaysCtrl.text = config['borrow_duration_days'] ?? '10';
+      _overdueDaysCtrl.text = config['overdue_threshold_days'] ?? '10';
+      _currencyCtrl.text = config['currency_symbol'] ?? '₱';
+      _notificationsOn = config['notifications_enabled'] != 'false';
+      _configLoading = false;
+    });
+  }
+
+  Future<void> _saveConfig() async {
+    await repository.updateAppConfig('low_stock_threshold', _lowStockCtrl.text);
+    await repository.updateAppConfig(
+      'borrow_duration_days',
+      _borrowDaysCtrl.text,
+    );
+    await repository.updateAppConfig(
+      'overdue_threshold_days',
+      _overdueDaysCtrl.text,
+    );
+    await repository.updateAppConfig('currency_symbol', _currencyCtrl.text);
+    await repository.updateAppConfig(
+      'notifications_enabled',
+      _notificationsOn ? 'true' : 'false',
+    );
+    if (!mounted) return;
+    // Refresh in-memory config so the rest of the app picks up changes
+    context.read<ConfigService>().refresh();
+    BotToast.showText(text: 'Settings saved');
   }
 
   Future<void> _loadLevels() async {
@@ -973,6 +1028,10 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   }
 
   Widget _buildGeneralTab(bool isDark) {
+    if (_configLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -990,16 +1049,104 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
           ),
           const SizedBox(height: 16),
           _ConfigTile(
-            icon: Icons.notifications_outlined,
-            title: 'Notifications',
-            subtitle: 'Configure system alerts and email notifications',
-            trailing: Switch(value: true, onChanged: (_) {}),
+            icon: Icons.inventory_2_rounded,
+            title: 'Low Stock Threshold',
+            subtitle: 'Alert when stock falls below this number',
+            trailing: SizedBox(
+              width: 70,
+              child: TextField(
+                controller: _lowStockCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
           ),
           _ConfigTile(
-            icon: Icons.security_rounded,
-            title: 'Session Timeout',
-            subtitle: 'Auto-logout after period of inactivity',
-            trailing: const Text('30 min'),
+            icon: Icons.calendar_today_rounded,
+            title: 'Borrow Duration (days)',
+            subtitle: 'Default due date for new borrows',
+            trailing: SizedBox(
+              width: 70,
+              child: TextField(
+                controller: _borrowDaysCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+          _ConfigTile(
+            icon: Icons.warning_amber_rounded,
+            title: 'Overdue Threshold (days)',
+            subtitle: 'Days before a borrow is marked overdue',
+            trailing: SizedBox(
+              width: 70,
+              child: TextField(
+                controller: _overdueDaysCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+          _ConfigTile(
+            icon: Icons.attach_money_rounded,
+            title: 'Currency Symbol',
+            subtitle: 'Symbol used for price display',
+            trailing: SizedBox(
+              width: 70,
+              child: TextField(
+                controller: _currencyCtrl,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+          _ConfigTile(
+            icon: Icons.notifications_outlined,
+            title: 'Notifications',
+            subtitle: 'Enable in-app notification alerts',
+            trailing: Switch(
+              value: _notificationsOn,
+              onChanged: (v) => setState(() => _notificationsOn = v),
+            ),
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              icon: const Icon(Icons.save_rounded),
+              label: const Text('Save Settings'),
+              onPressed: _saveConfig,
+            ),
           ),
         ],
       ),
@@ -1095,11 +1242,13 @@ class _AdminSidebar extends StatelessWidget {
   final int selectedIndex;
   final AuthState auth;
   final ValueChanged<int> onItemSelected;
+  final int pendingCount;
 
   const _AdminSidebar({
     required this.selectedIndex,
     required this.auth,
     required this.onItemSelected,
+    this.pendingCount = 0,
   });
 
   static const _navItems = <_NavItem>[
@@ -1168,13 +1317,28 @@ class _AdminSidebar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               children: [
                 ...List.generate(_navItems.length, (i) {
-                  return _AdminSidebarTile(
+                  final tile = _AdminSidebarTile(
                     item: _navItems[i],
                     isSelected: selectedIndex == i,
                     activeBg: activeBg,
                     isDark: isDark,
                     onTap: () => onItemSelected(i),
                   );
+                  // Show badge on Requests item (index 6)
+                  if (i == 6 && pendingCount > 0) {
+                    return Badge(
+                      backgroundColor: StockpileColors.primary900,
+                      label: Text(
+                        '$pendingCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
+                      ),
+                      child: tile,
+                    );
+                  }
+                  return tile;
                 }),
                 const SizedBox(height: 12),
                 Divider(
@@ -1483,23 +1647,28 @@ class _AdminPosTab extends StatelessWidget {
 
 // ─── Admin · Members Tab — recovered full MembersTable ──────────────────────
 
-class _AdminMembersPage extends StatelessWidget {
+class _AdminMembersPage extends StatefulWidget {
   const _AdminMembersPage();
+
+  @override
+  State<_AdminMembersPage> createState() => _AdminMembersPageState();
+}
+
+class _AdminMembersPageState extends State<_AdminMembersPage> {
+  final _tableKey = GlobalKey<MembersTableState>();
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: MembersTable(
+        key: _tableKey,
         onRowSelected: (member) => _showMemberDetail(context, member),
       ),
     );
   }
 
-  static void _showMemberDetail(
-    BuildContext context,
-    Map<String, dynamic> member,
-  ) {
+  void _showMemberDetail(BuildContext context, Map<String, dynamic> member) {
     final fullName = [
       member['firstName'],
       member['middleName'],
@@ -1533,6 +1702,22 @@ class _AdminMembersPage extends StatelessWidget {
                       ),
                     ),
                     IconButton(
+                      tooltip: 'Edit member',
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _openEditDialog(member);
+                      },
+                      icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                    ),
+                    IconButton(
+                      tooltip: 'Delete member',
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _confirmDeleteMember(member);
+                      },
+                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    ),
+                    IconButton(
                       tooltip: 'Close',
                       onPressed: () => Navigator.pop(ctx),
                       icon: const Icon(Icons.close),
@@ -1555,6 +1740,34 @@ class _AdminMembersPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void _openEditDialog(Map<String, dynamic> member) {
+    showAnimatedDialog(
+      context,
+      builder: (context) => EditMemberDialog(
+        member: member,
+        onMemberUpdated: (updatedMember) {
+          _tableKey.currentState?.updateMember(member, updatedMember);
+        },
+      ),
+    );
+  }
+
+  void _confirmDeleteMember(Map<String, dynamic> member) {
+    showDialog<bool>(
+      context: context,
+      builder: (ctx) => ConfirmationDialog(
+        title: 'Confirm Delete',
+        content: 'Delete ${member['firstName'] ?? 'this member'} permanently?',
+        onConfirm: () => _deleteMember(member),
+      ),
+    );
+  }
+
+  void _deleteMember(Map<String, dynamic> member) {
+    _tableKey.currentState?.removeMember(member);
+    BotToast.showText(text: 'Member deleted.');
   }
 }
 
@@ -2916,6 +3129,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
   List<Member> _members = [];
   bool _loading = true;
   String _filter = 'all'; // all, active, overdue, settled
+  String _settledFilter = 'all'; // all, returned, remitted (sub-filter)
 
   @override
   void initState() {
@@ -2929,6 +3143,15 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
       final borrows = await repository.fetchBorrows();
       final members = await repository.fetchMembers();
       if (!mounted) return;
+      // Sort: unsettled/active first, then latest to oldest within each group
+      borrows.sort((a, b) {
+        final aUnsettled = a.outstandingQuantity > 0 ? 0 : 1;
+        final bUnsettled = b.outstandingQuantity > 0 ? 0 : 1;
+        if (aUnsettled != bUnsettled) return aUnsettled.compareTo(bUnsettled);
+        return (b.borrowedAt ?? DateTime(0)).compareTo(
+          a.borrowedAt ?? DateTime(0),
+        );
+      });
       setState(() {
         _borrows = borrows;
         _members = members;
@@ -2967,11 +3190,34 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
               b.outstandingQuantity > 0;
         }).toList();
       case 'settled':
-        return _borrows.where((b) => b.outstandingQuantity <= 0).toList();
+        return _filteredSettled;
       default:
         return _borrows;
     }
   }
+
+  List<Borrow> get _allSettled =>
+      _borrows.where((b) => b.outstandingQuantity <= 0).toList();
+
+  List<Borrow> get _returnedOnly =>
+      _allSettled.where((b) => b.quantityReturned >= b.quantity).toList();
+
+  List<Borrow> get _remittedOnly =>
+      _allSettled.where((b) => b.quantityRemitted >= b.quantity).toList();
+
+  List<Borrow> get _filteredSettled {
+    switch (_settledFilter) {
+      case 'returned':
+        return _returnedOnly;
+      case 'remitted':
+        return _remittedOnly;
+      default:
+        return _allSettled;
+    }
+  }
+
+  int get _returnedCount => _returnedOnly.length;
+  int get _remittedCount => _remittedOnly.length;
 
   int get _activeCount =>
       _borrows.where((b) => b.outstandingQuantity > 0 && !b.isOverdue).length;
@@ -3188,6 +3434,39 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
             ],
           ),
         ),
+
+        // Settled sub-filter chips
+        if (_filter == 'settled')
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child: Row(
+              children: [
+                _SettledSubChip(
+                  label: 'All',
+                  count: _settledCount,
+                  isSelected: _settledFilter == 'all',
+                  color: StockpileColors.success,
+                  onTap: () => setState(() => _settledFilter = 'all'),
+                ),
+                const SizedBox(width: 6),
+                _SettledSubChip(
+                  label: 'Returned',
+                  count: _returnedCount,
+                  isSelected: _settledFilter == 'returned',
+                  color: StockpileColors.success,
+                  onTap: () => setState(() => _settledFilter = 'returned'),
+                ),
+                const SizedBox(width: 6),
+                _SettledSubChip(
+                  label: 'Remitted',
+                  count: _remittedCount,
+                  isSelected: _settledFilter == 'remitted',
+                  color: Colors.purple,
+                  onTap: () => setState(() => _settledFilter = 'remitted'),
+                ),
+              ],
+            ),
+          ),
 
         Expanded(
           child: _filtered.isEmpty
@@ -3511,6 +3790,79 @@ class _SummaryChip extends StatelessWidget {
                             : StockpileColors.bodyText),
                 ),
               ),
+              Text(
+                label,
+                style: StockpileFonts.satoshi(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isSelected
+                      ? color
+                      : (isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettledSubChip extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool isSelected;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _SettledSubChip({
+    required this.label,
+    required this.count,
+    required this.isSelected,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? color.withAlpha(isDark ? 30 : 20)
+                : (isDark
+                      ? StockpileColors.darkSurface
+                      : StockpileColors.surface),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSelected
+                  ? color.withAlpha(isDark ? 100 : 80)
+                  : StockpileColors.divider,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '$count',
+                style: StockpileFonts.satoshi(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: isSelected
+                      ? color
+                      : (isDark
+                            ? StockpileColors.darkTextBody
+                            : StockpileColors.bodyText),
+                ),
+              ),
+              const SizedBox(width: 5),
               Text(
                 label,
                 style: StockpileFonts.satoshi(

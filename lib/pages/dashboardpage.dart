@@ -1,6 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:lzcas/db/db.dart';
 import '../theme.dart';
 import '../utils/fonts.dart';
@@ -8,6 +9,7 @@ import '../widgets/metric_card.dart';
 import '../widgets/mini_bar_chart.dart';
 import '../widgets/mini_donut_chart.dart';
 import '../widgets/mini_line_chart.dart';
+import '../services/config_service.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -36,6 +38,7 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _loadStats() async {
     final items = await repository.fetchItems();
     final sales = await repository.fetchSales();
+    if (!mounted) return;
     final now = DateTime.now();
     final thisMonth = DateTime(now.year, now.month, 1);
     final lastMonth = DateTime(now.year, now.month - 1, 1);
@@ -80,10 +83,13 @@ class _DashboardPageState extends State<DashboardPage> {
         .toList();
     previousMonthOrders = lastMonthSales.length;
 
-    lowStockItems = items.where((i) => i.stock < 50 && i.stock > 0).length;
+    final threshold = context.read<ConfigService>().lowStockThreshold;
+    lowStockItems = items
+        .where((i) => i.stock < threshold && i.stock > 0)
+        .length;
 
     final Map<String, int> catRevenue = {};
-    for (final s in sales) {
+    for (final s in thisMonthSales) {
       final item = items.where((i) => i.id == s.itemId).firstOrNull;
       final cat = item?.category ?? 'Uncategorized';
       catRevenue[cat] = (catRevenue[cat] ?? 0) + s.price;
@@ -97,7 +103,7 @@ class _DashboardPageState extends State<DashboardPage> {
           );
 
     final Map<int, Map<String, dynamic>> productAgg = {};
-    for (final s in sales) {
+    for (final s in thisMonthSales) {
       productAgg[s.itemId] = {
         'itemId': s.itemId,
         'productName': s.itemName,
@@ -107,7 +113,7 @@ class _DashboardPageState extends State<DashboardPage> {
     }
     topProducts = productAgg.values.toList()
       ..sort((a, b) => (b['revenue'] as int).compareTo(a['revenue'] as int));
-    topProducts = topProducts.take(8).toList();
+    topProducts = topProducts.take(5).toList();
 
     revenueTrend = List.generate(6, (i) {
       final monthStart = DateTime(now.year, now.month - i, 1);
@@ -130,8 +136,10 @@ class _DashboardPageState extends State<DashboardPage> {
     if (mounted) setState(() {});
   }
 
-  String _fmt(int val) =>
-      NumberFormat.currency(symbol: '₱', decimalDigits: 0).format(val);
+  String _fmt(int val) {
+    final symbol = context.read<ConfigService>().currencySymbol;
+    return NumberFormat.currency(symbol: symbol, decimalDigits: 0).format(val);
+  }
 
   String _chg(int cur, int prev) {
     if (prev == 0) return cur > 0 ? '+100%' : '0%';
@@ -141,6 +149,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<ConfigService>(); // rebuild when settings change
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final w = MediaQuery.sizeOf(context).width;
     final isMobile = w < 750;
@@ -156,9 +165,12 @@ class _DashboardPageState extends State<DashboardPage> {
           const SizedBox(height: 16),
           _buildMetricRow(isDark, revUp, ordUp, isMobile),
           const SizedBox(height: 32),
-          _revenueChart(isDark, isMobile),
-          const SizedBox(height: 32),
-          _buildProductsTable(isDark),
+          if (isMobile) ...[
+            _revenueChart(isDark, isMobile),
+            const SizedBox(height: 32),
+            _buildProductsTableCompact(isDark),
+          ] else
+            _buildChartAndProductsRow(isDark),
         ],
       ),
     );
@@ -276,8 +288,6 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               const Spacer(),
               _chip('Income', true),
-              const SizedBox(width: 8),
-              _chip('Online Sales', false),
             ],
           ),
           const SizedBox(height: 24),
@@ -440,139 +450,98 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildProductsTable(bool d) => _card(
+  Widget _buildChartAndProductsRow(bool d) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(flex: 3, child: _revenueChart(d, false)),
+      const SizedBox(width: 16),
+      Expanded(flex: 2, child: _buildProductsTableCompact(d)),
+    ],
+  );
+
+  Widget _buildProductsTableCompact(bool d) => _card(
     d,
     Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Text(
-              'Top Selling Products',
-              style: StockpileFonts.satoshi(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: d
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
+        Text(
+          'Top Selling Products',
+          style: StockpileFonts.satoshi(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: d
+                ? StockpileColors.darkTextPrimary
+                : StockpileColors.darkText,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (topProducts.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: Text(
+                'No sales data yet',
+                style: StockpileFonts.satoshi(
+                  fontSize: 14,
+                  color: d
+                      ? StockpileColors.darkTextMuted
+                      : StockpileColors.mutedText,
+                ),
               ),
             ),
-            const Spacer(),
-            TextButton(
-              onPressed: () {},
-              child: Text(
-                'View All',
+          )
+        else
+          ...topProducts.take(5).map((p) {
+            final i = topProducts.indexOf(p);
+            final nm = (p['productName'] as String?) ?? '\u2014';
+            final rev = p['revenue'] as int;
+            return ListTile(
+              dense: true,
+              leading: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: i == 0
+                      ? Colors.amber.withAlpha(d ? 40 : 30)
+                      : (d ? Colors.white10 : Colors.grey.shade100),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '${i + 1}',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: i == 0
+                        ? Colors.amber.shade800
+                        : (d ? Colors.white38 : Colors.grey.shade600),
+                  ),
+                ),
+              ),
+              title: Text(
+                nm,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: StockpileFonts.satoshi(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: StockpileColors.primary900,
+                  color: d
+                      ? StockpileColors.darkTextPrimary
+                      : StockpileColors.darkText,
                 ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        topProducts.isEmpty
-            ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Text(
-                    'No sales data yet',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 14,
-                      color: d
-                          ? StockpileColors.darkTextMuted
-                          : StockpileColors.mutedText,
-                    ),
-                  ),
-                ),
-              )
-            : SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  headingRowColor: WidgetStateProperty.all(
-                    d ? StockpileColors.darkInputBg : StockpileColors.tableHead,
-                  ),
-                  dividerThickness: 1,
-                  headingTextStyle: StockpileFonts.satoshi(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: d
-                        ? StockpileColors.darkTextMuted
-                        : StockpileColors.mutedText,
-                  ),
-                  dataTextStyle: StockpileFonts.satoshi(
-                    fontSize: 14,
-                    color: d
-                        ? StockpileColors.darkTextBody
-                        : StockpileColors.bodyText,
-                  ),
-                  columns: const [
-                    DataColumn(label: Text('Rank')),
-                    DataColumn(label: Text('Product')),
-                    DataColumn(label: Text('Item ID'), numeric: true),
-                    DataColumn(label: Text('Revenue'), numeric: true),
-                    DataColumn(label: Text('Units Sold'), numeric: true),
-                    DataColumn(label: Text('Margin')),
-                    DataColumn(label: Text('')),
-                  ],
-                  rows: topProducts.asMap().entries.map((e) {
-                    final i = e.key;
-                    final p = e.value;
-                    final nm = (p['productName'] as String?) ?? '\u2014';
-                    return DataRow(
-                      cells: [
-                        DataCell(Text('${i + 1}')),
-                        DataCell(
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  color: StockpileColors.primary900.withAlpha(
-                                    (0.12 * 255).round(),
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  nm.isNotEmpty ? nm[0].toUpperCase() : '?',
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: StockpileColors.primary900,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(nm),
-                            ],
-                          ),
-                        ),
-                        DataCell(Text('#${p['itemId']}')),
-                        DataCell(Text(_fmt(p['revenue'] as int))),
-                        DataCell(Text('${p['unitsSold']}')),
-                        const DataCell(Text('\u2014')),
-                        DataCell(
-                          IconButton(
-                            icon: Icon(
-                              Icons.more_horiz,
-                              size: 20,
-                              color: d
-                                  ? StockpileColors.darkTextMuted
-                                  : StockpileColors.mutedText,
-                            ),
-                            onPressed: () {},
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ),
-                      ],
-                    );
-                  }).toList(),
+              trailing: Text(
+                _fmt(rev),
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: d
+                      ? StockpileColors.darkTextBody
+                      : StockpileColors.bodyText,
                 ),
               ),
+            );
+          }),
       ],
     ),
   );

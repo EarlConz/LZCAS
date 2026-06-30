@@ -7,6 +7,7 @@ import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/borrow_receipt_dialog.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
+import 'package:lzcas/services/config_service.dart';
 
 class BorrowButton extends StatefulWidget {
   final bool compact;
@@ -545,11 +546,15 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                       }
 
                       try {
+                        final dueDays = context
+                            .read<ConfigService>()
+                            .borrowDurationDays;
                         final borrowId = await repository.addBorrow(
                           memberId: selectedBuyerId!,
                           itemId: dbItem.id!,
                           itemName: dbItem.name,
                           quantity: q,
+                          dueDays: dueDays,
                           memberName: _borrowerName,
                         );
                         borrows.add(
@@ -561,7 +566,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                             quantity: q,
                             borrowedAt: DateTime.now(),
                             dueDate: DateTime.now().add(
-                              const Duration(days: 10),
+                              Duration(days: dueDays),
                             ),
                           ),
                         );

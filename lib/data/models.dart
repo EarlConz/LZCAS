@@ -736,8 +736,34 @@ List<Map<String, dynamic>> membersFromRows(List<Member> rows) {
 }
 
 /// Returns a status label based on stock quantity.
-String statusFromStock(int stock) {
+String statusFromStock(int stock, {int threshold = 50}) {
   if (stock <= 0) return 'Out of Stock';
-  if (stock < 50) return 'Low Stock';
+  if (stock < threshold) return 'Low Stock';
   return 'Good';
+}
+
+/// Default configuration values used when no app_config row exists.
+class AppConfigDefaults {
+  static const lowStockThreshold = 50;
+  static const borrowDurationDays = 10;
+  static const overdueThresholdDays = 10;
+  static const currencySymbol = '₱';
+  static const borrowAutoApprove = false;
+  static const notificationsEnabled = true;
+  static const sessionTimeoutMinutes = 30;
+}
+
+/// A single key-value configuration entry persisted in app_config.
+class AppConfigEntry {
+  final String key;
+  final String value;
+
+  const AppConfigEntry({required this.key, required this.value});
+
+  factory AppConfigEntry.fromJson(Map<String, dynamic> json) => AppConfigEntry(
+    key: json['key'] as String? ?? '',
+    value: json['value'] as String? ?? '',
+  );
+
+  Map<String, dynamic> toJson() => {'key': key, 'value': value};
 }

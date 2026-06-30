@@ -4,7 +4,7 @@ import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'dart:io';
 import 'package:lzcas/db/db.dart';
 import 'package:path/path.dart' as p;
@@ -78,46 +78,73 @@ class MembersTableState extends State<MembersTable> {
         ? 'Verified Reseller'
         : (newMember['role']?.toString() ?? 'Member');
 
-    final memberId = await repository.addMember(
-      lastName: newMember['lastName']?.toString(),
-      firstName: newMember['firstName']?.toString(),
-      middleName: newMember['middleName']?.toString(),
-      role: role,
-      contactNo: newMember['contactNo']?.toString(),
-      birthday: newMember['birthday']?.toString(),
-      address: newMember['address']?.toString(),
-      referrer: newMember['referrer']?.toString(),
-      referrerId: newMember['referrerId'] as int?,
-      level: int.tryParse(newMember['level']?.toString() ?? '1') ?? 1,
-      idType: newMember['idType']?.toString(),
-      idNumber: newMember['idNumber']?.toString(),
-      idImagePath: null, // set after renaming
-    );
+    // Wrap addMember in its own try/catch — after hot reload the auth session
+    // can briefly be null, which causes _uid to throw uncaught.
+    int memberId;
+    try {
+      memberId = await repository.addMember(
+        lastName: newMember['lastName']?.toString(),
+        firstName: newMember['firstName']?.toString(),
+        middleName: newMember['middleName']?.toString(),
+        role: role,
+        contactNo: newMember['contactNo']?.toString(),
+        birthday: newMember['birthday']?.toString(),
+        address: newMember['address']?.toString(),
+        referrer: newMember['referrer']?.toString(),
+        referrerId: newMember['referrerId'] as int?,
+        level: int.tryParse(newMember['level']?.toString() ?? '1') ?? 1,
+        idType: newMember['idType']?.toString(),
+        idNumber: newMember['idNumber']?.toString(),
+        idImagePath: null, // set after upload
+      );
+    } catch (e) {
+      debugPrint('[MembersTable] addMember failed: $e');
+      if (mounted) {
+        BotToast.showText(
+          text: 'Failed to add member. Please restart the app.',
+        );
+      }
+      return;
+    }
 
-    // Rename temp image file to member ID (skip on web — data URLs don't need renaming)
-    if (finalImagePath != null && !kIsWeb) {
-      try {
-        final srcFile = File(finalImagePath);
-        if (await srcFile.exists()) {
-          final parent = srcFile.parent;
-          final ext = p.extension(finalImagePath).isNotEmpty
-              ? p.extension(finalImagePath)
-              : '.jpg';
-          final renamed = p.join(parent.path, '$memberId$ext');
-          final bytes = await srcFile.readAsBytes();
-          await File(renamed).writeAsBytes(bytes);
-          await srcFile.delete();
-          finalImagePath = renamed;
-
-          // Update the DB path
-          final created = await repository.getMemberById(memberId);
-          if (created != null) {
-            final updated = created.copyWith(idImagePath: finalImagePath);
-            await repository.updateMember(updated);
-          }
+    // Upload image to Supabase Storage for cross-device access.
+    // Web data URLs are stored directly (already cross-device compatible).
+    if (finalImagePath != null) {
+      if (kIsWeb) {
+        final created = await repository.getMemberById(memberId);
+        if (created != null) {
+          final updated = created.copyWith(idImagePath: finalImagePath);
+          await repository.updateMember(updated);
         }
-      } catch (_) {
-        // Keep original path if rename fails
+      } else {
+        try {
+          final srcFile = File(finalImagePath);
+          if (await srcFile.exists()) {
+            final bytes = await srcFile.readAsBytes();
+            final ext = p.extension(finalImagePath).isNotEmpty
+                ? p
+                      .extension(finalImagePath)
+                      .substring(1) // drop leading dot
+                : 'jpg';
+            final url = await repository.uploadMemberImage(
+              memberId,
+              bytes,
+              ext,
+            );
+            if (url != null) {
+              final created = await repository.getMemberById(memberId);
+              if (created != null) {
+                final updated = created.copyWith(idImagePath: url);
+                await repository.updateMember(updated);
+              }
+            }
+            await srcFile.delete(); // clean up local temp file
+          }
+        } catch (e) {
+          debugPrint(
+            '[MembersTable] Image upload failed, keeping local path: $e',
+          );
+        }
       }
     }
 

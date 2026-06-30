@@ -11,7 +11,7 @@ import 'interactive_member_avatar.dart';
 import '../utils/formatters.dart';
 import 'package:lzcas/db/db.dart';
 
-/// Build an image widget from either a file path (native) or a data URL (web).
+/// Build an image widget from a file path, data URL, or network URL.
 Widget buildIdImage(
   BuildContext context,
   String source, {
@@ -19,6 +19,17 @@ Widget buildIdImage(
   double? height,
   double? width,
 }) {
+  // Supabase Storage URL (cross-device)
+  if (source.startsWith('http://') || source.startsWith('https://')) {
+    return Image.network(
+      source,
+      fit: fit,
+      height: height,
+      width: width,
+      errorBuilder: (_, __, ___) => _missingImage(context),
+    );
+  }
+  // Web: base64 data URL
   if (source.startsWith('data:')) {
     final commaIdx = source.indexOf(',');
     if (commaIdx < 0) {
@@ -33,9 +44,7 @@ Widget buildIdImage(
       errorBuilder: (_, __, ___) => _missingImage(context),
     );
   }
-  // Local file path — validate it exists before displaying to avoid
-  // crashes from stale paths after app restarts, reinstalls, or
-  // content:// URIs that dart:io File() cannot open.
+  // Legacy: local file path — validate it exists before displaying
   final file = File(source);
   if (!file.existsSync()) {
     return _missingImage(context);
