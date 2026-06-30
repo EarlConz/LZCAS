@@ -8,6 +8,7 @@ import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/borrow_receipt_dialog.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
 import 'package:lzcas/services/config_service.dart';
+import 'package:lzcas/theme.dart';
 
 class BorrowButton extends StatefulWidget {
   final bool compact;
@@ -43,7 +44,9 @@ class _BorrowButtonState extends State<BorrowButton> {
     final memberRows = await repository.fetchMembers();
     if (!mounted) return;
     setState(() {
-      members = membersFromRows(memberRows);
+      members = membersFromRows(
+        memberRows,
+      ).where((m) => (m['role'] ?? '') == 'Verified Reseller').toList();
     });
   }
 
@@ -139,6 +142,10 @@ class _BorrowDialogState extends State<_BorrowDialog> {
     showAnimatedDialog(
       context,
       builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(28),
+          side: BorderSide(color: StockpileColors.primary900, width: 4),
+        ),
         title: const Text('Error'),
         content: Text(message),
         actions: [
@@ -539,6 +546,16 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                   final safeContext = context;
                   final auth = context.read<AuthState>();
                   final isAdmin = auth.userRole == UserRole.admin;
+
+                  // ── Guard: only verified resellers may borrow ─────
+                  final selectedMember = widget.members.firstWhere(
+                    (m) => (m['id'] as int?) == selectedBuyerId,
+                    orElse: () => <String, dynamic>{},
+                  );
+                  if ((selectedMember['role'] ?? '') != 'Verified Reseller') {
+                    _showError('Only verified resellers may borrow stock.');
+                    return;
+                  }
 
                   if (isAdmin) {
                     // ── Admin: instant borrow ────────────────────────

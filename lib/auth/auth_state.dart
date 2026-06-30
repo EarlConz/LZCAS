@@ -151,9 +151,11 @@ class AuthState extends ChangeNotifier {
 
     // Resolve username/email input:
     //   "john@abc.com"  → used directly (already an email)
-    //   "john"          → profiles.email or fallback to john@lzcas.local
+    //   "john"          → profiles.email (case-sensitive) → fallback to john@lzcas.local
     var loginEmail = email.trim();
-    if (!loginEmail.contains('@')) {
+    final typedUsername = loginEmail; // keep original for error messages
+    final isEmail = loginEmail.contains('@');
+    if (!isEmail) {
       String? profilesEmail;
       try {
         final profile = await _sb
@@ -163,9 +165,12 @@ class AuthState extends ChangeNotifier {
             .maybeSingle();
         profilesEmail = profile?['email'] as String?;
       } catch (_) {}
-      loginEmail = (profilesEmail != null && profilesEmail.isNotEmpty)
-          ? profilesEmail
-          : '$loginEmail@lzcas.local';
+      if (profilesEmail != null && profilesEmail.isNotEmpty) {
+        loginEmail = profilesEmail;
+      } else {
+        // No profile email stored — use the same format that _createUser uses
+        loginEmail = '$loginEmail@lzcas.local';
+      }
     }
 
     try {
@@ -177,6 +182,22 @@ class AuthState extends ChangeNotifier {
         _userId = response.user!.id;
         _username = response.user!.email ?? email;
         await _loadUserProfile(response.user!.id);
+
+        // ── Case-sensitivity check: typed username must match stored exactly ──
+        // Only compare when both are usernames (not emails). Supabase Auth is
+        // case-insensitive for emails, so we enforce case-sensitivity here.
+        if (!isEmail &&
+            !_username.contains('@') &&
+            _username != typedUsername) {
+          await _sb.auth.signOut();
+          _error = 'Invalid credentials.';
+          _status = AuthStatus.authError;
+          _userRole = null;
+          _username = '';
+          _userId = null;
+          notifyListeners();
+          return false;
+        }
 
         // ── Mobile gate: only Admin accounts allowed on phones/tablets ──
         if (_mobileBlocked) {
@@ -190,11 +211,17 @@ class AuthState extends ChangeNotifier {
         return _status == AuthStatus.authenticated;
       }
       _error = 'Login failed.';
+      if (!isEmail && loginEmail != typedUsername) {
+        _error += ' (attempted $loginEmail for username "$typedUsername")';
+      }
       _status = AuthStatus.authError;
       notifyListeners();
       return false;
     } on AuthException catch (e) {
       _error = e.message.isNotEmpty ? e.message : 'Invalid credentials.';
+      if (!isEmail && loginEmail != typedUsername) {
+        _error += ' (attempted $loginEmail for username "$typedUsername")';
+      }
       _status = AuthStatus.authError;
       notifyListeners();
       return false;

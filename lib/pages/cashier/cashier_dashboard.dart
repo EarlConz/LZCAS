@@ -18,6 +18,7 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
+import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
 
 class CashierDashboard extends StatefulWidget {
@@ -231,25 +232,19 @@ class TransactionPageBody extends StatelessWidget {
   }
 }
 
-// ─── Tab 2: Members Lookup (Read-Only) ─────────────────────────────────────
+// ─── Tab 2: Members Lookup ─────────────────────────────────────────────────
 
-class _MembersLookupTab extends StatelessWidget {
+class _MembersLookupTab extends StatefulWidget {
   const _MembersLookupTab();
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: MembersTable(
-        onRowSelected: (member) => _showMemberDetail(context, member),
-      ),
-    );
-  }
+  State<_MembersLookupTab> createState() => _MembersLookupTabState();
+}
 
-  static void _showMemberDetail(
-    BuildContext context,
-    Map<String, dynamic> member,
-  ) {
+class _MembersLookupTabState extends State<_MembersLookupTab> {
+  final _tableKey = GlobalKey<MembersTableState>();
+
+  void _showMemberDetail(Map<String, dynamic> member) {
     final fullName = [
       member['firstName'],
       member['middleName'],
@@ -259,6 +254,10 @@ class _MembersLookupTab extends StatelessWidget {
     showAnimatedDialog(
       context,
       builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(28),
+          side: BorderSide(color: StockpileColors.primary900, width: 4),
+        ),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -279,6 +278,22 @@ class _MembersLookupTab extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Edit member',
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _openEditDialog(member);
+                      },
+                      icon: CircleAvatar(
+                        radius: 16,
+                        backgroundColor: StockpileColors.primary900,
+                        child: const Icon(
+                          Icons.edit_outlined,
+                          color: Colors.white,
+                          size: 18,
                         ),
                       ),
                     ),
@@ -306,6 +321,26 @@ class _MembersLookupTab extends StatelessWidget {
       ),
     );
   }
+
+  Future<void> _openEditDialog(Map<String, dynamic> member) async {
+    await showAnimatedDialog(
+      context,
+      builder: (_) => EditMemberDialog(
+        member: Map<String, dynamic>.from(member),
+        onMemberUpdated: (updated) {
+          _tableKey.currentState?.updateMember(member, updated);
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: MembersTable(key: _tableKey, onRowSelected: _showMemberDetail),
+    );
+  }
 }
 
 // ─── Tab 3: Request Member Deletion ─────────────────────────────────────────
@@ -326,6 +361,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
   final _focusNode = FocusNode();
   List<Member> _members = [];
   Member? _selectedMember;
+  bool _hasActiveBorrows = false;
   bool _loadingMembers = true;
   bool _submitting = false;
   String? _feedback;
@@ -357,6 +393,17 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
     }
   }
 
+  Future<void> _checkBorrows(Member m) async {
+    if (m.id == null) return;
+    try {
+      final hasBorrows = await repository.hasActiveBorrowsForMember(m.id!);
+      if (!mounted) return;
+      setState(() => _hasActiveBorrows = hasBorrows);
+    } catch (_) {
+      if (mounted) setState(() => _hasActiveBorrows = false);
+    }
+  }
+
   Future<void> _submitDeletionRequest() async {
     final member = _selectedMember;
     final reason = _reasonCtrl.text.trim();
@@ -364,6 +411,14 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
     if (member == null || reason.isEmpty) {
       setState(
         () => _feedback = 'Please select a member and provide a reason.',
+      );
+      return;
+    }
+
+    if (_hasActiveBorrows) {
+      setState(
+        () => _feedback =
+            'Cannot request deletion. This member has active borrows that must be settled first.',
       );
       return;
     }
@@ -387,6 +442,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
       _reasonCtrl.clear();
       setState(() {
         _selectedMember = null;
+        _hasActiveBorrows = false;
         _feedback = 'Deletion request submitted for Admin approval.';
       });
     } catch (e) {
@@ -479,6 +535,39 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                 ),
               ),
 
+            // ── Active borrows warning ────────────────────────────
+            if (_selectedMember != null && _hasActiveBorrows)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFF59E0B)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.warning_rounded,
+                      size: 20,
+                      color: Color(0xFFD97706),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'This member has active borrows. All borrows must '
+                        'be settled before requesting deletion.',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 13,
+                          color: const Color(0xFF92400E),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             // ── Member Search Dropdown (Autocomplete) ──────────────
             if (_selectedMember != null)
               Container(
@@ -532,7 +621,10 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                       tooltip: 'Change member',
                       onPressed: () {
                         _searchCtrl.clear();
-                        setState(() => _selectedMember = null);
+                        setState(() {
+                          _selectedMember = null;
+                          _hasActiveBorrows = false;
+                        });
                       },
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
@@ -629,6 +721,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                                 onSelected(m);
                                 _searchCtrl.text = name;
                                 setState(() => _selectedMember = m);
+                                _checkBorrows(m);
                               },
                             );
                           },
@@ -642,6 +735,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                       .trim();
                   _searchCtrl.text = name;
                   setState(() => _selectedMember = m);
+                  _checkBorrows(m);
                 },
               ),
 
@@ -1507,9 +1601,15 @@ class _MyRequestsTab extends StatefulWidget {
 class _MyRequestsTabState extends State<_MyRequestsTab> {
   List<PendingRequest> _requests = [];
   bool _loading = true;
+  bool _loadingMore = false;
   String _statusFilter = 'all';
   String _typeFilter = 'all';
   bool _newestFirst = true;
+
+  static const _pageSize = 25;
+  int _visibleCount = _pageSize;
+  int _currentPage = 0;
+  bool _hasMore = true;
 
   static const _orange = Color(0xFFF59E0B);
   static const _emerald = Color(0xFF10B981);
@@ -1524,15 +1624,47 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
   }
 
   Future<void> _loadRequests() async {
+    _loading = true;
+    if (mounted) setState(() {});
     try {
-      final requests = await repository.fetchMyRequests();
+      final page = await repository.fetchRequestsPaginated(
+        page: 1,
+        pageSize: _pageSize,
+        userIdFilter: repository.supabase.auth.currentUser?.id,
+      );
       if (!mounted) return;
       setState(() {
-        _requests = requests;
+        _requests = page.rows;
+        _currentPage = 1;
+        _hasMore = page.hasMore;
+        _visibleCount = _pageSize;
         _loading = false;
       });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadNextPage() async {
+    if (_loadingMore || !_hasMore) return;
+    _loadingMore = true;
+    setState(() {});
+    try {
+      final page = await repository.fetchRequestsPaginated(
+        page: _currentPage + 1,
+        pageSize: _pageSize,
+        userIdFilter: repository.supabase.auth.currentUser?.id,
+      );
+      if (!mounted) return;
+      setState(() {
+        _requests.addAll(page.rows);
+        _currentPage = page.page;
+        _hasMore = page.hasMore;
+        _visibleCount = _requests.length;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingMore = false);
     }
   }
 
@@ -2090,7 +2222,46 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (_, i) => _buildCard(filtered[i]),
-                        childCount: filtered.length,
+                        childCount: filtered.take(_visibleCount).length,
+                      ),
+                    ),
+                  ),
+                // "Load More" button
+                if (_visibleCount < filtered.length || _hasMore)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: _loadingMore
+                              ? null
+                              : () {
+                                  if (_visibleCount + _pageSize >
+                                          _requests.length &&
+                                      _hasMore) {
+                                    _loadNextPage().then((_) {
+                                      if (mounted)
+                                        setState(
+                                          () => _visibleCount += _pageSize,
+                                        );
+                                    });
+                                  } else {
+                                    setState(() => _visibleCount += _pageSize);
+                                  }
+                                },
+                          child: _loadingMore
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(
+                                  'Load More (${_visibleCount.clamp(0, filtered.length)} of ${filtered.length}${_hasMore ? "+" : ""})',
+                                ),
+                        ),
                       ),
                     ),
                   ),

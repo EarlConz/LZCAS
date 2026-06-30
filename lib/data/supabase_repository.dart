@@ -9,6 +9,24 @@ import 'package:csv/csv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'models.dart';
 
+/// Describes a page of results with metadata.
+class PageResult<T> {
+  final List<T> rows;
+  final int totalCount;
+  final int page;
+  final int pageSize;
+
+  const PageResult({
+    required this.rows,
+    required this.totalCount,
+    required this.page,
+    required this.pageSize,
+  });
+
+  int get totalPages => totalCount == 0 ? 1 : (totalCount / pageSize).ceil();
+  bool get hasMore => page < totalPages;
+}
+
 /// Repository that wraps Supabase and provides the same business operations
 /// as the previous DbRepository (imports, exports, change notifications).
 class SupabaseRepository {
@@ -183,6 +201,206 @@ class SupabaseRepository {
       return (newData as List).map((j) => ResellerLevel.fromJson(j)).toList();
     }
     return levels;
+  }
+
+  // ── Paginated Fetch Methods ──────────────────────────────────────────────
+
+  /// Fetch a page of items with optional search and sort.
+  Future<PageResult<Item>> fetchItemsPaginated({
+    int page = 1,
+    int pageSize = 100,
+    String? search,
+    String? categoryFilter,
+    String sortColumn = 'name',
+    bool sortAscending = true,
+  }) async {
+    // Build data query — filters first, then order/range
+    dynamic dataQuery = _supabase.from('items').select('*');
+    dynamic countQuery = _supabase.from('items').select('id');
+
+    if (search != null && search.isNotEmpty) {
+      dataQuery = dataQuery.ilike('name', '%$search%');
+      countQuery = countQuery.ilike('name', '%$search%');
+    }
+    if (categoryFilter != null && categoryFilter.isNotEmpty) {
+      dataQuery = dataQuery.eq('category', categoryFilter);
+      countQuery = countQuery.eq('category', categoryFilter);
+    }
+
+    // Apply order and range AFTER filters
+    dataQuery = dataQuery
+        .order(sortColumn, ascending: sortAscending)
+        .range((page - 1) * pageSize, page * pageSize - 1);
+
+    final results = await Future.wait<dynamic>([
+      countQuery.count(CountOption.exact),
+      dataQuery,
+    ]);
+
+    final totalCount = (results[0] as PostgrestResponse).count;
+    final rows = (results[1] as List)
+        .map((j) => Item.fromJson(j as Map<String, dynamic>))
+        .toList();
+
+    return PageResult(
+      rows: rows,
+      totalCount: totalCount,
+      page: page,
+      pageSize: pageSize,
+    );
+  }
+
+  /// Fetch only distinct categories (lightweight).
+  Future<List<String>> fetchCategories() async {
+    final data = await _supabase.from('items').select('category');
+    final categories = <String>{};
+    for (final row in (data as List)) {
+      final c = (row as Map<String, dynamic>)['category'] as String?;
+      if (c != null && c.trim().isNotEmpty) categories.add(c.trim());
+    }
+    return categories.toList()..sort();
+  }
+
+  /// Fetch a page of members with optional search and role filter.
+  Future<PageResult<Member>> fetchMembersPaginated({
+    int page = 1,
+    int pageSize = 100,
+    String? search,
+    String? roleFilter,
+    String sortColumn = 'last_name',
+    bool sortAscending = true,
+  }) async {
+    dynamic dataQuery = _supabase.from('members').select('*');
+    dynamic countQuery = _supabase.from('members').select('id');
+
+    if (search != null && search.isNotEmpty) {
+      final orFilter =
+          'first_name.ilike.%$search%,last_name.ilike.%$search%,middle_name.ilike.%$search%';
+      countQuery = countQuery.or(orFilter);
+      dataQuery = dataQuery.or(orFilter);
+    }
+    if (roleFilter != null && roleFilter.isNotEmpty) {
+      countQuery = countQuery.eq('role', roleFilter);
+      dataQuery = dataQuery.eq('role', roleFilter);
+    }
+
+    dataQuery = dataQuery
+        .order(sortColumn, ascending: sortAscending)
+        .range((page - 1) * pageSize, page * pageSize - 1);
+
+    final results = await Future.wait<dynamic>([
+      countQuery.count(CountOption.exact),
+      dataQuery,
+    ]);
+
+    final totalCount = (results[0] as PostgrestResponse).count;
+    final rows = (results[1] as List)
+        .map((j) => Member.fromJson(j as Map<String, dynamic>))
+        .toList();
+
+    return PageResult(
+      rows: rows,
+      totalCount: totalCount,
+      page: page,
+      pageSize: pageSize,
+    );
+  }
+
+  /// Fetch a page of sales with optional search.
+  Future<PageResult<Sale>> fetchSalesPaginated({
+    int page = 1,
+    int pageSize = 100,
+    String? search,
+    String sortColumn = 'timestamp',
+    bool sortAscending = false,
+  }) async {
+    dynamic dataQuery = _supabase.from('sales').select('*');
+    dynamic countQuery = _supabase.from('sales').select('id');
+
+    if (search != null && search.isNotEmpty) {
+      final orFilter = 'buyer_name.ilike.%$search%,item_name.ilike.%$search%';
+      countQuery = countQuery.or(orFilter);
+      dataQuery = dataQuery.or(orFilter);
+    }
+
+    dataQuery = dataQuery
+        .order(sortColumn, ascending: sortAscending)
+        .range((page - 1) * pageSize, page * pageSize - 1);
+
+    final results = await Future.wait<dynamic>([
+      countQuery.count(CountOption.exact),
+      dataQuery,
+    ]);
+
+    final totalCount = (results[0] as PostgrestResponse).count;
+    final rows = (results[1] as List)
+        .map((j) => Sale.fromJson(j as Map<String, dynamic>))
+        .toList();
+
+    return PageResult(
+      rows: rows,
+      totalCount: totalCount,
+      page: page,
+      pageSize: pageSize,
+    );
+  }
+
+  /// Pre-aggregated dashboard stats — avoids loading all rows.
+  ///
+  /// Uses date-range queries (not aggregate functions which PostgREST
+  /// blocks by default). Still vastly more efficient than fetchSales().
+  Future<Map<String, dynamic>> fetchDashboardStats({
+    required DateTime thisMonthStart,
+    required DateTime thisMonthEnd,
+    required DateTime lastMonthStart,
+    required DateTime lastMonthEnd,
+    required int lowStockThreshold,
+  }) async {
+    final results = await Future.wait<dynamic>([
+      // This month's sales
+      _supabase
+          .from('sales')
+          .select('price, quantity')
+          .gte('timestamp', thisMonthStart.toIso8601String())
+          .lt('timestamp', thisMonthEnd.toIso8601String()),
+      // Last month's sales
+      _supabase
+          .from('sales')
+          .select('price')
+          .gte('timestamp', lastMonthStart.toIso8601String())
+          .lt('timestamp', lastMonthEnd.toIso8601String()),
+      // Low stock items (id only, lightweight)
+      _supabase
+          .from('items')
+          .select('id')
+          .lt('stock', lowStockThreshold)
+          .gt('stock', 0),
+    ]);
+
+    final thisMonthSales = results[0] as List;
+    final lastMonthSales = results[1] as List;
+    final lowStockRows = results[2] as List;
+
+    // Aggregate client-side (rows limited to one month each, not all time)
+    int monthlyRevenue = 0;
+    int activeOrders = thisMonthSales.length;
+    for (final row in thisMonthSales) {
+      monthlyRevenue += (row['price'] as int?) ?? 0;
+    }
+
+    int previousMonthRevenue = 0;
+    int previousMonthOrders = lastMonthSales.length;
+    for (final row in lastMonthSales) {
+      previousMonthRevenue += (row['price'] as int?) ?? 0;
+    }
+
+    return {
+      'monthlyRevenue': monthlyRevenue,
+      'activeOrders': activeOrders,
+      'previousMonthRevenue': previousMonthRevenue,
+      'previousMonthOrders': previousMonthOrders,
+      'lowStockItems': lowStockRows.length,
+    };
   }
 
   // ── App Config ───────────────────────────────────────────────────────────
@@ -943,6 +1161,67 @@ class SupabaseRepository {
         .eq('user_id', _uid)
         .order('created_at', ascending: false);
     return (data as List).map((j) => PendingRequest.fromJson(j)).toList();
+  }
+
+  /// Paginated fetch of pending requests with optional filters.
+  Future<PageResult<PendingRequest>> fetchRequestsPaginated({
+    int page = 1,
+    int pageSize = 25,
+    String? statusFilter,
+    String? userIdFilter,
+    String? typeFilter,
+    String? search,
+    String sortColumn = 'created_at',
+    bool sortAscending = false,
+  }) async {
+    final rangeStart = (page - 1) * pageSize;
+    final rangeEnd = page * pageSize; // +1 extra to detect hasMore
+
+    // Build query inline — same proven pattern as fetchPendingRequests/fetchAllRequests
+    final data = await _supabase
+        .from('pending_requests')
+        .select()
+        .order(sortColumn, ascending: sortAscending)
+        .range(rangeStart, rangeEnd);
+
+    var all = (data as List)
+        .map((j) => PendingRequest.fromJson(j as Map<String, dynamic>))
+        .toList();
+
+    // Apply filters client-side for now (same SQL would require dynamic chaining)
+    if (statusFilter != null &&
+        statusFilter.isNotEmpty &&
+        statusFilter != 'all') {
+      if (statusFilter == 'history') {
+        all = all.where((r) => r.status != 'pending').toList();
+      } else {
+        all = all.where((r) => r.status == statusFilter).toList();
+      }
+    }
+    if (userIdFilter != null && userIdFilter.isNotEmpty) {
+      all = all.where((r) => r.userId == userIdFilter).toList();
+    }
+    if (typeFilter != null && typeFilter.isNotEmpty && typeFilter != 'all') {
+      all = all.where((r) => r.requestType == typeFilter).toList();
+    }
+    if (search != null && search.isNotEmpty) {
+      final s = search.toLowerCase();
+      all = all.where((r) {
+        return (r.itemName?.toLowerCase().contains(s) ?? false) ||
+            (r.memberName?.toLowerCase().contains(s) ?? false) ||
+            (r.reason?.toLowerCase().contains(s) ?? false);
+      }).toList();
+    }
+
+    final hasMore = all.length > pageSize;
+    final rows = all.take(pageSize).toList();
+
+    return PageResult(
+      rows: rows,
+      totalCount: (page - 1) * pageSize + rows.length + (hasMore ? 1 : 0),
+      page: page,
+      pageSize: pageSize,
+    );
   }
 
   /// Fetch a map of userId → username from profiles table.

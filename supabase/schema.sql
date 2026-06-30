@@ -21,6 +21,29 @@ create table if not exists public.profiles (
 -- Add email column to existing profiles (safe to re-run)
 alter table public.profiles add column if not exists email text;
 
+-- Auto-populate email on new auth.users (so username→email resolution works)
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, username, email, role)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
+    new.email,
+    'cashier'
+  )
+  on conflict (id) do update
+    set email = excluded.email;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+-- Recreate trigger (idempotent)
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
 -- RLS off: the app reads profiles to determine user roles on every login.
 -- An RLS policy that blocks reads will silently redirect admins to cashier.
 alter table public.profiles disable row level security;
@@ -114,23 +137,6 @@ create table public.reseller_levels (
   cash_advance integer not null default 0,
   primary key (level, user_id)
 );
-
--- Trigger: auto-create profile for every new auth user
--- Does NOT overwrite existing profiles (ON CONFLICT DO NOTHING)
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, username, role)
-  values (new.id, coalesce(new.raw_user_meta_data->>'username', new.email), 'cashier')
-  on conflict (id) do nothing;
-  return new;
-end;
-$$ language plpgsql security definer;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
 
 -- ── RLS disabled for all app tables (app uses anon key) ────────
 alter table public.profiles disable row level security;

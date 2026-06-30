@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
+import 'package:lzcas/theme.dart';
 
 class QRScanButton extends StatelessWidget {
   /// Optional callback invoked after a member is found via QR scan.
@@ -75,6 +76,10 @@ class QRScanButton extends StatelessWidget {
       showAnimatedDialog(
         context,
         builder: (_) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+            side: BorderSide(color: StockpileColors.primary900, width: 4),
+          ),
           title: const Text('Member Found'),
           content: Column(
             mainAxisSize: MainAxisSize.min,

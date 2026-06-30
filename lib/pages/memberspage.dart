@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/theme.dart';
 import '/widgets/memberstable.dart';
 import '/widgets/memberdetails.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
@@ -300,6 +301,10 @@ class _MemberDetailsDialog extends StatelessWidget {
             .join(' ');
 
     return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(28),
+        side: BorderSide(color: StockpileColors.primary900, width: 4),
+      ),
       insetPadding: EdgeInsets.symmetric(
         horizontal: size.width < 480 ? 12 : 24,
         vertical: 24,

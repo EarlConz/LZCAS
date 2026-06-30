@@ -2,7 +2,10 @@
 // Route guard that checks authentication and role-based access before
 // allowing navigation to any protected page.
 // Unauthenticated users → login. Wrong-role deep links → 403 Forbidden page.
+// Non-admin users on mobile → redirected to login.
 
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/auth/auth.dart';
@@ -89,7 +92,16 @@ class RouteGuard {
       );
     }
 
-    // Guard 2: Role-based route prefix matching.
+    // Guard 2: Mobile platform — only Admin accounts allowed on phones/tablets.
+    final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+    if (isMobile && role != UserRole.admin) {
+      return RouteRedirect(
+        AppRoutes.login,
+        reason: 'Mobile access is restricted to Admin accounts only.',
+      );
+    }
+
+    // Guard 3: Role-based route prefix matching.
     final allowedPrefix = AppRoutes.prefixForRole(role);
 
     // Allow if the route starts with the user's allowed prefix.
@@ -97,7 +109,7 @@ class RouteGuard {
       return null;
     }
 
-    // Guard 3: Deep-link to a different role's path → 403 Forbidden page.
+    // Guard 4: Deep-link to a different role's path → 403 Forbidden page.
     // Check if the route belongs to any known role prefix.
     final isKnownProtectedRoute = AppRoutes._rolePrefixes.values.any(
       (prefix) => route.startsWith(prefix),

@@ -6,6 +6,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/theme.dart';
+import 'package:lzcas/utils/fonts.dart';
 
 import 'interactive_member_avatar.dart';
 import '../utils/formatters.dart';
@@ -165,6 +167,10 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
         final size = MediaQuery.of(dialogContext).size;
 
         return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+            side: BorderSide(color: StockpileColors.primary900, width: 4),
+          ),
           insetPadding: EdgeInsets.symmetric(
             horizontal: size.width < 480 ? 12 : 24,
             vertical: 24,
@@ -289,12 +295,13 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
       padding: EdgeInsets.all(isCompact ? 14 : 20),
       decoration: BoxDecoration(
         color: theme.cardColor,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.dividerColor.withAlpha(80)),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.2),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+            color: Colors.black.withAlpha(15),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -345,32 +352,67 @@ class _MemberProfileSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (showHeader) ...[
-          RichText(
-            text: TextSpan(
-              style: DefaultTextStyle.of(
-                context,
-              ).style.copyWith(fontSize: 22, fontWeight: FontWeight.bold),
-              children: [
-                TextSpan(text: fullName.isEmpty ? 'Unnamed Member' : fullName),
-                WidgetSpan(
-                  alignment: PlaceholderAlignment.middle,
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 8.0),
-                    child: InteractiveMemberAvatar(
-                      memberId: member['id'] as int?,
-                      lastName: (member['lastName'] ?? '').toString(),
-                      firstName: (member['firstName'] ?? '').toString(),
-                      middleName: (member['middleName'] ?? '').toString(),
-                      imageUrl: (member['image'] ?? '').toString(),
-                      qrToken: (member['qr'] ?? '').toString(),
-                      size: 36,
-                    ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: StockpileColors.primary900.withAlpha(25),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  fullName.isNotEmpty ? fullName[0].toUpperCase() : '?',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: StockpileColors.primary900,
                   ),
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fullName.isEmpty ? 'Unnamed Member' : fullName,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Text(
+                          'ID #${member['id'] ?? '—'}',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        InteractiveMemberAvatar(
+                          memberId: member['id'] as int?,
+                          lastName: (member['lastName'] ?? '').toString(),
+                          firstName: (member['firstName'] ?? '').toString(),
+                          middleName: (member['middleName'] ?? '').toString(),
+                          imageUrl: (member['image'] ?? '').toString(),
+                          qrToken: (member['qr'] ?? '').toString(),
+                          size: 28,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 20),
         ],
         Wrap(
           spacing: 8,
@@ -425,14 +467,16 @@ class _MemberProfileSection extends StatelessWidget {
         // ── ID Verification section ────────────────────────
         if ((member['idImagePath']?.toString() ?? '').isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: const EdgeInsets.only(top: 14),
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.green.shade200),
+                color: StockpileColors.successBg.withAlpha(120),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: StockpileColors.success.withAlpha(60),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -441,20 +485,21 @@ class _MemberProfileSection extends StatelessWidget {
                     children: [
                       Icon(
                         Icons.verified_user,
-                        size: 18,
-                        color: Colors.green.shade700,
+                        size: 20,
+                        color: StockpileColors.success,
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 8),
                       Text(
                         'Verified Reseller',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: Colors.green.shade700,
+                        style: StockpileFonts.satoshi(
+                          fontSize: 14,
                           fontWeight: FontWeight.w700,
+                          color: StockpileColors.success,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   _DetailLine(
                     icon: Icons.credit_card_outlined,
                     label: 'ID Type',
@@ -487,23 +532,23 @@ class _MemberProfileSection extends StatelessWidget {
               ),
             ),
           ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {
             final isNarrow = constraints.maxWidth < 360;
             if (isNarrow) {
-              return ElevatedButton.icon(
+              return FilledButton.tonalIcon(
                 onPressed: onViewTransactions,
-                icon: const Icon(Icons.receipt_long_outlined),
+                icon: const Icon(Icons.receipt_long_outlined, size: 18),
                 label: const Text('View History'),
               );
             }
 
             return Row(
               children: [
-                ElevatedButton.icon(
+                FilledButton.tonalIcon(
                   onPressed: onViewTransactions,
-                  icon: const Icon(Icons.receipt_long_outlined),
+                  icon: const Icon(Icons.receipt_long_outlined, size: 18),
                   label: const Text('View History'),
                 ),
                 const SizedBox(width: 10),
@@ -866,11 +911,12 @@ class _InfoPill extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
+        color: colorScheme.primary.withAlpha(15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.primary.withAlpha(30)),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -916,30 +962,38 @@ class _DetailLine extends StatelessWidget {
         : value.toString();
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 7),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 17, color: theme.colorScheme.onSurfaceVariant),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 74,
-            child: Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withAlpha(80),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 17, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 70,
+              child: Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-          ),
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+            Expanded(
+              child: Text(
+                text,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -1,19 +1,21 @@
 // lib/pages/inventory/inventory_dashboard.dart
 // Inventory Dashboard — restricted to Inventory role only.
 // Tabs:
-//   1. Only Inventory Tab — Full CRUD for items, stock levels, product details.
+//   1. Inventory — Full CRUD for items, stock levels, product details.
 //   2. In/Out/Borrow Reports — Read-only logs of inventory activity.
+//   3. My Requests — Track submitted deletion & reduction requests.
 // Inventory role CANNOT see: cashier tabs, admin tabs, member management,
-// POS transactions, deletion requests, or borrow requests.
+// POS transactions, or borrow requests.
 
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:lzcas/auth/auth.dart';
-import 'package:lzcas/router/route_guard.dart';
-import 'package:lzcas/theme.dart';
-import 'package:lzcas/utils/fonts.dart';
-import 'package:lzcas/widgets/inventorytable.dart';
-import 'package:lzcas/widgets/inventory_reports_view.dart';
+import "package:flutter/material.dart";
+import "package:provider/provider.dart";
+import "package:lzcas/auth/auth.dart";
+import "package:lzcas/router/route_guard.dart";
+import "package:lzcas/theme.dart";
+import "package:lzcas/utils/fonts.dart";
+import "package:lzcas/widgets/inventorytable.dart";
+import "package:lzcas/widgets/inventory_reports_view.dart";
+import "package:lzcas/widgets/my_requests_tab.dart";
 
 class InventoryDashboard extends StatefulWidget {
   const InventoryDashboard({super.key});
@@ -29,7 +31,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -50,7 +52,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
       body: SafeArea(
         child: Column(
           children: [
-            // ── Header ──────────────────────────────────────────────────
+            // -- Header --------------------------------------------------
             Container(
               padding: const EdgeInsets.fromLTRB(24, 16, 16, 0),
               child: Row(
@@ -60,7 +62,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Inventory Management',
+                          "Inventory Management",
                           style: StockpileFonts.satoshi(
                             fontSize: 26,
                             fontWeight: FontWeight.w800,
@@ -71,7 +73,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Welcome, ${auth.username} · Inventory Team',
+                          "Welcome, ${auth.username} � Inventory Team",
                           style: StockpileFonts.satoshi(
                             fontSize: 14,
                             color: isDark
@@ -88,7 +90,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
             ),
             const SizedBox(height: 8),
 
-            // ── Tab Bar — Only Inventory + Reports ──────────────────────
+            // -- Tab Bar � Only Inventory + Reports ----------------------
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
@@ -122,7 +124,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
                       children: [
                         Icon(Icons.inventory_2_rounded, size: 18),
                         SizedBox(width: 6),
-                        Text('Inventory'),
+                        Text("Inventory"),
                       ],
                     ),
                   ),
@@ -132,7 +134,17 @@ class _InventoryDashboardState extends State<InventoryDashboard>
                       children: [
                         Icon(Icons.history_rounded, size: 18),
                         SizedBox(width: 6),
-                        Text('In / Out / Borrow Reports'),
+                        Text("In / Out / Borrow Reports"),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.inbox_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text("My Requests"),
                       ],
                     ),
                   ),
@@ -140,7 +152,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
               ),
             ),
 
-            // ── Tab Content ─────────────────────────────────────────────
+            // -- Tab Content ---------------------------------------------
             Expanded(
               child: TabBarView(
                 controller: _tabController,
@@ -150,6 +162,22 @@ class _InventoryDashboardState extends State<InventoryDashboard>
 
                   // Tab 2: In/Out/Borrow Reports (read-only)
                   _InventoryReportsTab(isDark: isDark),
+
+                  // Tab 3: My Requests — track deletion & reduction requests
+                  MyRequestsTab(
+                    isDark: isDark,
+                    typeFilters: const [
+                      FilterSegment('All', 'all', Icons.layers_rounded),
+                      FilterSegment('Delete', 'delete', Icons.delete_rounded),
+                      FilterSegment(
+                        'Reduce',
+                        'reduce_stock',
+                        Icons.remove_circle_rounded,
+                      ),
+                    ],
+                    emptyMessage:
+                        'Submitted deletion & stock reduction requests\nwill appear here',
+                  ),
                 ],
               ),
             ),
@@ -160,20 +188,18 @@ class _InventoryDashboardState extends State<InventoryDashboard>
   }
 }
 
-// ─── Tab 1: Inventory CRUD ──────────────────────────────────────────────────
+// --- Tab 1: Inventory CRUD --------------------------------------------------
 
 class _InventoryCrudTab extends StatelessWidget {
   const _InventoryCrudTab();
 
   @override
   Widget build(BuildContext context) {
-    // Reuse the existing InventoryTable widget which provides full CRUD
-    // capabilities: view items, edit stock, add products, etc.
     return const Padding(padding: EdgeInsets.all(16), child: InventoryTable());
   }
 }
 
-// ─── Tab 2: In/Out/Borrow Reports (read-only, shared widget) ───────────────
+// --- Tab 2: In/Out/Borrow Reports (read-only, shared widget) ---------------
 
 class _InventoryReportsTab extends StatelessWidget {
   final bool isDark;
@@ -188,7 +214,7 @@ class _InventoryReportsTab extends StatelessWidget {
   }
 }
 
-// ─── Shared Logout Button (uses confirmation) ───────────────────────────────
+// --- Shared Logout Button (uses confirmation) -------------------------------
 
 class _LogoutButton extends StatelessWidget {
   final AuthState auth;
@@ -199,21 +225,21 @@ class _LogoutButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       icon: const Icon(Icons.logout_rounded),
-      tooltip: 'Logout',
+      tooltip: "Logout",
       onPressed: () async {
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Logout'),
-            content: const Text('Are you sure you want to sign out?'),
+            title: const Text("Logout"),
+            content: const Text("Are you sure you want to sign out?"),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
+                child: const Text("Cancel"),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Logout'),
+                child: const Text("Logout"),
               ),
             ],
           ),

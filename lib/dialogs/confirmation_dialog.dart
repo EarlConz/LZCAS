@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/theme.dart';
 
 class ConfirmationDialog extends StatelessWidget {
   final String title;
@@ -15,6 +16,10 @@ class ConfirmationDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(28),
+        side: BorderSide(color: StockpileColors.primary900, width: 4),
+      ),
       title: Text(title),
       content: Text(content),
       actions: [

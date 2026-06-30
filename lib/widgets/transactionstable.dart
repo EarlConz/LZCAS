@@ -3,7 +3,7 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import '../utils/formatters.dart';
 import 'dart:async';
-import '../db/db.dart' show Sale, repository;
+import '../db/db.dart' show Sale, repository, PageResult;
 import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
 import '../buttons/borrowbutton.dart';
@@ -48,10 +48,26 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   static const _pageSize = 25;
   int _visibleCount = _pageSize;
+  int _currentPage = 0;
+  bool _hasMore = true;
+
+  // ── Server-page state for desktop PaginatedDataTable ──────────────
+  final List<TransactionGroup> _serverPage = [];
+  int _totalCount = 0;
+  int _currentServerPage = 1;
+  late final _TxnDataSource _txnSource;
 
   @override
   void initState() {
     super.initState();
+    _txnSource = _TxnDataSource(
+      _serverPage,
+      () => _totalCount,
+      () => _currentServerPage,
+      _pageSize,
+      onDelete: _deleteTransaction,
+      onReceipt: _viewReceipt,
+    );
     _loadData();
     _sub = repository.changes.listen((e) {
       if (e == 'sale_added' ||
@@ -73,52 +89,25 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   Future<void> _loadData() async {
     if (!mounted) return;
-    setState(() => _loading = true);
+    _loading = true;
+    _currentPage = 1;
+    _hasMore = true;
+    setState(() {});
+
     try {
-      final allSales = (await repository.fetchSales()).toList();
-      final allMembers = await repository.fetchMembers();
-
-      // Build member name lookup
-      final Map<int, String> memberNames = {};
-      for (final m in allMembers) {
-        final parts = [
-          m.firstName,
-          m.lastName,
-        ].where((p) => p != null && p.trim().isNotEmpty);
-        if (m.id != null) {
-          memberNames[m.id!] = parts.isNotEmpty ? parts.join(' ') : 'Unnamed';
-        }
-      }
-
-      // Group sales by (timestamp ms, buyerId)
-      final Map<String, List<Sale>> groups = {};
-      for (final s in allSales) {
-        final key = '${s.timestamp?.millisecondsSinceEpoch ?? 0}_${s.buyerId}';
-        groups.putIfAbsent(key, () => []).add(s);
-      }
-
+      final page = await _fetchPage(1, _searchTerm);
       if (!mounted) return;
+      // Desktop: update server-page state
+      _serverPage.clear();
+      _serverPage.addAll(page.rows);
+      _totalCount = page.totalCount;
+      _currentServerPage = 1;
+      _txnSource.refresh();
+      // Mobile: set accumulated list
       setState(() {
-        _txnGroups =
-            groups.entries.map((entry) {
-              final sales = entry.value;
-              final first = sales.first;
-              final buyerName =
-                  first.buyerName ??
-                  (first.buyerId != null
-                      ? (memberNames[first.buyerId] ?? 'Unknown')
-                      : 'Walk-in');
-              return TransactionGroup(
-                timestamp: first.timestamp,
-                buyerId: first.buyerId,
-                buyerName: buyerName,
-                sales: sales,
-              );
-            }).toList()..sort((a, b) {
-              final ta = a.timestamp ?? DateTime(2000);
-              final tb = b.timestamp ?? DateTime(2000);
-              return tb.compareTo(ta);
-            });
+        _txnGroups = List.of(page.rows);
+        _hasMore = page.hasMore;
+        _visibleCount = _pageSize;
         _loading = false;
       });
     } catch (e, st) {
@@ -129,6 +118,117 @@ class _TransactionsTableState extends State<TransactionsTable> {
         _loading = false;
       });
     }
+  }
+
+  /// Fetch a specific server page for desktop PaginatedDataTable.
+  Future<void> _fetchServerPage(int serverPage) async {
+    if (_loading) return;
+    _loading = true;
+    setState(() {});
+    try {
+      final page = await _fetchPage(serverPage, _searchTerm);
+      if (!mounted) return;
+      _serverPage.clear();
+      _serverPage.addAll(page.rows);
+      setState(() {
+        _totalCount = page.totalCount;
+        _currentServerPage = serverPage;
+        _loading = false;
+      });
+      _txnSource.refresh();
+    } catch (e) {
+      debugPrint('TransactionsTable: failed to load page $serverPage: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadNextPage() async {
+    if (_loading || !_hasMore) return;
+    _loading = true;
+    setState(() {});
+
+    try {
+      final page = await _fetchPage(_currentPage + 1, _searchTerm);
+      if (!mounted) return;
+      setState(() {
+        _txnGroups.addAll(page.rows);
+        _currentPage = page.page;
+        _hasMore = page.hasMore;
+        _visibleCount = _txnGroups.length;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('TransactionsTable: failed to load more: $e');
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<PageResult<TransactionGroup>> _fetchPage(
+    int page,
+    String? search,
+  ) async {
+    final salePage = await repository.fetchSalesPaginated(
+      page: page,
+      pageSize: _pageSize,
+      search: search,
+      sortColumn: 'timestamp',
+      sortAscending: false,
+    );
+
+    final buyerIds = salePage.rows
+        .map((s) => s.buyerId)
+        .whereType<int>()
+        .toSet();
+
+    final Map<int, String> memberNames = {};
+    if (buyerIds.isNotEmpty) {
+      final allMembers = await repository.fetchMembers();
+      for (final m in allMembers) {
+        if (m.id != null && buyerIds.contains(m.id)) {
+          final parts = [
+            m.firstName,
+            m.lastName,
+          ].where((p) => p != null && p.trim().isNotEmpty);
+          memberNames[m.id!] = parts.isNotEmpty ? parts.join(' ') : 'Unnamed';
+        }
+      }
+    }
+
+    final filtered = <String, List<Sale>>{};
+    for (final s in salePage.rows) {
+      final key = '${s.timestamp?.millisecondsSinceEpoch ?? 0}_${s.buyerId}';
+      filtered.putIfAbsent(key, () => []).add(s);
+    }
+
+    final txnfiltered =
+        filtered.entries.map((entry) {
+          final sales = entry.value;
+          final first = sales.first;
+          final buyerName =
+              first.buyerName ??
+              (first.buyerId != null
+                  ? (memberNames[first.buyerId] ?? 'Unknown')
+                  : 'Walk-in');
+          return TransactionGroup(
+            timestamp: first.timestamp,
+            buyerId: first.buyerId,
+            buyerName: buyerName,
+            sales: sales,
+          );
+        }).toList()..sort((a, b) {
+          final ta = a.timestamp ?? DateTime(2000);
+          final tb = b.timestamp ?? DateTime(2000);
+          return tb.compareTo(ta);
+        });
+
+    return PageResult(
+      rows: txnfiltered,
+      totalCount: salePage.totalCount,
+      page: page,
+      pageSize: _pageSize,
+    );
   }
 
   // ── Actions ─────────────────────────────────────────────────────────
@@ -233,7 +333,10 @@ class _TransactionsTableState extends State<TransactionsTable> {
                       children: [
                         Expanded(
                           child: SearchBarWidget(
-                            onChanged: (v) => setState(() => _searchTerm = v),
+                            onChanged: (v) => setState(() {
+                              _searchTerm = v;
+                              _loadData();
+                            }),
                             hintText: "Search by buyer…",
                             borderRadius: 12,
                             contentPadding: const EdgeInsets.symmetric(
@@ -251,7 +354,10 @@ class _TransactionsTableState extends State<TransactionsTable> {
                   : Column(
                       children: [
                         SearchBarWidget(
-                          onChanged: (v) => setState(() => _searchTerm = v),
+                          onChanged: (v) => setState(() {
+                            _searchTerm = v;
+                            _loadData();
+                          }),
                           hintText: "Search by buyer…",
                           borderRadius: 12,
                           contentPadding: const EdgeInsets.symmetric(
@@ -271,7 +377,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
                     ),
             ),
             Expanded(
-              child: _loading
+              child: _loading && _txnGroups.isEmpty
                   ? const SingleChildScrollView(
                       padding: EdgeInsets.fromLTRB(0, 8, 0, 8),
                       child: SkeletonList(count: 5),
@@ -329,12 +435,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
                   DataColumn(label: Text('Total')),
                   DataColumn(label: Text('Actions')),
                 ],
-                source: _TxnDataSource(
-                  filtered,
-                  context,
-                  onDelete: _deleteTransaction,
-                  onReceipt: _viewReceipt,
-                ),
+                source: _txnSource,
+                onPageChanged: (pageIndex) => _fetchServerPage(pageIndex + 1),
               ),
             ); // PaginatedDataTable + SizedBox + return
           },
@@ -366,18 +468,32 @@ class _TransactionsTableState extends State<TransactionsTable> {
             ),
           ),
         ),
-        if (hasMore)
+        if (hasMore && !_loading)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: SizedBox(
               width: double.infinity,
               child: OutlinedButton(
-                onPressed: () => setState(() => _visibleCount += _pageSize),
+                onPressed: () {
+                  if (_visibleCount + _pageSize > _txnGroups.length &&
+                      _hasMore) {
+                    _loadNextPage().then((_) {
+                      if (mounted) setState(() => _visibleCount += _pageSize);
+                    });
+                  } else {
+                    setState(() => _visibleCount += _pageSize);
+                  }
+                },
                 child: Text(
-                  'Load More (${visible.length} of ${filtered.length})',
+                  'Load More (${_visibleCount.clamp(0, filtered.length)} of ${filtered.length}${_hasMore ? "+" : ""})',
                 ),
               ),
             ),
+          ),
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Center(child: CircularProgressIndicator()),
           ),
       ],
     );
@@ -524,29 +640,44 @@ class _Pill extends StatelessWidget {
 // ── Desktop data source ───────────────────────────────────────────────
 
 class _TxnDataSource extends DataTableSource {
-  final List<TransactionGroup> _groups;
-  final BuildContext _context;
+  final List<TransactionGroup> _items;
+  final int Function() _getTotalCount;
+  final int Function() _getPageNumber;
+  final int _pageSize;
   final Future<void> Function(TransactionGroup)? onDelete;
   final Future<void> Function(TransactionGroup)? onReceipt;
 
-  _TxnDataSource(this._groups, this._context, {this.onDelete, this.onReceipt});
+  _TxnDataSource(
+    this._items,
+    this._getTotalCount,
+    this._getPageNumber,
+    this._pageSize, {
+    this.onDelete,
+    this.onReceipt,
+  });
+
+  @override
+  int get rowCount => _getTotalCount();
 
   @override
   DataRow getRow(int index) {
-    if (index >= _groups.length) return const DataRow(cells: []);
-    final group = _groups[index];
+    final pageNumber = _getPageNumber();
+    final pageStart = (pageNumber - 1) * _pageSize;
+    final localIndex = index - pageStart;
+    if (localIndex < 0 || localIndex >= _items.length) {
+      return DataRow(cells: List.filled(5, const DataCell(Text(''))));
+    }
+    final group = _items[localIndex];
     final isEven = index % 2 == 0;
     final itemWord = group.itemCount == 1 ? 'item' : 'items';
 
     return DataRow(
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
         if (states.contains(WidgetState.hovered)) {
-          return Theme.of(_context).colorScheme.primary.withAlpha(18);
+          return Colors.blue.withAlpha(18);
         }
         if (isEven) {
-          return Theme.of(
-            _context,
-          ).colorScheme.surfaceContainerHighest.withAlpha(90);
+          return Colors.grey.withAlpha(20);
         }
         return null;
       }),
@@ -555,12 +686,12 @@ class _TxnDataSource extends DataTableSource {
         DataCell(Text(formatDisplayDate(group.timestamp))),
         DataCell(Text('${group.itemCount} $itemWord')),
         DataCell(Text('₱${group.totalPrice}')),
-        DataCell(_buildActions(_context, group)),
+        DataCell(_buildActions(group)),
       ],
     );
   }
 
-  Widget _buildActions(BuildContext context, TransactionGroup group) {
+  Widget _buildActions(TransactionGroup group) {
     return PopupMenuButton<String>(
       onSelected: (value) async {
         if (value == 'receipt') {
@@ -581,8 +712,8 @@ class _TxnDataSource extends DataTableSource {
   bool get isRowCountApproximate => false;
 
   @override
-  int get rowCount => _groups.length;
-
-  @override
   int get selectedRowCount => 0;
+
+  /// Call after external data changes to refresh the table.
+  void refresh() => notifyListeners();
 }

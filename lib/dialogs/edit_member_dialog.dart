@@ -459,6 +459,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               _sectionLabel('Verification ID', theme, colorScheme),
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue:
                     _selectedIdType != null &&
                         _selectedIdType!.isNotEmpty &&
