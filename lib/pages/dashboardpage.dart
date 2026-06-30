@@ -274,10 +274,6 @@ class _DashboardPageState extends State<DashboardPage> {
                       : StockpileColors.darkText,
                 ),
               ),
-              const Spacer(),
-              _chip('Income', true),
-              const SizedBox(width: 8),
-              _chip('Online Sales', false),
             ],
           ),
           const SizedBox(height: 24),
@@ -457,18 +453,6 @@ class _DashboardPageState extends State<DashboardPage> {
                     : StockpileColors.darkText,
               ),
             ),
-            const Spacer(),
-            TextButton(
-              onPressed: () {},
-              child: Text(
-                'View All',
-                style: StockpileFonts.satoshi(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: StockpileColors.primary900,
-                ),
-              ),
-            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -514,7 +498,6 @@ class _DashboardPageState extends State<DashboardPage> {
                     DataColumn(label: Text('Revenue'), numeric: true),
                     DataColumn(label: Text('Units Sold'), numeric: true),
                     DataColumn(label: Text('Margin')),
-                    DataColumn(label: Text('')),
                   ],
                   rows: topProducts.asMap().entries.map((e) {
                     final i = e.key;
@@ -555,19 +538,6 @@ class _DashboardPageState extends State<DashboardPage> {
                         DataCell(Text(_fmt(p['revenue'] as int))),
                         DataCell(Text('${p['unitsSold']}')),
                         const DataCell(Text('\u2014')),
-                        DataCell(
-                          IconButton(
-                            icon: Icon(
-                              Icons.more_horiz,
-                              size: 20,
-                              color: d
-                                  ? StockpileColors.darkTextMuted
-                                  : StockpileColors.mutedText,
-                            ),
-                            onPressed: () {},
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ),
                       ],
                     );
                   }).toList(),
@@ -577,28 +547,4 @@ class _DashboardPageState extends State<DashboardPage> {
     ),
   );
 
-  // â”€â”€ Filter Chip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-  Widget _chip(String l, bool s) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-    decoration: BoxDecoration(
-      color: s
-          ? StockpileColors.primary900.withAlpha((0.12 * 255).round())
-          : Colors.transparent,
-      borderRadius: BorderRadius.circular(100),
-      border: Border.all(
-        color: s
-            ? StockpileColors.primary900.withAlpha((0.3 * 255).round())
-            : StockpileColors.divider,
-      ),
-    ),
-    child: Text(
-      l,
-      style: StockpileFonts.satoshi(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-        color: s ? StockpileColors.primary900 : StockpileColors.mutedText,
-      ),
-    ),
-  );
 }
