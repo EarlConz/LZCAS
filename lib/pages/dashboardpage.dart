@@ -249,11 +249,28 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // â”€â”€ Analytics Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Chip ───────────────────────────────────────────────────────────
+
+  Widget _chip(String label, bool isDark) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: BoxDecoration(
+      color: (isDark ? StockpileColors.darkDivider : StockpileColors.primary50)
+          .withAlpha(180),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Text(
+      label,
+      style: StockpileFonts.satoshi(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: isDark
+            ? StockpileColors.darkTextBody
+            : StockpileColors.primary900,
+      ),
+    ),
+  );
 
   // ── Card Wrapper ────────────────────────────────────────────────────
-
-  // â”€â”€ Card Wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Widget _card(bool d, Widget c) {
     final mobile = MediaQuery.sizeOf(context).width < 750;
@@ -513,6 +530,52 @@ class _DashboardPageState extends State<DashboardPage> {
                       ? Colors.amber.withAlpha(d ? 40 : 30)
                       : (d ? Colors.white10 : Colors.grey.shade100),
                   borderRadius: BorderRadius.circular(8),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '${i + 1}',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: i == 0
+                        ? Colors.amber.shade800
+                        : (d ? Colors.white38 : Colors.grey.shade600),
+                  ),
+                ),
+              ),
+              title: Text(
+                nm,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: StockpileFonts.satoshi(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: d
+                      ? StockpileColors.darkTextPrimary
+                      : StockpileColors.darkText,
+                ),
+              ),
+              trailing: Text(
+                _fmt(rev),
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: d
+                      ? StockpileColors.darkTextBody
+                      : StockpileColors.bodyText,
+                ),
+              ),
+            );
+          }),
+      ],
+    ),
+  );
+
+  Widget _buildProductsTable(bool d) => _card(
+    d,
+    Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         Row(
           children: [
             Text(
@@ -542,92 +605,59 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
                 ),
-                alignment: Alignment.center,
-                child: Text(
-                  '${i + 1}',
-                  style: StockpileFonts.satoshi(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: i == 0
-                        ? Colors.amber.shade800
-                        : (d ? Colors.white38 : Colors.grey.shade600),
-                  ),
-                  columns: const [
-                    DataColumn(label: Text('Rank')),
-                    DataColumn(label: Text('Product')),
-                    DataColumn(label: Text('Item ID'), numeric: true),
-                    DataColumn(label: Text('Revenue'), numeric: true),
-                    DataColumn(label: Text('Units Sold'), numeric: true),
-                    DataColumn(label: Text('Margin')),
-                  ],
-                  rows: topProducts.asMap().entries.map((e) {
-                    final i = e.key;
-                    final p = e.value;
-                    final nm = (p['productName'] as String?) ?? '\u2014';
-                    return DataRow(
-                      cells: [
-                        DataCell(Text('${i + 1}')),
-                        DataCell(
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  color: StockpileColors.primary900.withAlpha(
-                                    (0.12 * 255).round(),
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
+              )
+            : DataTable(
+                columns: const [
+                  DataColumn(label: Text('Rank')),
+                  DataColumn(label: Text('Product')),
+                  DataColumn(label: Text('Item ID'), numeric: true),
+                  DataColumn(label: Text('Revenue'), numeric: true),
+                  DataColumn(label: Text('Units Sold'), numeric: true),
+                  DataColumn(label: Text('Margin')),
+                ],
+                rows: topProducts.asMap().entries.map((e) {
+                  final i = e.key;
+                  final p = e.value;
+                  final nm = (p['productName'] as String?) ?? '\u2014';
+                  return DataRow(
+                    cells: [
+                      DataCell(Text('${i + 1}')),
+                      DataCell(
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: StockpileColors.primary900.withAlpha(
+                                  (0.12 * 255).round(),
                                 ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  nm.isNotEmpty ? nm[0].toUpperCase() : '?',
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                    color: StockpileColors.primary900,
-                                  ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                nm.isNotEmpty ? nm[0].toUpperCase() : '?',
+                                style: StockpileFonts.satoshi(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: StockpileColors.primary900,
                                 ),
                               ),
-                              const SizedBox(width: 10),
-                              Text(nm),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(nm),
+                          ],
                         ),
-                        DataCell(Text('#${p['itemId']}')),
-                        DataCell(Text(_fmt(p['revenue'] as int))),
-                        DataCell(Text('${p['unitsSold']}')),
-                        const DataCell(Text('\u2014')),
-                      ],
-                    );
-                  }).toList(),
-                ),
+                      ),
+                      DataCell(Text('#${p['itemId']}')),
+                      DataCell(Text(_fmt(p['revenue'] as int))),
+                      DataCell(Text('${p['unitsSold']}')),
+                      const DataCell(Text('\u2014')),
+                    ],
+                  );
+                }).toList(),
               ),
-              title: Text(
-                nm,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: StockpileFonts.satoshi(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: d
-                      ? StockpileColors.darkTextPrimary
-                      : StockpileColors.darkText,
-                ),
-              ),
-              trailing: Text(
-                _fmt(rev),
-                style: StockpileFonts.satoshi(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: d
-                      ? StockpileColors.darkTextBody
-                      : StockpileColors.bodyText,
-                ),
-              ),
-            );
-          }),
       ],
     ),
   );

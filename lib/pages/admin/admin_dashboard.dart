@@ -114,18 +114,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
           // Main content area
           Expanded(
-            child: Column(
-              children: [
-                // ── Top Bar ────────────────────────────────────────────
-                StockpileTopBar(
-                  pageTitle: _pageTitles[_selectedIndex],
-                  showMenu: !isDesktop,
-                  onMenuTap: _toggleSidebar,
-                  onNavigateToTab: (i) => setState(() => _selectedIndex = i),
-                ),
-                // ── Page Content ───────────────────────────────────────
-                Expanded(child: pages[_selectedIndex]),
-              ],
             child: SafeArea(
               child: Column(
                 children: [
@@ -134,6 +122,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     pageTitle: _pageTitles[_selectedIndex],
                     showMenu: !isDesktop,
                     onMenuTap: _toggleSidebar,
+                    onNavigateToTab: (i) => setState(() => _selectedIndex = i),
                   ),
                   // ── Page Content ───────────────────────────────────────
                   Expanded(child: pages[_selectedIndex]),
