@@ -2,6 +2,7 @@
 // Cloud-based authentication using Supabase Auth (email/password).
 
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/models.dart';
@@ -63,6 +64,16 @@ class AuthState extends ChangeNotifier {
   String? get userId => _userId;
   SupabaseClient get sb => _sb;
   bool get isTempAdmin => false;
+
+  /// True when running on a mobile OS (Android / iOS), false on desktop or web.
+  bool get _isMobilePlatform {
+    if (kIsWeb) return false;
+    return Platform.isAndroid || Platform.isIOS;
+  }
+
+  /// If the current platform is mobile and the loaded role is not admin,
+  /// force-sign-out and block access.
+  bool get _mobileBlocked => _isMobilePlatform && _userRole != UserRole.admin;
 
   // ── Session Sync ─────────────────────────────────────────────────────────
 
@@ -166,6 +177,16 @@ class AuthState extends ChangeNotifier {
         _userId = response.user!.id;
         _username = response.user!.email ?? email;
         await _loadUserProfile(response.user!.id);
+
+        // ── Mobile gate: only Admin accounts allowed on phones/tablets ──
+        if (_mobileBlocked) {
+          await _sb.auth.signOut();
+          _error = 'Mobile Access is for Admin Only';
+          _status = AuthStatus.authError;
+          notifyListeners();
+          return false;
+        }
+
         return _status == AuthStatus.authenticated;
       }
       _error = 'Login failed.';
@@ -219,6 +240,13 @@ class AuthState extends ChangeNotifier {
       }
       _status = AuthStatus.authenticated;
       notifyListeners();
+
+      // ── Mobile gate: only Admin accounts allowed on phones/tablets ──
+      if (_mobileBlocked) {
+        await _sb.auth.signOut();
+        return false;
+      }
+
       return true;
     } catch (_) {
       return false;

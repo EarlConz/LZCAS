@@ -13,6 +13,7 @@ import 'package:lzcas/db/db.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import '../theme.dart';
 import '../utils/formatters.dart';
+import '../services/config_service.dart';
 
 /// Formats a raw ISO 8601 string using the shared POS timestamp format.
 String _formatLastUpdated(dynamic raw) {
@@ -59,12 +60,13 @@ class _InventoryTableState extends State<InventoryTable> {
     try {
       final rows = await repository.fetchItems();
       if (!mounted) return;
+      final threshold = context.read<ConfigService>().lowStockThreshold;
       setState(() {
         items = inventoryItemsFromRows(rows).map((m) {
           final stockVal = (m['stock'] ?? 0) is int
               ? m['stock'] as int
               : int.tryParse(m['stock']?.toString() ?? '0') ?? 0;
-          m['status'] = statusFromStock(stockVal);
+          m['status'] = statusFromStock(stockVal, threshold: threshold);
           return m;
         }).toList();
       });
@@ -92,9 +94,10 @@ class _InventoryTableState extends State<InventoryTable> {
   }
 
   void _refreshStatus(Map<String, dynamic> item) {
+    final threshold = context.read<ConfigService>().lowStockThreshold;
     if (item["stock"] <= 0) {
       item["status"] = "Out of Stock";
-    } else if (item["stock"] < 50) {
+    } else if ((item["stock"] as num) < threshold) {
       item["status"] = "Low Stock";
     } else {
       item["status"] = "Good";

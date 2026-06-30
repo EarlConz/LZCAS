@@ -9,6 +9,8 @@ import 'db/db.dart';
 import 'auth/auth.dart';
 import 'router/app_router.dart';
 import 'router/route_guard.dart';
+import 'services/notification_service.dart';
+import 'services/config_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -34,9 +36,23 @@ Future<void> main() async {
   // Attempt to restore a previous session from Supabase Auth persistence.
   await authState.tryRestoreSession();
 
+  // ── Initialize config service ──────────────────────────────────────
+  final configService = ConfigService();
+  await configService.load();
+
+  // ── Initialize notification service ─────────────────────────────────
+  final notificationService = NotificationService();
+  await notificationService.init(config: configService);
+
   runApp(
-    ChangeNotifierProvider<AuthState>.value(
-      value: authState,
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AuthState>.value(value: authState),
+        ChangeNotifierProvider<NotificationService>.value(
+          value: notificationService,
+        ),
+        ChangeNotifierProvider<ConfigService>.value(value: configService),
+      ],
       child: const LzcasApp(),
     ),
   );
