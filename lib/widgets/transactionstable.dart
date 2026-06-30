@@ -46,6 +46,9 @@ class _TransactionsTableState extends State<TransactionsTable> {
   String _searchTerm = '';
   late final StreamSubscription<String> _sub;
 
+  static const _pageSize = 25;
+  int _visibleCount = _pageSize;
+
   @override
   void initState() {
     super.initState();
@@ -343,18 +346,40 @@ class _TransactionsTableState extends State<TransactionsTable> {
   // ── Mobile list ─────────────────────────────────────────────────────
 
   Widget _buildList(List<TransactionGroup> filtered) {
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-      itemCount: filtered.length,
-      separatorBuilder: (_, i) => const SizedBox(height: 8),
-      itemBuilder: (context, index) => StaggeredItem(
-        index: index,
-        child: _TxnListCard(
-          group: filtered[index],
-          onDelete: _deleteTransaction,
-          onReceipt: _viewReceipt,
+    final visible = filtered.take(_visibleCount).toList();
+    final hasMore = _visibleCount < filtered.length;
+
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+            itemCount: visible.length,
+            separatorBuilder: (_, i) => const SizedBox(height: 8),
+            itemBuilder: (context, index) => StaggeredItem(
+              index: index,
+              child: _TxnListCard(
+                group: visible[index],
+                onDelete: _deleteTransaction,
+                onReceipt: _viewReceipt,
+              ),
+            ),
+          ),
         ),
-      ),
+        if (hasMore)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => setState(() => _visibleCount += _pageSize),
+                child: Text(
+                  'Load More (${visible.length} of ${filtered.length})',
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
