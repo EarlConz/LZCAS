@@ -37,6 +37,9 @@ class _InventoryTableState extends State<InventoryTable> {
   List<Map<String, dynamic>> items = [];
   late final StreamSubscription<String> _sub;
 
+  static const _pageSize = 25;
+  int _visibleCount = _pageSize;
+
   @override
   void initState() {
     super.initState();
@@ -264,30 +267,54 @@ class _InventoryTableState extends State<InventoryTable> {
       return const Center(child: Text('No items found'));
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-      itemCount: filteredItems.length,
-      separatorBuilder: (_, index) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final item = filteredItems[index];
-        return StaggeredItem(
-          index: index,
-          child: _InventoryListCard(
-            item: item,
-            statusColor: _getStatusColor(item['status']?.toString() ?? ''),
-            onEdit: () {
-              showAnimatedDialog(
-                context,
-                builder: (dialogContext) => EditProductDialog(
+    final visible = filteredItems.take(_visibleCount).toList();
+    final hasMore = _visibleCount < filteredItems.length;
+
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+            itemCount: visible.length,
+            separatorBuilder: (_, index) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final item = visible[index];
+              return StaggeredItem(
+                index: index,
+                child: _InventoryListCard(
                   item: item,
-                  onUpdated: () => _onUpdate(item),
+                  statusColor: _getStatusColor(
+                    item['status']?.toString() ?? '',
+                  ),
+                  onEdit: () {
+                    showAnimatedDialog(
+                      context,
+                      builder: (dialogContext) => EditProductDialog(
+                        item: item,
+                        onUpdated: () => _onUpdate(item),
+                      ),
+                    );
+                  },
+                  onDelete: () => _deleteItem(context, item),
                 ),
               );
             },
-            onDelete: () => _deleteItem(context, item),
           ),
-        );
-      },
+        ),
+        if (hasMore)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => setState(() => _visibleCount += _pageSize),
+                child: Text(
+                  'Load More (${visible.length} of ${filteredItems.length})',
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
