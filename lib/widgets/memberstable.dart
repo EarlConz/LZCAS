@@ -356,18 +356,20 @@ class MembersTableState extends State<MembersTable> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            IconButton.filled(
-                              tooltip: 'Add Member',
-                              icon: const Icon(Icons.person_add),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.blue[700],
-                              ),
-                              onPressed: _onAddMemberPressed,
+                        CustomElevatedButton(
+                          icon: Icon(
+                            Icons.person_add,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                          ),
+                          label: const Text(
+                            "Add Member",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
                             ),
-                          ],
+                          ),
+                          backgroundColor: Colors.blue[700],
+                          onPressed: _onAddMemberPressed,
                         ),
                       ],
                     ),

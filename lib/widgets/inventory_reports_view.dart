@@ -318,30 +318,25 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Summary cards
-            Row(
-              children: [
-                Expanded(
-                  child: _ReportStatCard(
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isMobile = constraints.maxWidth < 600;
+                final cards = [
+                  _ReportStatCard(
                     icon: Icons.arrow_downward_rounded,
                     label: 'Stock In',
                     value: '$_stockInTotal',
                     color: StockpileColors.success,
                     isDark: isDark,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _ReportStatCard(
+                  _ReportStatCard(
                     icon: Icons.arrow_upward_rounded,
                     label: 'Stock Out',
                     value: '$_stockOutTotal',
                     color: StockpileColors.error500,
                     isDark: isDark,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _ReportStatCard(
+                  _ReportStatCard(
                     icon: Icons.shopping_cart_rounded,
                     label: 'Sales',
                     value:
@@ -349,10 +344,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                     color: StockpileColors.primary900,
                     isDark: isDark,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _ReportStatCard(
+                  _ReportStatCard(
                     icon: Icons.swap_horiz_rounded,
                     label: 'Borrowed',
                     value: '$_activeBorrowUnits',
@@ -363,8 +355,30 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                         : null,
                     subtitleColor: StockpileColors.error500,
                   ),
-                ),
-              ],
+                ];
+
+                if (isMobile) {
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (int i = 0; i < cards.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          SizedBox(width: 140, child: cards[i]),
+                        ],
+                      ],
+                    ),
+                  );
+                }
+                return Row(
+                  children: [
+                    for (int i = 0; i < cards.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 8),
+                      Expanded(child: cards[i]),
+                    ],
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 16),
 

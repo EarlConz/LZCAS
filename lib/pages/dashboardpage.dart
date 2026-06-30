@@ -147,17 +147,18 @@ class _DashboardPageState extends State<DashboardPage> {
     final revUp = monthlyRevenue >= previousMonthRevenue;
     final ordUp = activeOrders >= previousMonthOrders;
 
+    final mobilePad = isMobile ? 12.0 : appSpacing;
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(appSpacing),
+      padding: EdgeInsets.all(mobilePad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _sectionLabel('Overview', isDark),
           const SizedBox(height: 16),
           _buildMetricRow(isDark, revUp, ordUp, isMobile),
-          const SizedBox(height: 32),
+          const SizedBox(height: isMobile ? 20 : 32),
           _revenueChart(isDark, isMobile),
-          const SizedBox(height: 32),
+          const SizedBox(height: isMobile ? 20 : 32),
           _buildProductsTable(isDark),
         ],
       ),
@@ -238,17 +239,20 @@ class _DashboardPageState extends State<DashboardPage> {
 
   // â”€â”€ Card Wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  Widget _card(bool d, Widget c) => Container(
-    decoration: BoxDecoration(
-      color: d ? StockpileColors.darkSurface : StockpileColors.surface,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(
-        color: d ? StockpileColors.darkDivider : StockpileColors.divider,
+  Widget _card(bool d, Widget c) {
+    final mobile = MediaQuery.sizeOf(context).width < 750;
+    return Container(
+      decoration: BoxDecoration(
+        color: d ? StockpileColors.darkSurface : StockpileColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: d ? StockpileColors.darkDivider : StockpileColors.divider,
+        ),
       ),
-    ),
-    padding: const EdgeInsets.all(20),
-    child: c,
-  );
+      padding: EdgeInsets.all(mobile ? 14 : 20),
+      child: c,
+    );
+  }
 
   // â”€â”€ Revenue By Category Chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
