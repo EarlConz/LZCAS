@@ -1932,8 +1932,9 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
 
   Future<void> _loadProfiles() async {
     final profiles = await repository.fetchProfilesMap();
-    final rolesData =
-        await repository.supabase.from('profiles').select('id, role');
+    final rolesData = await repository.supabase
+        .from('profiles')
+        .select('id, role');
     final roles = <String, String>{};
     for (final r in (rolesData as List)) {
       roles[r['id'] as String] = r['role'] as String? ?? 'cashier';
@@ -3034,7 +3035,9 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         : Icons.cancel_rounded;
     final submitter = _profiles[req.userId] ?? 'Unknown';
     final role = _roles[req.userId];
-    final submitterWithRole = role != null ? '$submitter (${role[0].toUpperCase()}${role.substring(1)})' : submitter;
+    final submitterWithRole = role != null
+        ? '$submitter (${role[0].toUpperCase()}${role.substring(1)})'
+        : submitter;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
