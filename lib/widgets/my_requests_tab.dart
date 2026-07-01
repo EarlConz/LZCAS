@@ -196,6 +196,124 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
     }
   }
 
+  void _showReasonDialog(BuildContext context, String reason) {
+    final isDark = widget.isDark;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: primaryColor.withAlpha(25),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.info_outline_rounded,
+                      color: primaryColor,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      'Request Reason',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : const Color(0xFF1E293B),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white38 : Colors.grey.shade400,
+                      size: 20,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Divider(
+                color: isDark ? Colors.white10 : Colors.grey.shade200,
+                height: 1,
+              ),
+              const SizedBox(height: 20),
+              // Quote-style content
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withAlpha(8)
+                      : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border(
+                    left: BorderSide(
+                      color: primaryColor.withAlpha(120),
+                      width: 3,
+                    ),
+                  ),
+                ),
+                child: Text(
+                  reason,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark ? Colors.white70 : const Color(0xFF475569),
+                    height: 1.6,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Close button
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: isDark
+                        ? Colors.white.withAlpha(20)
+                        : Colors.grey.shade100,
+                    foregroundColor: isDark
+                        ? Colors.white70
+                        : const Color(0xFF475569),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // ── Stat pill ─────────────────────────────────────────────────────
   Widget _statPill(String label, int count, Color color, IconData icon) {
     final selected = _statusFilter == label.toLowerCase();
@@ -447,38 +565,23 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
               ],
             ),
 
-            // Reason section
+            // Reason — shown as an info icon button
             if (req.reason != null && req.reason!.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.white.withAlpha(15)
-                      : Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.format_quote_rounded,
-                      size: 15,
-                      color: _slate.withAlpha(150),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        req.reason!,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic,
-                          color: isDark ? Colors.white54 : _slate,
-                          height: 1.4,
-                        ),
-                      ),
-                    ),
-                  ],
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () => _showReasonDialog(context, req.reason!),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _slate.withAlpha(isDark ? 30 : 15),
+                  ),
+                  child: const Icon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: _slate,
+                  ),
                 ),
               ),
             ],

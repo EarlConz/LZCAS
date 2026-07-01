@@ -115,6 +115,7 @@ class StockpileTopBar extends StatelessWidget {
       builder: (ctx) => _NotificationPopover(
         isDark: isDark,
         notificationService: notificationService,
+        lastSeenAt: notificationService.lastSeenAt,
         onNavigateToTab: onNavigateToTab,
       ),
     );
@@ -124,11 +125,13 @@ class StockpileTopBar extends StatelessWidget {
 class _NotificationPopover extends StatefulWidget {
   final bool isDark;
   final NotificationService notificationService;
+  final DateTime? lastSeenAt;
   final ValueChanged<int>? onNavigateToTab;
 
   const _NotificationPopover({
     required this.isDark,
     required this.notificationService,
+    this.lastSeenAt,
     this.onNavigateToTab,
   });
 
@@ -160,7 +163,7 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
         _requests = results[0] as List<PendingRequest>;
         final threshold = context.read<ConfigService>().lowStockThreshold;
         _lowStockItems = (results[1] as List<Item>)
-            .where((i) => i.stock < threshold)
+            .where((i) => i.stock < threshold && i.stock > 0)
             .toList();
         _overdueBorrows = results[2] as List<Borrow>;
         _loading = false;
@@ -208,6 +211,15 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
   }
+
+  /// Whether an item timestamp makes it \"new\" (after last seen).
+  bool _isNew(DateTime? dt) {
+    if (dt == null || widget.lastSeenAt == null) return true;
+    return dt.isAfter(widget.lastSeenAt!);
+  }
+
+  /// Opacity for read items.
+  double _readOpacity(DateTime? dt) => _isNew(dt) ? 1.0 : 0.55;
 
   Widget _sectionHeader(
     String title,
@@ -259,12 +271,16 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    final total =
-        _requests.length + _lowStockItems.length + _overdueBorrows.length;
+    final notif = widget.notificationService;
+    final total = notif.totalCount;
+
+    final isMobile = MediaQuery.of(context).size.width < 750;
 
     return Dialog(
-      alignment: Alignment.topRight,
-      insetPadding: const EdgeInsets.only(top: 76, right: 24),
+      alignment: isMobile ? Alignment.center : Alignment.topRight,
+      insetPadding: isMobile
+          ? const EdgeInsets.symmetric(horizontal: 16)
+          : const EdgeInsets.only(top: 76, right: 24),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 400, maxHeight: 520),
         child: Column(
@@ -321,7 +337,7 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
                       label: const Text('View All'),
                       onPressed: () {
                         Navigator.pop(context);
-                        widget.notificationService.markPendingSeen();
+                        widget.notificationService.markAllSeen();
                         widget.onNavigateToTab!(6);
                       },
                     ),
@@ -385,44 +401,47 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
                           ..._lowStockItems
                               .take(5)
                               .map(
-                                (item) => ListTile(
-                                  dense: true,
-                                  onTap: () => _navigate(2),
-                                  leading: Container(
-                                    width: 32,
-                                    height: 32,
-                                    decoration: BoxDecoration(
-                                      color: Colors.red.withAlpha(
-                                        isDark ? 25 : 15,
+                                (item) => Opacity(
+                                  opacity: _readOpacity(item.lastUpdated),
+                                  child: ListTile(
+                                    dense: true,
+                                    onTap: () => _navigate(2),
+                                    leading: Container(
+                                      width: 32,
+                                      height: 32,
+                                      decoration: BoxDecoration(
+                                        color: Colors.red.withAlpha(
+                                          isDark ? 25 : 15,
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
                                       ),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        '${item.stock}',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w800,
-                                          color: Colors.red,
+                                      child: Center(
+                                        child: Text(
+                                          '${item.stock}',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.red,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  title: Text(
-                                    item.name,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: isDark
-                                          ? StockpileColors.darkTextPrimary
-                                          : StockpileColors.darkText,
+                                    title: Text(
+                                      item.name,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark
+                                            ? StockpileColors.darkTextPrimary
+                                            : StockpileColors.darkText,
+                                      ),
                                     ),
-                                  ),
-                                  subtitle: Text(
-                                    '${item.stock} left',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.red.shade300,
+                                    subtitle: Text(
+                                      '${item.stock} left',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.red.shade300,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -456,41 +475,44 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
                           ..._overdueBorrows
                               .take(5)
                               .map(
-                                (b) => ListTile(
-                                  dense: true,
-                                  onTap: () => _navigate(7),
-                                  leading: Container(
-                                    width: 32,
-                                    height: 32,
-                                    decoration: BoxDecoration(
-                                      color: Colors.orange.withAlpha(
-                                        isDark ? 25 : 15,
+                                (b) => Opacity(
+                                  opacity: _readOpacity(b.borrowedAt),
+                                  child: ListTile(
+                                    dense: true,
+                                    onTap: () => _navigate(7),
+                                    leading: Container(
+                                      width: 32,
+                                      height: 32,
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange.withAlpha(
+                                          isDark ? 25 : 15,
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
                                       ),
-                                      borderRadius: BorderRadius.circular(8),
+                                      child: const Icon(
+                                        Icons.swap_horiz_rounded,
+                                        size: 16,
+                                        color: Colors.orange,
+                                      ),
                                     ),
-                                    child: const Icon(
-                                      Icons.swap_horiz_rounded,
-                                      size: 16,
-                                      color: Colors.orange,
+                                    title: Text(
+                                      b.itemName,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark
+                                            ? StockpileColors.darkTextPrimary
+                                            : StockpileColors.darkText,
+                                      ),
                                     ),
-                                  ),
-                                  title: Text(
-                                    b.itemName,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: isDark
-                                          ? StockpileColors.darkTextPrimary
-                                          : StockpileColors.darkText,
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    '${b.outstandingQuantity} outstanding · Due ${b.dueDate.day}/${b.dueDate.month}',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: isDark
-                                          ? Colors.white38
-                                          : Colors.grey.shade600,
+                                    subtitle: Text(
+                                      '${b.outstandingQuantity} outstanding · Due ${b.dueDate.day}/${b.dueDate.month}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark
+                                            ? Colors.white38
+                                            : Colors.grey.shade600,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -523,41 +545,44 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
                           ),
                           ..._requests.take(10).map((req) {
                             final color = _requestColor(req.requestType);
-                            return ListTile(
-                              dense: true,
-                              onTap: () => _navigate(6),
-                              leading: Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  color: color.withAlpha(isDark ? 25 : 15),
-                                  borderRadius: BorderRadius.circular(8),
+                            return Opacity(
+                              opacity: _readOpacity(req.createdAt),
+                              child: ListTile(
+                                dense: true,
+                                onTap: () => _navigate(6),
+                                leading: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: color.withAlpha(isDark ? 25 : 15),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    _requestIcon(req.requestType),
+                                    size: 16,
+                                    color: color,
+                                  ),
                                 ),
-                                child: Icon(
-                                  _requestIcon(req.requestType),
-                                  size: 16,
-                                  color: color,
+                                title: Text(
+                                  req.summary,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? StockpileColors.darkTextPrimary
+                                        : StockpileColors.darkText,
+                                  ),
                                 ),
-                              ),
-                              title: Text(
-                                req.summary,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark
-                                      ? StockpileColors.darkTextPrimary
-                                      : StockpileColors.darkText,
-                                ),
-                              ),
-                              subtitle: Text(
-                                _timeAgo(req.createdAt),
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isDark
-                                      ? Colors.white38
-                                      : Colors.grey.shade500,
+                                subtitle: Text(
+                                  _timeAgo(req.createdAt),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.grey.shade500,
+                                  ),
                                 ),
                               ),
                             );

@@ -953,7 +953,7 @@ class _QrIconButton extends StatelessWidget {
           children: [
             Icon(Icons.qr_code, color: Theme.of(ctx).colorScheme.primary),
             const SizedBox(width: 10),
-            const Text('Member QR Code'),
+            const Expanded(child: Text('Member QR Code')),
           ],
         ),
         content: Column(
