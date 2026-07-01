@@ -8,6 +8,7 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/widgets/pagination_bar.dart';
 
 /// Shared read-only reports view showing stock movement history.
 /// Used identically by Inventory Dashboard and Admin Dashboard.
@@ -30,7 +31,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
   String _period = 'Monthly'; // Weekly, Monthly, Yearly
   String _typeFilter = 'All';
   static const _pageSize = 25;
-  int _visibleCount = 25;
+  int _displayPage = 1;
 
   static const _periodOptions = ['Weekly', 'Monthly', 'Yearly'];
   static const _typeOptions = [
@@ -82,7 +83,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
 
   Future<void> _loadData() async {
     setState(() => _loading = true);
-    _visibleCount = _pageSize;
+    _displayPage = 1;
     try {
       final supabase = repository.supabase;
       final range = _computeDateRange();
@@ -282,10 +283,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     }
   }
 
-  void _loadMore() {
-    setState(() => _visibleCount += _pageSize);
-  }
-
   String _formatDateTime(DateTime dt) {
     return formatDisplayDate(dt);
   }
@@ -306,8 +303,10 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     if (_typeFilter != 'All') {
       filtered = filtered.where((m) => m['type'] == _typeFilter).toList();
     }
-    final visible = filtered.take(_visibleCount).toList();
-    final hasMore = _visibleCount < filtered.length;
+    final start = (_displayPage - 1) * _pageSize;
+    final visible = filtered.skip(start).take(_pageSize).toList();
+    final hasMore = _displayPage * _pageSize < filtered.length;
+    final totalPages = (filtered.length / _pageSize).ceil();
 
     return RefreshIndicator(
       onRefresh: _loadData,
@@ -489,7 +488,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                           if (v != null) {
                             setState(() {
                               _typeFilter = v;
-                              _visibleCount = _pageSize;
+                              _displayPage = 1;
                             });
                           }
                         },
@@ -697,17 +696,15 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                   ),
                 );
               }),
-              if (hasMore)
+              if (totalPages > 1)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: _loadMore,
-                      child: Text(
-                        'Load More (${_visibleCount - _pageSize + 1}–${_visibleCount > filtered.length ? filtered.length : _visibleCount} of ${filtered.length})',
-                      ),
-                    ),
+                  child: PaginationBar(
+                    currentPage: _displayPage,
+                    totalPages: totalPages,
+                    compact: true,
+                    onPageChanged: (page) =>
+                        setState(() => _displayPage = page),
                   ),
                 ),
             ],

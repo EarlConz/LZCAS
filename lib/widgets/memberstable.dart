@@ -3,6 +3,7 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
+import 'package:lzcas/widgets/pagination_bar.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'dart:io';
@@ -28,7 +29,7 @@ class MembersTableState extends State<MembersTable> {
   final Set<int> _selectedMemberIds = {};
 
   static const _pageSize = 25;
-  int _visibleCount = _pageSize;
+  int _displayPage = 1;
   int _currentPage = 0;
   bool _hasMore = true;
   bool _loading = false;
@@ -72,7 +73,7 @@ class MembersTableState extends State<MembersTable> {
         members = List.of(_serverPage);
         _currentPage = 1;
         _hasMore = _totalCount > _pageSize;
-        _visibleCount = _pageSize;
+        _displayPage = 1;
         final currentIds = members
             .map((member) => member['id'])
             .whereType<int>()
@@ -135,7 +136,6 @@ class MembersTableState extends State<MembersTable> {
         members.addAll(newMembers);
         _currentPage = page.page;
         _hasMore = page.hasMore;
-        _visibleCount = members.length;
         _loading = false;
       });
     } catch (e) {
@@ -625,18 +625,19 @@ class MembersTableState extends State<MembersTable> {
       return const Center(child: Text('No members found'));
     }
 
-    final visible = filteredMembers.take(_visibleCount).toList();
-    final hasMore = _visibleCount < filteredMembers.length;
+    final totalPages = (filteredMembers.length / _pageSize).ceil();
+    final start = (_displayPage - 1) * _pageSize;
+    final pageItems = filteredMembers.skip(start).take(_pageSize).toList();
 
     return Column(
       children: [
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            itemCount: visible.length,
+            itemCount: pageItems.length,
             separatorBuilder: (_, index) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
-              final member = visible[index];
+              final member = pageItems[index];
               return StaggeredItem(
                 index: index,
                 child: _MemberListCard(
@@ -650,26 +651,21 @@ class MembersTableState extends State<MembersTable> {
             },
           ),
         ),
-        if (hasMore && !_loading)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () {
-                  if (_visibleCount + _pageSize > members.length && _hasMore) {
-                    _loadNextPage().then((_) {
-                      if (mounted) setState(() => _visibleCount += _pageSize);
-                    });
-                  } else {
-                    setState(() => _visibleCount += _pageSize);
-                  }
-                },
-                child: Text(
-                  'Load More (${_visibleCount.clamp(0, filteredMembers.length)} of ${filteredMembers.length}${_hasMore ? "+" : ""})',
-                ),
-              ),
-            ),
+        if (totalPages > 1)
+          PaginationBar(
+            currentPage: _displayPage,
+            totalPages: totalPages,
+            compact: true,
+            onPageChanged: (page) {
+              final needed = page * _pageSize;
+              if (needed > members.length && _hasMore && !_loading) {
+                _loadNextPage().then((_) {
+                  if (mounted) setState(() => _displayPage = page);
+                });
+              } else {
+                setState(() => _displayPage = page);
+              }
+            },
           ),
         if (_loading)
           const Padding(
