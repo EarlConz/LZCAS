@@ -280,6 +280,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<int?>(
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Reseller',
                           ),

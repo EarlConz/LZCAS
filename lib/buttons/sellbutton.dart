@@ -262,6 +262,7 @@ class _SellDialogState extends State<_SellDialog> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<int?>(
+                          isExpanded: true,
                           decoration: const InputDecoration(labelText: 'Buyer'),
                           initialValue: selectedBuyerId,
                           items: [
