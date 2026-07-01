@@ -475,30 +475,56 @@ class _InventoryTableState extends State<InventoryTable> {
     final role = context.read<AuthState>().userRole;
     final needsApproval = role == UserRole.inventory;
 
+    final reasonController = TextEditingController();
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(needsApproval ? 'Request deletion' : 'Delete product'),
-        content: Text(
-          needsApproval
-              ? 'This will send a deletion request to an admin for approval. The product "${item['name']}" will not be deleted until approved.'
-              : 'Are you sure you want to delete this product? This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(needsApproval ? 'Request deletion' : 'Delete product'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                needsApproval
+                    ? 'This will send a deletion request to an admin for approval. The product "${item['name']}" will not be deleted until approved.'
+                    : 'Are you sure you want to delete this product? This action cannot be undone.',
+              ),
+              if (needsApproval) ...[
+                const SizedBox(height: 16),
+                TextField(
+                  controller: reasonController,
+                  autofocus: true,
+                  maxLines: 3,
+                  onChanged: (_) => setDialogState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Reason for deletion',
+                    hintText: 'Explain why this product should be deleted',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: needsApproval ? Colors.orange.shade700 : null,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
             ),
-            child: Text(needsApproval ? 'Send Request' : 'Delete'),
-          ),
-        ],
+            ElevatedButton(
+              onPressed: needsApproval && reasonController.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: needsApproval ? Colors.orange.shade700 : null,
+              ),
+              child: Text(needsApproval ? 'Send Request' : 'Delete'),
+            ),
+          ],
+        ),
       ),
     );
+    final reason = reasonController.text.trim();
 
     if (confirm != true) return;
 
@@ -530,6 +556,7 @@ class _InventoryTableState extends State<InventoryTable> {
         itemId: id,
         itemName: item['name']?.toString() ?? '',
         requestType: 'delete',
+        reason: reason,
       );
       if (!context.mounted) return;
       BotToast.showText(text: 'Deletion request sent to admin for approval');

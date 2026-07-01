@@ -1985,6 +1985,365 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     }
   }
 
+  void _showReasonDialog(BuildContext context, String reason) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withAlpha(25),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.info_outline_rounded,
+                      color: colorScheme.primary,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      'Request Reason',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : const Color(0xFF1E293B),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white38 : Colors.grey.shade400,
+                      size: 20,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Divider(
+                color: isDark ? Colors.white10 : Colors.grey.shade200,
+                height: 1,
+              ),
+              const SizedBox(height: 20),
+              // Quote-style content
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.white.withAlpha(8)
+                      : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border(
+                    left: BorderSide(
+                      color: colorScheme.primary.withAlpha(120),
+                      width: 3,
+                    ),
+                  ),
+                ),
+                child: Text(
+                  reason,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark ? Colors.white70 : const Color(0xFF475569),
+                    height: 1.6,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Close button
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: isDark
+                        ? Colors.white.withAlpha(20)
+                        : Colors.grey.shade100,
+                    foregroundColor: isDark
+                        ? Colors.white70
+                        : const Color(0xFF475569),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernRequestCard({
+    required bool isDark,
+    required Color accentColor,
+    required IconData icon,
+    required String title,
+    required String body,
+    String? detail,
+    Color? detailColor,
+    String? notes,
+    String? reason,
+    required String submitter,
+    required String timeAgo,
+    required List<_ActionButton> actions,
+  }) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+          width: 1,
+        ),
+      ),
+      color: isDark ? Colors.grey.shade900 : Colors.white,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Left color accent bar
+            Container(
+              width: 4,
+              decoration: BoxDecoration(
+                color: accentColor,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  bottomLeft: Radius.circular(16),
+                ),
+              ),
+            ),
+            // Content
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header row: icon + title
+                    Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: accentColor.withAlpha(isDark ? 30 : 20),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(icon, size: 18, color: accentColor),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: isDark
+                                  ? Colors.white
+                                  : const Color(0xFF1E293B),
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    // Body
+                    Text(
+                      body,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : const Color(0xFF334155),
+                      ),
+                    ),
+                    // Detail
+                    if (detail != null && detail.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        detail,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color:
+                              detailColor ??
+                              (isDark
+                                  ? Colors.white54
+                                  : const Color(0xFF64748B)),
+                        ),
+                      ),
+                    ],
+                    // Notes
+                    if (notes != null && notes.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.notes_rounded,
+                            size: 14,
+                            color: isDark
+                                ? Colors.white38
+                                : Colors.grey.shade500,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              notes,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                color: isDark
+                                    ? Colors.white54
+                                    : const Color(0xFF64748B),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    // Reason
+                    if (reason != null && reason.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      GestureDetector(
+                        onTap: () => _showReasonDialog(context, reason),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: accentColor.withAlpha(isDark ? 15 : 10),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                size: 13,
+                                color: accentColor,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                'View reason',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: accentColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Divider(
+                      color: isDark ? Colors.white10 : Colors.grey.shade200,
+                      height: 1,
+                    ),
+                    const SizedBox(height: 10),
+                    // Footer: submitter + time + actions
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.person_outline_rounded,
+                                size: 13,
+                                color: isDark
+                                    ? Colors.white38
+                                    : Colors.grey.shade500,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  '$submitter · $timeAgo',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.grey.shade500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        // Action buttons
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: actions.map((a) {
+                            return Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Material(
+                                color: a.color.withAlpha(isDark ? 25 : 15),
+                                borderRadius: BorderRadius.circular(10),
+                                child: InkWell(
+                                  onTap: a.onTap,
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    width: 36,
+                                    height: 36,
+                                    alignment: Alignment.center,
+                                    child: Icon(
+                                      a.icon,
+                                      size: 20,
+                                      color: a.onTap != null
+                                          ? a.color
+                                          : a.color.withAlpha(120),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _approve(PendingRequest req) async {
     if (req.id == null) return;
 
@@ -2119,7 +2478,6 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         ],
       ),
     );
-    reasonController.dispose();
     if (!mounted || reason == null) return;
 
     final ok = await repository.rejectRequest(req.id!, rejectionReason: reason);
@@ -2768,179 +3126,174 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                   : Colors.orange.shade700;
 
               if (isMemberDelete) {
-                String subtitle = req.memberName ?? 'Unknown';
-                if (req.createdAt != null) {
-                  subtitle += '\nSubmitted ${_formatDate(req.createdAt!)}';
-                }
-                // Show borrow warning if member has active borrows
                 final hasBorrows = _memberBorrowStatus[req.memberId] ?? false;
-                if (hasBorrows) {
-                  subtitle += '\n⚠ This member has unsettled borrows';
-                }
+                final submitter = _profiles[req.userId] ?? 'Unknown';
+                final role = _roles[req.userId] ?? '';
+                final submitterLabel = role.isNotEmpty
+                    ? '$submitter ($role)'
+                    : submitter;
 
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.purple.shade100,
-                      child: Icon(icon, color: iconColor),
+                return _buildModernRequestCard(
+                  isDark: isDark,
+                  accentColor: Colors.purple.shade600,
+                  icon: icon,
+                  title: 'Delete Member Request',
+                  body: req.memberName ?? 'Unknown',
+                  detail: hasBorrows
+                      ? '⚠ This member has unsettled borrows'
+                      : null,
+                  detailColor: Colors.red,
+                  reason: req.reason,
+                  submitter: submitterLabel,
+                  timeAgo: req.createdAt != null
+                      ? _formatDate(req.createdAt!)
+                      : '',
+                  actions: [
+                    if (hasBorrows)
+                      _ActionButton(
+                        icon: Icons.info_outline_rounded,
+                        color: Colors.blue.shade600,
+                        tooltip: 'View unsettled borrows',
+                        onTap: () async {
+                          final borrows = await repository
+                              .fetchActiveBorrowsForMember(req.memberId!);
+                          if (!mounted) return;
+                          await _showBorrowsModal(
+                            req.memberName ?? 'Member',
+                            borrows,
+                          );
+                        },
+                      ),
+                    _ActionButton(
+                      icon: Icons.check_circle_outline,
+                      color: hasBorrows
+                          ? Colors.grey.shade400
+                          : StockpileColors.success,
+                      tooltip: hasBorrows
+                          ? 'Cannot approve — unsettled borrows'
+                          : 'Approve',
+                      onTap: hasBorrows ? null : () => _approve(req),
                     ),
-                    title: const Text(
-                      'Delete Member',
-                      style: TextStyle(fontWeight: FontWeight.w600),
+                    _ActionButton(
+                      icon: Icons.cancel_outlined,
+                      color: StockpileColors.error500,
+                      tooltip: 'Reject',
+                      onTap: () => _reject(req),
                     ),
-                    subtitle: Text(subtitle),
-                    isThreeLine: hasBorrows,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (hasBorrows)
-                          IconButton(
-                            icon: Icon(
-                              Icons.info_outline_rounded,
-                              color: Colors.blue.shade600,
-                            ),
-                            tooltip: 'View unsettled borrows',
-                            onPressed: () async {
-                              final borrows = await repository
-                                  .fetchActiveBorrowsForMember(req.memberId!);
-                              if (!mounted) return;
-                              await _showBorrowsModal(
-                                req.memberName ?? 'Member',
-                                borrows,
-                              );
-                            },
-                          ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.check_circle_outline,
-                            color: hasBorrows
-                                ? Colors.grey.shade400
-                                : StockpileColors.success,
-                          ),
-                          tooltip: hasBorrows
-                              ? 'Cannot approve — unsettled borrows'
-                              : 'Approve',
-                          onPressed: hasBorrows ? null : () => _approve(req),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.cancel_outlined,
-                            color: StockpileColors.error500,
-                          ),
-                          tooltip: 'Reject',
-                          onPressed: () => _reject(req),
-                        ),
-                      ],
-                    ),
-                  ),
+                  ],
                 );
               }
 
               if (isBorrow) {
-                String subtitle =
-                    'For ${req.memberName ?? 'Unknown'}'
-                    ' — ×${req.quantity ?? 0}';
-                if (req.price != null && req.price! > 0) {
-                  subtitle += ' @ ₱${req.price} each';
-                }
-                if (req.notes != null && req.notes!.isNotEmpty) {
-                  subtitle += '\n📝 ${req.notes}';
-                }
-                if (req.createdAt != null) {
-                  subtitle += '\nSubmitted ${_formatDate(req.createdAt!)}';
-                }
+                final submitter = _profiles[req.userId] ?? 'Unknown';
+                final role = _roles[req.userId] ?? '';
+                final submitterLabel = role.isNotEmpty
+                    ? '$submitter ($role)'
+                    : submitter;
 
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.orange.shade100,
-                      child: Icon(icon, color: iconColor),
+                final detailParts = <String>[
+                  'For ${req.memberName ?? 'Unknown'}',
+                  '×${req.quantity ?? 0}',
+                ];
+                if (req.price != null && req.price! > 0) {
+                  detailParts.add('₱${req.price} each');
+                }
+                final notes = req.notes;
+
+                return _buildModernRequestCard(
+                  isDark: isDark,
+                  accentColor: Colors.orange.shade600,
+                  icon: icon,
+                  title: 'Borrow Request',
+                  body: req.itemName ?? 'Unknown item',
+                  detail: detailParts.join(' · '),
+                  notes: notes != null && notes.isNotEmpty ? notes : null,
+                  reason: req.reason,
+                  submitter: submitterLabel,
+                  timeAgo: req.createdAt != null
+                      ? _formatDate(req.createdAt!)
+                      : '',
+                  actions: [
+                    _ActionButton(
+                      icon: Icons.check_circle_outline,
+                      color: StockpileColors.success,
+                      tooltip: 'Approve borrow',
+                      onTap: () => _approve(req),
                     ),
-                    title: Text(
-                      'Borrow: ${req.itemName ?? ''}',
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    _ActionButton(
+                      icon: Icons.cancel_outlined,
+                      color: StockpileColors.error500,
+                      tooltip: 'Reject',
+                      onTap: () => _reject(req),
                     ),
-                    subtitle: Text(subtitle),
-                    isThreeLine: true,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(
-                            Icons.check_circle_outline,
-                            color: StockpileColors.success,
-                          ),
-                          tooltip: 'Approve borrow',
-                          onPressed: () => _approve(req),
-                        ),
-                        IconButton(
-                          icon: const Icon(
-                            Icons.cancel_outlined,
-                            color: StockpileColors.error500,
-                          ),
-                          tooltip: 'Reject',
-                          onPressed: () => _reject(req),
-                        ),
-                      ],
-                    ),
-                  ),
+                  ],
                 );
               }
 
-              String subtitle = req.itemName ?? '';
-              String title;
-              if (isDelete) {
-                title = 'Delete "${req.itemName}"';
-              } else {
-                title = 'Reduce Stock';
-                if (req.quantity != null) {
-                  subtitle = 'Reduce "${req.itemName}" by ${req.quantity}';
-                }
-              }
-              if (req.createdAt != null) {
-                subtitle += '\nSubmitted ${_formatDate(req.createdAt!)}';
-              }
+              final submitter = _profiles[req.userId] ?? 'Unknown';
+              final role = _roles[req.userId] ?? '';
+              final submitterLabel = role.isNotEmpty
+                  ? '$submitter ($role)'
+                  : submitter;
 
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: isDelete
-                        ? StockpileColors.error100
-                        : Colors.orange.shade100,
-                    child: Icon(icon, color: iconColor),
-                  ),
-                  title: Text(
-                    title,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: Text(subtitle),
-                  isThreeLine: true,
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(
-                          Icons.check_circle_outline,
-                          color: StockpileColors.success,
-                        ),
-                        tooltip: 'Approve',
-                        onPressed: () => _approve(req),
-                      ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.cancel_outlined,
-                          color: StockpileColors.error500,
-                        ),
-                        tooltip: 'Reject',
-                        onPressed: () => _reject(req),
-                      ),
-                    ],
-                  ),
-                ),
-              );
+              if (isDelete) {
+                return _buildModernRequestCard(
+                  isDark: isDark,
+                  accentColor: StockpileColors.error500,
+                  icon: icon,
+                  title: 'Delete Request',
+                  body: req.itemName ?? 'Unknown item',
+                  reason: req.reason,
+                  submitter: submitterLabel,
+                  timeAgo: req.createdAt != null
+                      ? _formatDate(req.createdAt!)
+                      : '',
+                  actions: [
+                    _ActionButton(
+                      icon: Icons.check_circle_outline,
+                      color: StockpileColors.success,
+                      tooltip: 'Approve',
+                      onTap: () => _approve(req),
+                    ),
+                    _ActionButton(
+                      icon: Icons.cancel_outlined,
+                      color: StockpileColors.error500,
+                      tooltip: 'Reject',
+                      onTap: () => _reject(req),
+                    ),
+                  ],
+                );
+              } else {
+                return _buildModernRequestCard(
+                  isDark: isDark,
+                  accentColor: Colors.orange.shade600,
+                  icon: icon,
+                  title: 'Reduce Stock Request',
+                  body: req.itemName ?? 'Unknown item',
+                  detail: req.quantity != null
+                      ? 'Reduce by ${req.quantity}'
+                      : null,
+                  reason: req.reason,
+                  submitter: submitterLabel,
+                  timeAgo: req.createdAt != null
+                      ? _formatDate(req.createdAt!)
+                      : '',
+                  actions: [
+                    _ActionButton(
+                      icon: Icons.check_circle_outline,
+                      color: StockpileColors.success,
+                      tooltip: 'Approve',
+                      onTap: () => _approve(req),
+                    ),
+                    _ActionButton(
+                      icon: Icons.cancel_outlined,
+                      color: StockpileColors.error500,
+                      tooltip: 'Reject',
+                      onTap: () => _reject(req),
+                    ),
+                  ],
+                );
+              }
             },
           ),
         ),
@@ -3177,6 +3530,21 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
         '${dt.day.toString().padLeft(2, '0')}';
   }
+}
+
+/// Action button used in modern request cards.
+class _ActionButton {
+  final IconData icon;
+  final Color color;
+  final String? tooltip;
+  final VoidCallback? onTap;
+
+  const _ActionButton({
+    required this.icon,
+    required this.color,
+    this.tooltip,
+    this.onTap,
+  });
 }
 
 /// Toggle chip for Pending | History tab bar.

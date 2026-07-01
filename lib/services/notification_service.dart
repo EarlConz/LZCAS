@@ -17,6 +17,7 @@ class NotificationService extends ChangeNotifier {
   int _pendingCount = 0;
   int _lowStockCount = 0;
   int _overdueCount = 0;
+  DateTime? _lastSeenAt;
   bool _initialized = false;
 
   int get pendingCount =>
@@ -29,6 +30,9 @@ class NotificationService extends ChangeNotifier {
       ? 0
       : _pendingCount + _lowStockCount + _overdueCount;
   bool get hasNotifications => totalCount > 0;
+
+  /// Timestamp of last "mark all seen" — used by UI to dim read items.
+  DateTime? get lastSeenAt => _lastSeenAt;
 
   /// Initialize the service — fetch current counts and start listening.
   Future<void> init({ConfigService? config}) async {
@@ -90,7 +94,9 @@ class NotificationService extends ChangeNotifier {
     try {
       final items = await repository.fetchItems();
       final threshold = _config?.lowStockThreshold ?? 50;
-      final count = items.where((i) => i.stock < threshold).length;
+      final count = items
+          .where((i) => i.stock < threshold && i.stock > 0)
+          .length;
       if (_lowStockCount != count) {
         _lowStockCount = count;
         notifyListeners();
@@ -108,13 +114,16 @@ class NotificationService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Reset the pending badge count (called when admin views requests).
-  void markPendingSeen() {
-    if (_pendingCount != 0) {
-      _pendingCount = 0;
-      notifyListeners();
-    }
+  /// Mark all notifications as seen (called when user opens the panel or views all).
+  void markAllSeen() {
+    _lastSeenAt = DateTime.now();
+    _pendingCount = 0;
+    notifyListeners();
   }
+
+  /// Reset the pending badge count (called when admin views requests).
+  @Deprecated('Use markAllSeen() instead')
+  void markPendingSeen() => markAllSeen();
 
   @override
   void dispose() {

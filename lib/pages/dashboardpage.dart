@@ -112,7 +112,9 @@ class _DashboardPageState extends State<DashboardPage> {
       };
     }
     topProducts = productAgg.values.toList()
-      ..sort((a, b) => (b['revenue'] as int).compareTo(a['revenue'] as int));
+      ..sort(
+        (a, b) => (b['unitsSold'] as int).compareTo(a['unitsSold'] as int),
+      );
     topProducts = topProducts.take(5).toList();
 
     revenueTrend = List.generate(6, (i) {
@@ -515,7 +517,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ...topProducts.take(5).map((p) {
             final i = topProducts.indexOf(p);
             final nm = (p['productName'] as String?) ?? '\u2014';
-            final rev = p['revenue'] as int;
+            final sold = p['unitsSold'] as int;
             return ListTile(
               dense: true,
               leading: Container(
@@ -552,7 +554,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
               ),
               trailing: Text(
-                _fmt(rev),
+                '$sold sold',
                 style: StockpileFonts.satoshi(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
