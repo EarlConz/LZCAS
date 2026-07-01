@@ -8,7 +8,6 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/db/db.dart';
-import 'package:lzcas/widgets/pagination_bar.dart';
 
 /// Shared read-only reports view showing stock movement history.
 /// Used identically by Inventory Dashboard and Admin Dashboard.
@@ -305,7 +304,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     }
     final start = (_displayPage - 1) * _pageSize;
     final visible = filtered.skip(start).take(_pageSize).toList();
-    final hasMore = _displayPage * _pageSize < filtered.length;
     final totalPages = (filtered.length / _pageSize).ceil();
 
     return RefreshIndicator(
@@ -699,12 +697,32 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
               if (totalPages > 1)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: PaginationBar(
-                    currentPage: _displayPage,
-                    totalPages: totalPages,
-                    compact: true,
-                    onPageChanged: (page) =>
-                        setState(() => _displayPage = page),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.chevron_left),
+                        onPressed: _displayPage > 1
+                            ? () => setState(() => _displayPage--)
+                            : null,
+                      ),
+                      Text(
+                        '$_displayPage / $totalPages',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isDark
+                              ? StockpileColors.darkTextBody
+                              : StockpileColors.bodyText,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.chevron_right),
+                        onPressed: _displayPage < totalPages
+                            ? () => setState(() => _displayPage++)
+                            : null,
+                      ),
+                    ],
                   ),
                 ),
             ],

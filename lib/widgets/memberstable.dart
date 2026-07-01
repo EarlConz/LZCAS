@@ -3,7 +3,6 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
-import 'package:lzcas/widgets/pagination_bar.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'dart:io';
@@ -25,19 +24,22 @@ class MembersTable extends StatefulWidget {
 class MembersTableState extends State<MembersTable> {
   String searchTerm = "";
   String? roleFilter;
-  List<Map<String, dynamic>> members = [];
   final Set<int> _selectedMemberIds = {};
 
   static const _pageSize = 25;
-  int _displayPage = 1;
+
+  // ── Mobile infinite-scroll state ──────────────────────────────────
+  final List<Map<String, dynamic>> _items = [];
   int _currentPage = 0;
   bool _hasMore = true;
-  bool _loading = false;
+  bool _isLoadingMore = false;
+  bool _isInitialLoading = true;
+  String? _error;
+  late final ScrollController _scrollController;
 
   // ── Server-page state for desktop PaginatedDataTable ──────────────
   final List<Map<String, dynamic>> _serverPage = [];
   int _totalCount = 0;
-  int _currentServerPage = 1;
   late final _MembersDataSource _membersSource;
 
   late final StreamSubscription<String> _changesSub;
@@ -45,11 +47,11 @@ class MembersTableState extends State<MembersTable> {
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
     _membersSource = _MembersDataSource(
       _serverPage,
       () => _totalCount,
-      () => _currentServerPage,
-      _pageSize,
       widget.onRowSelected,
       _selectedMemberIds,
       _setMemberSelected,
@@ -66,28 +68,80 @@ class MembersTableState extends State<MembersTable> {
     });
   }
 
-  Future<void> _loadMembers() async {
-    await _fetchServerPage(1);
-    if (mounted) {
+  void _onScroll() {
+    if (_scrollController.hasClients &&
+        _scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200 &&
+        _hasMore &&
+        !_isLoadingMore) {
+      _loadMore();
+    }
+  }
+
+  void _loadMembers() {
+    _loadPage(1);
+  }
+
+  void _loadMore() {
+    if (_isLoadingMore || !_hasMore) return;
+    _isLoadingMore = true;
+    setState(() {});
+    _loadPage(_currentPage + 1);
+  }
+
+  Future<void> _loadPage(int page) async {
+    try {
+      final result = await repository.fetchMembersPaginated(
+        page: page,
+        pageSize: _pageSize,
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        roleFilter: (roleFilter != null && roleFilter!.isNotEmpty)
+            ? roleFilter
+            : null,
+        sortColumn: 'last_name',
+        sortAscending: true,
+      );
+      if (!mounted) return;
+      final newMembers = membersFromRows(result.rows);
+
       setState(() {
-        members = List.of(_serverPage);
-        _currentPage = 1;
-        _hasMore = _totalCount > _pageSize;
-        _displayPage = 1;
-        final currentIds = members
-            .map((member) => member['id'])
-            .whereType<int>()
-            .toSet();
-        _selectedMemberIds.removeWhere((id) => !currentIds.contains(id));
+        if (page == 1) {
+          _items.clear();
+          _serverPage.clear();
+          _serverPage.addAll(newMembers);
+          final currentIds = newMembers
+              .map((m) => m['id'])
+              .whereType<int>()
+              .toSet();
+          _selectedMemberIds.removeWhere((id) => !currentIds.contains(id));
+        }
+        _items.addAll(newMembers);
+        _currentPage = page;
+        _totalCount = result.totalCount;
+        _hasMore = result.hasMore;
+        _isInitialLoading = false;
+        _isLoadingMore = false;
+        _error = null;
+      });
+      if (page == 1) {
+        _membersSource.refresh();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _isInitialLoading = false;
+        _isLoadingMore = false;
       });
     }
   }
 
   /// Fetch a specific server page — updates desktop PaginatedDataTable.
+  /// Accumulates pages into _serverPage; getRow reads _serverPage[index]
+  /// directly, so table pages and server pages don't need to align.
   Future<void> _fetchServerPage(int serverPage) async {
-    if (_loading) return;
-    _loading = true;
-    if (mounted) setState(() {});
+    final neededEnd = serverPage * _pageSize;
+    if (_serverPage.length >= neededEnd) return;
     try {
       final page = await repository.fetchMembersPaginated(
         page: serverPage,
@@ -100,48 +154,19 @@ class MembersTableState extends State<MembersTable> {
         sortAscending: true,
       );
       if (!mounted) return;
-      _serverPage.clear();
-      _serverPage.addAll(membersFromRows(page.rows));
+      final newItems = membersFromRows(page.rows);
       setState(() {
+        _serverPage.addAll(newItems);
         _totalCount = page.totalCount;
-        _currentServerPage = serverPage;
-        _loading = false;
+        final currentIds = newItems
+            .map((m) => m['id'])
+            .whereType<int>()
+            .toSet();
+        _selectedMemberIds.removeWhere((id) => !currentIds.contains(id));
       });
       _membersSource.refresh();
     } catch (e) {
-      debugPrint('MembersTable: failed to load page $serverPage: $e');
       if (!mounted) return;
-      setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _loadNextPage() async {
-    if (_loading || !_hasMore) return;
-    _loading = true;
-    setState(() {});
-    try {
-      final page = await repository.fetchMembersPaginated(
-        page: _currentPage + 1,
-        pageSize: _pageSize,
-        search: searchTerm.isNotEmpty ? searchTerm : null,
-        roleFilter: (roleFilter != null && roleFilter!.isNotEmpty)
-            ? roleFilter
-            : null,
-        sortColumn: 'last_name',
-        sortAscending: true,
-      );
-      if (!mounted) return;
-      setState(() {
-        final newMembers = membersFromRows(page.rows);
-        members.addAll(newMembers);
-        _currentPage = page.page;
-        _hasMore = page.hasMore;
-        _loading = false;
-      });
-    } catch (e) {
-      debugPrint('MembersTable: failed to load more: $e');
-      if (!mounted) return;
-      setState(() => _loading = false);
     }
   }
 
@@ -383,19 +408,6 @@ class MembersTableState extends State<MembersTable> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredMembers = members.where((member) {
-      final search = searchTerm.toLowerCase();
-      final matchesSearch =
-          search.isEmpty ||
-          member.values.any(
-            (value) => value.toString().toLowerCase().contains(search),
-          );
-      final matchesRole =
-          roleFilter == null ||
-          (member['role']?.toString() ?? '') == roleFilter;
-      return matchesSearch && matchesRole;
-    }).toList();
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final bool isDesktop = constraints.maxWidth >= 900;
@@ -536,8 +548,8 @@ class MembersTableState extends State<MembersTable> {
             ),
             Expanded(
               child: isDesktop
-                  ? _buildMembersTable(context, filteredMembers)
-                  : _buildMembersList(context, filteredMembers),
+                  ? _buildMembersTable(context)
+                  : _buildMembersList(context),
             ),
           ],
         );
@@ -545,17 +557,7 @@ class MembersTableState extends State<MembersTable> {
     );
   }
 
-  Widget _buildMembersTable(
-    BuildContext context,
-    List<Map<String, dynamic>> filteredMembers,
-  ) {
-    if (_loading && members.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (filteredMembers.isEmpty && !_loading) {
-      return const Center(child: Text('No members found'));
-    }
-
+  Widget _buildMembersTable(BuildContext context) {
     return SizedBox(
       width: double.infinity,
       child: Theme(
@@ -614,70 +616,55 @@ class MembersTableState extends State<MembersTable> {
     );
   }
 
-  Widget _buildMembersList(
-    BuildContext context,
-    List<Map<String, dynamic>> filteredMembers,
-  ) {
-    if (_loading && members.isEmpty) {
+  Widget _buildMembersList(BuildContext context) {
+    if (_isInitialLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (filteredMembers.isEmpty) {
+    if (_error != null && _items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Failed to load members.'),
+            const SizedBox(height: 8),
+            ElevatedButton(onPressed: _loadMembers, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    if (_items.isEmpty) {
       return const Center(child: Text('No members found'));
     }
-
-    final totalPages = (filteredMembers.length / _pageSize).ceil();
-    final start = (_displayPage - 1) * _pageSize;
-    final pageItems = filteredMembers.skip(start).take(_pageSize).toList();
-
-    return Column(
-      children: [
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            itemCount: pageItems.length,
-            separatorBuilder: (_, index) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final member = pageItems[index];
-              return StaggeredItem(
-                index: index,
-                child: _MemberListCard(
-                  member: member,
-                  selected:
-                      (member['id'] as int?) != null &&
-                      _selectedMemberIds.contains(member['id'] as int),
-                  onTap: () => widget.onRowSelected(member),
-                ),
-              );
-            },
-          ),
-        ),
-        if (totalPages > 1)
-          PaginationBar(
-            currentPage: _displayPage,
-            totalPages: totalPages,
-            compact: true,
-            onPageChanged: (page) {
-              final needed = page * _pageSize;
-              if (needed > members.length && _hasMore && !_loading) {
-                _loadNextPage().then((_) {
-                  if (mounted) setState(() => _displayPage = page);
-                });
-              } else {
-                setState(() => _displayPage = page);
-              }
-            },
-          ),
-        if (_loading)
-          const Padding(
+    return ListView.separated(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+      itemCount: _items.length + (_hasMore ? 1 : 0),
+      separatorBuilder: (_, index) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        if (index >= _items.length) {
+          return const Padding(
             padding: EdgeInsets.all(12),
             child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final member = _items[index];
+        return StaggeredItem(
+          index: index,
+          child: _MemberListCard(
+            member: member,
+            selected:
+                (member['id'] as int?) != null &&
+                _selectedMemberIds.contains(member['id'] as int),
+            onTap: () => widget.onRowSelected(member),
           ),
-      ],
+        );
+      },
     );
   }
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _changesSub.cancel();
 
     super.dispose();
@@ -687,8 +674,6 @@ class MembersTableState extends State<MembersTable> {
 class _MembersDataSource extends DataTableSource {
   final List<Map<String, dynamic>> _items;
   final int Function() _getTotalCount;
-  final int Function() _getPageNumber;
-  final int _pageSize;
   final Function(Map<String, dynamic>) onRowSelected;
   final Set<int> selectedMemberIds;
   final void Function(int id, bool selected) onSelectionChanged;
@@ -696,8 +681,6 @@ class _MembersDataSource extends DataTableSource {
   _MembersDataSource(
     this._items,
     this._getTotalCount,
-    this._getPageNumber,
-    this._pageSize,
     this.onRowSelected,
     this.selectedMemberIds,
     this.onSelectionChanged,
@@ -708,13 +691,10 @@ class _MembersDataSource extends DataTableSource {
 
   @override
   DataRow getRow(int index) {
-    final pageNumber = _getPageNumber();
-    final pageStart = (pageNumber - 1) * _pageSize;
-    final localIndex = index - pageStart;
-    if (localIndex < 0 || localIndex >= _items.length) {
-      return DataRow(cells: List.filled(9, const DataCell(Text(''))));
+    if (index >= _items.length) {
+      return DataRow(cells: List.filled(9, const DataCell(Text('Loading…'))));
     }
-    final member = _items[localIndex];
+    final member = _items[index];
     final id = member['id'] as int?;
     final isEven = index % 2 == 0;
     return DataRow(

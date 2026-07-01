@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import '../utils/formatters.dart';
 import 'dart:async';
@@ -8,7 +7,6 @@ import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
 import '../buttons/borrowbutton.dart';
 import '../dialogs/receipt_dialog.dart';
-import '../widgets/pagination_bar.dart';
 import '../theme.dart';
 
 // ── Grouped transaction model ─────────────────────────────────────────
@@ -42,30 +40,33 @@ class TransactionsTable extends StatefulWidget {
 }
 
 class _TransactionsTableState extends State<TransactionsTable> {
-  List<TransactionGroup> _txnGroups = [];
-  bool _loading = false;
   String _searchTerm = '';
   late final StreamSubscription<String> _sub;
 
   static const _pageSize = 25;
-  int _displayPage = 1;
+
+  // ── Mobile infinite-scroll state ──────────────────────────────────
+  final List<TransactionGroup> _items = [];
   int _currentPage = 0;
   bool _hasMore = true;
+  bool _isLoadingMore = false;
+  bool _isInitialLoading = true;
+  String? _error;
+  late final ScrollController _scrollController;
 
   // ── Server-page state for desktop PaginatedDataTable ──────────────
   final List<TransactionGroup> _serverPage = [];
   int _totalCount = 0;
-  int _currentServerPage = 1;
   late final _TxnDataSource _txnSource;
 
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
     _txnSource = _TxnDataSource(
       _serverPage,
       () => _totalCount,
-      () => _currentServerPage,
-      _pageSize,
       onDelete: _deleteTransaction,
       onReceipt: _viewReceipt,
     );
@@ -84,88 +85,84 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _sub.cancel();
     super.dispose();
   }
 
-  Future<void> _loadData() async {
-    if (!mounted) return;
-    _loading = true;
-    _currentPage = 1;
-    _hasMore = true;
-    setState(() {});
+  void _onScroll() {
+    if (_scrollController.hasClients &&
+        _scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200 &&
+        _hasMore &&
+        !_isLoadingMore) {
+      _loadMore();
+    }
+  }
 
+  void _loadData() {
+    _loadPage(1);
+  }
+
+  void _loadMore() {
+    if (_isLoadingMore || !_hasMore) return;
+    _isLoadingMore = true;
+    setState(() {});
+    _loadPage(_currentPage + 1);
+  }
+
+  Future<void> _loadPage(int page) async {
     try {
-      final page = await _fetchPage(1, _searchTerm);
+      final result = await _fetchPageInternal(page, _searchTerm);
       if (!mounted) return;
-      // Desktop: update server-page state
-      _serverPage.clear();
-      _serverPage.addAll(page.rows);
-      _totalCount = page.totalCount;
-      _currentServerPage = 1;
-      _txnSource.refresh();
-      // Mobile: set accumulated list
+
       setState(() {
-        _txnGroups = List.of(page.rows);
-        _hasMore = page.hasMore;
-        _displayPage = 1;
-        _loading = false;
+        if (page == 1) {
+          _items.clear();
+          _serverPage.clear();
+          _serverPage.addAll(result.rows);
+        }
+        _items.addAll(result.rows);
+        _currentPage = page;
+        _totalCount = result.totalCount;
+        _hasMore = result.hasMore;
+        _isInitialLoading = false;
+        _isLoadingMore = false;
+        _error = null;
       });
-    } catch (e, st) {
-      debugPrint('TransactionsTable: failed to load: $e\n$st');
+      if (page == 1) {
+        _txnSource.refresh();
+      }
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _txnGroups = [];
-        _loading = false;
+        _error = e.toString();
+        _isInitialLoading = false;
+        _isLoadingMore = false;
       });
     }
   }
 
   /// Fetch a specific server page for desktop PaginatedDataTable.
+  /// Accumulates pages into _serverPage; getRow reads _serverPage[index]
+  /// directly, so table pages and server pages don't need to align.
   Future<void> _fetchServerPage(int serverPage) async {
-    if (_loading) return;
-    _loading = true;
-    setState(() {});
+    final neededEnd = serverPage * _pageSize;
+    if (_serverPage.length >= neededEnd) return;
     try {
-      final page = await _fetchPage(serverPage, _searchTerm);
+      final page = await _fetchPageInternal(serverPage, _searchTerm);
       if (!mounted) return;
-      _serverPage.clear();
-      _serverPage.addAll(page.rows);
       setState(() {
+        _serverPage.addAll(page.rows);
         _totalCount = page.totalCount;
-        _currentServerPage = serverPage;
-        _loading = false;
       });
       _txnSource.refresh();
     } catch (e) {
-      debugPrint('TransactionsTable: failed to load page $serverPage: $e');
       if (!mounted) return;
-      setState(() => _loading = false);
     }
   }
 
-  Future<void> _loadNextPage() async {
-    if (_loading || !_hasMore) return;
-    _loading = true;
-    setState(() {});
-
-    try {
-      final page = await _fetchPage(_currentPage + 1, _searchTerm);
-      if (!mounted) return;
-      setState(() {
-        _txnGroups.addAll(page.rows);
-        _currentPage = page.page;
-        _hasMore = page.hasMore;
-        _loading = false;
-      });
-    } catch (e) {
-      debugPrint('TransactionsTable: failed to load more: $e');
-      if (!mounted) return;
-      setState(() => _loading = false);
-    }
-  }
-
-  Future<PageResult<TransactionGroup>> _fetchPage(
+  Future<PageResult<TransactionGroup>> _fetchPageInternal(
     int page,
     String? search,
   ) async {
@@ -316,11 +313,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   @override
   Widget build(BuildContext context) {
-    final term = _searchTerm.toLowerCase();
-    final filtered = _txnGroups.where((g) {
-      return g.buyerName.toLowerCase().contains(term);
-    }).toList();
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final bool isDesktop = constraints.maxWidth >= 900;
@@ -376,18 +368,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
                       ],
                     ),
             ),
-            Expanded(
-              child: _loading && _txnGroups.isEmpty
-                  ? const SingleChildScrollView(
-                      padding: EdgeInsets.fromLTRB(0, 8, 0, 8),
-                      child: SkeletonList(count: 5),
-                    )
-                  : filtered.isEmpty
-                  ? const Center(child: Text('No transactions yet'))
-                  : isDesktop
-                  ? _buildTable(context, filtered)
-                  : _buildList(filtered),
-            ),
+            Expanded(child: isDesktop ? _buildTable(context) : _buildList()),
           ],
         );
       },
@@ -396,7 +377,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   // ── Desktop table ───────────────────────────────────────────────────
 
-  Widget _buildTable(BuildContext context, List<TransactionGroup> filtered) {
+  Widget _buildTable(BuildContext context) {
     return SizedBox(
       width: double.infinity,
       child: Theme(
@@ -445,52 +426,48 @@ class _TransactionsTableState extends State<TransactionsTable> {
     );
   }
 
-  // ── Mobile list ─────────────────────────────────────────────────────
+  // ── Mobile list (infinite-scroll) ────────────────────────────────────
 
-  Widget _buildList(List<TransactionGroup> filtered) {
-    final totalPages = (filtered.length / _pageSize).ceil();
-    final start = (_displayPage - 1) * _pageSize;
-    final pageItems = filtered.skip(start).take(_pageSize).toList();
-
-    return Column(
-      children: [
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            itemCount: pageItems.length,
-            separatorBuilder: (_, i) => const SizedBox(height: 8),
-            itemBuilder: (context, index) => StaggeredItem(
-              index: index,
-              child: _TxnListCard(
-                group: pageItems[index],
-                onDelete: _deleteTransaction,
-                onReceipt: _viewReceipt,
-              ),
-            ),
-          ),
+  Widget _buildList() {
+    if (_isInitialLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Failed to load transactions.'),
+            const SizedBox(height: 8),
+            ElevatedButton(onPressed: _loadData, child: const Text('Retry')),
+          ],
         ),
-        if (totalPages > 1)
-          PaginationBar(
-            currentPage: _displayPage,
-            totalPages: totalPages,
-            compact: true,
-            onPageChanged: (page) {
-              final needed = page * _pageSize;
-              if (needed > _txnGroups.length && _hasMore && !_loading) {
-                _loadNextPage().then((_) {
-                  if (mounted) setState(() => _displayPage = page);
-                });
-              } else {
-                setState(() => _displayPage = page);
-              }
-            },
-          ),
-        if (_loading)
-          const Padding(
+      );
+    }
+    if (_items.isEmpty) {
+      return const Center(child: Text('No transactions yet'));
+    }
+    return ListView.separated(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+      itemCount: _items.length + (_hasMore ? 1 : 0),
+      separatorBuilder: (_, i) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        if (index >= _items.length) {
+          return const Padding(
             padding: EdgeInsets.all(12),
             child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return StaggeredItem(
+          index: index,
+          child: _TxnListCard(
+            group: _items[index],
+            onDelete: _deleteTransaction,
+            onReceipt: _viewReceipt,
           ),
-      ],
+        );
+      },
     );
   }
 }
@@ -637,16 +614,12 @@ class _Pill extends StatelessWidget {
 class _TxnDataSource extends DataTableSource {
   final List<TransactionGroup> _items;
   final int Function() _getTotalCount;
-  final int Function() _getPageNumber;
-  final int _pageSize;
   final Future<void> Function(TransactionGroup)? onDelete;
   final Future<void> Function(TransactionGroup)? onReceipt;
 
   _TxnDataSource(
     this._items,
-    this._getTotalCount,
-    this._getPageNumber,
-    this._pageSize, {
+    this._getTotalCount, {
     this.onDelete,
     this.onReceipt,
   });
@@ -656,13 +629,10 @@ class _TxnDataSource extends DataTableSource {
 
   @override
   DataRow getRow(int index) {
-    final pageNumber = _getPageNumber();
-    final pageStart = (pageNumber - 1) * _pageSize;
-    final localIndex = index - pageStart;
-    if (localIndex < 0 || localIndex >= _items.length) {
-      return DataRow(cells: List.filled(5, const DataCell(Text(''))));
+    if (index >= _items.length) {
+      return DataRow(cells: List.filled(5, const DataCell(Text('Loading…'))));
     }
-    final group = _items[localIndex];
+    final group = _items[index];
     final isEven = index % 2 == 0;
     final itemWord = group.itemCount == 1 ? 'item' : 'items';
 
