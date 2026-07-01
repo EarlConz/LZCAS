@@ -11,7 +11,6 @@ import 'package:lzcas/dialogs/edit_stock_dialog.dart' show EditProductDialog;
 import 'package:lzcas/dialogs/add_product_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
-import 'package:lzcas/widgets/pagination_bar.dart';
 import '../theme.dart';
 import '../utils/formatters.dart';
 import '../services/config_service.dart';
@@ -36,29 +35,32 @@ class _InventoryTableState extends State<InventoryTable> {
   String? selectedStatus;
   String? selectedCategory;
 
-  List<Map<String, dynamic>> items = [];
   late final StreamSubscription<String> _sub;
 
   static const _pageSize = 25;
-  int _displayPage = 1;
+
+  // ── Mobile infinite-scroll state ──────────────────────────────────
+  final List<Map<String, dynamic>> _items = [];
   int _currentPage = 0;
   bool _hasMore = true;
-  bool _loading = false;
+  bool _isLoadingMore = false;
+  bool _isInitialLoading = true;
+  String? _error;
+  late final ScrollController _scrollController;
 
   // ── Server-page state for desktop PaginatedDataTable ──────────────
   final List<Map<String, dynamic>> _serverPage = [];
   int _totalCount = 0;
-  int _currentServerPage = 1;
   late final _InventoryDataSource _inventorySource;
 
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
     _inventorySource = _InventoryDataSource(
       _serverPage,
       () => _totalCount,
-      () => _currentServerPage,
-      _pageSize,
       _getStatusColor,
       _onUpdate,
       _deleteItem,
@@ -75,25 +77,86 @@ class _InventoryTableState extends State<InventoryTable> {
     });
   }
 
-  /// Load from page 1 — resets both mobile and desktop data.
-  Future<void> _loadItems() async {
-    await _fetchServerPage(1);
-    // For mobile: keep accumulated items in sync with page 1
-    if (mounted) {
+  void _onScroll() {
+    if (_scrollController.hasClients &&
+        _scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200 &&
+        _hasMore &&
+        !_isLoadingMore) {
+      _loadMore();
+    }
+  }
+
+  /// Reload from page 1 — resets both mobile and desktop data.
+  void _loadItems() {
+    _loadPage(1);
+  }
+
+  void _loadMore() {
+    if (_isLoadingMore || !_hasMore) return;
+    _isLoadingMore = true;
+    setState(() {});
+    _loadPage(_currentPage + 1);
+  }
+
+  /// Core page fetcher.  page=1 resets accumulated items; page>1 appends.
+  Future<void> _loadPage(int page) async {
+    try {
+      final result = await repository.fetchItemsPaginated(
+        page: page,
+        pageSize: _pageSize,
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        categoryFilter:
+            (selectedCategory != null && selectedCategory!.isNotEmpty)
+            ? selectedCategory
+            : null,
+        sortColumn: 'name',
+        sortAscending: true,
+      );
+      if (!mounted) return;
+      final threshold = context.read<ConfigService>().lowStockThreshold;
+      final newItems = inventoryItemsFromRows(result.rows).map((m) {
+        final stockVal = (m['stock'] ?? 0) is int
+            ? m['stock'] as int
+            : int.tryParse(m['stock']?.toString() ?? '0') ?? 0;
+        m['status'] = statusFromStock(stockVal, threshold: threshold);
+        return m;
+      }).toList();
+
       setState(() {
-        items = List.of(_serverPage);
-        _currentPage = 1;
-        _hasMore = _totalCount > _pageSize;
-        _displayPage = 1;
+        if (page == 1) {
+          _items.clear();
+          _serverPage.clear();
+          _serverPage.addAll(newItems);
+        }
+        _items.addAll(newItems);
+        _currentPage = page;
+        _totalCount = result.totalCount;
+        _hasMore = result.hasMore;
+        _isInitialLoading = false;
+        _isLoadingMore = false;
+        _error = null;
+      });
+      if (page == 1) {
+        _inventorySource.refresh();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _isInitialLoading = false;
+        _isLoadingMore = false;
       });
     }
   }
 
   /// Fetch a specific server page — updates desktop PaginatedDataTable.
+  /// Accumulates pages into _serverPage; getRow reads _serverPage[index]
+  /// directly, so table pages and server pages don’t need to align.
   Future<void> _fetchServerPage(int serverPage) async {
-    if (_loading) return;
-    _loading = true;
-    if (mounted) setState(() {});
+    // Already loaded enough data for this page?
+    final neededEnd = serverPage * _pageSize;
+    if (_serverPage.length >= neededEnd) return;
     try {
       final page = await repository.fetchItemsPaginated(
         page: serverPage,
@@ -108,65 +171,19 @@ class _InventoryTableState extends State<InventoryTable> {
       );
       if (!mounted) return;
       final threshold = context.read<ConfigService>().lowStockThreshold;
-      _serverPage.clear();
-      _serverPage.addAll(
-        inventoryItemsFromRows(page.rows).map((m) {
-          final stockVal = (m['stock'] ?? 0) is int
-              ? m['stock'] as int
-              : int.tryParse(m['stock']?.toString() ?? '0') ?? 0;
-          m['status'] = statusFromStock(stockVal, threshold: threshold);
-          return m;
-        }).toList(),
-      );
+      final newItems = inventoryItemsFromRows(page.rows).map((m) {
+        final stockVal = (m['stock'] ?? 0) is int
+            ? m['stock'] as int
+            : int.tryParse(m['stock']?.toString() ?? '0') ?? 0;
+        m['status'] = statusFromStock(stockVal, threshold: threshold);
+        return m;
+      }).toList();
       setState(() {
+        _serverPage.addAll(newItems);
         _totalCount = page.totalCount;
-        _currentServerPage = serverPage;
-        _loading = false;
       });
-      _inventorySource.refresh();
-    } catch (e, st) {
-      print('InventoryTable: failed to load page $serverPage: $e\n$st');
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _loading = false);
-    }
-  }
-
-  /// Append the next page — called by "Load More".
-  Future<void> _loadNextPage() async {
-    if (_loading || !_hasMore) return;
-    _loading = true;
-    setState(() {});
-    try {
-      final page = await repository.fetchItemsPaginated(
-        page: _currentPage + 1,
-        pageSize: _pageSize,
-        search: searchTerm.isNotEmpty ? searchTerm : null,
-        categoryFilter:
-            (selectedCategory != null && selectedCategory!.isNotEmpty)
-            ? selectedCategory
-            : null,
-        sortColumn: 'name',
-        sortAscending: true,
-      );
-      if (!mounted) return;
-      final threshold = context.read<ConfigService>().lowStockThreshold;
-      setState(() {
-        final newItems = inventoryItemsFromRows(page.rows).map((m) {
-          final stockVal = (m['stock'] ?? 0) is int
-              ? m['stock'] as int
-              : int.tryParse(m['stock']?.toString() ?? '0') ?? 0;
-          m['status'] = statusFromStock(stockVal, threshold: threshold);
-          return m;
-        }).toList();
-        items.addAll(newItems);
-        _currentPage = page.page;
-        _hasMore = page.hasMore;
-        _loading = false;
-      });
-    } catch (e, st) {
-      print('InventoryTable: failed to load more: $e\n$st');
-      if (!mounted) return;
-      setState(() => _loading = false);
     }
   }
 
@@ -195,25 +212,12 @@ class _InventoryTableState extends State<InventoryTable> {
   }
 
   void _onUpdate(Map<String, dynamic> item) {
-    setState(() {
-      _refreshStatus(item);
-    });
+    _refreshStatus(item);
     _loadItems();
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredItems = items.where((item) {
-      final matchesSearch = item["name"].toString().toLowerCase().contains(
-        searchTerm.toLowerCase(),
-      );
-      final matchesStatus =
-          selectedStatus == null || item["status"] == selectedStatus;
-      final matchesCategory =
-          selectedCategory == null || item["category"] == selectedCategory;
-      return matchesSearch && matchesStatus && matchesCategory;
-    }).toList();
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final bool isMobile = constraints.maxWidth < 780;
@@ -234,7 +238,7 @@ class _InventoryTableState extends State<InventoryTable> {
             ),
             Expanded(
               child: isMobile
-                  ? _buildInventoryList(context, filteredItems)
+                  ? _buildInventoryList(context)
                   : LayoutBuilder(
                       builder: (context, tableConstraints) {
                         final availableHeight =
@@ -353,77 +357,58 @@ class _InventoryTableState extends State<InventoryTable> {
     );
   }
 
-  // ── Mobile List ────────────────────────────────────────────────────
+  // ── Mobile List (infinite-scroll) ──────────────────────────────────
 
-  Widget _buildInventoryList(
-    BuildContext context,
-    List<Map<String, dynamic>> filteredItems,
-  ) {
-    if (_loading && items.isEmpty) {
+  Widget _buildInventoryList(BuildContext context) {
+    if (_isInitialLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-
-    if (filteredItems.isEmpty) {
+    if (_error != null && _items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Failed to load items.'),
+            const SizedBox(height: 8),
+            ElevatedButton(onPressed: _loadItems, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+    if (_items.isEmpty) {
       return const Center(child: Text('No items found'));
     }
-
-    final totalPages = (filteredItems.length / _pageSize).ceil();
-    final start = (_displayPage - 1) * _pageSize;
-    final pageItems = filteredItems.skip(start).take(_pageSize).toList();
-
-    return Column(
-      children: [
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            itemCount: pageItems.length,
-            separatorBuilder: (_, index) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final item = pageItems[index];
-              return StaggeredItem(
-                index: index,
-                child: _InventoryListCard(
+    return ListView.separated(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+      itemCount: _items.length + (_hasMore ? 1 : 0),
+      separatorBuilder: (_, index) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        if (index >= _items.length) {
+          return const Padding(
+            padding: EdgeInsets.all(12),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final item = _items[index];
+        return StaggeredItem(
+          index: index,
+          child: _InventoryListCard(
+            item: item,
+            statusColor: _getStatusColor(item['status']?.toString() ?? ''),
+            onEdit: () {
+              showAnimatedDialog(
+                context,
+                builder: (dialogContext) => EditProductDialog(
                   item: item,
-                  statusColor: _getStatusColor(
-                    item['status']?.toString() ?? '',
-                  ),
-                  onEdit: () {
-                    showAnimatedDialog(
-                      context,
-                      builder: (dialogContext) => EditProductDialog(
-                        item: item,
-                        onUpdated: () => _onUpdate(item),
-                      ),
-                    );
-                  },
-                  onDelete: () => _deleteItem(context, item),
+                  onUpdated: () => _onUpdate(item),
                 ),
               );
             },
+            onDelete: () => _deleteItem(context, item),
           ),
-        ),
-        if (totalPages > 1)
-          PaginationBar(
-            currentPage: _displayPage,
-            totalPages: totalPages,
-            compact: true,
-            onPageChanged: (page) {
-              final needed = page * _pageSize;
-              if (needed > items.length && _hasMore && !_loading) {
-                _loadNextPage().then((_) {
-                  if (mounted) setState(() => _displayPage = page);
-                });
-              } else {
-                setState(() => _displayPage = page);
-              }
-            },
-          ),
-        if (_loading)
-          const Padding(
-            padding: EdgeInsets.all(12),
-            child: Center(child: CircularProgressIndicator()),
-          ),
-      ],
+        );
+      },
     );
   }
 
@@ -472,7 +457,7 @@ class _InventoryTableState extends State<InventoryTable> {
                 ? p['lastUpdated'] as DateTime
                 : null,
           );
-          await _loadItems();
+          _loadItems();
           if (!mounted) return;
           BotToast.showText(text: 'Product added');
         },
@@ -582,6 +567,7 @@ class _InventoryTableState extends State<InventoryTable> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _sub.cancel();
     super.dispose();
   }
@@ -749,8 +735,6 @@ class _InventoryMetaPill extends StatelessWidget {
 class _InventoryDataSource extends DataTableSource {
   final List<Map<String, dynamic>> _items;
   final int Function() _getTotalCount;
-  final int Function() _getPageNumber;
-  final int _pageSize;
   final Color Function(String) getStatusColor;
   final void Function(Map<String, dynamic>) onUpdate;
   final Future<void> Function(BuildContext, Map<String, dynamic>) onDelete;
@@ -758,8 +742,6 @@ class _InventoryDataSource extends DataTableSource {
   _InventoryDataSource(
     this._items,
     this._getTotalCount,
-    this._getPageNumber,
-    this._pageSize,
     this.getStatusColor,
     this.onUpdate,
     this.onDelete,
@@ -770,13 +752,10 @@ class _InventoryDataSource extends DataTableSource {
 
   @override
   DataRow getRow(int index) {
-    final pageNumber = _getPageNumber();
-    final pageStart = (pageNumber - 1) * _pageSize;
-    final localIndex = index - pageStart;
-    if (localIndex < 0 || localIndex >= _items.length) {
-      return DataRow(cells: List.filled(6, const DataCell(Text(''))));
+    if (index >= _items.length) {
+      return DataRow(cells: List.filled(6, const DataCell(Text('Loading…'))));
     }
-    final item = _items[localIndex];
+    final item = _items[index];
     final isEven = index % 2 == 0;
 
     return DataRow(

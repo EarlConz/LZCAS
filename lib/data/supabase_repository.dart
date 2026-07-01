@@ -1175,16 +1175,24 @@ class SupabaseRepository {
     bool sortAscending = false,
   }) async {
     final rangeStart = (page - 1) * pageSize;
-    final rangeEnd = page * pageSize; // +1 extra to detect hasMore
+    final rangeEnd = page * pageSize - 1; // inclusive, was off-by-one
 
-    // Build query inline — same proven pattern as fetchPendingRequests/fetchAllRequests
-    final data = await _supabase
+    // Run count query in parallel with data query (same pattern as fetchItemsPaginated)
+    dynamic dataQuery = _supabase
         .from('pending_requests')
         .select()
         .order(sortColumn, ascending: sortAscending)
         .range(rangeStart, rangeEnd);
 
-    var all = (data as List)
+    dynamic countQuery = _supabase.from('pending_requests').select('id');
+
+    final results = await Future.wait<dynamic>([
+      countQuery.count(CountOption.exact),
+      dataQuery,
+    ]);
+
+    final totalCount = (results[0] as PostgrestResponse).count;
+    var all = (results[1] as List)
         .map((j) => PendingRequest.fromJson(j as Map<String, dynamic>))
         .toList();
 
@@ -1213,12 +1221,9 @@ class SupabaseRepository {
       }).toList();
     }
 
-    final hasMore = all.length > pageSize;
-    final rows = all.take(pageSize).toList();
-
     return PageResult(
-      rows: rows,
-      totalCount: (page - 1) * pageSize + rows.length + (hasMore ? 1 : 0),
+      rows: all.take(pageSize).toList(),
+      totalCount: totalCount,
       page: page,
       pageSize: pageSize,
     );

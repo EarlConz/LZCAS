@@ -17,9 +17,7 @@
 import 'package:flutter/material.dart';
 import 'package:lzcas/data/models.dart';
 import 'package:lzcas/db/db.dart';
-import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
-import 'package:lzcas/widgets/pagination_bar.dart';
 
 // ─── Public config types ────────────────────────────────────────────────────
 
@@ -57,14 +55,13 @@ class MyRequestsTab extends StatefulWidget {
 
 class _MyRequestsTabState extends State<MyRequestsTab> {
   List<PendingRequest> _requests = [];
-  bool _loading = true;
-  bool _loadingMore = false;
+  bool _isLoading = false;
+  bool _isLoadingMore = false;
   String _statusFilter = 'all';
   String _typeFilter = 'all';
   bool _newestFirst = true;
 
   static const _pageSize = 25;
-  int _displayPage = 1;
   int _currentPage = 0;
   bool _hasMore = true;
 
@@ -81,7 +78,8 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
   }
 
   Future<void> _loadRequests() async {
-    _loading = true;
+    if (_isLoading) return;
+    _isLoading = true;
     if (mounted) setState(() {});
     try {
       final page = await repository.fetchRequestsPaginated(
@@ -94,21 +92,20 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
         _requests = page.rows;
         _currentPage = 1;
         _hasMore = page.hasMore;
-        _displayPage = 1;
-        _loading = false;
+        _isLoading = false;
       });
     } catch (_) {
       if (mounted)
         setState(() {
           _requests = [];
-          _loading = false;
+          _isLoading = false;
         });
     }
   }
 
   Future<void> _loadNextPage() async {
-    if (_loadingMore || !_hasMore) return;
-    _loadingMore = true;
+    if (_isLoadingMore || !_hasMore) return;
+    _isLoadingMore = true;
     setState(() {});
     try {
       final page = await repository.fetchRequestsPaginated(
@@ -121,10 +118,10 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
         _requests.addAll(page.rows);
         _currentPage = page.page;
         _hasMore = page.hasMore;
-        _loadingMore = false;
+        _isLoadingMore = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _loadingMore = false);
+      if (mounted) setState(() => _isLoadingMore = false);
     }
   }
 
@@ -550,232 +547,227 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
 
     return RefreshIndicator(
       onRefresh: _loadRequests,
-      child: _loading
+      child: _isLoading && _requests.isEmpty
           ? const Center(child: CircularProgressIndicator())
-          : CustomScrollView(
-              slivers: [
-                // ── Header ──────────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Title row
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'My Requests',
-                                style: StockpileFonts.satoshi(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w800,
-                                  color: isDark
-                                      ? Colors.white
-                                      : const Color(0xFF1E293B),
-                                ),
-                              ),
-                            ),
-                            // Sort toggle
-                            GestureDetector(
-                              onTap: () =>
-                                  setState(() => _newestFirst = !_newestFirst),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 7,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? Colors.white10
-                                      : Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    AnimatedRotation(
-                                      turns: _newestFirst ? 0 : 0.5,
-                                      duration: const Duration(
-                                        milliseconds: 300,
-                                      ),
-                                      child: Icon(
-                                        Icons.arrow_downward_rounded,
-                                        size: 15,
-                                        color: _slate,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      _newestFirst ? 'Newest' : 'Oldest',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: _slate,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        // Stats row
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _statPill(
-                                'All',
-                                _requests.length,
-                                _indigo,
-                                Icons.inbox_rounded,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _statPill(
-                                'Pending',
-                                _countBy('pending'),
-                                _orange,
-                                Icons.hourglass_empty_rounded,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _statPill(
-                                'Approved',
-                                _countBy('approved'),
-                                _emerald,
-                                Icons.check_circle_rounded,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _statPill(
-                                'Rejected',
-                                _countBy('rejected'),
-                                _rose,
-                                Icons.cancel_rounded,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        // Type filter
-                        _typeFilterRow(),
-                        const SizedBox(height: 8),
-                        // Result count
-                        Text(
-                          'Showing ${filtered.length} of ${_requests.length} request${_requests.length == 1 ? '' : 's'}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isDark
-                                ? Colors.white24
-                                : Colors.grey.shade400,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // ── Content ─────────────────────────────────────────
-                if (filtered.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(
+          : NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                if (notification is ScrollEndNotification &&
+                    notification.metrics.pixels >=
+                        notification.metrics.maxScrollExtent - 200 &&
+                    _hasMore &&
+                    !_isLoadingMore) {
+                  _loadNextPage();
+                  return true;
+                }
+                return false;
+              },
+              child: CustomScrollView(
+                slivers: [
+                  // ── Header ──────────────────────────────────────────
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.white.withAlpha(15)
-                                  : Colors.grey.shade100,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              _statusFilter != 'all' || _typeFilter != 'all'
-                                  ? Icons.filter_list_off_rounded
-                                  : Icons.inbox_rounded,
-                              size: 40,
-                              color: isDark
-                                  ? Colors.white24
-                                  : Colors.grey.shade300,
-                            ),
+                          // Title row
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'My Requests',
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w800,
+                                    color: isDark
+                                        ? Colors.white
+                                        : const Color(0xFF1E293B),
+                                  ),
+                                ),
+                              ),
+                              // Sort toggle
+                              GestureDetector(
+                                onTap: () => setState(
+                                  () => _newestFirst = !_newestFirst,
+                                ),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? Colors.white10
+                                        : Colors.grey.shade100,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      AnimatedRotation(
+                                        turns: _newestFirst ? 0 : 0.5,
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
+                                        child: Icon(
+                                          Icons.arrow_downward_rounded,
+                                          size: 15,
+                                          color: _slate,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        _newestFirst ? 'Newest' : 'Oldest',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: _slate,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 16),
-                          Text(
-                            _statusFilter != 'all' || _typeFilter != 'all'
-                                ? 'No matching requests'
-                                : 'No requests yet',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: isDark
-                                  ? Colors.white38
-                                  : Colors.grey.shade500,
-                            ),
+                          // Stats row
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _statPill(
+                                  'All',
+                                  _requests.length,
+                                  _indigo,
+                                  Icons.inbox_rounded,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _statPill(
+                                  'Pending',
+                                  _countBy('pending'),
+                                  _orange,
+                                  Icons.hourglass_empty_rounded,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _statPill(
+                                  'Approved',
+                                  _countBy('approved'),
+                                  _emerald,
+                                  Icons.check_circle_rounded,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _statPill(
+                                  'Rejected',
+                                  _countBy('rejected'),
+                                  _rose,
+                                  Icons.cancel_rounded,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 16),
+                          // Type filter
+                          _typeFilterRow(),
+                          const SizedBox(height: 8),
+                          // Result count
                           Text(
-                            _statusFilter != 'all' || _typeFilter != 'all'
-                                ? 'Try adjusting the filters above'
-                                : widget.emptyMessage,
-                            textAlign: TextAlign.center,
+                            'Showing ${filtered.length} of ${_requests.length} request${_requests.length == 1 ? '' : 's'}',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 11,
                               color: isDark
-                                  ? Colors.white.withAlpha(51)
+                                  ? Colors.white24
                                   : Colors.grey.shade400,
-                              height: 1.4,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (_, i) {
-                          final start = (_displayPage - 1) * _pageSize;
-                          return _buildCard(filtered[start + i]);
-                        },
-                        childCount: (() {
-                          final start = (_displayPage - 1) * _pageSize;
-                          final end = (_displayPage * _pageSize).clamp(0, filtered.length);
-                          return end - start;
-                        })(),
+                  ),
+
+                  // ── Content ─────────────────────────────────────────
+                  if (filtered.isEmpty)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white.withAlpha(15)
+                                    : Colors.grey.shade100,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                _statusFilter != 'all' || _typeFilter != 'all'
+                                    ? Icons.filter_list_off_rounded
+                                    : Icons.inbox_rounded,
+                                size: 40,
+                                color: isDark
+                                    ? Colors.white24
+                                    : Colors.grey.shade300,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              _statusFilter != 'all' || _typeFilter != 'all'
+                                  ? 'No matching requests'
+                                  : 'No requests yet',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: isDark
+                                    ? Colors.white38
+                                    : Colors.grey.shade500,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _statusFilter != 'all' || _typeFilter != 'all'
+                                  ? 'Try adjusting the filters above'
+                                  : widget.emptyMessage,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? Colors.white.withAlpha(51)
+                                    : Colors.grey.shade400,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (_, i) => _buildCard(filtered[i]),
+                          childCount: filtered.length,
+                        ),
                       ),
                     ),
-                  ),
-                // Pagination bar
-                final totalPages = (filtered.length / _pageSize).ceil();
-                if (totalPages > 1)
-                  SliverToBoxAdapter(
-                    child: PaginationBar(
-                      currentPage: _displayPage,
-                      totalPages: totalPages,
-                      compact: true,
-                      onPageChanged: (page) {
-                        final needed = page * _pageSize;
-                        if (needed > _requests.length && _hasMore && !_loadingMore) {
-                          _loadNextPage().then((_) {
-                            if (mounted) setState(() => _displayPage = page);
-                          });
-                        } else {
-                          setState(() => _displayPage = page);
-                        }
-                      },
+                  // Loading indicator at bottom
+                  if (_isLoadingMore)
+                    const SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
     );
   }
