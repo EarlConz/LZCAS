@@ -40,9 +40,9 @@ class StockpileSidebar extends StatelessWidget {
       elevation: 0,
       child: Column(
         children: [
-          // â”€â”€ Brand â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── Brand ────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
+            padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
             child: Row(
               children: [
                 Container(
@@ -72,7 +72,7 @@ class StockpileSidebar extends StatelessWidget {
           // â”€â”€ Navigation Items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               children: [
                 ...List.generate(_navItems.length, (i) {
                   return _SidebarTile(
@@ -104,9 +104,9 @@ class StockpileSidebar extends StatelessWidget {
             ),
           ),
 
-          // â”€â”€ User Profile Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── User Profile Card ─────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(

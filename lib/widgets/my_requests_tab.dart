@@ -19,6 +19,7 @@ import 'package:lzcas/data/models.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/widgets/pagination_bar.dart';
 
 // ─── Public config types ────────────────────────────────────────────────────
 
@@ -63,7 +64,7 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
   bool _newestFirst = true;
 
   static const _pageSize = 25;
-  int _visibleCount = _pageSize;
+  int _displayPage = 1;
   int _currentPage = 0;
   bool _hasMore = true;
 
@@ -93,7 +94,7 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
         _requests = page.rows;
         _currentPage = 1;
         _hasMore = page.hasMore;
-        _visibleCount = _pageSize;
+        _displayPage = 1;
         _loading = false;
       });
     } catch (_) {
@@ -120,7 +121,6 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
         _requests.addAll(page.rows);
         _currentPage = page.page;
         _hasMore = page.hasMore;
-        _visibleCount = _requests.length;
         _loadingMore = false;
       });
     } catch (_) {
@@ -743,48 +743,36 @@ class _MyRequestsTabState extends State<MyRequestsTab> {
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
-                        (_, i) => _buildCard(filtered[i]),
-                        childCount: filtered.take(_visibleCount).length,
+                        (_, i) {
+                          final start = (_displayPage - 1) * _pageSize;
+                          return _buildCard(filtered[start + i]);
+                        },
+                        childCount: (() {
+                          final start = (_displayPage - 1) * _pageSize;
+                          final end = (_displayPage * _pageSize).clamp(0, filtered.length);
+                          return end - start;
+                        })(),
                       ),
                     ),
                   ),
-                // "Load More" button
-                if (_visibleCount < filtered.length || _hasMore)
+                // Pagination bar
+                final totalPages = (filtered.length / _pageSize).ceil();
+                if (totalPages > 1)
                   SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed: _loadingMore
-                              ? null
-                              : () {
-                                  if (_visibleCount + _pageSize >
-                                          _requests.length &&
-                                      _hasMore) {
-                                    _loadNextPage().then((_) {
-                                      if (mounted)
-                                        setState(
-                                          () => _visibleCount += _pageSize,
-                                        );
-                                    });
-                                  } else {
-                                    setState(() => _visibleCount += _pageSize);
-                                  }
-                                },
-                          child: _loadingMore
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Text(
-                                  'Load More (${_visibleCount.clamp(0, filtered.length)} of ${filtered.length}${_hasMore ? "+" : ""})',
-                                ),
-                        ),
-                      ),
+                    child: PaginationBar(
+                      currentPage: _displayPage,
+                      totalPages: totalPages,
+                      compact: true,
+                      onPageChanged: (page) {
+                        final needed = page * _pageSize;
+                        if (needed > _requests.length && _hasMore && !_loadingMore) {
+                          _loadNextPage().then((_) {
+                            if (mounted) setState(() => _displayPage = page);
+                          });
+                        } else {
+                          setState(() => _displayPage = page);
+                        }
+                      },
                     ),
                   ),
               ],

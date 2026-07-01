@@ -11,6 +11,7 @@ import 'package:lzcas/dialogs/edit_stock_dialog.dart' show EditProductDialog;
 import 'package:lzcas/dialogs/add_product_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
+import 'package:lzcas/widgets/pagination_bar.dart';
 import '../theme.dart';
 import '../utils/formatters.dart';
 import '../services/config_service.dart';
@@ -39,7 +40,7 @@ class _InventoryTableState extends State<InventoryTable> {
   late final StreamSubscription<String> _sub;
 
   static const _pageSize = 25;
-  int _visibleCount = _pageSize;
+  int _displayPage = 1;
   int _currentPage = 0;
   bool _hasMore = true;
   bool _loading = false;
@@ -83,7 +84,7 @@ class _InventoryTableState extends State<InventoryTable> {
         items = List.of(_serverPage);
         _currentPage = 1;
         _hasMore = _totalCount > _pageSize;
-        _visibleCount = _pageSize;
+        _displayPage = 1;
       });
     }
   }
@@ -160,7 +161,6 @@ class _InventoryTableState extends State<InventoryTable> {
         items.addAll(newItems);
         _currentPage = page.page;
         _hasMore = page.hasMore;
-        _visibleCount = items.length;
         _loading = false;
       });
     } catch (e, st) {
@@ -367,18 +367,19 @@ class _InventoryTableState extends State<InventoryTable> {
       return const Center(child: Text('No items found'));
     }
 
-    final visible = filteredItems.take(_visibleCount).toList();
-    final hasMore = _visibleCount < filteredItems.length;
+    final totalPages = (filteredItems.length / _pageSize).ceil();
+    final start = (_displayPage - 1) * _pageSize;
+    final pageItems = filteredItems.skip(start).take(_pageSize).toList();
 
     return Column(
       children: [
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            itemCount: visible.length,
+            itemCount: pageItems.length,
             separatorBuilder: (_, index) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
-              final item = visible[index];
+              final item = pageItems[index];
               return StaggeredItem(
                 index: index,
                 child: _InventoryListCard(
@@ -401,26 +402,21 @@ class _InventoryTableState extends State<InventoryTable> {
             },
           ),
         ),
-        if (hasMore && !_loading)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () {
-                  if (_visibleCount + _pageSize > items.length && _hasMore) {
-                    _loadNextPage().then((_) {
-                      if (mounted) setState(() => _visibleCount += _pageSize);
-                    });
-                  } else {
-                    setState(() => _visibleCount += _pageSize);
-                  }
-                },
-                child: Text(
-                  'Load More (${_visibleCount.clamp(0, filteredItems.length)} of ${filteredItems.length}${_hasMore ? "+" : ""})',
-                ),
-              ),
-            ),
+        if (totalPages > 1)
+          PaginationBar(
+            currentPage: _displayPage,
+            totalPages: totalPages,
+            compact: true,
+            onPageChanged: (page) {
+              final needed = page * _pageSize;
+              if (needed > items.length && _hasMore && !_loading) {
+                _loadNextPage().then((_) {
+                  if (mounted) setState(() => _displayPage = page);
+                });
+              } else {
+                setState(() => _displayPage = page);
+              }
+            },
           ),
         if (_loading)
           const Padding(

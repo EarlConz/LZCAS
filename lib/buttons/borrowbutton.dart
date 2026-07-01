@@ -144,9 +144,15 @@ class _BorrowDialogState extends State<_BorrowDialog> {
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(28),
-          side: BorderSide(color: StockpileColors.primary900, width: 4),
+          side: const BorderSide(color: StockpileColors.danger, width: 4),
         ),
-        title: const Text('Error'),
+        title: const Row(
+          children: [
+            Icon(Icons.error_outline, color: StockpileColors.danger, size: 24),
+            SizedBox(width: 8),
+            Text('Error', style: TextStyle(color: StockpileColors.danger)),
+          ],
+        ),
         content: Text(message),
         actions: [
           TextButton(

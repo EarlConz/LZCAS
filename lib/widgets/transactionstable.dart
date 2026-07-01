@@ -8,6 +8,7 @@ import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
 import '../buttons/borrowbutton.dart';
 import '../dialogs/receipt_dialog.dart';
+import '../widgets/pagination_bar.dart';
 import '../theme.dart';
 
 // ── Grouped transaction model ─────────────────────────────────────────
@@ -47,7 +48,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
   late final StreamSubscription<String> _sub;
 
   static const _pageSize = 25;
-  int _visibleCount = _pageSize;
+  int _displayPage = 1;
   int _currentPage = 0;
   bool _hasMore = true;
 
@@ -107,7 +108,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
       setState(() {
         _txnGroups = List.of(page.rows);
         _hasMore = page.hasMore;
-        _visibleCount = _pageSize;
+        _displayPage = 1;
         _loading = false;
       });
     } catch (e, st) {
@@ -155,7 +156,6 @@ class _TransactionsTableState extends State<TransactionsTable> {
         _txnGroups.addAll(page.rows);
         _currentPage = page.page;
         _hasMore = page.hasMore;
-        _visibleCount = _txnGroups.length;
         _loading = false;
       });
     } catch (e) {
@@ -448,47 +448,42 @@ class _TransactionsTableState extends State<TransactionsTable> {
   // ── Mobile list ─────────────────────────────────────────────────────
 
   Widget _buildList(List<TransactionGroup> filtered) {
-    final visible = filtered.take(_visibleCount).toList();
-    final hasMore = _visibleCount < filtered.length;
+    final totalPages = (filtered.length / _pageSize).ceil();
+    final start = (_displayPage - 1) * _pageSize;
+    final pageItems = filtered.skip(start).take(_pageSize).toList();
 
     return Column(
       children: [
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-            itemCount: visible.length,
+            itemCount: pageItems.length,
             separatorBuilder: (_, i) => const SizedBox(height: 8),
             itemBuilder: (context, index) => StaggeredItem(
               index: index,
               child: _TxnListCard(
-                group: visible[index],
+                group: pageItems[index],
                 onDelete: _deleteTransaction,
                 onReceipt: _viewReceipt,
               ),
             ),
           ),
         ),
-        if (hasMore && !_loading)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () {
-                  if (_visibleCount + _pageSize > _txnGroups.length &&
-                      _hasMore) {
-                    _loadNextPage().then((_) {
-                      if (mounted) setState(() => _visibleCount += _pageSize);
-                    });
-                  } else {
-                    setState(() => _visibleCount += _pageSize);
-                  }
-                },
-                child: Text(
-                  'Load More (${_visibleCount.clamp(0, filtered.length)} of ${filtered.length}${_hasMore ? "+" : ""})',
-                ),
-              ),
-            ),
+        if (totalPages > 1)
+          PaginationBar(
+            currentPage: _displayPage,
+            totalPages: totalPages,
+            compact: true,
+            onPageChanged: (page) {
+              final needed = page * _pageSize;
+              if (needed > _txnGroups.length && _hasMore && !_loading) {
+                _loadNextPage().then((_) {
+                  if (mounted) setState(() => _displayPage = page);
+                });
+              } else {
+                setState(() => _displayPage = page);
+              }
+            },
           ),
         if (_loading)
           const Padding(

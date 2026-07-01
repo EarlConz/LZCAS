@@ -19,6 +19,7 @@ class SellButton extends StatefulWidget {
 class _SellButtonState extends State<SellButton> {
   List<String> items = [];
   List<Map<String, dynamic>> members = [];
+  Map<String, int> _itemStock = {};
 
   @override
   void initState() {
@@ -30,10 +31,15 @@ class _SellButtonState extends State<SellButton> {
   Future<void> _loadItems() async {
     final rows = await repository.fetchItems();
     if (!mounted) return;
+    final inventory = inventoryItemsFromRows(rows).toList();
     setState(() {
-      items = inventoryItemsFromRows(
-        rows,
-      ).map((i) => i['name'].toString()).toList();
+      items = inventory.map((i) => i['name'].toString()).toList();
+      _itemStock = {
+        for (final i in inventory)
+          i['name'].toString(): (i['stock'] is int
+              ? i['stock'] as int
+              : int.tryParse(i['stock']?.toString() ?? '0') ?? 0),
+      };
     });
   }
 
@@ -52,6 +58,7 @@ class _SellButtonState extends State<SellButton> {
       context,
       builder: (_) => _SellDialog(
         items: items,
+        itemStock: _itemStock,
         members: members,
         onSaleConfirmed: _loadItems,
       ),
@@ -78,11 +85,13 @@ class _SellButtonState extends State<SellButton> {
 
 class _SellDialog extends StatefulWidget {
   final List<String> items;
+  final Map<String, int> itemStock;
   final List<Map<String, dynamic>> members;
   final VoidCallback onSaleConfirmed;
 
   const _SellDialog({
     required this.items,
+    required this.itemStock,
     required this.members,
     required this.onSaleConfirmed,
   });
@@ -96,6 +105,7 @@ class _SellDialogState extends State<_SellDialog> {
   int? selectedBuyerId;
   int quantity = 1;
   List<Map<String, dynamic>> cart = [];
+  String? _stockWarning;
 
   final TextEditingController _qtyController = TextEditingController(text: '1');
   final TextEditingController _itemSearchController = TextEditingController();
@@ -130,9 +140,15 @@ class _SellDialogState extends State<_SellDialog> {
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(28),
-          side: BorderSide(color: StockpileColors.primary900, width: 4),
+          side: const BorderSide(color: StockpileColors.danger, width: 4),
         ),
-        title: const Text('Error'),
+        title: const Row(
+          children: [
+            Icon(Icons.error_outline, color: StockpileColors.danger, size: 24),
+            SizedBox(width: 8),
+            Text('Error', style: TextStyle(color: StockpileColors.danger)),
+          ],
+        ),
         content: Text(message),
         actions: [
           TextButton(
@@ -142,6 +158,26 @@ class _SellDialogState extends State<_SellDialog> {
         ],
       ),
     );
+  }
+
+  void _validateStock(int qty) {
+    if (selectedItem == null) {
+      setState(() => _stockWarning = null);
+      return;
+    }
+    final available = widget.itemStock[selectedItem] ?? 0;
+    final alreadyInCart = cart
+        .where((e) => e['item'] == selectedItem)
+        .fold<int>(0, (sum, e) => sum + (e['quantity'] as int));
+    final totalNeeded = alreadyInCart + qty;
+    if (totalNeeded > available) {
+      setState(
+        () =>
+            _stockWarning = 'Only $available in stock ($alreadyInCart in cart)',
+      );
+    } else {
+      setState(() => _stockWarning = null);
+    }
   }
 
   bool isCartValid() {
@@ -300,6 +336,8 @@ class _SellDialogState extends State<_SellDialog> {
                                           selectedItem = i;
                                           _itemSearchController.text = i;
                                           _itemFocusNode.unfocus();
+                                          _stockWarning = null;
+                                          _validateStock(quantity);
                                         });
                                       },
                                     ),
@@ -334,28 +372,44 @@ class _SellDialogState extends State<_SellDialog> {
                               (i) => DropdownMenuItem(value: i, child: Text(i)),
                             )
                             .toList(),
-                        onChanged: (v) => setState(() => selectedItem = v),
+                        onChanged: (v) => setState(() {
+                          selectedItem = v;
+                          _stockWarning = null;
+                          _validateStock(quantity);
+                        }),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       flex: 2,
-                      child: TextField(
-                        controller: _qtyController,
-                        focusNode: _qtyFocusNode,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        decoration: const InputDecoration(
-                          labelText: 'Qty',
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 14,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextField(
+                            controller: _qtyController,
+                            focusNode: _qtyFocusNode,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            decoration: InputDecoration(
+                              labelText: 'Qty',
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 14,
+                              ),
+                              errorText: _stockWarning,
+                            ),
+                            onChanged: (v) {
+                              final qty = int.tryParse(v) ?? 1;
+                              setState(() {
+                                quantity = qty;
+                                _validateStock(qty);
+                              });
+                            },
                           ),
-                        ),
-                        onChanged: (v) =>
-                            setState(() => quantity = int.tryParse(v) ?? 1),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 10),
