@@ -3117,13 +3117,6 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                   : isBorrow
                   ? Icons.swap_horiz_rounded
                   : Icons.arrow_downward_rounded;
-              final iconColor = isMemberDelete
-                  ? Colors.purple.shade700
-                  : isDelete
-                  ? StockpileColors.error500
-                  : isBorrow
-                  ? Colors.orange.shade700
-                  : Colors.orange.shade700;
 
               if (isMemberDelete) {
                 final hasBorrows = _memberBorrowStatus[req.memberId] ?? false;
@@ -3343,177 +3336,508 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   }
 
   Widget _buildHistoryFilterRow() {
-    final theme = Theme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedColor = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    // Compute counts per filter — each dimension's counts reflect
+    // the OTHER dimension's current filter, so they stay in sync.
+    // Status counts are computed from the type-filtered subset.
+    final typeFiltered = _historyRequests.where((r) {
+      if (_historyTypeFilter != 'all' && r.requestType != _historyTypeFilter) {
+        return false;
+      }
+      return true;
+    }).toList();
+    // Action counts are computed from the status-filtered subset.
+    final statusFiltered = _historyRequests.where((r) {
+      if (_historyFilter != 'all' && r.status != _historyFilter) return false;
+      return true;
+    }).toList();
+
+    // "All" per dimension reflects the OTHER dimension's filter
+    final statusAllCount = typeFiltered.length;
+    final actionAllCount = statusFiltered.length;
+    final approvedCount = typeFiltered
+        .where((r) => r.status == 'approved')
+        .length;
+    final rejectedCount = typeFiltered
+        .where((r) => r.status == 'rejected')
+        .length;
+    final deleteCount = statusFiltered
+        .where((r) => r.requestType == 'delete')
+        .length;
+    final reduceCount = statusFiltered
+        .where((r) => r.requestType == 'reduce_stock')
+        .length;
+    final memberCount = statusFiltered
+        .where((r) => r.requestType == 'delete_member')
+        .length;
+    final borrowCount = statusFiltered
+        .where((r) => r.requestType == 'borrow')
+        .length;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Status filter row — label inline with chips
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 5),
-                child: Text(
-                  'Status',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface.withAlpha(180),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark
+                ? StockpileColors.darkDivider
+                : StockpileColors.divider,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Status filter row
+            Row(
+              children: [
+                Icon(Icons.filter_list_rounded, size: 15, color: mutedColor),
+                const SizedBox(width: 6),
+                Text(
+                  'Status:',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: mutedColor,
+                    letterSpacing: 0.5,
                   ),
                 ),
-              ),
-              _FilterChip(
-                label: 'All',
-                isSelected: _historyFilter == 'all',
-                onTap: () => setState(() => _historyFilter = 'all'),
-              ),
-              _FilterChip(
-                label: 'Approved',
-                isSelected: _historyFilter == 'approved',
-                onTap: () => setState(() => _historyFilter = 'approved'),
-              ),
-              _FilterChip(
-                label: 'Rejected',
-                isSelected: _historyFilter == 'rejected',
-                onTap: () => setState(() => _historyFilter = 'rejected'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          // Action filter row — hanging indent: chips wrap under themselves
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 5),
-                child: Text(
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _FilterChip(
+                          label: 'All',
+                          count: statusAllCount,
+                          isSelected: _historyFilter == 'all',
+                          onTap: () => setState(() => _historyFilter = 'all'),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Approved',
+                          count: approvedCount,
+                          isSelected: _historyFilter == 'approved',
+                          onTap: () =>
+                              setState(() => _historyFilter = 'approved'),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Rejected',
+                          count: rejectedCount,
+                          isSelected: _historyFilter == 'rejected',
+                          onTap: () =>
+                              setState(() => _historyFilter = 'rejected'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Action type filter row
+            Row(
+              children: [
+                Icon(Icons.category_rounded, size: 15, color: mutedColor),
+                const SizedBox(width: 6),
+                Text(
                   'Action:',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface.withAlpha(180),
+                  style: StockpileFonts.satoshi(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: mutedColor,
+                    letterSpacing: 0.5,
                   ),
                 ),
-              ),
-              Expanded(
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    _FilterChip(
-                      label: 'All',
-                      isSelected: _historyTypeFilter == 'all',
-                      onTap: () => setState(() => _historyTypeFilter = 'all'),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _FilterChip(
+                          label: 'All',
+                          count: actionAllCount,
+                          isSelected: _historyTypeFilter == 'all',
+                          onTap: () =>
+                              setState(() => _historyTypeFilter = 'all'),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Delete',
+                          count: deleteCount,
+                          isSelected: _historyTypeFilter == 'delete',
+                          onTap: () =>
+                              setState(() => _historyTypeFilter = 'delete'),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Reduce',
+                          count: reduceCount,
+                          isSelected: _historyTypeFilter == 'reduce_stock',
+                          onTap: () => setState(
+                            () => _historyTypeFilter = 'reduce_stock',
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Member',
+                          count: memberCount,
+                          isSelected: _historyTypeFilter == 'delete_member',
+                          onTap: () => setState(
+                            () => _historyTypeFilter = 'delete_member',
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Borrow',
+                          count: borrowCount,
+                          isSelected: _historyTypeFilter == 'borrow',
+                          onTap: () =>
+                              setState(() => _historyTypeFilter = 'borrow'),
+                        ),
+                      ],
                     ),
-                    _FilterChip(
-                      label: 'Deleted Stock',
-                      isSelected: _historyTypeFilter == 'delete',
-                      onTap: () =>
-                          setState(() => _historyTypeFilter = 'delete'),
-                    ),
-                    _FilterChip(
-                      label: 'Reduced Stock',
-                      isSelected: _historyTypeFilter == 'reduce_stock',
-                      onTap: () =>
-                          setState(() => _historyTypeFilter = 'reduce_stock'),
-                    ),
-                    _FilterChip(
-                      label: 'Member',
-                      isSelected: _historyTypeFilter == 'delete_member',
-                      onTap: () =>
-                          setState(() => _historyTypeFilter = 'delete_member'),
-                    ),
-                    _FilterChip(
-                      label: 'Borrow',
-                      isSelected: _historyTypeFilter == 'borrow',
-                      onTap: () =>
-                          setState(() => _historyTypeFilter = 'borrow'),
-                    ),
-                  ],
+                  ),
                 ),
+              ],
+            ),
+            // Clear filters button (only shown when a filter is active)
+            if (_historyFilter != 'all' || _historyTypeFilter != 'all') ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      _historyFilter = 'all';
+                      _historyTypeFilter = 'all';
+                    }),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: StockpileColors.error500.withAlpha(20),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.clear_all_rounded,
+                            size: 13,
+                            color: StockpileColors.error500,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Clear filters',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: StockpileColors.error500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildHistoryCard(PendingRequest req, bool isDark, ThemeData theme) {
     final isApproved = req.status == 'approved';
-    final statusColor = isApproved
+    final isMemberDelete = req.requestType == 'delete_member';
+
+    final Color statusColor = isApproved
         ? StockpileColors.success
         : StockpileColors.error500;
-    final statusBg = isApproved
-        ? StockpileColors.success.withAlpha(25)
-        : StockpileColors.error100;
-    final statusIcon = isApproved
-        ? Icons.check_circle_rounded
-        : Icons.cancel_rounded;
+    final Color accentColor = switch (req.requestType) {
+      'delete' => StockpileColors.error500,
+      'reduce_stock' => Colors.orange.shade600,
+      'delete_member' => Colors.purple.shade600,
+      'borrow' => Colors.orange.shade600,
+      _ => StockpileColors.primary900,
+    };
+    final IconData typeIcon = switch (req.requestType) {
+      'delete' => Icons.delete_forever_rounded,
+      'reduce_stock' => Icons.arrow_downward_rounded,
+      'delete_member' => Icons.person_remove_rounded,
+      'borrow' => Icons.swap_horiz_rounded,
+      _ => Icons.help_outline_rounded,
+    };
+    final String typeLabel = switch (req.requestType) {
+      'delete' => 'Delete',
+      'reduce_stock' => 'Reduce Stock',
+      'delete_member' => 'Delete Member',
+      'borrow' => 'Borrow',
+      _ => req.requestType,
+    };
+
     final submitter = _profiles[req.userId] ?? 'Unknown';
     final role = _roles[req.userId];
-    final submitterWithRole = role != null
+    final submitterLabel = role != null
         ? '$submitter (${role[0].toUpperCase()}${role.substring(1)})'
         : submitter;
+    final hasRejectionReason =
+        req.status == 'rejected' &&
+        req.rejectionReason != null &&
+        req.rejectionReason!.isNotEmpty;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: statusBg,
-          child: Icon(statusIcon, color: statusColor),
+    final textPrimary = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final textMuted = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isDark
+                ? StockpileColors.darkDivider
+                : StockpileColors.divider,
+          ),
         ),
-        title: Text(
-          req.requestType == 'delete_member'
-              ? (req.memberName ?? 'Unknown')
-              : (req.itemName ?? ''),
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(req.summary, style: const TextStyle(fontSize: 12)),
-            if (req.status == 'rejected' &&
-                req.rejectionReason != null &&
-                req.rejectionReason!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  'Reason: ${req.rejectionReason}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: StockpileColors.error500,
-                    fontStyle: FontStyle.italic,
+        clipBehavior: Clip.antiAlias,
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              // ── Left accent bar ──────────────────────
+              Container(
+                width: 4,
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    bottomLeft: Radius.circular(12),
                   ),
                 ),
               ),
-            Text(
-              'Requested by $submitterWithRole'
-              '${req.createdAt != null ? ' · ${_formatDate(req.createdAt!)}' : ''}',
-              style: TextStyle(
-                fontSize: 11,
-                color: theme.colorScheme.onSurface.withAlpha(150),
+              // ── Card body ───────────────────────────
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Top row: type chip + status badge
+                      Row(
+                        children: [
+                          // Type chip
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accentColor.withAlpha(20),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(typeIcon, size: 13, color: accentColor),
+                                const SizedBox(width: 4),
+                                Text(
+                                  typeLabel,
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: accentColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Spacer(),
+                          // Status badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withAlpha(25),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: statusColor.withAlpha(60),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  isApproved
+                                      ? Icons.check_circle_rounded
+                                      : Icons.cancel_rounded,
+                                  size: 13,
+                                  color: statusColor,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  isApproved ? 'Approved' : 'Rejected',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: statusColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // Item/Member name
+                      Text(
+                        isMemberDelete
+                            ? (req.memberName ?? 'Unknown')
+                            : (req.itemName ?? 'Unknown'),
+                        style: StockpileFonts.satoshi(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: textPrimary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      // Detail line (quantity / price for non-member)
+                      if (!isMemberDelete && req.quantity != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '×${req.quantity}${req.price != null && req.price! > 0 ? ' · ₱${req.price} each' : ''}',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            color: textMuted,
+                          ),
+                        ),
+                      ],
+                      // Rejection reason
+                      if (hasRejectionReason) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.block_rounded,
+                              size: 14,
+                              color: StockpileColors.error500,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                req.rejectionReason!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: StockpileColors.error500,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      // Reason (viewable)
+                      if (req.reason != null && req.reason!.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        GestureDetector(
+                          onTap: () => _showReasonDialog(context, req.reason!),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accentColor.withAlpha(isDark ? 15 : 10),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.info_outline_rounded,
+                                  size: 12,
+                                  color: accentColor,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'View reason',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: accentColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      // Footer: submitter + date
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.person_outline,
+                            size: 13,
+                            color: textMuted,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              submitterLabel,
+                              style: StockpileFonts.satoshi(
+                                fontSize: 11,
+                                color: textMuted,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Icon(
+                            Icons.access_time_rounded,
+                            size: 13,
+                            color: textMuted,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            req.createdAt != null
+                                ? _formatDate(req.createdAt!)
+                                : '',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 11,
+                              color: textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
-        ),
-        isThreeLine: true,
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: statusBg,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            isApproved ? 'Approved' : 'Rejected',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: statusColor,
-            ),
+            ],
           ),
         ),
       ),
@@ -3563,34 +3887,48 @@ class _ToggleChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeBg = StockpileColors.primary900;
+    final inactiveBg = isDark
+        ? StockpileColors.darkSurface
+        : StockpileColors.surface;
+    final activeBorder = StockpileColors.primary900;
+    final inactiveBorder = isDark
+        ? StockpileColors.darkDivider
+        : StockpileColors.divider;
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected
-              ? theme.colorScheme.primary
-              : theme.colorScheme.surfaceContainerHighest.withAlpha(80),
+          color: isSelected ? activeBg : inactiveBg,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected
-                ? theme.colorScheme.primary
-                : theme.dividerColor.withAlpha(120),
-          ),
+          border: Border.all(color: isSelected ? activeBorder : inactiveBorder),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: StockpileColors.primary900.withAlpha(40),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               label,
-              style: TextStyle(
+              style: StockpileFonts.satoshi(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: isSelected
-                    ? theme.colorScheme.onPrimary
-                    : theme.colorScheme.onSurface,
+                    ? Colors.white
+                    : (isDark
+                          ? StockpileColors.darkTextBody
+                          : StockpileColors.bodyText),
               ),
             ),
             if (count != null) ...[
@@ -3599,18 +3937,18 @@ class _ToggleChip extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? theme.colorScheme.onPrimary.withAlpha(40)
-                      : theme.colorScheme.primary.withAlpha(25),
+                      ? Colors.white.withAlpha(40)
+                      : StockpileColors.primary900.withAlpha(25),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   count.toString(),
-                  style: TextStyle(
+                  style: StockpileFonts.satoshi(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                     color: isSelected
-                        ? theme.colorScheme.onPrimary
-                        : theme.colorScheme.primary,
+                        ? Colors.white
+                        : StockpileColors.primary900,
                   ),
                 ),
               ),
@@ -3626,41 +3964,79 @@ class _ToggleChip extends StatelessWidget {
 class _FilterChip extends StatelessWidget {
   final String label;
   final bool isSelected;
+  final int? count;
   final VoidCallback onTap;
 
   const _FilterChip({
     required this.label,
     required this.isSelected,
+    this.count,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeBg = isDark
+        ? StockpileColors.primary900.withAlpha(40)
+        : StockpileColors.primary900.withAlpha(20);
+    final inactiveBg = isDark
+        ? StockpileColors.darkInputBg
+        : StockpileColors.inputBg;
+    final activeBorder = StockpileColors.primary900;
+    final inactiveBorder = isDark
+        ? StockpileColors.darkDivider
+        : StockpileColors.divider;
+    final activeText = isDark ? Colors.white : StockpileColors.primary900;
+    final inactiveText = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: isSelected
-              ? theme.colorScheme.primary
-              : theme.colorScheme.surfaceContainerHighest.withAlpha(80),
+          color: isSelected ? activeBg : inactiveBg,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isSelected
-                ? theme.colorScheme.primary
-                : theme.dividerColor.withAlpha(120),
+            color: isSelected ? activeBorder : inactiveBorder,
+            width: isSelected ? 1.5 : 1,
           ),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: isSelected
-                ? theme.colorScheme.onPrimary
-                : theme.colorScheme.onSurface,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: StockpileFonts.satoshi(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? activeText : inactiveText,
+              ),
+            ),
+            if (count != null) ...[
+              const SizedBox(width: 5),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? activeText.withAlpha(30)
+                      : inactiveText.withAlpha(20),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '$count',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: isSelected ? activeText : inactiveText,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -3752,10 +4128,10 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
       _borrows.where((b) => b.outstandingQuantity <= 0).toList();
 
   List<Borrow> get _returnedOnly =>
-      _allSettled.where((b) => b.quantityReturned >= b.quantity).toList();
+      _allSettled.where((b) => b.quantityReturned > 0).toList();
 
   List<Borrow> get _remittedOnly =>
-      _allSettled.where((b) => b.quantityRemitted >= b.quantity).toList();
+      _allSettled.where((b) => b.quantityRemitted > 0).toList();
 
   List<Borrow> get _filteredSettled {
     switch (_settledFilter) {
@@ -3804,105 +4180,308 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
   }
 
   Future<void> _returnItem(Borrow b) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final qtyCtrl = TextEditingController(
       text: b.outstandingQuantity.toString(),
     );
     final result = await showDialog<int>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Return Borrowed Item'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${b.itemName} — ${b.memberName ?? _memberName(b.memberId)}'),
-            const SizedBox(height: 4),
-            Text(
-              'Borrowed: ${b.quantity}  |  '
-              'Outstanding: ${b.outstandingQuantity}',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: qtyCtrl,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(
-                labelText: 'Quantity to return',
-                border: OutlineInputBorder(),
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: StockpileColors.success.withAlpha(25),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.assignment_return_rounded,
+                      color: StockpileColors.success,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Return Item',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: isDark
+                                ? StockpileColors.darkTextPrimary
+                                : StockpileColors.darkText,
+                          ),
+                        ),
+                        Text(
+                          '${b.itemName}',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 13,
+                            color: isDark
+                                ? StockpileColors.darkTextMuted
+                                : StockpileColors.mutedText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  _QtyBadge(
+                    label: 'Borrowed',
+                    value: b.quantity,
+                    isDark: isDark,
+                  ),
+                  const SizedBox(width: 8),
+                  _QtyBadge(
+                    label: 'Outstanding',
+                    value: b.outstandingQuantity,
+                    isDark: isDark,
+                    color: StockpileColors.error500,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: qtyCtrl,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  labelText: 'Quantity to return',
+                  hintText: 'Enter quantity',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: isDark
+                      ? StockpileColors.darkInputBg
+                      : StockpileColors.inputBg,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () {
+                        final q = int.tryParse(qtyCtrl.text) ?? 0;
+                        Navigator.pop(ctx, q);
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: StockpileColors.success,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text('Return'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final q = int.tryParse(qtyCtrl.text) ?? 0;
-              Navigator.pop(ctx, q);
-            },
-            child: const Text('Return'),
-          ),
-        ],
       ),
     );
 
     if (result == null || result <= 0) return;
-    await repository.returnBorrowedItem(b.id!, result);
+    final ok = await repository.returnBorrowedItem(b.id!, result);
+    if (!mounted) return;
+    BotToast.showText(
+      text: ok ? '${b.itemName}: $result returned' : 'Failed to return item',
+    );
     _loadData();
   }
 
   Future<void> _remitItem(Borrow b) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final qtyCtrl = TextEditingController(
       text: b.outstandingQuantity.toString(),
     );
     final result = await showDialog<int>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remit Payment'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${b.itemName} — ${b.memberName ?? _memberName(b.memberId)}'),
-            const SizedBox(height: 4),
-            Text(
-              'Borrowed: ${b.quantity}  |  '
-              'Outstanding: ${b.outstandingQuantity}',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: qtyCtrl,
-              keyboardType: TextInputType.number,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: const InputDecoration(
-                labelText: 'Quantity to remit',
-                border: OutlineInputBorder(),
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withAlpha(25),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.payments_rounded,
+                      color: Colors.purple,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Remit Payment',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: isDark
+                                ? StockpileColors.darkTextPrimary
+                                : StockpileColors.darkText,
+                          ),
+                        ),
+                        Text(
+                          '${b.itemName} ·  ₱${b.price} each',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 13,
+                            color: isDark
+                                ? StockpileColors.darkTextMuted
+                                : StockpileColors.mutedText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  _QtyBadge(
+                    label: 'Borrowed',
+                    value: b.quantity,
+                    isDark: isDark,
+                  ),
+                  const SizedBox(width: 8),
+                  _QtyBadge(
+                    label: 'Outstanding',
+                    value: b.outstandingQuantity,
+                    isDark: isDark,
+                    color: StockpileColors.error500,
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withAlpha(15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.purple.withAlpha(50)),
+                    ),
+                    child: Text(
+                      'Total: ₱${b.price * b.outstandingQuantity}',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.purple,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: qtyCtrl,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: InputDecoration(
+                  labelText: 'Quantity to remit',
+                  hintText: 'Enter quantity',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: isDark
+                      ? StockpileColors.darkInputBg
+                      : StockpileColors.inputBg,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () {
+                        final q = int.tryParse(qtyCtrl.text) ?? 0;
+                        Navigator.pop(ctx, q);
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text('Remit'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.purple),
-            onPressed: () {
-              final q = int.tryParse(qtyCtrl.text) ?? 0;
-              Navigator.pop(ctx, q);
-            },
-            child: const Text('Remit'),
-          ),
-        ],
       ),
     );
 
     if (result == null || result <= 0) return;
-    await repository.remitBorrowedItem(b.id!, result);
+    final ok = await repository.remitBorrowedItem(b.id!, result);
+    if (!mounted) return;
+    BotToast.showText(
+      text: ok ? '${b.itemName}: $result remitted' : 'Failed to remit payment',
+    );
     _loadData();
   }
 
@@ -3921,33 +4500,58 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            color: StockpileColors.error50,
+            color: isDark
+                ? StockpileColors.error500.withAlpha(30)
+                : StockpileColors.error50,
             child: Row(
               children: [
-                const Icon(
-                  Icons.warning_amber_rounded,
-                  color: StockpileColors.error700,
-                  size: 22,
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: StockpileColors.error500.withAlpha(30),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.warning_amber_rounded,
+                    color: StockpileColors.error500,
+                    size: 22,
+                  ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    '⚠️ $_overdueCount overdue borrow(s) — '
-                    'resellers have not settled within 10 days.',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: StockpileColors.error700,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$_overdueCount Overdue',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: isDark
+                              ? StockpileColors.darkTextPrimary
+                              : StockpileColors.darkText,
+                        ),
+                      ),
+                      Text(
+                        'These borrows have exceeded their due date.',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 12,
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
 
-        // Summary cards
+        // Summary cards row
         Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
           child: Row(
             children: [
               _SummaryChip(
@@ -3990,7 +4594,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
         // Settled sub-filter chips
         if (_filter == 'settled')
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: Row(
               children: [
                 _SettledSubChip(
@@ -4071,214 +4675,360 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                       final statusLbl = _statusLabel(b);
                       final overdue = b.isOverdue && b.outstandingQuantity > 0;
                       final statusCol = _statusColor(b.status, overdue, isDark);
+                      final isSettled = b.outstandingQuantity <= 0;
 
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(
-                            color: overdue
-                                ? StockpileColors.error500.withAlpha(120)
-                                : Colors.transparent,
-                            width: overdue ? 1.5 : 0,
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? StockpileColors.darkSurface
+                                : StockpileColors.surface,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: overdue
+                                  ? StockpileColors.error500.withAlpha(120)
+                                  : isDark
+                                  ? StockpileColors.darkDivider
+                                  : StockpileColors.divider,
+                              width: overdue ? 1.5 : 1,
+                            ),
                           ),
-                        ),
-                        color: overdue
-                            ? StockpileColors.error50.withAlpha(80)
-                            : null,
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Header row
-                              Row(
-                                children: [
-                                  CircleAvatar(
-                                    radius: 16,
-                                    backgroundColor: statusCol.withAlpha(30),
-                                    child: Icon(
-                                      Icons.swap_horiz_rounded,
-                                      size: 18,
-                                      color: statusCol,
+                          clipBehavior: Clip.antiAlias,
+                          child: IntrinsicHeight(
+                            child: Row(
+                              children: [
+                                // ── Left accent bar ──────────────
+                                Container(
+                                  width: 4,
+                                  decoration: BoxDecoration(
+                                    color: overdue
+                                        ? StockpileColors.error500
+                                        : statusCol,
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(12),
+                                      bottomLeft: Radius.circular(12),
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
+                                ),
+                                // ── Card body ────────────────────
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          b.itemName,
-                                          style: StockpileFonts.satoshi(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w700,
-                                            color: isDark
-                                                ? StockpileColors
-                                                      .darkTextPrimary
-                                                : StockpileColors.darkText,
+                                        // Header: item name + status badge
+                                        Row(
+                                          children: [
+                                            Container(
+                                              width: 36,
+                                              height: 36,
+                                              decoration: BoxDecoration(
+                                                color: statusCol.withAlpha(30),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                              ),
+                                              child: Icon(
+                                                isSettled
+                                                    ? Icons.check_circle_outline
+                                                    : Icons.swap_horiz_rounded,
+                                                size: 20,
+                                                color: statusCol,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    b.itemName,
+                                                    style: StockpileFonts.satoshi(
+                                                      fontSize: 14,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: isDark
+                                                          ? StockpileColors
+                                                                .darkTextPrimary
+                                                          : StockpileColors
+                                                                .darkText,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    memName,
+                                                    style: StockpileFonts.satoshi(
+                                                      fontSize: 12,
+                                                      color: isDark
+                                                          ? StockpileColors
+                                                                .darkTextMuted
+                                                          : StockpileColors
+                                                                .mutedText,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            // Status badge
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 4,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: statusCol.withAlpha(25),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: statusCol.withAlpha(
+                                                    60,
+                                                  ),
+                                                ),
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    overdue
+                                                        ? Icons
+                                                              .warning_amber_rounded
+                                                        : isSettled
+                                                        ? Icons
+                                                              .check_circle_rounded
+                                                        : Icons
+                                                              .hourglass_bottom_rounded,
+                                                    size: 13,
+                                                    color: statusCol,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    statusLbl,
+                                                    style:
+                                                        StockpileFonts.satoshi(
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: statusCol,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+
+                                        const SizedBox(height: 10),
+
+                                        // Quantity badges row
+                                        SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: Row(
+                                            children: [
+                                              _QtyBadge(
+                                                label: 'Borrowed',
+                                                value: b.quantity,
+                                                isDark: isDark,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              _QtyBadge(
+                                                label: 'Returned',
+                                                value: b.quantityReturned,
+                                                isDark: isDark,
+                                                color: StockpileColors.success,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              _QtyBadge(
+                                                label: 'Remitted',
+                                                value: b.quantityRemitted,
+                                                isDark: isDark,
+                                                color: Colors.purple,
+                                              ),
+                                              const SizedBox(width: 6),
+                                              _QtyBadge(
+                                                label: 'Outstanding',
+                                                value: b.outstandingQuantity,
+                                                isDark: isDark,
+                                                color: b.outstandingQuantity > 0
+                                                    ? StockpileColors.error500
+                                                    : StockpileColors.success,
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                        Text(
-                                          memName,
-                                          style: StockpileFonts.satoshi(
-                                            fontSize: 12,
-                                            color: isDark
-                                                ? StockpileColors.darkTextMuted
-                                                : StockpileColors.mutedText,
-                                          ),
+
+                                        const SizedBox(height: 8),
+
+                                        // Date row
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.event_rounded,
+                                              size: 13,
+                                              color: isDark
+                                                  ? StockpileColors
+                                                        .darkTextMuted
+                                                  : StockpileColors.mutedText,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Borrowed ${_formatDateShort(b.borrowedAt ?? DateTime.now())}',
+                                              style: StockpileFonts.satoshi(
+                                                fontSize: 11,
+                                                color: isDark
+                                                    ? StockpileColors
+                                                          .darkTextMuted
+                                                    : StockpileColors.mutedText,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Icon(
+                                              Icons.schedule_rounded,
+                                              size: 13,
+                                              color: overdue
+                                                  ? StockpileColors.error500
+                                                  : isDark
+                                                  ? StockpileColors
+                                                        .darkTextMuted
+                                                  : StockpileColors.mutedText,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Due ${_formatDateShort(b.dueDate)}',
+                                              style: StockpileFonts.satoshi(
+                                                fontSize: 11,
+                                                color: overdue
+                                                    ? StockpileColors.error500
+                                                    : isDark
+                                                    ? StockpileColors
+                                                          .darkTextMuted
+                                                    : StockpileColors.mutedText,
+                                                fontWeight: overdue
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w400,
+                                              ),
+                                            ),
+                                            if (overdue) ...[
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                '(${DateTime.now().difference(b.dueDate).inDays}d late)',
+                                                style: StockpileFonts.satoshi(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                  color:
+                                                      StockpileColors.error500,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
+
+                                        // Notes
+                                        if (b.notes != null &&
+                                            b.notes!.isNotEmpty) ...[
+                                          const SizedBox(height: 6),
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Icon(
+                                                Icons.notes_rounded,
+                                                size: 13,
+                                                color: isDark
+                                                    ? StockpileColors
+                                                          .darkTextMuted
+                                                    : StockpileColors.mutedText,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Expanded(
+                                                child: Text(
+                                                  b.notes!,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontStyle: FontStyle.italic,
+                                                    color: isDark
+                                                        ? StockpileColors
+                                                              .darkTextMuted
+                                                        : StockpileColors
+                                                              .mutedText,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+
+                                        // Action buttons
+                                        if (b.outstandingQuantity > 0) ...[
+                                          const SizedBox(height: 10),
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.end,
+                                            children: [
+                                              OutlinedButton.icon(
+                                                icon: const Icon(
+                                                  Icons
+                                                      .assignment_return_rounded,
+                                                  size: 18,
+                                                ),
+                                                label: const Text('Return'),
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor:
+                                                      StockpileColors.success,
+                                                  side: BorderSide(
+                                                    color: StockpileColors
+                                                        .success
+                                                        .withAlpha(80),
+                                                  ),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          10,
+                                                        ),
+                                                  ),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 14,
+                                                        vertical: 8,
+                                                      ),
+                                                ),
+                                                onPressed: () => _returnItem(b),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              FilledButton.icon(
+                                                icon: const Icon(
+                                                  Icons.payments_rounded,
+                                                  size: 18,
+                                                ),
+                                                label: const Text('Remit'),
+                                                style: FilledButton.styleFrom(
+                                                  backgroundColor:
+                                                      Colors.purple,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          10,
+                                                        ),
+                                                  ),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 14,
+                                                        vertical: 8,
+                                                      ),
+                                                ),
+                                                onPressed: () => _remitItem(b),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
-                                  // Status badge
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: statusCol.withAlpha(30),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      statusLbl,
-                                      style: StockpileFonts.satoshi(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: statusCol,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 10),
-
-                              // Quantity details
-                              Row(
-                                children: [
-                                  _QtyBadge(
-                                    label: 'Borrowed',
-                                    value: b.quantity,
-                                    isDark: isDark,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  _QtyBadge(
-                                    label: 'Returned',
-                                    value: b.quantityReturned,
-                                    isDark: isDark,
-                                    color: StockpileColors.success,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  _QtyBadge(
-                                    label: 'Remitted',
-                                    value: b.quantityRemitted,
-                                    isDark: isDark,
-                                    color: Colors.purple,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  _QtyBadge(
-                                    label: 'Outstanding',
-                                    value: b.outstandingQuantity,
-                                    isDark: isDark,
-                                    color: b.outstandingQuantity > 0
-                                        ? StockpileColors.error500
-                                        : StockpileColors.success,
-                                  ),
-                                ],
-                              ),
-
-                              const SizedBox(height: 8),
-
-                              // Date info
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.calendar_today_rounded,
-                                    size: 14,
-                                    color: isDark
-                                        ? StockpileColors.darkTextMuted
-                                        : StockpileColors.mutedText,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'Due: ${b.dueDate.day}/${b.dueDate.month}/${b.dueDate.year}',
-                                    style: StockpileFonts.satoshi(
-                                      fontSize: 12,
-                                      color: overdue
-                                          ? StockpileColors.error500
-                                          : isDark
-                                          ? StockpileColors.darkTextMuted
-                                          : StockpileColors.mutedText,
-                                      fontWeight: overdue
-                                          ? FontWeight.w700
-                                          : FontWeight.w400,
-                                    ),
-                                  ),
-                                  if (overdue) ...[
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      '(${DateTime.now().difference(b.dueDate).inDays}d late)',
-                                      style: StockpileFonts.satoshi(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: StockpileColors.error500,
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-
-                              // Notes
-                              if (b.notes != null && b.notes!.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Text(
-                                  b.notes!,
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 12,
-                                    color: isDark
-                                        ? StockpileColors.darkTextMuted
-                                        : StockpileColors.mutedText,
-                                  ),
                                 ),
                               ],
-
-                              // Action buttons (only if outstanding)
-                              if (b.outstandingQuantity > 0) ...[
-                                const SizedBox(height: 10),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    OutlinedButton.icon(
-                                      icon: const Icon(
-                                        Icons.assignment_return_rounded,
-                                        size: 18,
-                                      ),
-                                      label: const Text('Return'),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor:
-                                            StockpileColors.success,
-                                      ),
-                                      onPressed: () => _returnItem(b),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    FilledButton.icon(
-                                      icon: const Icon(
-                                        Icons.payments_rounded,
-                                        size: 18,
-                                      ),
-                                      label: const Text('Remit'),
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: Colors.purple,
-                                      ),
-                                      onPressed: () => _remitItem(b),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ],
+                            ),
                           ),
                         ),
                       );
@@ -4288,6 +5038,16 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
         ),
       ],
     );
+  }
+
+  String _formatDateShort(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${dt.month}/${dt.day}/${dt.year}';
   }
 }
 
@@ -4309,11 +5069,15 @@ class _SummaryChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isSelected
+        ? color.withAlpha(120)
+        : (isDark ? StockpileColors.darkDivider : StockpileColors.divider);
     return Expanded(
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: isSelected
@@ -4322,11 +5086,16 @@ class _SummaryChip extends StatelessWidget {
                       ? StockpileColors.darkSurface
                       : StockpileColors.surface),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected
-                  ? color.withAlpha(120)
-                  : StockpileColors.divider,
-            ),
+            border: Border.all(color: borderColor),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: color.withAlpha(30),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
           ),
           child: Column(
             children: [
@@ -4380,11 +5149,15 @@ class _SettledSubChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isSelected
+        ? color.withAlpha(isDark ? 100 : 80)
+        : (isDark ? StockpileColors.darkDivider : StockpileColors.divider);
     return Expanded(
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
             color: isSelected
@@ -4393,11 +5166,7 @@ class _SettledSubChip extends StatelessWidget {
                       ? StockpileColors.darkSurface
                       : StockpileColors.surface),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isSelected
-                  ? color.withAlpha(isDark ? 100 : 80)
-                  : StockpileColors.divider,
-            ),
+            border: Border.all(color: borderColor),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,

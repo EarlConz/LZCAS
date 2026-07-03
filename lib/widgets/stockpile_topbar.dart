@@ -153,18 +153,16 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
 
   Future<void> _load() async {
     try {
+      final threshold = context.read<ConfigService>().lowStockThreshold;
       final results = await Future.wait([
         repository.fetchPendingRequests(),
-        repository.fetchItems(),
+        repository.fetchLowStockItems(threshold),
         repository.fetchOverdueBorrows(),
       ]);
       if (!mounted) return;
       setState(() {
         _requests = results[0] as List<PendingRequest>;
-        final threshold = context.read<ConfigService>().lowStockThreshold;
-        _lowStockItems = (results[1] as List<Item>)
-            .where((i) => i.stock < threshold && i.stock > 0)
-            .toList();
+        _lowStockItems = results[1] as List<Item>;
         _overdueBorrows = results[2] as List<Borrow>;
         _loading = false;
       });
