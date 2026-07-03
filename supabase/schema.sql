@@ -149,6 +149,63 @@ alter table public.member_transactions disable row level security;
 alter table public.pending_requests disable row level security;
 alter table public.reseller_levels disable row level security;
 
+-- ═══════════════════════════════════════════════════════════════════
+-- ── Performance Indexes (safe to re-run) ─────────────────────────
+-- ═══════════════════════════════════════════════════════════════════
+
+-- 1. Tenant isolation (user_id on every table)
+create index if not exists idx_items_user_id on public.items (user_id);
+create index if not exists idx_members_user_id on public.members (user_id);
+create index if not exists idx_sales_user_id on public.sales (user_id);
+create index if not exists idx_borrows_user_id on public.borrows (user_id);
+create index if not exists idx_stock_movements_user_id on public.stock_movements (user_id);
+create index if not exists idx_member_transactions_user_id on public.member_transactions (user_id);
+create index if not exists idx_pending_requests_user_id on public.pending_requests (user_id);
+
+-- 2. Date-range queries (timestamp on sales, borrows, stock_movements)
+create index if not exists idx_sales_timestamp on public.sales (timestamp desc);
+create index if not exists idx_borrows_borrowed_at on public.borrows (borrowed_at desc);
+create index if not exists idx_stock_movements_created_at on public.stock_movements (created_at desc);
+create index if not exists idx_pending_requests_created_at on public.pending_requests (created_at desc);
+
+-- 3. Foreign-key / join lookups
+create index if not exists idx_sales_item_id on public.sales (item_id);
+create index if not exists idx_sales_buyer_id on public.sales (buyer_id);
+create index if not exists idx_borrows_item_id on public.borrows (item_id);
+create index if not exists idx_borrows_member_id on public.borrows (member_id);
+create index if not exists idx_stock_movements_item_id on public.stock_movements (item_id);
+create index if not exists idx_member_transactions_item_id on public.member_transactions (item_id);
+create index if not exists idx_member_transactions_member_id on public.member_transactions (member_id);
+create index if not exists idx_member_transactions_sale_id on public.member_transactions (sale_id);
+create index if not exists idx_members_referrer_id on public.members (referrer_id);
+create index if not exists idx_pending_requests_item_id on public.pending_requests (item_id);
+create index if not exists idx_pending_requests_member_id on public.pending_requests (member_id);
+
+-- 4. Status / type partial indexes (low-cardinality columns — smaller & faster)
+create index if not exists idx_borrows_status_active
+  on public.borrows (status) where status in ('active', 'overdue', 'partially_settled');
+create index if not exists idx_pending_requests_pending
+  on public.pending_requests (status) where status = 'pending';
+
+-- 5. Composite indexes for frequent multi-column filters
+create index if not exists idx_borrows_due_date_status
+  on public.borrows (due_date, status);
+create index if not exists idx_pending_requests_status_created
+  on public.pending_requests (status, created_at desc);
+
+-- 6. Trigram indexes for ILIKE '%search%' — requires pg_trgm extension
+create extension if not exists pg_trgm with schema extensions;
+create index if not exists idx_items_name_trgm
+  on public.items using gin (name extensions.gin_trgm_ops);
+create index if not exists idx_members_last_name_trgm
+  on public.members using gin (last_name extensions.gin_trgm_ops);
+create index if not exists idx_members_first_name_trgm
+  on public.members using gin (first_name extensions.gin_trgm_ops);
+create index if not exists idx_sales_item_name_trgm
+  on public.sales using gin (item_name extensions.gin_trgm_ops);
+create index if not exists idx_sales_buyer_name_trgm
+  on public.sales using gin (buyer_name extensions.gin_trgm_ops);
+
 -- ── First admin setup (run once manually) ────────────────────────
 -- After creating your admin user via Supabase Dashboard → Authentication,
 -- copy the user's UUID and run:

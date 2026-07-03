@@ -152,22 +152,30 @@ class SupabaseRepository {
   }
 
   Future<List<Sale>> fetchSalesForReferrer(int referrerMemberId) async {
-    // Fetch all members whose referrerId matches, then get their sales
-    final allSales = await fetchSales();
+    // Fetch the referrer member to get their name for text matching
     final member = await getMemberById(referrerMemberId);
     if (member == null) return [];
 
     final memberName = '${member.firstName ?? ''} ${member.lastName ?? ''}'
         .trim();
-    final allMembers = await fetchMembers();
-    final referredMembers = allMembers.where(
-      (m) =>
-          m.referrerId == referrerMemberId ||
-          (m.referrer ?? '').trim().toLowerCase() == memberName.toLowerCase(),
-    );
 
-    final referredIds = referredMembers.map((m) => m.id).toSet();
-    return allSales.where((s) => referredIds.contains(s.buyerId)).toList();
+    // Fetch only referred member IDs (not all members)
+    final referredData = await _supabase
+        .from('members')
+        .select('id')
+        .or('referrer_id.eq.$referrerMemberId,referrer.ilike.%$memberName%');
+    final referredIds = (referredData as List)
+        .map((r) => (r['id'] as num).toInt())
+        .toSet();
+
+    if (referredIds.isEmpty) return [];
+
+    // Fetch only sales for referred members using IN filter (server-side)
+    final salesData = await _supabase
+        .from('sales')
+        .select()
+        .inFilter('buyer_id', referredIds.toList());
+    return (salesData as List).map((j) => Sale.fromJson(j)).toList();
   }
 
   Future<Member?> getMemberById(int id) async {
@@ -201,6 +209,17 @@ class SupabaseRepository {
       return (newData as List).map((j) => ResellerLevel.fromJson(j)).toList();
     }
     return levels;
+  }
+
+  /// Fetch only items whose stock is below [threshold] but above 0.
+  /// Used by the notification popover — avoids loading all items.
+  Future<List<Item>> fetchLowStockItems(int threshold) async {
+    final data = await _supabase
+        .from('items')
+        .select()
+        .lt('stock', threshold)
+        .gt('stock', 0);
+    return (data as List).map((j) => Item.fromJson(j)).toList();
   }
 
   // ── Paginated Fetch Methods ──────────────────────────────────────────────
@@ -401,6 +420,53 @@ class SupabaseRepository {
       'previousMonthOrders': previousMonthOrders,
       'lowStockItems': lowStockRows.length,
     };
+  }
+
+  /// Fetch monthly revenue history for the last [months] months.
+  ///
+  /// Returns one entry per month with revenue, transaction count,
+  /// and average ticket size. Missing months are filled with zeros.
+  Future<List<Map<String, dynamic>>> fetchMonthlyRevenueHistory(
+    int months,
+  ) async {
+    final now = DateTime.now();
+    final startDate = DateTime(now.year, now.month - months + 1, 1);
+    final endDate = DateTime(now.year, now.month + 1, 1);
+
+    final data = await _supabase
+        .from('sales')
+        .select('price, timestamp')
+        .gte('timestamp', startDate.toIso8601String())
+        .lt('timestamp', endDate.toIso8601String());
+
+    // Aggregate by YYYY-MM key
+    final Map<String, Map<String, dynamic>> monthly = {};
+    for (final row in (data as List)) {
+      final rowMap = row as Map<String, dynamic>;
+      final ts = DateTime.parse(rowMap['timestamp'] as String);
+      final key =
+          '${ts.year}-${ts.month.toString().padLeft(2, '0')}';
+      monthly.putIfAbsent(
+        key,
+        () => {'month': key, 'revenue': 0, 'transactions': 0},
+      );
+      monthly[key]!['revenue'] =
+          (monthly[key]!['revenue'] as int) +
+          ((rowMap['price'] as int?) ?? 0);
+      monthly[key]!['transactions'] =
+          (monthly[key]!['transactions'] as int) + 1;
+    }
+
+    // Build result with zero-filled missing months
+    final result = <Map<String, dynamic>>[];
+    for (int i = months - 1; i >= 0; i--) {
+      final d = DateTime(now.year, now.month - i, 1);
+      final key = '${d.year}-${d.month.toString().padLeft(2, '0')}';
+      final entry = monthly[key] ??
+          {'month': key, 'revenue': 0, 'transactions': 0};
+      result.add(entry);
+    }
+    return result;
   }
 
   // ── App Config ───────────────────────────────────────────────────────────
@@ -1135,11 +1201,23 @@ class SupabaseRepository {
 
   /// Get the count of pending requests (for notification badge).
   Future<int> fetchPendingCount() async {
-    final data = await _supabase
+    final resp = await _supabase
         .from('pending_requests')
         .select('id')
-        .eq('status', 'pending');
-    return (data as List).length;
+        .eq('status', 'pending')
+        .count(CountOption.exact);
+    return resp.count;
+  }
+
+  /// Get the count of low-stock items (stock > 0 and stock < threshold).
+  Future<int> fetchLowStockCount(int threshold) async {
+    final resp = await _supabase
+        .from('items')
+        .select('id')
+        .lt('stock', threshold)
+        .gt('stock', 0)
+        .count(CountOption.exact);
+    return resp.count;
   }
 
   /// Fetch all non-pending requests (approved and rejected) for history view.
@@ -1175,16 +1253,44 @@ class SupabaseRepository {
     bool sortAscending = false,
   }) async {
     final rangeStart = (page - 1) * pageSize;
-    final rangeEnd = page * pageSize - 1; // inclusive, was off-by-one
+    final rangeEnd = page * pageSize - 1;
 
-    // Run count query in parallel with data query (same pattern as fetchItemsPaginated)
-    dynamic dataQuery = _supabase
-        .from('pending_requests')
-        .select()
+    // Build data and count queries with server-side filters
+    dynamic dataQuery = _supabase.from('pending_requests').select('*');
+    dynamic countQuery = _supabase.from('pending_requests').select('id');
+
+    // Push all filters to the server so pagination is correct
+    if (statusFilter != null &&
+        statusFilter.isNotEmpty &&
+        statusFilter != 'all') {
+      if (statusFilter == 'history') {
+        dataQuery = dataQuery.neq('status', 'pending');
+        countQuery = countQuery.neq('status', 'pending');
+      } else {
+        dataQuery = dataQuery.eq('status', statusFilter);
+        countQuery = countQuery.eq('status', statusFilter);
+      }
+    }
+    if (userIdFilter != null && userIdFilter.isNotEmpty) {
+      dataQuery = dataQuery.eq('user_id', userIdFilter);
+      countQuery = countQuery.eq('user_id', userIdFilter);
+    }
+    if (typeFilter != null && typeFilter.isNotEmpty && typeFilter != 'all') {
+      dataQuery = dataQuery.eq('request_type', typeFilter);
+      countQuery = countQuery.eq('request_type', typeFilter);
+    }
+    if (search != null && search.isNotEmpty) {
+      // Use ILIKE on item_name and member_name via OR filter
+      final orFilter =
+          'item_name.ilike.%$search%,member_name.ilike.%$search%,reason.ilike.%$search%';
+      dataQuery = dataQuery.or(orFilter);
+      countQuery = countQuery.or(orFilter);
+    }
+
+    // Apply order and range AFTER filters
+    dataQuery = dataQuery
         .order(sortColumn, ascending: sortAscending)
         .range(rangeStart, rangeEnd);
-
-    dynamic countQuery = _supabase.from('pending_requests').select('id');
 
     final results = await Future.wait<dynamic>([
       countQuery.count(CountOption.exact),
@@ -1192,37 +1298,12 @@ class SupabaseRepository {
     ]);
 
     final totalCount = (results[0] as PostgrestResponse).count;
-    var all = (results[1] as List)
+    final rows = (results[1] as List)
         .map((j) => PendingRequest.fromJson(j as Map<String, dynamic>))
         .toList();
 
-    // Apply filters client-side for now (same SQL would require dynamic chaining)
-    if (statusFilter != null &&
-        statusFilter.isNotEmpty &&
-        statusFilter != 'all') {
-      if (statusFilter == 'history') {
-        all = all.where((r) => r.status != 'pending').toList();
-      } else {
-        all = all.where((r) => r.status == statusFilter).toList();
-      }
-    }
-    if (userIdFilter != null && userIdFilter.isNotEmpty) {
-      all = all.where((r) => r.userId == userIdFilter).toList();
-    }
-    if (typeFilter != null && typeFilter.isNotEmpty && typeFilter != 'all') {
-      all = all.where((r) => r.requestType == typeFilter).toList();
-    }
-    if (search != null && search.isNotEmpty) {
-      final s = search.toLowerCase();
-      all = all.where((r) {
-        return (r.itemName?.toLowerCase().contains(s) ?? false) ||
-            (r.memberName?.toLowerCase().contains(s) ?? false) ||
-            (r.reason?.toLowerCase().contains(s) ?? false);
-      }).toList();
-    }
-
     return PageResult(
-      rows: all.take(pageSize).toList(),
+      rows: rows,
       totalCount: totalCount,
       page: page,
       pageSize: pageSize,
@@ -1310,7 +1391,8 @@ class SupabaseRepository {
         );
       }
     } catch (e) {
-      return e.toString().replaceFirst('Exception: ', '');
+      print('[Stockpile] approveRequest failed: $e');
+      return _friendlyError(e);
     }
 
     // Mark as approved
@@ -1457,7 +1539,8 @@ class SupabaseRepository {
       _changes.add('member_transactions_committed');
       return null;
     } catch (e) {
-      return e.toString();
+      print('[Stockpile] recordMemberTransactions failed: $e');
+      return _friendlyError(e);
     }
   }
 
@@ -1534,7 +1617,8 @@ class SupabaseRepository {
 
       return null;
     } catch (e) {
-      return e.toString();
+      print('[Stockpile] editSaleGroup failed: $e');
+      return _friendlyError(e);
     }
   }
 
@@ -1750,6 +1834,22 @@ class SupabaseRepository {
   Future<String> exportSalesCsv() => exportSalesCsvString();
 
   // ── Private Helpers ──────────────────────────────────────────────────────
+
+  /// Converts a raw exception into a user-friendly error message.
+  /// Prevents leaking technical details like ClientException / SocketException.
+  String _friendlyError(Object e) {
+    final msg = e.toString();
+    if (msg.contains('SocketException') || msg.contains('ClientException')) {
+      return 'Unable to connect. Check your internet connection.';
+    }
+    if (msg.contains('TimeoutException')) {
+      return 'Request timed out. Please try again.';
+    }
+    if (msg.contains('AuthException') || msg.contains('401')) {
+      return 'Session expired. Please log in again.';
+    }
+    return 'Something went wrong. Please try again.';
+  }
 
   Future<void> _seedDefaultLevels() async {
     final defaults = [

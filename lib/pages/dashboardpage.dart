@@ -9,6 +9,7 @@ import '../widgets/metric_card.dart';
 import '../widgets/mini_bar_chart.dart';
 import '../widgets/mini_donut_chart.dart';
 import '../widgets/mini_line_chart.dart';
+import '../widgets/monthly_revenue_view.dart';
 import '../services/config_service.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -28,6 +29,7 @@ class _DashboardPageState extends State<DashboardPage> {
   List<Map<String, dynamic>> topProducts = [];
   List<double> revenueTrend = [];
   List<double> lowStockTrend = [];
+  List<Map<String, dynamic>> monthlyHistory = [];
 
   @override
   void initState() {
@@ -36,62 +38,46 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _loadStats() async {
-    final items = await repository.fetchItems();
-    final sales = await repository.fetchSales();
-    if (!mounted) return;
     final now = DateTime.now();
-    final thisMonth = DateTime(now.year, now.month, 1);
-    final lastMonth = DateTime(now.year, now.month - 1, 1);
-
-    monthlyRevenue = sales
-        .where((s) => s.timestamp != null)
-        .where(
-          (s) =>
-              s.timestamp!.isAfter(thisMonth.subtract(const Duration(days: 1))),
-        )
-        .fold(0, (sum, s) => sum + s.price);
-
-    previousMonthRevenue = sales
-        .where((s) => s.timestamp != null)
-        .where(
-          (s) =>
-              s.timestamp!.isAfter(
-                lastMonth.subtract(const Duration(days: 1)),
-              ) &&
-              s.timestamp!.isBefore(thisMonth),
-        )
-        .fold(0, (sum, s) => sum + s.price);
-
-    final thisMonthSales = sales
-        .where((s) => s.timestamp != null)
-        .where(
-          (s) =>
-              s.timestamp!.isAfter(thisMonth.subtract(const Duration(days: 1))),
-        )
-        .toList();
-    activeOrders = thisMonthSales.length;
-
-    final lastMonthSales = sales
-        .where((s) => s.timestamp != null)
-        .where(
-          (s) =>
-              s.timestamp!.isAfter(
-                lastMonth.subtract(const Duration(days: 1)),
-              ) &&
-              s.timestamp!.isBefore(thisMonth),
-        )
-        .toList();
-    previousMonthOrders = lastMonthSales.length;
-
+    final thisMonthStart = DateTime(now.year, now.month, 1);
+    final nextMonth = DateTime(now.year, now.month + 1, 1);
+    final lastMonthStart = DateTime(now.year, now.month - 1, 1);
     final threshold = context.read<ConfigService>().lowStockThreshold;
-    lowStockItems = items
-        .where((i) => i.stock < threshold && i.stock > 0)
-        .length;
 
+    // ── 1. Main metrics via server-side aggregate query ─────────────
+    final stats = await repository.fetchDashboardStats(
+      thisMonthStart: thisMonthStart,
+      thisMonthEnd: nextMonth,
+      lastMonthStart: lastMonthStart,
+      lastMonthEnd: thisMonthStart,
+      lowStockThreshold: threshold,
+    );
+
+    if (!mounted) return;
+    monthlyRevenue = stats['monthlyRevenue'] as int;
+    activeOrders = stats['activeOrders'] as int;
+    previousMonthRevenue = stats['previousMonthRevenue'] as int;
+    previousMonthOrders = stats['previousMonthOrders'] as int;
+    lowStockItems = stats['lowStockItems'] as int;
+
+    // ── 2. This month's sales + items (date-scoped, not all-time) ──
+    final results = await Future.wait([
+      repository.fetchSalesBetween(thisMonthStart, nextMonth),
+      repository
+          .fetchItems(), // items table is small; categories are only on items
+    ]);
+    if (!mounted) return;
+
+    final thisMonthSales = results[0] as List<Sale>;
+    final items = results[1] as List<Item>;
+
+    // ── 3. Category revenue breakdown ───────────────────────────────
     final Map<String, int> catRevenue = {};
     for (final s in thisMonthSales) {
       final item = items.where((i) => i.id == s.itemId).firstOrNull;
-      final cat = item?.category ?? 'Uncategorized';
+      final cat = item?.category?.isNotEmpty == true
+          ? item!.category!
+          : 'Uncategorized';
       catRevenue[cat] = (catRevenue[cat] ?? 0) + s.price;
     }
     categoryRevenue =
@@ -102,6 +88,7 @@ class _DashboardPageState extends State<DashboardPage> {
             (a, b) => (b['revenue'] as int).compareTo(a['revenue'] as int),
           );
 
+    // ── 4. Top products (this month only) ───────────────────────────
     final Map<int, Map<String, dynamic>> productAgg = {};
     for (final s in thisMonthSales) {
       productAgg[s.itemId] = {
@@ -117,22 +104,24 @@ class _DashboardPageState extends State<DashboardPage> {
       );
     topProducts = topProducts.take(5).toList();
 
-    revenueTrend = List.generate(6, (i) {
+    // ── 5. Monthly revenue history (single query, client-aggregated)
+    monthlyHistory = await repository.fetchMonthlyRevenueHistory(12);
+
+    // ── 6. 6-month revenue trend for mini chart ─────────────────────
+    if (!mounted) return;
+    revenueTrend = [];
+    for (int i = 5; i >= 0; i--) {
       final monthStart = DateTime(now.year, now.month - i, 1);
       final monthEnd = DateTime(now.year, now.month - i + 1, 1);
-      return sales
-          .where((s) => s.timestamp != null)
-          .where(
-            (s) =>
-                s.timestamp!.isAfter(
-                  monthStart.subtract(const Duration(days: 1)),
-                ) &&
-                s.timestamp!.isBefore(monthEnd),
-          )
-          .fold<double>(0, (sum, s) => sum + s.price)
-          .toDouble();
-    }).reversed.toList();
+      final monthSales = await repository.fetchSalesBetween(
+        monthStart,
+        monthEnd,
+      );
+      final sum = monthSales.fold<double>(0, (s, sale) => s + sale.price);
+      revenueTrend.add(sum);
+    }
 
+    // ── 7. Low stock trend (snapshot of current state) ──────────────
     lowStockTrend = List.generate(6, (_) => lowStockItems.toDouble());
 
     if (mounted) setState(() {});
@@ -174,6 +163,12 @@ class _DashboardPageState extends State<DashboardPage> {
             _buildProductsTableCompact(isDark),
           ] else
             _buildChartAndProductsRow(isDark),
+          const SizedBox(height: 32),
+          MonthlyRevenueView(
+            data: monthlyHistory,
+            currencySymbol:
+                context.read<ConfigService>().currencySymbol,
+          ),
         ],
       ),
     );
