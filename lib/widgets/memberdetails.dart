@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
@@ -264,6 +265,87 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     );
   }
 
+  void _showCreateAccountDialog() {
+    final memberId = (member['id'] ?? 0) as int;
+    final name = [
+      member['firstName'],
+      member['lastName'],
+    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+    final emailCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Create Login Account'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Create a login account for $name.'),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: emailCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty || !v.contains('@'))
+                    ? 'Enter a valid email'
+                    : null,
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: passwordCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+              Navigator.pop(ctx);
+              final result = await repository.createMemberAuthAccount(
+                memberId: memberId,
+                email: emailCtrl.text.trim(),
+                password: passwordCtrl.text,
+              );
+              if (!mounted) return;
+              if (result != null) {
+                setState(() {
+                  member['email'] = result['email'];
+                });
+                BotToast.showText(
+                  text:
+                      'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
+                );
+              } else {
+                BotToast.showText(text: 'Failed to create account.');
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -284,6 +366,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
                 _showIdImagePreview(path);
               }
             },
+            onCreateAccount: _showCreateAccountDialog,
           );
         },
       );
@@ -318,6 +401,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
                 _showIdImagePreview(path);
               }
             },
+            onCreateAccount: _showCreateAccountDialog,
           );
         },
       ),
@@ -332,6 +416,7 @@ class _MemberProfileSection extends StatelessWidget {
     this.referralCount = 0,
     this.showHeader = true,
     this.onIdImageTap,
+    this.onCreateAccount,
   });
 
   final Map<String, dynamic> member;
@@ -339,6 +424,7 @@ class _MemberProfileSection extends StatelessWidget {
   final int referralCount;
   final bool showHeader;
   final VoidCallback? onIdImageTap;
+  final VoidCallback? onCreateAccount;
 
   @override
   Widget build(BuildContext context) {
@@ -532,6 +618,22 @@ class _MemberProfileSection extends StatelessWidget {
               ),
             ),
           ),
+        // ── Create Account button (if no login account yet) ─────
+        if ((member['email']?.toString() ?? '').isEmpty &&
+            onCreateAccount != null) ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onCreateAccount,
+              icon: const Icon(Icons.person_add_rounded, size: 18),
+              label: const Text('Create Login Account'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: StockpileColors.primary900,
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {

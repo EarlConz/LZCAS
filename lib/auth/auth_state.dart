@@ -14,7 +14,9 @@ enum AuthStatus { unauthenticated, authenticating, authenticated, authError }
 enum UserRole {
   admin('Admin'),
   inventory('Inventory'),
-  cashier('Cashier');
+  cashier('Cashier'),
+  member('Member'),
+  reseller('Reseller');
 
   final String displayName;
   const UserRole(this.displayName);
@@ -27,6 +29,10 @@ enum UserRole {
         return UserRole.inventory;
       case 'cashier':
         return UserRole.cashier;
+      case 'member':
+        return UserRole.member;
+      case 'reseller':
+        return UserRole.reseller;
       default:
         throw ArgumentError('Unknown role: $raw');
     }
@@ -382,6 +388,49 @@ class AuthState extends ChangeNotifier {
       return false;
     } catch (e) {
       _error = 'Could not delete user: $e';
+      return false;
+    }
+  }
+
+  // ── Update User ──────────────────────────────────────────────────────────
+
+  /// Updates an existing user. Only admins can call this.
+  /// [userId] — the UUID of the user to update.
+  /// [password] — optional new password (min 6 chars).
+  /// [role] — optional new role.
+  /// [username] — optional new username (updates profiles.username).
+  /// [email] — optional new email (updates auth.email and profiles.email).
+  Future<bool> updateUser({
+    required String userId,
+    String? password,
+    UserRole? role,
+    String? username,
+    String? email,
+  }) async {
+    if (_userRole != UserRole.admin) {
+      _error = 'Only admins can update users.';
+      return false;
+    }
+    try {
+      final body = <String, dynamic>{'user_id': userId};
+      if (password != null && password.isNotEmpty) body['password'] = password;
+      if (role != null) body['role'] = role.name;
+      if (username != null && username.isNotEmpty) body['username'] = username;
+      if (email != null && email.isNotEmpty) body['email'] = email;
+
+      final result = await _sb.functions.invoke('update-user', body: body);
+      if (result.status == 200) return true;
+
+      if (result.data is Map) {
+        _error =
+            (result.data as Map)['error']?.toString() ??
+            'Failed to update user (status ${result.status}).';
+      } else {
+        _error = 'Failed to update user (status ${result.status}).';
+      }
+      return false;
+    } catch (e) {
+      _error = 'Could not update user: $e';
       return false;
     }
   }

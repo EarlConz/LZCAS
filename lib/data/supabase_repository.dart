@@ -4,8 +4,8 @@
 
 import 'dart:async';
 import 'dart:math';
-import 'dart:typed_data';
 import 'package:csv/csv.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'models.dart';
 
@@ -129,6 +129,48 @@ class SupabaseRepository {
     return (data as List).map((j) => Member.fromJson(j)).toList();
   }
 
+  /// Fetch the member record linked to an auth user via profiles.member_id.
+  Future<Member?> fetchMemberByAuthUserId(String authUserId) async {
+    final profile = await _supabase
+        .from('profiles')
+        .select('member_id')
+        .eq('id', authUserId)
+        .maybeSingle();
+    if (profile == null) return null;
+    final memberId = profile['member_id'] as int?;
+    if (memberId == null) return null;
+    return getMemberById(memberId);
+  }
+
+  /// Fetch all verified resellers with their stats for the rankings tab.
+  Future<List<Map<String, dynamic>>> fetchAllResellers() async {
+    final members = await _supabase
+        .from('members')
+        .select()
+        .eq('role', 'Verified Reseller')
+        .order('level', ascending: false);
+    final results = <Map<String, dynamic>>[];
+    for (final m in (members as List)) {
+      final id = m['id'] as int? ?? 0;
+      final boxes = await getTotalRemittedBoxes(id);
+      final earnings = await fetchMemberEarnings(id);
+      results.add({
+        'id': id,
+        'name': '${m['first_name'] ?? ''} ${m['last_name'] ?? ''}'.trim(),
+        'level': m['level'] as int? ?? 1,
+        'boxes': boxes,
+        'earnings': earnings,
+      });
+    }
+    // Sort by level desc then boxes desc (preserving the DB order + custom logic)
+    results.sort((a, b) {
+      final levelCmp = (b['level'] as int).compareTo(a['level'] as int);
+      if (levelCmp != 0) return levelCmp;
+      return (b['boxes'] as int).compareTo(a['boxes'] as int);
+    });
+    return results;
+  }
+
   Future<List<Sale>> fetchSales() async {
     final data = await _supabase.from('sales').select();
     return (data as List).map((j) => Sale.fromJson(j)).toList();
@@ -148,6 +190,21 @@ class SupabaseRepository {
         .from('sales')
         .select()
         .eq('buyer_id', memberId);
+    return (data as List).map((j) => Sale.fromJson(j)).toList();
+  }
+
+  /// Fetch purchase history for a member (sales where they were the buyer).
+  Future<List<Sale>> fetchMemberPurchaseHistory(
+    int memberId, {
+    int? limit,
+  }) async {
+    var query = _supabase
+        .from('sales')
+        .select()
+        .eq('buyer_id', memberId)
+        .order('timestamp', ascending: false);
+    if (limit != null) query = query.limit(limit);
+    final data = await query;
     return (data as List).map((j) => Sale.fromJson(j)).toList();
   }
 
@@ -198,14 +255,25 @@ class SupabaseRepository {
     return Item.fromJson(data);
   }
 
-  Future<List<ResellerLevel>> fetchResellerLevels() async {
-    final data = await _supabase.from('reseller_levels').select();
+  Future<List<ResellerLevel>> fetchResellerLevels({
+    String? tenantUserId,
+  }) async {
+    final uid = tenantUserId ?? _uid;
+    final data = await _supabase
+        .from('reseller_levels')
+        .select()
+        .eq('user_id', uid)
+        .order('level');
     final levels = (data as List)
         .map((j) => ResellerLevel.fromJson(j))
         .toList();
     if (levels.isEmpty) {
-      await _seedDefaultLevels();
-      final newData = await _supabase.from('reseller_levels').select();
+      await _seedDefaultLevels(tenantUserId: tenantUserId);
+      final newData = await _supabase
+          .from('reseller_levels')
+          .select()
+          .eq('user_id', uid)
+          .order('level');
       return (newData as List).map((j) => ResellerLevel.fromJson(j)).toList();
     }
     return levels;
@@ -444,15 +512,13 @@ class SupabaseRepository {
     for (final row in (data as List)) {
       final rowMap = row as Map<String, dynamic>;
       final ts = DateTime.parse(rowMap['timestamp'] as String);
-      final key =
-          '${ts.year}-${ts.month.toString().padLeft(2, '0')}';
+      final key = '${ts.year}-${ts.month.toString().padLeft(2, '0')}';
       monthly.putIfAbsent(
         key,
         () => {'month': key, 'revenue': 0, 'transactions': 0},
       );
       monthly[key]!['revenue'] =
-          (monthly[key]!['revenue'] as int) +
-          ((rowMap['price'] as int?) ?? 0);
+          (monthly[key]!['revenue'] as int) + ((rowMap['price'] as int?) ?? 0);
       monthly[key]!['transactions'] =
           (monthly[key]!['transactions'] as int) + 1;
     }
@@ -462,8 +528,8 @@ class SupabaseRepository {
     for (int i = months - 1; i >= 0; i--) {
       final d = DateTime(now.year, now.month - i, 1);
       final key = '${d.year}-${d.month.toString().padLeft(2, '0')}';
-      final entry = monthly[key] ??
-          {'month': key, 'revenue': 0, 'transactions': 0};
+      final entry =
+          monthly[key] ?? {'month': key, 'revenue': 0, 'transactions': 0};
       result.add(entry);
     }
     return result;
@@ -675,6 +741,9 @@ class SupabaseRepository {
       price: borrow.price,
       buyerId: borrow.memberId,
     );
+
+    // Auto-level-up: check if reseller now qualifies for a higher level
+    await _autoLevelUp(borrow.memberId);
 
     _changes.add('borrow_updated');
     return true;
@@ -947,6 +1016,50 @@ class SupabaseRepository {
     return true;
   }
 
+  /// Create a Supabase Auth account for an existing member.
+  /// Calls the create-member-user edge function and updates the member's email.
+  /// Returns a map with {email, password, id} on success, or null on failure.
+  Future<Map<String, dynamic>?> createMemberAuthAccount({
+    required int memberId,
+    required String email,
+    required String password,
+  }) async {
+    final member = await getMemberById(memberId);
+    if (member == null) return null;
+
+    try {
+      final result = await _supabase.functions.invoke(
+        'create-member-user',
+        body: {
+          'email': email,
+          'password': password,
+          'member_id': memberId,
+          'member_name': '${member.firstName ?? ''} ${member.lastName ?? ''}'
+              .trim(),
+          'role': (member.role == 'Verified Reseller') ? 'reseller' : 'member',
+        },
+      );
+
+      if (result.status == 200 && result.data is Map) {
+        final data = result.data as Map;
+        if (data['success'] == true) {
+          // Update the member record with the email locally
+          final updated = member.copyWith(email: email);
+          await updateMember(updated);
+          return {
+            'email': email,
+            'password': password,
+            'id': data['id'] as String? ?? '',
+          };
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('[createMemberAuthAccount] error: $e');
+      return null;
+    }
+  }
+
   Future<bool> setMemberLevel(int memberId, int level) async {
     final member = await getMemberById(memberId);
     if (member == null) return false;
@@ -955,11 +1068,73 @@ class SupabaseRepository {
     return true;
   }
 
+  /// Compute the total number of boxes this reseller has ever remitted
+  /// across all borrows (settled or not).
+  Future<int> getTotalRemittedBoxes(int memberId) async {
+    final data = await _supabase
+        .from('borrows')
+        .select('quantity_remitted')
+        .eq('member_id', memberId);
+    if (data == null || (data as List).isEmpty) return 0;
+    var total = 0;
+    for (final row in data) {
+      total += (row['quantity_remitted'] as int? ?? 0);
+    }
+    return total;
+  }
+
+  /// Compute total remitted earnings for a member.
+  /// Sum of (quantity_remitted × price) across all borrows.
+  Future<int> fetchMemberEarnings(int memberId) async {
+    final data = await _supabase
+        .from('borrows')
+        .select('quantity_remitted, price')
+        .eq('member_id', memberId);
+    if (data == null || (data as List).isEmpty) return 0;
+    var total = 0;
+    for (final row in data) {
+      final qty = row['quantity_remitted'] as int? ?? 0;
+      final price = row['price'] as int? ?? 0;
+      total += qty * price;
+    }
+    return total;
+  }
+
+  /// Automatically level up a reseller if their total remitted boxes
+  /// meet the threshold for a higher level. Returns the new level (or
+  /// current level if no change).
+  Future<int> _autoLevelUp(int memberId) async {
+    final member = await getMemberById(memberId);
+    if (member == null) return 1;
+    // Only auto-level verified resellers
+    if ((member.role ?? '') != 'Verified Reseller') return member.level;
+
+    final totalBoxes = await getTotalRemittedBoxes(memberId);
+    final levels = await fetchResellerLevels();
+
+    // Find the highest level whose boxes_required <= totalBoxes
+    int newLevel = member.level;
+    for (final lvl in levels) {
+      if (totalBoxes >= lvl.boxesRequired && lvl.level > newLevel) {
+        newLevel = lvl.level;
+      }
+    }
+
+    if (newLevel > member.level) {
+      final updated = member.copyWith(level: newLevel);
+      await updateMember(updated);
+      _changes.add('reseller_level_up');
+    }
+
+    return newLevel;
+  }
+
   Future<void> upsertResellerLevel({
     required int level,
     required int remittanceMin,
     required int remittanceMax,
     required int cashAdvance,
+    required int boxesRequired,
   }) async {
     await _supabase.from('reseller_levels').upsert({
       'level': level,
@@ -967,6 +1142,7 @@ class SupabaseRepository {
       'remittance_min': remittanceMin,
       'remittance_max': remittanceMax,
       'cash_advance': cashAdvance,
+      'boxes_required': boxesRequired,
     });
     _changes.add('reseller_levels_updated');
   }
@@ -1851,26 +2027,28 @@ class SupabaseRepository {
     return 'Something went wrong. Please try again.';
   }
 
-  Future<void> _seedDefaultLevels() async {
+  Future<void> _seedDefaultLevels({String? tenantUserId}) async {
+    final uid = tenantUserId ?? _uid;
     final defaults = [
-      (level: 1, remMin: 500, remMax: 500, ca: 0),
-      (level: 2, remMin: 800, remMax: 1000, ca: 100),
-      (level: 3, remMin: 1700, remMax: 2100, ca: 200),
-      (level: 4, remMin: 3400, remMax: 4200, ca: 400),
-      (level: 5, remMin: 6800, remMax: 8400, ca: 800),
-      (level: 6, remMin: 13600, remMax: 16800, ca: 1600),
-      (level: 7, remMin: 27200, remMax: 33600, ca: 3200),
-      (level: 8, remMin: 54400, remMax: 67200, ca: 6400),
-      (level: 9, remMin: 108800, remMax: 134400, ca: 12800),
-      (level: 10, remMin: 217600, remMax: 268800, ca: 25600),
+      (level: 1, remMin: 500, remMax: 500, ca: 0, boxes: 0),
+      (level: 2, remMin: 800, remMax: 1000, ca: 100, boxes: 10),
+      (level: 3, remMin: 1700, remMax: 2100, ca: 200, boxes: 50),
+      (level: 4, remMin: 3400, remMax: 4200, ca: 400, boxes: 150),
+      (level: 5, remMin: 6800, remMax: 8400, ca: 800, boxes: 300),
+      (level: 6, remMin: 13600, remMax: 16800, ca: 1600, boxes: 500),
+      (level: 7, remMin: 27200, remMax: 33600, ca: 3200, boxes: 800),
+      (level: 8, remMin: 54400, remMax: 67200, ca: 6400, boxes: 1200),
+      (level: 9, remMin: 108800, remMax: 134400, ca: 12800, boxes: 1800),
+      (level: 10, remMin: 217600, remMax: 268800, ca: 25600, boxes: 2500),
     ];
     for (final d in defaults) {
       await _supabase.from('reseller_levels').upsert({
         'level': d.level,
-        'user_id': _uid,
+        'user_id': uid,
         'remittance_min': d.remMin,
         'remittance_max': d.remMax,
         'cash_advance': d.ca,
+        'boxes_required': d.boxes,
       });
     }
   }

@@ -78,6 +78,7 @@ class Member {
   final String? idType;
   final String? idNumber;
   final String? idImagePath;
+  final String? email;
   final int level;
   final String? userId;
 
@@ -96,6 +97,7 @@ class Member {
     this.idType,
     this.idNumber,
     this.idImagePath,
+    this.email,
     this.level = 1,
     this.userId,
   });
@@ -115,6 +117,7 @@ class Member {
     idType: json['id_type'] as String?,
     idNumber: json['id_number'] as String?,
     idImagePath: json['id_image_path'] as String?,
+    email: json['email'] as String?,
     level: json['level'] as int? ?? 1,
     userId: json['user_id'] as String?,
   );
@@ -133,6 +136,7 @@ class Member {
     if (idType != null) 'id_type': idType,
     if (idNumber != null) 'id_number': idNumber,
     if (idImagePath != null) 'id_image_path': idImagePath,
+    if (email != null) 'email': email,
     'level': level,
     if (userId != null) 'user_id': userId,
   };
@@ -152,6 +156,7 @@ class Member {
     String? idType,
     String? idNumber,
     String? idImagePath,
+    String? email,
     int? level,
     String? userId,
   }) => Member(
@@ -169,6 +174,7 @@ class Member {
     idType: idType ?? this.idType,
     idNumber: idNumber ?? this.idNumber,
     idImagePath: idImagePath ?? this.idImagePath,
+    email: email ?? this.email,
     level: level ?? this.level,
     userId: userId ?? this.userId,
   );
@@ -252,6 +258,7 @@ class ResellerLevel {
   final int remittanceMin;
   final int remittanceMax;
   final int cashAdvance;
+  final int boxesRequired;
   final String? userId;
 
   const ResellerLevel({
@@ -259,6 +266,7 @@ class ResellerLevel {
     this.remittanceMin = 0,
     this.remittanceMax = 0,
     this.cashAdvance = 0,
+    this.boxesRequired = 0,
     this.userId,
   });
 
@@ -267,6 +275,7 @@ class ResellerLevel {
     remittanceMin: json['remittance_min'] as int? ?? 0,
     remittanceMax: json['remittance_max'] as int? ?? 0,
     cashAdvance: json['cash_advance'] as int? ?? 0,
+    boxesRequired: json['boxes_required'] as int? ?? 0,
     userId: json['user_id'] as String?,
   );
 
@@ -275,6 +284,7 @@ class ResellerLevel {
     'remittance_min': remittanceMin,
     'remittance_max': remittanceMax,
     'cash_advance': cashAdvance,
+    'boxes_required': boxesRequired,
     if (userId != null) 'user_id': userId,
   };
 }
@@ -516,7 +526,8 @@ class UserProfile {
   final String username;
   final String?
   email; // auth.users.email — populated via handle_new_user trigger
-  final String role; // admin, inventory, cashier
+  final String role; // admin, inventory, cashier, member, reseller
+  final int? memberId; // links to members.id for member/reseller roles
   final DateTime? createdAt;
 
   const UserProfile({
@@ -524,6 +535,7 @@ class UserProfile {
     required this.username,
     this.email,
     this.role = 'cashier',
+    this.memberId,
     this.createdAt,
   });
 
@@ -532,6 +544,7 @@ class UserProfile {
     username: json['username'] as String? ?? '',
     email: json['email'] as String?,
     role: json['role'] as String? ?? 'cashier',
+    memberId: json['member_id'] as int?,
     createdAt: json['created_at'] != null
         ? DateTime.tryParse(json['created_at'].toString())
         : null,
@@ -542,6 +555,7 @@ class UserProfile {
     'username': username,
     'role': role,
     if (email != null) 'email': email,
+    if (memberId != null) 'member_id': memberId,
     if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
   };
 }

@@ -102,4 +102,10 @@ extension UserRolePermissions on UserRole {
   /// Returns true if this role can request stock borrowing.
   bool get canRequestBorrowStock =>
       this == UserRole.admin || this == UserRole.cashier;
+
+  /// Returns true if this is a member-facing role (member or reseller).
+  bool get isMemberRole => this == UserRole.member || this == UserRole.reseller;
+
+  /// Returns true if this role is a verified reseller.
+  bool get isReseller => this == UserRole.reseller;
 }

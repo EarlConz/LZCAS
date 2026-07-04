@@ -15,6 +15,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final Map<int, TextEditingController> _remMinCtls = {};
   final Map<int, TextEditingController> _remMaxCtls = {};
   final Map<int, TextEditingController> _cashAdvCtls = {};
+  final Map<int, TextEditingController> _boxesReqCtls = {};
 
   @override
   void initState() {
@@ -28,6 +29,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ..._remMinCtls.values,
       ..._remMaxCtls.values,
       ..._cashAdvCtls.values,
+      ..._boxesReqCtls.values,
     ]) {
       c.dispose();
     }
@@ -36,16 +38,20 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadLevels() async {
     final rows = await repository.fetchResellerLevels();
+    // Ensure ascending order (Level 1 first)
+    rows.sort((a, b) => a.level.compareTo(b.level));
     for (final c in [
       ..._remMinCtls.values,
       ..._remMaxCtls.values,
       ..._cashAdvCtls.values,
+      ..._boxesReqCtls.values,
     ]) {
       c.dispose();
     }
     _remMinCtls.clear();
     _remMaxCtls.clear();
     _cashAdvCtls.clear();
+    _boxesReqCtls.clear();
     for (final r in rows) {
       _remMinCtls[r.level] = TextEditingController(
         text: r.remittanceMin.toString(),
@@ -55,6 +61,9 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       _cashAdvCtls[r.level] = TextEditingController(
         text: r.cashAdvance.toString(),
+      );
+      _boxesReqCtls[r.level] = TextEditingController(
+        text: r.boxesRequired.toString(),
       );
     }
     setState(() {
@@ -70,6 +79,7 @@ class _SettingsPageState extends State<SettingsPage> {
         remittanceMin: int.tryParse(_remMinCtls[lvl.level]?.text ?? '0') ?? 0,
         remittanceMax: int.tryParse(_remMaxCtls[lvl.level]?.text ?? '0') ?? 0,
         cashAdvance: int.tryParse(_cashAdvCtls[lvl.level]?.text ?? '0') ?? 0,
+        boxesRequired: int.tryParse(_boxesReqCtls[lvl.level]?.text ?? '0') ?? 0,
       );
     }
     if (!mounted) return;
@@ -165,6 +175,18 @@ class _SettingsPageState extends State<SettingsPage> {
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(
                                 labelText: 'Cash Advance',
+                                isDense: true,
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: _boxesReqCtls[lvl.level],
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Boxes to Level Up',
                                 isDense: true,
                                 border: OutlineInputBorder(),
                               ),

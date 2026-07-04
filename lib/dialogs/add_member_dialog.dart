@@ -29,11 +29,14 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final addressController = TextEditingController();
   final idNumberController = TextEditingController();
   final referrerSearchController = TextEditingController();
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
   List<Member> _members = [];
   Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
   String? _selectedIdType;
   String? _selectedIdImagePath;
+  bool _createAccount = false;
 
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
@@ -157,6 +160,8 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     addressController.dispose();
     idNumberController.dispose();
     referrerSearchController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
     super.dispose();
   }
 
@@ -381,6 +386,48 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               ),
 
               const SizedBox(height: 24),
+              // ── Account section ───────────────────────────
+              _sectionLabel('Account (Optional)', theme, colorScheme),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Text('Create login account for this member'),
+                  const Spacer(),
+                  Switch(
+                    value: _createAccount,
+                    onChanged: (v) => setState(() => _createAccount = v),
+                  ),
+                ],
+              ),
+              if (_createAccount) ...[
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: emailController,
+                  decoration: InputDecoration(
+                    labelText: 'Email',
+                    hintText: 'member@example.com',
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: passwordController,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    hintText: 'Enter a password',
+                    prefixIcon: const Icon(Icons.lock_outlined),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  obscureText: true,
+                ),
+              ],
+              const SizedBox(height: 24),
               // ── Referrer section ──────────────────────────
               _sectionLabel('Referral', theme, colorScheme),
               const SizedBox(height: 12),
@@ -525,6 +572,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           ? null
           : idNumberController.text.trim(),
       'idImagePath': _selectedIdImagePath,
+      'createAccount': _createAccount,
+      'email': _createAccount ? emailController.text.trim() : null,
+      'password': _createAccount ? passwordController.text : null,
     };
 
     widget.onMemberAdded(newMember);
