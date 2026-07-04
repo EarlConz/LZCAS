@@ -1043,14 +1043,13 @@ class SupabaseRepository {
       if (result.status == 200 && result.data is Map) {
         final data = result.data as Map;
         if (data['success'] == true) {
-          // Update the member record with the email locally
+          // Update the member record with the email locally.
+          // Note: user_id on the members table is the staff creator's ID,
+          // not the member's auth ID — so only update email here.
+          final authUserId = data['id'] as String? ?? '';
           final updated = member.copyWith(email: email);
           await updateMember(updated);
-          return {
-            'email': email,
-            'password': password,
-            'id': data['id'] as String? ?? '',
-          };
+          return {'email': email, 'password': password, 'id': authUserId};
         }
       }
       return null;

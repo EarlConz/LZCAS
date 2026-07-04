@@ -330,6 +330,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
               if (result != null) {
                 setState(() {
                   member['email'] = result['email'];
+                  member['user_id'] = result['id'];
                 });
                 BotToast.showText(
                   text:
@@ -445,7 +446,7 @@ class _MemberProfileSection extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: StockpileColors.primary900.withAlpha(25),
+                  color: theme.colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(14),
                 ),
                 alignment: Alignment.center,
@@ -454,7 +455,7 @@ class _MemberProfileSection extends StatelessWidget {
                   style: StockpileFonts.satoshi(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
-                    color: StockpileColors.primary900,
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -500,31 +501,14 @@ class _MemberProfileSection extends StatelessWidget {
           ),
           const SizedBox(height: 20),
         ],
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _InfoPill(
-              icon: Icons.badge_outlined,
-              label: 'Role',
-              value: (member['idImagePath']?.toString() ?? '').isNotEmpty
-                  ? 'Verified Reseller'
-                  : (member['role'] ?? 'Member').toString(),
-            ),
-            if ((member['role'] ?? '') == 'Verified Reseller')
-              _InfoPill(
-                icon: Icons.stars_outlined,
-                label: 'Level',
-                value: (member['level'] ?? 1).toString(),
-              ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _DetailLine(
-          icon: Icons.phone_outlined,
-          label: 'Contact',
-          value: member['contactNo'],
-        ),
+
+        // ── Key Details card ──────────────────────────────
+        _buildKeyDetailsCard(theme),
+        const SizedBox(height: 16),
+
+        // ── Personal Info section ─────────────────────────
+        _SectionHeader(icon: Icons.person_outline, title: 'Personal Info'),
+        const SizedBox(height: 8),
         _DetailLine(
           icon: Icons.cake_outlined,
           label: 'Birthday',
@@ -536,7 +520,17 @@ class _MemberProfileSection extends StatelessWidget {
           value: member['address'],
         ),
         _DetailLine(
-          icon: Icons.group_outlined,
+          icon: Icons.phone_outlined,
+          label: 'Contact',
+          value: member['contactNo'],
+        ),
+        const SizedBox(height: 8),
+
+        // ── Referral section ──────────────────────────────
+        _SectionHeader(icon: Icons.group_outlined, title: 'Referral'),
+        const SizedBox(height: 8),
+        _DetailLine(
+          icon: Icons.person_add_outlined,
           label: 'Referrer',
           value:
               member['referrer'] != null &&
@@ -550,90 +544,48 @@ class _MemberProfileSection extends StatelessWidget {
           label: 'Referrals',
           value: referralCount > 0 ? '$referralCount' : 'None',
         ),
+        const SizedBox(height: 8),
+
+        // ── Account section ───────────────────────────────
+        _SectionHeader(icon: Icons.security_outlined, title: 'Account'),
+        const SizedBox(height: 8),
+        _buildAccountStatus(context, theme),
+
         // ── ID Verification section ────────────────────────
-        if ((member['idImagePath']?.toString() ?? '').isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 14),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: StockpileColors.successBg.withAlpha(120),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: StockpileColors.success.withAlpha(60),
+        if ((member['idImagePath']?.toString() ?? '').isNotEmpty) ...[
+          const SizedBox(height: 8),
+          _SectionHeader(icon: Icons.verified_user, title: 'ID Verification'),
+          const SizedBox(height: 8),
+          _DetailLine(
+            icon: Icons.credit_card_outlined,
+            label: 'ID Type',
+            value: member['idType'],
+          ),
+          if ((member['idNumber']?.toString() ?? '').isNotEmpty)
+            _DetailLine(
+              icon: Icons.numbers_outlined,
+              label: 'ID Number',
+              value: member['idNumber'],
+            ),
+          if ((member['idImagePath']?.toString() ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: GestureDetector(
+                onTap: () => onIdImageTap?.call(),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: buildIdImage(
+                    context,
+                    member['idImagePath'].toString(),
+                    height: 120,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.verified_user,
-                        size: 20,
-                        color: StockpileColors.success,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Verified Reseller',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: StockpileColors.success,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  _DetailLine(
-                    icon: Icons.credit_card_outlined,
-                    label: 'ID Type',
-                    value: member['idType'],
-                  ),
-                  if ((member['idNumber']?.toString() ?? '').isNotEmpty)
-                    _DetailLine(
-                      icon: Icons.numbers_outlined,
-                      label: 'ID Number',
-                      value: member['idNumber'],
-                    ),
-                  if ((member['idImagePath']?.toString() ?? '').isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: GestureDetector(
-                        onTap: () => onIdImageTap?.call(),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: buildIdImage(
-                            context,
-                            member['idImagePath'].toString(),
-                            height: 120,
-                            width: double.infinity,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
             ),
-          ),
-        // ── Create Account button (if no login account yet) ─────
-        if ((member['email']?.toString() ?? '').isEmpty &&
-            onCreateAccount != null) ...[
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: onCreateAccount,
-              icon: const Icon(Icons.person_add_rounded, size: 18),
-              label: const Text('Create Login Account'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: StockpileColors.primary900,
-              ),
-            ),
-          ),
         ],
+
         const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {
@@ -667,6 +619,211 @@ class _MemberProfileSection extends StatelessWidget {
               ],
             );
           },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAccountStatus(BuildContext context, ThemeData theme) {
+    final hasEmail = (member['email']?.toString() ?? '').trim().isNotEmpty;
+    final hasAccount = hasEmail;
+    final email = hasEmail ? member['email']!.toString().trim() : null;
+
+    if (hasAccount) {
+      // ── Has login account ──────────────────────────────
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _DetailLine(
+            icon: Icons.check_circle_outline,
+            label: 'Status',
+            value: 'Active login account',
+          ),
+          if (email != null)
+            _DetailLine(
+              icon: Icons.email_outlined,
+              label: 'Email',
+              value: email,
+            ),
+        ],
+      );
+    }
+
+    // ── No login account ─────────────────────────────────
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _DetailLine(
+          icon: Icons.person_outline,
+          label: 'Status',
+          value: 'No login account',
+        ),
+        if (onCreateAccount != null) ...[
+          const SizedBox(height: 6),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: onCreateAccount,
+              icon: const Icon(Icons.person_add_rounded, size: 18),
+              label: const Text('Create Login Account'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildKeyDetailsCard(ThemeData theme) {
+    final role = (member['idImagePath']?.toString() ?? '').isNotEmpty
+        ? 'Verified Reseller'
+        : (member['role'] ?? 'Member').toString();
+    final isReseller = role == 'Verified Reseller';
+    final level = (member['level'] ?? 1).toString();
+    final memberId = member['id']?.toString() ?? '—';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.dividerColor.withAlpha(50)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(8),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // ── Member ID ──────────────────────────────────
+          Expanded(
+            flex: 2,
+            child: _KeyDetailTile(
+              icon: Icons.fingerprint,
+              label: 'ID',
+              value: '#$memberId',
+            ),
+          ),
+          // ── Divider ────────────────────────────────────
+          Container(
+            width: 1,
+            height: 28,
+            color: theme.dividerColor.withAlpha(50),
+          ),
+          const SizedBox(width: 12),
+          // ── Role ────────────────────────────────────────
+          Expanded(
+            flex: 3,
+            child: _KeyDetailTile(
+              icon: isReseller ? Icons.verified_user : Icons.badge_outlined,
+              label: 'Role',
+              value: role,
+            ),
+          ),
+          if (isReseller) ...[
+            const SizedBox(width: 4),
+            // ── Divider ──────────────────────────────────
+            Container(
+              width: 1,
+              height: 28,
+              color: theme.dividerColor.withAlpha(50),
+            ),
+            const SizedBox(width: 12),
+            // ── Level ────────────────────────────────────
+            Expanded(
+              flex: 2,
+              child: _KeyDetailTile(
+                icon: Icons.stars_outlined,
+                label: 'Lvl',
+                value: level,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.icon, required this.title, this.color});
+
+  final IconData icon;
+  final String title;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final effectiveColor = color ?? theme.colorScheme.onSurfaceVariant;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: effectiveColor),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Divider(
+              color: theme.dividerColor.withAlpha(60),
+              thickness: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KeyDetailTile extends StatelessWidget {
+  const _KeyDetailTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            value,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              color: theme.colorScheme.onSurface,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
       ],
     );
