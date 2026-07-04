@@ -749,6 +749,8 @@ List<Map<String, dynamic>> membersFromRows(List<Member> rows) {
           'idType': m.idType ?? '',
           'idNumber': m.idNumber ?? '',
           'idImagePath': m.idImagePath ?? '',
+          'email': m.email ?? '',
+          'user_id': m.userId ?? '',
         },
       )
       .toList();

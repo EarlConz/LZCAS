@@ -21,7 +21,6 @@ import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
-import 'package:lzcas/dialogs/confirmation_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/notification_service.dart';
 import 'package:lzcas/services/config_service.dart';
@@ -897,13 +896,15 @@ class _UserManagementTabState extends State<_UserManagementTab>
 
   List<Map<String, dynamic>> get _filteredUsers {
     return _users.where((u) {
+      final role = u['role']?.toString() ?? '';
+      // Members and resellers have their own dedicated management page
+      if (role == 'member' || role == 'reseller') return false;
       final matchesSearch =
           _userSearchTerm.isEmpty ||
           (u['username']?.toString() ?? '').toLowerCase().contains(
             _userSearchTerm.toLowerCase(),
           );
-      final matchesRole =
-          _userRoleFilter == null || u['role']?.toString() == _userRoleFilter;
+      final matchesRole = _userRoleFilter == null || role == _userRoleFilter;
       return matchesSearch && matchesRole;
     }).toList();
   }
@@ -2558,90 +2559,540 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
       member['middleName'],
       member['lastName'],
     ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+    final initials = fullName.isNotEmpty ? fullName[0].toUpperCase() : 'M';
+    final isReseller =
+        (member['role']?.toString() ?? '') == 'Verified Reseller';
+    final email = (member['email']?.toString() ?? '').trim();
+    final hasAccount = email.isNotEmpty;
 
     showAnimatedDialog(
       context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(28),
-          side: BorderSide(color: StockpileColors.primary900, width: 4),
-        ),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 700,
-            maxHeight: MediaQuery.of(context).size.height * 0.85,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final isDark = theme.brightness == Brightness.dark;
+        final surface = isDark
+            ? StockpileColors.darkSurface
+            : StockpileColors.surface;
+        final textColor = isDark
+            ? StockpileColors.darkTextPrimary
+            : StockpileColors.darkText;
+        final muted = isDark
+            ? StockpileColors.darkTextMuted
+            : StockpileColors.mutedText;
+        final divider = isDark
+            ? StockpileColors.darkDivider
+            : StockpileColors.divider;
+
+        return Dialog(
+          backgroundColor: surface,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
           ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 600,
+              maxHeight: MediaQuery.of(context).size.height * 0.88,
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        fullName.isEmpty ? 'Member Details' : fullName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Edit member',
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _openEditDialog(member);
-                      },
-                      icon: CircleAvatar(
-                        radius: 16,
-                        backgroundColor: StockpileColors.primary900,
-                        child: const Icon(
-                          Icons.edit_outlined,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Delete member',
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _confirmDeleteMember(member);
-                      },
-                      icon: const CircleAvatar(
-                        radius: 16,
-                        backgroundColor: StockpileColors.danger,
-                        child: Icon(
-                          Icons.delete_outline,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                    ),
-                    IconButton(
+                // ── Close button (top-right) ────────────────
+                Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8, top: 8),
+                    child: IconButton(
                       tooltip: 'Close',
                       onPressed: () => Navigator.pop(ctx),
                       icon: const Icon(Icons.close),
+                      visualDensity: VisualDensity.compact,
                     ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 8),
+
+                // ── Scrollable content ──────────────────────
                 Flexible(
                   child: SingleChildScrollView(
-                    child: MemberDetailsCard(
-                      member: member,
-                      showHeader: false,
-                      showCardStyling: false,
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                    child: Column(
+                      children: [
+                        // ── Avatar header ──────────────────
+                        _ModalAvatarHeader(
+                          initials: initials,
+                          fullName: fullName.isEmpty
+                              ? 'Unnamed Member'
+                              : fullName,
+                          memberId: member['id']?.toString() ?? '—',
+                          isReseller: isReseller,
+                          level: (member['level'] ?? 1).toString(),
+                          email: email,
+                          hasAccount: hasAccount,
+                          isDark: isDark,
+                          textColor: textColor,
+                          muted: muted,
+                        ),
+                        const SizedBox(height: 20),
+
+                        // ── Personal Info card ─────────────
+                        _ModalInfoCard(
+                          isDark: isDark,
+                          textColor: textColor,
+                          muted: muted,
+                          surface: surface,
+                          divider: divider,
+                          title: 'Personal Info',
+                          icon: Icons.person_outline_rounded,
+                          children: [
+                            _ModalInfoRow(
+                              icon: Icons.cake_outlined,
+                              label: 'Birthday',
+                              value: member['birthday'],
+                              muted: muted,
+                              textColor: textColor,
+                              isDark: isDark,
+                            ),
+                            _ModalInfoRow(
+                              icon: Icons.home_outlined,
+                              label: 'Address',
+                              value: member['address'],
+                              muted: muted,
+                              textColor: textColor,
+                              isDark: isDark,
+                            ),
+                            _ModalInfoRow(
+                              icon: Icons.phone_outlined,
+                              label: 'Contact',
+                              value: member['contactNo'],
+                              muted: muted,
+                              textColor: textColor,
+                              isDark: isDark,
+                              isLast: true,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // ── Referral card ──────────────────
+                        _ModalInfoCard(
+                          isDark: isDark,
+                          textColor: textColor,
+                          muted: muted,
+                          surface: surface,
+                          divider: divider,
+                          title: 'Referral',
+                          icon: Icons.group_outlined,
+                          children: [
+                            _ModalInfoRow(
+                              icon: Icons.person_add_outlined,
+                              label: 'Referred by',
+                              value:
+                                  (member['referrer']?.toString() ?? '')
+                                      .isNotEmpty
+                                  ? member['referrer']
+                                  : 'None',
+                              muted: muted,
+                              textColor: textColor,
+                              isDark: isDark,
+                              italic: (member['referrer']?.toString() ?? '')
+                                  .isEmpty,
+                            ),
+                            _ModalInfoRow(
+                              icon: Icons.people_outline,
+                              label: 'Referral count',
+                              value: 'Loading…',
+                              muted: muted,
+                              textColor: textColor,
+                              isDark: isDark,
+                              isLast: true,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        // ── ID Verification card ────────────
+                        if ((member['idImagePath']?.toString() ?? '')
+                            .isNotEmpty)
+                          _ModalInfoCard(
+                            isDark: isDark,
+                            textColor: textColor,
+                            muted: muted,
+                            surface: surface,
+                            divider: divider,
+                            title: 'ID Verification',
+                            icon: Icons.verified_user,
+                            children: [
+                              _ModalInfoRow(
+                                icon: Icons.credit_card_outlined,
+                                label: 'ID Type',
+                                value: member['idType'],
+                                muted: muted,
+                                textColor: textColor,
+                                isDark: isDark,
+                              ),
+                              if ((member['idNumber']?.toString() ?? '')
+                                  .isNotEmpty)
+                                _ModalInfoRow(
+                                  icon: Icons.numbers_outlined,
+                                  label: 'ID Number',
+                                  value: member['idNumber'],
+                                  muted: muted,
+                                  textColor: textColor,
+                                  isDark: isDark,
+                                ),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: GestureDetector(
+                                  onTap: () {
+                                    final path = member['idImagePath']
+                                        ?.toString();
+                                    if (path != null && path.isNotEmpty) {
+                                      _showIdImagePreview(ctx, path);
+                                    }
+                                  },
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: buildIdImage(
+                                      ctx,
+                                      member['idImagePath'].toString(),
+                                      height: 140,
+                                      width: double.infinity,
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                            ],
+                          ),
+
+                        // ── Action buttons ─────────────────
+                        const SizedBox(height: 20),
+
+                        // Create account button (only if no account)
+                        if (!hasAccount)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () =>
+                                    _showCreateAccountDialog(ctx, member),
+                                icon: const Icon(
+                                  Icons.person_add_rounded,
+                                  size: 18,
+                                ),
+                                label: const Text('Create Login Account'),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () =>
+                                    _showTransactionHistory(ctx, member),
+                                icon: const Icon(
+                                  Icons.receipt_long_outlined,
+                                  size: 18,
+                                ),
+                                label: const Text('View History'),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  _openEditDialog(member);
+                                },
+                                icon: const Icon(Icons.edit_outlined, size: 18),
+                                label: const Text('Edit Member'),
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: TextButton.icon(
+                            onPressed: () =>
+                                _confirmDeleteMemberDialog(ctx, member),
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            label: const Text('Delete Member'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: StockpileColors.danger,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  void _showTransactionHistory(BuildContext ctx, Map<String, dynamic> member) {
+    final fullName = [
+      member['firstName'],
+      member['middleName'],
+      member['lastName'],
+    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+    final memberId = (member['id'] ?? 0) as int;
+
+    showDialog<void>(
+      context: ctx,
+      builder: (dialogContext) {
+        final theme = Theme.of(dialogContext);
+        final size = MediaQuery.of(dialogContext).size;
+
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: size.width < 480 ? 12 : 24,
+            vertical: 24,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 560,
+              maxHeight: size.height * 0.85,
+            ),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                size.width < 480 ? 12 : 18,
+                16,
+                size.width < 480 ? 12 : 18,
+                18,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              fullName.isEmpty ? 'Member History' : fullName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              'Transaction history',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(dialogContext),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Flexible(
+                    child: FutureBuilder<List<Sale>>(
+                      future: repository.fetchSalesForMember(memberId),
+                      builder: (context, snap) {
+                        if (snap.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        final sales = snap.data ?? [];
+                        if (sales.isEmpty) {
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.receipt_long_outlined,
+                                    size: 48,
+                                    color: theme.colorScheme.onSurfaceVariant
+                                        .withAlpha(80),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'No transactions yet',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+                        return ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: sales.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 6),
+                          itemBuilder: (context, index) {
+                            final s = sales[index];
+                            final time = s.timestamp;
+                            final timeStr = time != null
+                                ? '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}'
+                                : '—';
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.surfaceContainerLow,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          s.itemName,
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                        ),
+                                        Text(
+                                          '$timeStr  ·  Qty: ${s.quantity}',
+                                          style: theme.textTheme.bodySmall,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Text(
+                                    '₱${s.price}',
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showIdImagePreview(BuildContext ctx, String imagePath) {
+    showAnimatedDialog(
+      ctx,
+      builder: (c) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(c).size.height * 0.8,
+            maxWidth: MediaQuery.of(c).size.width * 0.9,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Expanded(
+                child: InteractiveViewer(
+                  child: buildIdImage(c, imagePath, fit: BoxFit.contain),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  void _confirmDeleteMemberDialog(
+    BuildContext ctx,
+    Map<String, dynamic> member,
+  ) {
+    showDialog<bool>(
+      context: ctx,
+      builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Member'),
+        content: Text(
+          'Permanently delete ${member['firstName'] ?? 'this member'}? '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(c, true);
+              _deleteMember(member);
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: StockpileColors.danger,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }
@@ -2658,20 +3109,439 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     );
   }
 
-  void _confirmDeleteMember(Map<String, dynamic> member) {
-    showDialog<bool>(
-      context: context,
-      builder: (ctx) => ConfirmationDialog(
-        title: 'Confirm Delete',
-        content: 'Delete ${member['firstName'] ?? 'this member'} permanently?',
-        onConfirm: () => _deleteMember(member),
-      ),
-    );
-  }
-
   void _deleteMember(Map<String, dynamic> member) {
     _tableKey.currentState?.removeMember(member);
     BotToast.showText(text: 'Member deleted.');
+  }
+
+  void _showCreateAccountDialog(BuildContext ctx, Map<String, dynamic> member) {
+    final memberId = (member['id'] ?? 0) as int;
+    final name = [
+      member['firstName'],
+      member['lastName'],
+    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+    final emailCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog<void>(
+      context: ctx,
+      builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.person_add_rounded, color: StockpileColors.primary900),
+            const SizedBox(width: 10),
+            const Text('Create Login Account'),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Create a login account for $name so they can '
+                'access the member portal.',
+                style: Theme.of(c).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: emailCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  prefixIcon: Icon(Icons.email_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.emailAddress,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty || !v.contains('@'))
+                    ? 'Enter a valid email'
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: passwordCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  prefixIcon: Icon(Icons.lock_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+              Navigator.pop(c);
+              final result = await repository.createMemberAuthAccount(
+                memberId: memberId,
+                email: emailCtrl.text.trim(),
+                password: passwordCtrl.text,
+              );
+              if (!ctx.mounted) return;
+              if (result != null) {
+                member['email'] = result['email'];
+                BotToast.showText(
+                  text:
+                      'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
+                );
+                // Reopen modal with updated data so "Has account" shows
+                if (ctx.mounted) {
+                  Navigator.pop(ctx);
+                  _showMemberDetail(context, member);
+                }
+              } else {
+                BotToast.showText(text: 'Failed to create account.');
+              }
+            },
+            icon: const Icon(Icons.check, size: 18),
+            label: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Member detail modal widgets ───────────────────────────────────────────
+
+class _ModalAvatarHeader extends StatelessWidget {
+  const _ModalAvatarHeader({
+    required this.initials,
+    required this.fullName,
+    required this.memberId,
+    required this.isReseller,
+    required this.level,
+    required this.email,
+    required this.hasAccount,
+    required this.isDark,
+    required this.textColor,
+    required this.muted,
+  });
+
+  final String initials;
+  final String fullName;
+  final String memberId;
+  final bool isReseller;
+  final String level;
+  final String email;
+  final bool hasAccount;
+  final bool isDark;
+  final Color textColor;
+  final Color muted;
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = isDark
+        ? StockpileColors.darkSurface
+        : StockpileColors.surface;
+    final divider = isDark
+        ? StockpileColors.darkDivider
+        : StockpileColors.divider;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: divider),
+      ),
+      child: Row(
+        children: [
+          // ── Gradient avatar ────────────────────────────
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [StockpileColors.primary900, Color(0xFF3B1F7E)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: StockpileColors.primary900.withAlpha(60),
+                  blurRadius: 14,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              initials,
+              style: StockpileFonts.satoshi(
+                fontSize: 26,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          // ── Name + badges ──────────────────────────────
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  fullName,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    // Member ID badge
+                    _InfoBadge(
+                      icon: Icons.fingerprint,
+                      label: '#$memberId',
+                      bgColor: textColor.withAlpha(12),
+                      textColor: muted,
+                      iconColor: muted,
+                    ),
+                    // Role badge
+                    if (isReseller) ...[
+                      _InfoBadge(
+                        icon: Icons.verified,
+                        label: 'Verified Reseller',
+                        bgColor: StockpileColors.successBg,
+                        textColor: StockpileColors.success,
+                        iconColor: StockpileColors.success,
+                      ),
+                      _InfoBadge(
+                        icon: Icons.stars_rounded,
+                        label: 'Level $level',
+                        bgColor: StockpileColors.primary900.withAlpha(25),
+                        textColor: StockpileColors.primary900,
+                        iconColor: StockpileColors.primary900,
+                      ),
+                    ] else
+                      _InfoBadge(
+                        icon: Icons.person_outline,
+                        label: 'Member',
+                        bgColor: textColor.withAlpha(12),
+                        textColor: muted,
+                        iconColor: muted,
+                      ),
+                    // Account status badge
+                    _InfoBadge(
+                      icon: hasAccount
+                          ? Icons.check_circle
+                          : Icons.cancel_outlined,
+                      label: hasAccount ? 'Has account' : 'No account',
+                      bgColor: hasAccount
+                          ? StockpileColors.successBg
+                          : textColor.withAlpha(10),
+                      textColor: hasAccount ? StockpileColors.success : muted,
+                      iconColor: hasAccount ? StockpileColors.success : muted,
+                    ),
+                  ],
+                ),
+                // Email row
+                if (email.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(Icons.email_outlined, size: 14, color: muted),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          email,
+                          style: StockpileFonts.satoshi(
+                            fontSize: 13,
+                            color: muted,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModalInfoCard extends StatelessWidget {
+  const _ModalInfoCard({
+    required this.isDark,
+    required this.textColor,
+    required this.muted,
+    required this.surface,
+    required this.divider,
+    required this.title,
+    required this.icon,
+    required this.children,
+  });
+
+  final bool isDark;
+  final Color textColor;
+  final Color muted;
+  final Color surface;
+  final Color divider;
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: divider),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18, color: muted),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ModalInfoRow extends StatelessWidget {
+  const _ModalInfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.muted,
+    required this.textColor,
+    required this.isDark,
+    this.italic = false,
+    this.isLast = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final Object? value;
+  final Color muted;
+  final Color textColor;
+  final bool isDark;
+  final bool italic;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = value == null || value.toString().trim().isEmpty
+        ? 'Not set'
+        : value.toString();
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: muted),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 90,
+            child: Text(
+              label,
+              style: StockpileFonts.satoshi(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: muted,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: textColor,
+                fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoBadge extends StatelessWidget {
+  const _InfoBadge({
+    required this.icon,
+    required this.label,
+    required this.bgColor,
+    required this.textColor,
+    required this.iconColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color bgColor;
+  final Color textColor;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: iconColor),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: StockpileFonts.satoshi(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
