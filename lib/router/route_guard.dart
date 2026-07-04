@@ -37,11 +37,16 @@ abstract class AppRoutes {
   static const String cashierDeleteRequest = '/cashier/delete-request';
   static const String cashierBorrowRequest = '/cashier/borrow-request';
 
+  // Member (reseller & basic members)
+  static const String memberDashboard = '/member/dashboard';
+
   /// All role-based route prefixes for quick matching.
   static const _rolePrefixes = {
     UserRole.admin: '/admin',
     UserRole.inventory: '/inventory',
     UserRole.cashier: '/cashier',
+    UserRole.member: '/member',
+    UserRole.reseller: '/member',
   };
 
   /// Returns the default landing route for a given [role].
@@ -53,6 +58,9 @@ abstract class AppRoutes {
         return inventoryDashboard;
       case UserRole.cashier:
         return cashierDashboard;
+      case UserRole.member:
+      case UserRole.reseller:
+        return memberDashboard;
     }
   }
 

@@ -263,11 +263,37 @@ class MembersTableState extends State<MembersTable> {
     if (!mounted) return;
     final created = await repository.getMemberById(memberId);
     if (created != null && mounted) {
-      _showMemberQrDialog(created);
+      await _showMemberQrDialog(created);
+    }
+
+    // Auto-create login account if requested in the add dialog
+    if (mounted && newMember['createAccount'] == true && created != null) {
+      final email = newMember['email']?.toString();
+      final password = newMember['password']?.toString();
+      if (email != null &&
+          email.isNotEmpty &&
+          password != null &&
+          password.isNotEmpty) {
+        final acct = await repository.createMemberAuthAccount(
+          memberId: created.id!,
+          email: email,
+          password: password,
+        );
+        if (mounted) {
+          if (acct != null) {
+            BotToast.showText(
+              text:
+                  'Account created!\nEmail: ${acct['email']}\nPassword: ${acct['password']}',
+            );
+          } else {
+            BotToast.showText(text: 'Failed to create login account.');
+          }
+        }
+      }
     }
   }
 
-  void _showMemberQrDialog(Member member) {
+  Future<void> _showMemberQrDialog(Member member) async {
     final fullName =
         '${member.firstName ?? ''} ${member.middleName ?? ''} ${member.lastName ?? ''}'
             .trim();

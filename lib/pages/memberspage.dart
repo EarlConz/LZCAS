@@ -231,18 +231,29 @@ class _MembersPageState extends State<MembersPage>
                                       tooltip: 'Edit member',
                                       onPressed: () =>
                                           _openEditDialog(selectedMember!),
-                                      icon: const Icon(
-                                        Icons.edit_outlined,
-                                        color: Colors.blue,
+                                      icon: const CircleAvatar(
+                                        radius: 16,
+                                        backgroundColor:
+                                            StockpileColors.primary900,
+                                        child: Icon(
+                                          Icons.edit_outlined,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
                                       ),
                                     ),
                                     IconButton(
                                       tooltip: 'Delete member',
                                       onPressed: () =>
                                           _confirmDeleteMember(selectedMember!),
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.red,
+                                      icon: const CircleAvatar(
+                                        radius: 16,
+                                        backgroundColor: StockpileColors.danger,
+                                        child: Icon(
+                                          Icons.delete_outline,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
                                       ),
                                     ),
                                     IconButton(
@@ -339,12 +350,28 @@ class _MemberDetailsDialog extends StatelessWidget {
                   IconButton(
                     tooltip: 'Edit member',
                     onPressed: onEdit,
-                    icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                    icon: const CircleAvatar(
+                      radius: 16,
+                      backgroundColor: StockpileColors.primary900,
+                      child: Icon(
+                        Icons.edit_outlined,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
                   ),
                   IconButton(
                     tooltip: 'Delete member',
                     onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    icon: const CircleAvatar(
+                      radius: 16,
+                      backgroundColor: StockpileColors.danger,
+                      child: Icon(
+                        Icons.delete_outline,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
                   ),
                   IconButton(
                     tooltip: 'Close',

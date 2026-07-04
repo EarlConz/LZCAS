@@ -35,7 +35,13 @@ class AdminDashboard extends StatefulWidget {
 
 class _AdminDashboardState extends State<AdminDashboard> {
   int _selectedIndex = 0;
+  bool _sidebarHovered = false;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  static const _sidebarExpandedWidth = 260.0;
+  static const _sidebarCompactWidth = 68.0;
+  static const _sidebarAnimDuration = Duration(milliseconds: 200);
+  static const _sidebarAnimCurve = Curves.easeOut;
 
   static const _pageTitles = [
     'Dashboard',
@@ -90,6 +96,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final auth = context.watch<AuthState>();
     final notifService = context.watch<NotificationService>();
     final isDesktop = MediaQuery.sizeOf(context).width >= 900;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final pages = _buildPages();
 
     final sharedSidebarArgs = (
@@ -117,6 +124,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       pendingCount: sharedSidebarArgs.pendingCount,
       onItemSelected: sharedSidebarArgs.onItemSelected,
       useDrawer: false,
+      expanded: _sidebarHovered,
     );
 
     return Scaffold(
@@ -124,8 +132,26 @@ class _AdminDashboardState extends State<AdminDashboard> {
       drawer: isDesktop ? null : mobileDrawer,
       body: Row(
         children: [
-          // Desktop sidebar
-          if (isDesktop) SizedBox(width: 260, child: desktopSidebar),
+          // Desktop sidebar — hover to expand, collapses to icons
+          if (isDesktop)
+            MouseRegion(
+              onEnter: (_) => setState(() => _sidebarHovered = true),
+              onExit: (_) => setState(() => _sidebarHovered = false),
+              child: AnimatedContainer(
+                duration: _sidebarAnimDuration,
+                curve: _sidebarAnimCurve,
+                width: _sidebarHovered
+                    ? _sidebarExpandedWidth
+                    : _sidebarCompactWidth,
+                clipBehavior: Clip.hardEdge,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? StockpileColors.darkSurface
+                      : StockpileColors.surface,
+                ),
+                child: desktopSidebar,
+              ),
+            ),
           if (isDesktop) const VerticalDivider(width: 1),
 
           // Main content area
@@ -314,6 +340,54 @@ class _UserManagementTabState extends State<_UserManagementTab>
           () => _createError = auth.error.isNotEmpty
               ? auth.error
               : 'Failed to delete user.',
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => _createError = e.toString());
+    }
+  }
+
+  Future<void> _editUser(
+    String userId,
+    String username,
+    String role,
+    String email,
+  ) async {
+    final result = await showDialog<_EditUserResult>(
+      context: context,
+      builder: (ctx) => _EditUserDialog(
+        userId: userId,
+        username: username,
+        role: role,
+        email: email,
+      ),
+    );
+    if (result == null || !mounted) return;
+
+    try {
+      final auth = context.read<AuthState>();
+      final newRole = result.role.isNotEmpty
+          ? UserRole.fromString(result.role)
+          : null;
+      final ok = await auth.updateUser(
+        userId: userId,
+        password: result.password.isNotEmpty ? result.password : null,
+        role: newRole,
+        username: result.username.isNotEmpty ? result.username : null,
+        email: result.email.isNotEmpty ? result.email : null,
+      );
+      if (!mounted) return;
+      if (ok) {
+        setState(() => _successMessage = 'User updated.');
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) setState(() => _successMessage = null);
+        });
+        _fetchUsers();
+      } else {
+        setState(
+          () => _createError = auth.error.isNotEmpty
+              ? auth.error
+              : 'Failed to update user.',
         );
       }
     } catch (e) {
@@ -550,6 +624,11 @@ class _UserManagementTabState extends State<_UserManagementTab>
                                 DropdownButtonFormField<UserRole>(
                                   initialValue: _selectedRole,
                                   items: UserRole.values
+                                      .where(
+                                        (r) =>
+                                            r != UserRole.member &&
+                                            r != UserRole.reseller,
+                                      )
                                       .map(
                                         (r) => DropdownMenuItem(
                                           value: r,
@@ -681,10 +760,81 @@ class _UserManagementTabState extends State<_UserManagementTab>
                             ],
                           ),
                           const SizedBox(height: 12),
-                          if (_usersLoading)
-                            const SkeletonList(count: 4)
-                          else
-                            ..._buildUserList(context),
+                          // ── Users card wrapper ──────────────────────
+                          Container(
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? StockpileColors.darkSurface
+                                  : StockpileColors.surface,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isDark
+                                    ? StockpileColors.darkDivider
+                                    : StockpileColors.divider,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // ── Card header ────────────────────────
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    16,
+                                    20,
+                                    0,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Builder(
+                                        builder: (_) {
+                                          final count = _filteredUsers.length;
+                                          return Text(
+                                            _usersLoading
+                                                ? 'Loading users…'
+                                                : '$count ${count == 1 ? 'user' : 'users'}',
+                                            style: StockpileFonts.satoshi(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                              color: isDark
+                                                  ? StockpileColors
+                                                        .darkTextMuted
+                                                  : StockpileColors.mutedText,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                      const Spacer(),
+                                      if (_usersLoading)
+                                        const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                // ── User list ─────────────────────────
+                                Builder(
+                                  builder: (_) {
+                                    final users = _filteredUsers;
+                                    if (_usersLoading) {
+                                      return const SkeletonList(count: 4);
+                                    }
+                                    if (users.isEmpty) {
+                                      return _buildEmptyState(context);
+                                    }
+                                    return Column(
+                                      children: _buildUserRows(context, users),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -745,8 +895,8 @@ class _UserManagementTabState extends State<_UserManagementTab>
     );
   }
 
-  List<Widget> _buildUserList(BuildContext context) {
-    final filtered = _users.where((u) {
+  List<Map<String, dynamic>> get _filteredUsers {
+    return _users.where((u) {
       final matchesSearch =
           _userSearchTerm.isEmpty ||
           (u['username']?.toString() ?? '').toLowerCase().contains(
@@ -756,85 +906,257 @@ class _UserManagementTabState extends State<_UserManagementTab>
           _userRoleFilter == null || u['role']?.toString() == _userRoleFilter;
       return matchesSearch && matchesRole;
     }).toList();
+  }
 
-    if (filtered.isEmpty) {
-      return [
-        const Padding(
-          padding: EdgeInsets.all(24),
-          child: Center(child: Text('No users found.')),
+  Widget _buildEmptyState(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.people_outline_rounded,
+              size: 48,
+              color: isDark
+                  ? StockpileColors.darkTextMuted.withAlpha(80)
+                  : StockpileColors.mutedText.withAlpha(80),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No users found',
+              style: StockpileFonts.satoshi(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: isDark
+                    ? StockpileColors.darkTextMuted
+                    : StockpileColors.mutedText,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Try adjusting your search or role filter.',
+              style: StockpileFonts.satoshi(
+                fontSize: 13,
+                color: isDark
+                    ? StockpileColors.darkTextMuted.withAlpha(150)
+                    : StockpileColors.mutedText,
+              ),
+            ),
+          ],
         ),
-      ];
-    }
+      ),
+    );
+  }
 
-    return [
-      Card(
-        child: ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: filtered.length,
-          separatorBuilder: (_, __) =>
-              const Divider(height: 1, indent: 16, endIndent: 16),
-          itemBuilder: (_, i) {
-            final u = filtered[i];
-            final role = u['role']?.toString() ?? '';
-            return ListTile(
-              leading: CircleAvatar(
-                backgroundColor: _roleColor(role).withAlpha(30),
-                child: Icon(_roleIcon(role), color: _roleColor(role), size: 20),
-              ),
-              title: Text(
-                u['username']?.toString() ?? '',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                u['email']?.toString().isNotEmpty == true
-                    ? u['email'].toString()
-                    : '${u['username']}@lzcas.local',
-                style: const TextStyle(fontSize: 12),
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
+  List<Widget> _buildUserRows(
+    BuildContext context,
+    List<Map<String, dynamic>> users,
+  ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return List.generate(users.length, (i) {
+      final u = users[i];
+      final role = u['role']?.toString() ?? '';
+      final username = u['username']?.toString() ?? '';
+      final email = u['email']?.toString() ?? '';
+      final createdAt = u['created_at']?.toString() ?? '';
+      final isLast = i == users.length - 1;
+
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
+              children: [
+                // ── Left accent bar ────────────────────────────
+                Container(
+                  width: 4,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: _roleColor(role),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                // ── Avatar with initials ───────────────────────
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: _roleColor(role).withAlpha(30),
+                  child: Text(
+                    username.isNotEmpty ? username[0].toUpperCase() : '?',
+                    style: TextStyle(
+                      color: _roleColor(role),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
                     ),
-                    decoration: BoxDecoration(
-                      color: _roleColor(role).withAlpha(25),
-                      borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                // ── Name + meta ────────────────────────────────
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        username,
+                        style: StockpileFonts.satoshi(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: isDark
+                              ? StockpileColors.darkTextPrimary
+                              : StockpileColors.darkText,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          if (email.isNotEmpty) ...[
+                            Icon(
+                              Icons.email_outlined,
+                              size: 12,
+                              color: isDark
+                                  ? StockpileColors.darkTextMuted
+                                  : StockpileColors.mutedText,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                email,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: isDark
+                                      ? StockpileColors.darkTextMuted
+                                      : StockpileColors.mutedText,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          if (createdAt.isNotEmpty) ...[
+                            Icon(
+                              Icons.calendar_today_outlined,
+                              size: 11,
+                              color: isDark
+                                  ? StockpileColors.darkTextMuted.withAlpha(150)
+                                  : StockpileColors.mutedText,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _formatDate(createdAt),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isDark
+                                    ? StockpileColors.darkTextMuted.withAlpha(
+                                        150,
+                                      )
+                                    : StockpileColors.mutedText,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ── Role badge ────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _roleColor(role).withAlpha(25),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    role.isNotEmpty
+                        ? role[0].toUpperCase() + role.substring(1)
+                        : '',
+                    style: TextStyle(
+                      color: _roleColor(role),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                      letterSpacing: 0.3,
                     ),
-                    child: Text(
-                      role.isNotEmpty
-                          ? role[0].toUpperCase() + role.substring(1)
-                          : '',
-                      style: TextStyle(
-                        color: _roleColor(role),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
+                  ),
+                ),
+                const SizedBox(width: 4),
+
+                // ── Edit ──────────────────────────────────────
+                ScaleTap(
+                  child: IconButton(
+                    tooltip: 'Edit user',
+                    onPressed: () => _editUser(
+                      u['id']?.toString() ?? '',
+                      username,
+                      role,
+                      email,
+                    ),
+                    icon: const CircleAvatar(
+                      radius: 16,
+                      backgroundColor: StockpileColors.primary900,
+                      child: Icon(
+                        Icons.edit_outlined,
+                        color: Colors.white,
+                        size: 18,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      color: Colors.red,
-                      size: 20,
-                    ),
+                ),
+
+                // ── Delete ────────────────────────────────────
+                ScaleTap(
+                  child: IconButton(
                     tooltip: 'Delete user',
-                    onPressed: () => _deleteUser(
-                      u['id']?.toString() ?? '',
-                      u['username']?.toString() ?? '',
+                    onPressed: () =>
+                        _deleteUser(u['id']?.toString() ?? '', username),
+                    icon: const CircleAvatar(
+                      radius: 16,
+                      backgroundColor: StockpileColors.danger,
+                      child: Icon(
+                        Icons.delete_outline,
+                        color: Colors.white,
+                        size: 18,
+                      ),
                     ),
                   ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    ];
+                ),
+              ],
+            ),
+          ),
+          if (!isLast)
+            Divider(
+              height: 1,
+              indent: 20,
+              endIndent: 20,
+              color: isDark
+                  ? StockpileColors.darkDivider
+                  : StockpileColors.divider,
+            ),
+        ],
+      );
+    });
+  }
+
+  String _formatDate(String iso) {
+    try {
+      final dt = DateTime.parse(iso);
+      final now = DateTime.now();
+      final diff = now.difference(dt);
+      if (diff.inDays == 0) return 'Today';
+      if (diff.inDays == 1) return 'Yesterday';
+      if (diff.inDays < 7) return '${diff.inDays}d ago';
+      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return iso;
+    }
   }
 
   Color _roleColor(String role) {
@@ -844,23 +1166,436 @@ class _UserManagementTabState extends State<_UserManagementTab>
       case 'inventory':
         return Colors.blue.shade700;
       case 'cashier':
-        return Colors.grey.shade700;
+        return Colors.amber.shade700;
+      default:
+        return Colors.grey;
+    }
+  }
+}
+
+// ─── Edit User Result ──────────────────────────────────────────────────────
+
+class _EditUserResult {
+  final String password;
+  final String role;
+  final String username;
+  final String email;
+
+  const _EditUserResult({
+    required this.password,
+    required this.role,
+    required this.username,
+    required this.email,
+  });
+}
+
+// ─── Edit User Dialog ──────────────────────────────────────────────────────
+
+class _EditUserDialog extends StatefulWidget {
+  final String userId;
+  final String username;
+  final String role;
+  final String email;
+
+  const _EditUserDialog({
+    required this.userId,
+    required this.username,
+    required this.role,
+    required this.email,
+  });
+
+  @override
+  State<_EditUserDialog> createState() => _EditUserDialogState();
+}
+
+class _EditUserDialogState extends State<_EditUserDialog> {
+  late final TextEditingController _passwordCtrl;
+  late final TextEditingController _usernameCtrl;
+  late final TextEditingController _emailCtrl;
+  late String _role;
+  bool _passwordVisible = false;
+  String? _error;
+  bool _changePassword = false;
+
+  Color get _roleColor {
+    switch (widget.role) {
+      case 'admin':
+        return Colors.green.shade700;
+      case 'inventory':
+        return Colors.blue.shade700;
+      case 'cashier':
+        return Colors.amber.shade700;
       default:
         return Colors.grey;
     }
   }
 
-  IconData _roleIcon(String role) {
+  Color _colorForRole(String role) {
     switch (role) {
       case 'admin':
-        return Icons.admin_panel_settings;
+        return Colors.green.shade700;
       case 'inventory':
-        return Icons.inventory_2;
+        return Colors.blue.shade700;
       case 'cashier':
-        return Icons.point_of_sale;
+        return Colors.amber.shade700;
       default:
-        return Icons.person;
+        return Colors.grey;
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordCtrl = TextEditingController();
+    _usernameCtrl = TextEditingController(text: widget.username);
+    _emailCtrl = TextEditingController(text: widget.email);
+    _role = widget.role;
+  }
+
+  @override
+  void dispose() {
+    _passwordCtrl.dispose();
+    _usernameCtrl.dispose();
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _inputDeco(String label, IconData icon) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, size: 20),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      filled: true,
+      fillColor: isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return AlertDialog(
+      backgroundColor: isDark
+          ? StockpileColors.darkSurface
+          : StockpileColors.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titlePadding: EdgeInsets.zero,
+      title: Container(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+        decoration: BoxDecoration(
+          color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: _roleColor.withAlpha(30),
+              child: Text(
+                widget.username.isNotEmpty
+                    ? widget.username[0].toUpperCase()
+                    : '?',
+                style: TextStyle(
+                  color: _roleColor,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Edit User',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: isDark
+                          ? StockpileColors.darkTextPrimary
+                          : StockpileColors.darkText,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.username,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: isDark
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_error != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: StockpileColors.dangerBg,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        color: StockpileColors.danger,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(
+                            color: StockpileColors.danger,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // ── Username ───────────────────────────
+              TextFormField(
+                controller: _usernameCtrl,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark
+                      ? StockpileColors.darkTextPrimary
+                      : StockpileColors.darkText,
+                ),
+                decoration: _inputDeco('Username', Icons.person_outline),
+              ),
+              const SizedBox(height: 10),
+
+              // ── Email ──────────────────────────────
+              TextFormField(
+                controller: _emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark
+                      ? StockpileColors.darkTextPrimary
+                      : StockpileColors.darkText,
+                ),
+                decoration: _inputDeco('Email', Icons.email_outlined),
+              ),
+              const SizedBox(height: 10),
+
+              // ── Role ───────────────────────────────
+              DropdownButtonFormField<String>(
+                value: _role,
+                items: UserRole.values
+                    .where(
+                      (r) => r != UserRole.member && r != UserRole.reseller,
+                    )
+                    .map(
+                      (r) => DropdownMenuItem(
+                        value: r.name,
+                        child: Row(
+                          children: [
+                            _RoleDot(color: _colorForRole(r.name)),
+                            const SizedBox(width: 8),
+                            Text(r.displayName),
+                          ],
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => setState(() => _role = v!),
+                decoration: _inputDeco('Role', Icons.badge_outlined),
+              ),
+
+              const SizedBox(height: 18),
+
+              // ── Password ───────────────────────────
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark
+                        ? StockpileColors.darkDivider
+                        : StockpileColors.divider,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    SwitchListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                      ),
+                      secondary: Icon(
+                        _changePassword
+                            ? Icons.lock_open_rounded
+                            : Icons.lock_rounded,
+                        color: isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText,
+                        size: 20,
+                      ),
+                      title: Text(
+                        'Change password',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: isDark
+                              ? StockpileColors.darkTextPrimary
+                              : StockpileColors.darkText,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Set a new password for this user.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText,
+                        ),
+                      ),
+                      value: _changePassword,
+                      onChanged: (v) => setState(() => _changePassword = v),
+                    ),
+                    if (_changePassword)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                        child: TextFormField(
+                          controller: _passwordCtrl,
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
+                          obscureText: !_passwordVisible,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isDark
+                                ? StockpileColors.darkTextPrimary
+                                : StockpileColors.darkText,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: 'New password',
+                            hintText: 'Minimum 6 characters',
+                            prefixIcon: const Icon(
+                              Icons.vpn_key_outlined,
+                              size: 20,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            filled: true,
+                            fillColor: isDark
+                                ? StockpileColors.darkSurface
+                                : StockpileColors.surface,
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _passwordVisible
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                                size: 20,
+                              ),
+                              onPressed: () => setState(
+                                () => _passwordVisible = !_passwordVisible,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            'Cancel',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: _roleColor,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          icon: const Icon(Icons.save_rounded, size: 18),
+          label: const Text('Save Changes'),
+          onPressed: _save,
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    final password = _passwordCtrl.text.trim();
+    final username = _usernameCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+
+    if (username.isEmpty) {
+      setState(() => _error = 'Username cannot be empty.');
+      return;
+    }
+
+    if (_changePassword && password.length < 6) {
+      setState(() => _error = 'Password must be at least 6 characters.');
+      return;
+    }
+
+    Navigator.pop(
+      context,
+      _EditUserResult(
+        password: _changePassword ? password : '',
+        role: _role,
+        username: username,
+        email: email,
+      ),
+    );
+  }
+}
+
+// ─── Role Dot Widget ───────────────────────────────────────────────────────
+
+class _RoleDot extends StatelessWidget {
+  final Color color;
+  const _RoleDot({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
   }
 }
 
@@ -881,6 +1616,7 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   final Map<int, TextEditingController> _remMinCtls = {};
   final Map<int, TextEditingController> _remMaxCtls = {};
   final Map<int, TextEditingController> _cashAdvCtls = {};
+  final Map<int, TextEditingController> _boxesReqCtls = {};
 
   // General config state
   bool _configLoading = true;
@@ -905,6 +1641,7 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
       ..._remMinCtls.values,
       ..._remMaxCtls.values,
       ..._cashAdvCtls.values,
+      ..._boxesReqCtls.values,
     ]) {
       c.dispose();
     }
@@ -951,16 +1688,20 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
 
   Future<void> _loadLevels() async {
     final rows = await repository.fetchResellerLevels();
+    // Ensure ascending order (Level 1 first)
+    rows.sort((a, b) => a.level.compareTo(b.level));
     for (final c in [
       ..._remMinCtls.values,
       ..._remMaxCtls.values,
       ..._cashAdvCtls.values,
+      ..._boxesReqCtls.values,
     ]) {
       c.dispose();
     }
     _remMinCtls.clear();
     _remMaxCtls.clear();
     _cashAdvCtls.clear();
+    _boxesReqCtls.clear();
     for (final r in rows) {
       _remMinCtls[r.level] = TextEditingController(
         text: r.remittanceMin.toString(),
@@ -970,6 +1711,9 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
       );
       _cashAdvCtls[r.level] = TextEditingController(
         text: r.cashAdvance.toString(),
+      );
+      _boxesReqCtls[r.level] = TextEditingController(
+        text: r.boxesRequired.toString(),
       );
     }
     setState(() {
@@ -985,6 +1729,7 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
         remittanceMin: int.tryParse(_remMinCtls[lvl.level]?.text ?? '0') ?? 0,
         remittanceMax: int.tryParse(_remMaxCtls[lvl.level]?.text ?? '0') ?? 0,
         cashAdvance: int.tryParse(_cashAdvCtls[lvl.level]?.text ?? '0') ?? 0,
+        boxesRequired: int.tryParse(_boxesReqCtls[lvl.level]?.text ?? '0') ?? 0,
       );
     }
     if (!mounted) return;
@@ -1228,6 +1973,15 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
                         ),
                         keyboardType: TextInputType.number,
                       ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _boxesReqCtls[lvl.level],
+                        decoration: const InputDecoration(
+                          labelText: 'Boxes to Level Up',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
                     ],
                   ),
                 ),
@@ -1266,12 +2020,16 @@ class _AdminSidebar extends StatelessWidget {
   /// When false uses a plain Container (for inline desktop sidebar).
   final bool useDrawer;
 
+  /// When true shows full sidebar with text; when false shows icons only.
+  final bool expanded;
+
   const _AdminSidebar({
     required this.selectedIndex,
     required this.auth,
     required this.onItemSelected,
     this.pendingCount = 0,
     this.useDrawer = true,
+    this.expanded = true,
   });
 
   static const _navItems = <_NavItem>[
@@ -1299,14 +2057,46 @@ class _AdminSidebar extends StatelessWidget {
         ? StockpileColors.darkSidebarActive
         : StockpileColors.sidebarActive;
 
-    final content = Column(
+    Widget buildContent(bool wide) => Column(
       children: [
         // ── Brand ────────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
-          child: Row(
-            children: [
-              Container(
+        if (wide)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: StockpileColors.primary900,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    'LZCAS · Admin',
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: isDark
+                          ? StockpileColors.darkTextPrimary
+                          : StockpileColors.darkText,
+                      height: 1.2,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.only(top: 28, bottom: 24),
+            child: Center(
+              child: Container(
                 width: 10,
                 height: 10,
                 decoration: BoxDecoration(
@@ -1314,26 +2104,13 @@ class _AdminSidebar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(3),
                 ),
               ),
-              const SizedBox(width: 12),
-              Text(
-                'LZCAS · Admin',
-                style: StockpileFonts.satoshi(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: isDark
-                      ? StockpileColors.darkTextPrimary
-                      : StockpileColors.darkText,
-                  height: 1.2,
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
 
         // ── Navigation Items ─────────────────────────────────────────
         Expanded(
           child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             children: [
               ...List.generate(_navItems.length, (i) {
                 final tile = _AdminSidebarTile(
@@ -1342,21 +2119,41 @@ class _AdminSidebar extends StatelessWidget {
                   activeBg: activeBg,
                   isDark: isDark,
                   onTap: () => onItemSelected(i),
+                  expanded: wide,
                 );
                 // Show badge on Requests item (index 6)
                 if (i == 6 && pendingCount > 0) {
-                  return Badge(
-                    backgroundColor: StockpileColors.primary900,
-                    label: Text(
-                      '$pendingCount',
-                      style: const TextStyle(color: Colors.white, fontSize: 10),
-                    ),
-                    child: tile,
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      tile,
+                      Positioned(
+                        top: 6,
+                        right: wide ? 6 : 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: StockpileColors.primary900,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '$pendingCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   );
                 }
                 return tile;
               }),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               Divider(
                 color: isDark
                     ? StockpileColors.darkDivider
@@ -1364,7 +2161,7 @@ class _AdminSidebar extends StatelessWidget {
                 indent: 12,
                 endIndent: 12,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               // Settings → index 8
               _AdminSidebarTile(
                 item: _bottomItems[0],
@@ -1372,6 +2169,7 @@ class _AdminSidebar extends StatelessWidget {
                 activeBg: activeBg,
                 isDark: isDark,
                 onTap: () => onItemSelected(8),
+                expanded: wide,
               ),
             ],
           ),
@@ -1379,82 +2177,108 @@ class _AdminSidebar extends StatelessWidget {
 
         // ── User Profile Card ─────────────────────────────────────────
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? StockpileColors.darkInputBg
-                  : StockpileColors.inputBg,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: StockpileColors.primary900,
-                  child: Text(
-                    auth.username.isNotEmpty
-                        ? auth.username[0].toUpperCase()
-                        : 'A',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 20),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => _confirmLogout(context, auth),
+            child: Container(
+              padding: wide
+                  ? const EdgeInsets.symmetric(horizontal: 14, vertical: 12)
+                  : const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? StockpileColors.darkInputBg
+                    : StockpileColors.inputBg,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: wide
+                  ? Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: StockpileColors.primary900,
+                          child: Text(
+                            auth.username.isNotEmpty
+                                ? auth.username[0].toUpperCase()
+                                : 'A',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                auth.username.isNotEmpty
+                                    ? auth.username
+                                    : 'Admin',
+                                maxLines: 1,
+                                overflow: TextOverflow.clip,
+                                style: StockpileFonts.satoshi(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark
+                                      ? StockpileColors.darkTextPrimary
+                                      : StockpileColors.darkText,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Admin',
+                                style: StockpileFonts.satoshi(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: isDark
+                                      ? StockpileColors.darkTextMuted
+                                      : StockpileColors.mutedText,
+                                  height: 1.2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.logout_rounded,
+                            size: 20,
+                            color: isDark
+                                ? StockpileColors.darkTextMuted
+                                : StockpileColors.mutedText,
+                          ),
+                          onPressed: () => _confirmLogout(context, auth),
+                          tooltip: 'Logout',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Center(
+                      child: CircleAvatar(
+                        radius: 16,
+                        backgroundColor: StockpileColors.primary900,
+                        child: Text(
+                          auth.username.isNotEmpty
+                              ? auth.username[0].toUpperCase()
+                              : 'A',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        auth.username.isNotEmpty ? auth.username : 'Admin',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? StockpileColors.darkTextPrimary
-                              : StockpileColors.darkText,
-                          height: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Admin',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: isDark
-                              ? StockpileColors.darkTextMuted
-                              : StockpileColors.mutedText,
-                          height: 1.2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Logout button in profile card
-                IconButton(
-                  icon: Icon(
-                    Icons.logout_rounded,
-                    size: 20,
-                    color: isDark
-                        ? StockpileColors.darkTextMuted
-                        : StockpileColors.mutedText,
-                  ),
-                  onPressed: () => _confirmLogout(context, auth),
-                  tooltip: 'Logout',
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 36,
-                    minHeight: 36,
-                  ),
-                ),
-              ],
             ),
           ),
         ),
@@ -1466,41 +2290,48 @@ class _AdminSidebar extends StatelessWidget {
         width: 260,
         backgroundColor: surface,
         elevation: 0,
-        child: content,
+        child: LayoutBuilder(
+          builder: (_, constraints) => buildContent(constraints.maxWidth > 150),
+        ),
       );
     }
-    return Container(width: 260, color: surface, child: content);
-  }
-
-  Future<void> _confirmLogout(BuildContext context, AuthState auth) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to sign out?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Logout'),
-          ),
-        ],
+    return SizedBox.expand(
+      child: Container(
+        color: surface,
+        child: LayoutBuilder(
+          builder: (_, constraints) => buildContent(constraints.maxWidth > 150),
+        ),
       ),
     );
-
-    if (confirmed != true || !context.mounted) return;
-
-    await auth.logout();
-
-    if (!context.mounted) return;
-
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
   }
+}
+
+void _confirmLogout(BuildContext context, AuthState auth) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Logout'),
+      content: const Text('Are you sure you want to sign out?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Logout'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true || !context.mounted) return;
+
+  await auth.logout();
+
+  if (!context.mounted) return;
+
+  Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
 }
 
 // ─── Sidebar Tile ───────────────────────────────────────────────────────────
@@ -1511,6 +2342,7 @@ class _AdminSidebarTile extends StatelessWidget {
   final Color activeBg;
   final bool isDark;
   final VoidCallback onTap;
+  final bool expanded;
 
   const _AdminSidebarTile({
     required this.item,
@@ -1518,6 +2350,7 @@ class _AdminSidebarTile extends StatelessWidget {
     required this.activeBg,
     required this.isDark,
     required this.onTap,
+    this.expanded = true,
   });
 
   @override
@@ -1535,26 +2368,52 @@ class _AdminSidebarTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Row(
-            children: [
-              Icon(item.icon, size: 20, color: textColor),
-              const SizedBox(width: 12),
-              Text(
-                item.label,
-                style: StockpileFonts.satoshi(
-                  fontSize: 14,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  color: textColor,
+          child: expanded
+              ? Row(
+                  children: [
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      width: 44,
+                      child: Center(
+                        child: Icon(item.icon, size: 20, color: textColor),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Text(
+                        item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.clip,
+                        style: StockpileFonts.satoshi(
+                          fontSize: 14,
+                          fontWeight: isSelected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: textColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : Tooltip(
+                  message: item.label,
+                  child: Center(
+                    child: SizedBox(
+                      width: 44,
+                      child: Center(
+                        child: Icon(item.icon, size: 20, color: textColor),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -1752,7 +2611,15 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                         Navigator.pop(ctx);
                         _confirmDeleteMember(member);
                       },
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      icon: const CircleAvatar(
+                        radius: 16,
+                        backgroundColor: StockpileColors.danger,
+                        child: Icon(
+                          Icons.delete_outline,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
                     ),
                     IconButton(
                       tooltip: 'Close',

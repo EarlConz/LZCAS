@@ -93,7 +93,15 @@ class _SuppliersPageState extends State<SuppliersPage>
                     ),
                     IconButton(
                       tooltip: 'Edit',
-                      icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                      icon: const CircleAvatar(
+                        radius: 16,
+                        backgroundColor: StockpileColors.primary900,
+                        child: Icon(
+                          Icons.edit_outlined,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
                       onPressed: () {
                         Navigator.pop(ctx);
                         _openEditDialog(member);
@@ -101,7 +109,15 @@ class _SuppliersPageState extends State<SuppliersPage>
                     ),
                     IconButton(
                       tooltip: 'Delete',
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
+                      icon: const CircleAvatar(
+                        radius: 16,
+                        backgroundColor: StockpileColors.danger,
+                        child: Icon(
+                          Icons.delete_outline,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
                       onPressed: () {
                         Navigator.pop(ctx);
                         _confirmDelete(member);
@@ -280,18 +296,28 @@ class _SuppliersPageState extends State<SuppliersPage>
                                   tooltip: 'Edit',
                                   onPressed: () =>
                                       _openEditDialog(_selectedMember!),
-                                  icon: const Icon(
-                                    Icons.edit_outlined,
-                                    color: Colors.blue,
+                                  icon: const CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: StockpileColors.primary900,
+                                    child: Icon(
+                                      Icons.edit_outlined,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
                                   ),
                                 ),
                                 IconButton(
                                   tooltip: 'Delete',
                                   onPressed: () =>
                                       _confirmDelete(_selectedMember!),
-                                  icon: const Icon(
-                                    Icons.delete_outline,
-                                    color: Colors.red,
+                                  icon: const CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: StockpileColors.danger,
+                                    child: Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
                                   ),
                                 ),
                                 IconButton(

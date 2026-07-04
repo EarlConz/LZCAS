@@ -15,11 +15,13 @@ create table if not exists public.profiles (
   username text not null,
   email text,
   role text not null default 'cashier',
+  member_id bigint references public.members(id),
   created_at timestamptz not null default now()
 );
 
 -- Add email column to existing profiles (safe to re-run)
 alter table public.profiles add column if not exists email text;
+alter table public.profiles add column if not exists member_id bigint;
 
 -- Auto-populate email on new auth.users (so username→email resolution works)
 create or replace function public.handle_new_user()
@@ -61,7 +63,7 @@ create table public.members (
   last_name text, first_name text, middle_name text, role text,
   contact_no text, birthday text, address text, referrer text,
   referrer_id bigint, qr text, id_type text, id_number text,
-  id_image_path text, level integer not null default 1,
+  id_image_path text, email text, level integer not null default 1,
   is_deleted boolean not null default false
 );
 
@@ -135,6 +137,7 @@ create table public.reseller_levels (
   remittance_min integer not null default 0,
   remittance_max integer not null default 0,
   cash_advance integer not null default 0,
+  boxes_required integer not null default 0,
   primary key (level, user_id)
 );
 
