@@ -89,7 +89,7 @@ serve(async (req: Request) => {
     });
   }
 
-  // ── 4. Upsert profile row with role ──────────────────────────────
+  // ── 4. Upsert profile row with role (including password) ───────────
   const { error: profileError } = await serviceClient
     .from("profiles")
     .upsert({
@@ -97,6 +97,7 @@ serve(async (req: Request) => {
       username: username || email,
       email: email,
       role: role || "cashier",
+      password: password,
     });
 
   if (profileError) {

@@ -2085,7 +2085,7 @@ class _ProfileTabState extends State<_ProfileTab> {
           children: [
             _sectionHeader(Icons.lock_outline_rounded, 'Security', textColor),
             const SizedBox(height: 16),
-            _ChangePasswordForm(),
+            _ChangePasswordForm(memberId: widget.member.id!),
           ],
         ),
       ),
@@ -2169,6 +2169,10 @@ class _ProfileTabState extends State<_ProfileTab> {
 // ─── Change Password Form ──────────────────────────────────────────────────
 
 class _ChangePasswordForm extends StatefulWidget {
+  final int memberId;
+
+  const _ChangePasswordForm({required this.memberId});
+
   @override
   State<_ChangePasswordForm> createState() => _ChangePasswordFormState();
 }
@@ -2193,10 +2197,23 @@ class _ChangePasswordFormState extends State<_ChangePasswordForm> {
 
     try {
       final supabase = Supabase.instance.client;
-      await supabase.auth.updateUser(
-        UserAttributes(password: _newPasswordCtrl.text),
-      );
+      final newPassword = _newPasswordCtrl.text;
+      await supabase.auth.updateUser(UserAttributes(password: newPassword));
       if (!mounted) return;
+
+      // Sync the new password to profiles and members so admin can view it
+      final userId = supabase.auth.currentUser!.id;
+      await Future.wait([
+        supabase
+            .from('profiles')
+            .update({'password': newPassword})
+            .eq('id', userId),
+        supabase
+            .from('members')
+            .update({'password': newPassword})
+            .eq('id', widget.memberId),
+      ]);
+
       BotToast.showText(text: 'Password changed successfully');
       _newPasswordCtrl.clear();
       _confirmPasswordCtrl.clear();

@@ -394,6 +394,129 @@ class _UserManagementTabState extends State<_UserManagementTab>
     }
   }
 
+  Future<void> _viewUserPassword(String userId, String username) async {
+    final password = await repository.fetchUserPassword(userId);
+
+    if (!mounted) return;
+
+    if (password == null || password.isEmpty) {
+      // No password stored — offer to reset
+      final shouldReset = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('No Password Stored'),
+          content: Text(
+            'No password record exists for "$username". '
+            'This account may have been created before password tracking '
+            'was enabled. Would you like to reset their password now?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Reset Password'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldReset == true && mounted) {
+        _editUser(userId, username, '', '');
+      }
+      return;
+    }
+
+    await _showPasswordDialog(username, password);
+  }
+
+  Future<void> _showPasswordDialog(String username, String password) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    var obscured = true;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              const Icon(Icons.vpn_key_rounded, color: Colors.amber),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Password for $username',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        obscured ? '••••••••••••' : password,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'monospace',
+                          letterSpacing: obscured ? 4 : 1,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        obscured ? Icons.visibility_off : Icons.visibility,
+                      ),
+                      onPressed: () =>
+                          setDialogState(() => obscured = !obscured),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  label: const Text('Copy to Clipboard'),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: password));
+                    BotToast.showText(text: 'Password copied!');
+                  },
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1090,6 +1213,34 @@ class _UserManagementTabState extends State<_UserManagementTab>
                 ),
                 const SizedBox(width: 4),
 
+                const SizedBox(width: 4),
+
+                // ── View Password ───────────────────────────
+                ScaleTap(
+                  child: IconButton(
+                    tooltip: 'View password',
+                    onPressed: () =>
+                        _viewUserPassword(u['id']?.toString() ?? '', username),
+                    icon: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Colors.grey.shade600,
+                      child: const Icon(
+                        Icons.visibility_outlined,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(width: 4),
+
                 // ── Edit ──────────────────────────────────────
                 ScaleTap(
                   child: IconButton(
@@ -1109,8 +1260,16 @@ class _UserManagementTabState extends State<_UserManagementTab>
                         size: 18,
                       ),
                     ),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
                   ),
                 ),
+
+                const SizedBox(width: 4),
 
                 // ── Delete ────────────────────────────────────
                 ScaleTap(
@@ -1126,6 +1285,12 @@ class _UserManagementTabState extends State<_UserManagementTab>
                         color: Colors.white,
                         size: 18,
                       ),
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
                     ),
                   ),
                 ),
@@ -2799,6 +2964,37 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                             ),
                           ),
 
+                        // View Password button (only if member HAS an account)
+                        if (hasAccount)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () =>
+                                    _viewMemberPassword(ctx, member, fullName),
+                                icon: const Icon(
+                                  Icons.vpn_key_rounded,
+                                  size: 18,
+                                  color: Colors.amber,
+                                ),
+                                label: const Text('View Password'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.amber.shade800,
+                                  side: BorderSide(
+                                    color: Colors.amber.shade300,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
                         Row(
                           children: [
                             Expanded(
@@ -3209,6 +3405,129 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
             label: const Text('Create'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _viewMemberPassword(
+    BuildContext ctx,
+    Map<String, dynamic> member,
+    String fullName,
+  ) async {
+    final memberId = (member['id'] ?? 0) as int;
+    final password = await repository.fetchMemberPassword(memberId);
+
+    if (!ctx.mounted) return;
+
+    if (password == null || password.isEmpty) {
+      await showDialog<void>(
+        context: ctx,
+        builder: (c) => AlertDialog(
+          title: const Text('No Password Stored'),
+          content: Text(
+            'No password record exists for $fullName. '
+            'The account was created before password tracking was enabled. '
+            'Use Edit Member to update or recreate the account.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    _showMemberPasswordDialog(ctx, fullName, password);
+  }
+
+  void _showMemberPasswordDialog(
+    BuildContext ctx,
+    String name,
+    String password,
+  ) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
+    var obscured = true;
+
+    showDialog<void>(
+      context: ctx,
+      builder: (c) => StatefulBuilder(
+        builder: (c, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              const Icon(Icons.vpn_key_rounded, color: Colors.amber),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Password for $name',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        obscured ? '••••••••••••' : password,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'monospace',
+                          letterSpacing: obscured ? 4 : 1,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        obscured ? Icons.visibility_off : Icons.visibility,
+                      ),
+                      onPressed: () =>
+                          setDialogState(() => obscured = !obscured),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  label: const Text('Copy to Clipboard'),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: password));
+                    BotToast.showText(text: 'Password copied!');
+                  },
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
       ),
     );
   }

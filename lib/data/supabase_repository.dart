@@ -1496,6 +1496,36 @@ class SupabaseRepository {
     );
   }
 
+  /// Fetch the stored password for a staff user from profiles.password.
+  Future<String?> fetchUserPassword(String userId) async {
+    try {
+      final data = await _supabase
+          .from('profiles')
+          .select('password')
+          .eq('id', userId)
+          .maybeSingle();
+      if (data == null) return null;
+      return data['password'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Fetch the stored password for a member from members.password.
+  Future<String?> fetchMemberPassword(int memberId) async {
+    try {
+      final data = await _supabase
+          .from('members')
+          .select('password')
+          .eq('id', memberId)
+          .maybeSingle();
+      if (data == null) return null;
+      return data['password'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Submit a member deletion request for admin approval.
   Future<int> submitMemberDeletionRequest({
     required int memberId,

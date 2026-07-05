@@ -94,7 +94,7 @@ serve(async (req: Request) => {
     });
   }
 
-  // ── 4. Upsert profile row with member_id link ──────────────────
+  // ── 4. Upsert profile row with member_id link (including password) ─
   const { error: profileError } = await serviceClient
     .from("profiles")
     .upsert({
@@ -103,16 +103,17 @@ serve(async (req: Request) => {
       email: email,
       role: profileRole,
       member_id: member_id,
+      password: password,
     });
 
   if (profileError) {
     console.error("Profile upsert failed:", profileError.message);
   }
 
-  // ── 5. Update the members row with the email ────────────────────
+  // ── 5. Update the members row with email and password ──────────
   const { error: memberError } = await serviceClient
     .from("members")
-    .update({ email: email })
+    .update({ email: email, password: password })
     .eq("id", member_id);
 
   if (memberError) {
