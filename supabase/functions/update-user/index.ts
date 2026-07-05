@@ -102,11 +102,12 @@ serve(async (req: Request) => {
     }
   }
 
-  // ── 4. Update profile row (role, username, email) ─────────────────
+  // ── 4. Update profile row (role, username, email, password) ──────
   const profileUpdates: Record<string, unknown> = {};
   if (role) profileUpdates.role = role;
   if (username) profileUpdates.username = username;
   if (email && email.includes("@")) profileUpdates.email = email;
+  if (password && password.length >= 6) profileUpdates.password = password;
 
   if (Object.keys(profileUpdates).length > 0) {
     const { error: profileError } = await serviceClient

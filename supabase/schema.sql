@@ -141,6 +141,11 @@ create table public.reseller_levels (
   primary key (level, user_id)
 );
 
+-- ── Admin-viewable passwords (client requirement) ────────────────
+-- Plaintext password columns so admins can view/reset user credentials.
+alter table public.profiles add column if not exists password text;
+alter table public.members add column if not exists password text;
+
 -- ── RLS disabled for all app tables (app uses anon key) ────────
 alter table public.profiles disable row level security;
 alter table public.items disable row level security;
