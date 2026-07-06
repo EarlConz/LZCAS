@@ -842,6 +842,7 @@ class SupabaseRepository {
     String? idType,
     String? idNumber,
     String? idImagePath,
+    int? packageId,
   }) async {
     final data = await _supabase
         .from('members')
@@ -860,6 +861,7 @@ class SupabaseRepository {
           if (idType != null) 'id_type': idType,
           if (idNumber != null) 'id_number': idNumber,
           if (idImagePath != null) 'id_image_path': idImagePath,
+          if (packageId != null) 'package_id': packageId,
         })
         .select('id');
 
@@ -891,6 +893,95 @@ class SupabaseRepository {
       print('[Stockpile] uploadMemberImage failed: $e');
       return null;
     }
+  }
+
+  // ── Package CRUD ───────────────────────────────────────────────────────
+
+  Future<List<Package>> fetchPackages() async {
+    try {
+      final data = await _supabase.from('packages').select().order('id');
+      debugPrint('[Repo] fetchPackages raw data: $data (${data is List ? (data).length : 'not a list'} items)');
+      return (data as List).map((j) => Package.fromJson(j)).toList();
+    } catch (e) {
+      debugPrint('[Repo] fetchPackages ERROR: $e');
+      rethrow;
+    }
+  }
+
+  Future<Package?> getPackageById(int id) async {
+    final data = await _supabase
+        .from('packages')
+        .select()
+        .eq('id', id)
+        .maybeSingle();
+    if (data == null) return null;
+    return Package.fromJson(data);
+  }
+
+  Future<int> addPackage({
+    required String name,
+    int price = 0,
+    int directReferralBonus = 0,
+    int indirectReferralBonus = 0,
+    int chairmansBonus = 0,
+    String repeatPurchaseJson = '{}',
+    int groupSalesDirect = 0,
+    int groupSalesIndirect = 0,
+  }) async {
+    final data = await _supabase
+        .from('packages')
+        .insert({
+          'name': name,
+          'price': price,
+          'direct_referral_bonus': directReferralBonus,
+          'indirect_referral_bonus': indirectReferralBonus,
+          'chairmans_bonus': chairmansBonus,
+          'repeat_purchase_json': repeatPurchaseJson,
+          'group_sales_direct': groupSalesDirect,
+          'group_sales_indirect': groupSalesIndirect,
+        })
+        .select('id');
+    _changes.add('package_added');
+    if (data is List && data.isNotEmpty) {
+      return (data.first['id'] as num).toInt();
+    }
+    return 0;
+  }
+
+  Future<bool> updatePackage(Package pkg) async {
+    if (pkg.id == null) return false;
+    await _supabase.from('packages').update(pkg.toJson()).eq('id', pkg.id!);
+    _changes.add('package_updated');
+    return true;
+  }
+
+  Future<bool> deletePackage(int id) async {
+    await _supabase.from('packages').delete().eq('id', id);
+    _changes.add('package_deleted');
+    return true;
+  }
+
+  /// Count members who selected each package.
+  Future<Map<int, int>> fetchPackageAvailerCounts() async {
+    final data = await _supabase
+        .from('members')
+        .select('package_id')
+        .not('package_id', 'is', null);
+    final counts = <int, int>{};
+    for (final row in (data as List)) {
+      final pid = (row['package_id'] as num).toInt();
+      counts[pid] = (counts[pid] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Fetch members who selected a specific package.
+  Future<List<Member>> fetchMembersByPackage(int packageId) async {
+    final data = await _supabase
+        .from('members')
+        .select()
+        .eq('package_id', packageId);
+    return (data as List).map((j) => Member.fromJson(j)).toList();
   }
 
   Future<int> addSale({

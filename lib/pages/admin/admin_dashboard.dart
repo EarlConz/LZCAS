@@ -4,6 +4,7 @@
 // from every dashboard (admin, inventory, and cashier).
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/services.dart';
@@ -52,6 +53,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'Members',
     'Requests',
     'Borrow Stock',
+    'Package',
     'Settings',
   ];
 
@@ -72,7 +74,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _AdminDeleteRequestTab(),
     // 7: Borrow Stock
     _AdminBorrowStockTab(),
-    // 8: Settings — Global Config moved here
+    // 8: Package Management
+    _AdminPackageTab(),
+    // 9: Settings — Global Config moved here
     _AdminSettingsTab(),
   ];
 
@@ -1766,6 +1770,737 @@ class _RoleDot extends StatelessWidget {
   }
 }
 
+// ─── Admin · Package Management Tab ───────────────────────────────────────
+
+class _AdminPackageTab extends StatefulWidget {
+  const _AdminPackageTab();
+
+  @override
+  State<_AdminPackageTab> createState() => _AdminPackageTabState();
+}
+
+class _AdminPackageTabState extends State<_AdminPackageTab> {
+  List<Package> _packages = [];
+  Map<int, int> _availerCounts = {};
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _loading = true);
+    try {
+      final packages = await repository.fetchPackages();
+      final counts = await repository.fetchPackageAvailerCounts();
+      if (!mounted) return;
+      setState(() {
+        _packages = packages;
+        _availerCounts = counts;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('[AdminPackageTab] _loadData failed: $e');
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _showAvailersList(Package pkg) async {
+    final members = await repository.fetchMembersByPackage(pkg.id!);
+    if (!mounted) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${pkg.name} — Availers'),
+        content: SizedBox(
+          width: 400,
+          child: members.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: Text('No availers yet.')),
+                )
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: members.length,
+                  itemBuilder: (_, i) {
+                    final m = members[i];
+                    final name = [
+                      m.firstName,
+                      m.lastName,
+                    ].where((p) => p != null && p.isNotEmpty).join(' ');
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: StockpileColors.primary900,
+                        child: Text(
+                          name.isNotEmpty
+                              ? name[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                      title: Text(name.isNotEmpty ? name : 'Member #${m.id}'),
+                      subtitle: Text(
+                        m.role ?? 'Member',
+                        style: TextStyle(
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditPackageDialog({Package? existing}) {
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final priceCtrl = TextEditingController(
+      text: existing != null ? '${existing.price}' : '0',
+    );
+    final directCtrl = TextEditingController(
+      text: existing != null ? '${existing.directReferralBonus}' : '0',
+    );
+    final indirectCtrl = TextEditingController(
+      text: existing != null ? '${existing.indirectReferralBonus}' : '0',
+    );
+    final chairmansCtrl = TextEditingController(
+      text: existing != null ? '${existing.chairmansBonus}' : '0',
+    );
+
+    // Repeat purchase rates parsed from JSON
+    Map<String, dynamic> existingRates = {};
+    if (existing != null) {
+      try {
+        existingRates = jsonDecode(existing.repeatPurchaseJson) as Map<String, dynamic>;
+      } catch (_) {}
+    }
+    final rpPackCtrl = TextEditingController(
+      text: '${existingRates['pack'] ?? 5}',
+    );
+    final rpBoxCtrl = TextEditingController(
+      text: '${existingRates['box'] ?? 5}',
+    );
+    final rpBottleCtrl = TextEditingController(
+      text: '${existingRates['bottle'] ?? 20}',
+    );
+    final groupDirectCtrl = TextEditingController(
+      text: existing != null ? '${existing.groupSalesDirect}' : '3',
+    );
+    final groupIndirectCtrl = TextEditingController(
+      text: existing != null ? '${existing.groupSalesIndirect}' : '2',
+    );
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+        title: Text(existing != null ? 'Edit Package' : 'Add Package'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                TextFormField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Package Name',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: priceCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Price (₱)',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: directCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Direct Referral Bonus',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: indirectCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Indirect Referral Bonus',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: chairmansCtrl,
+                  decoration: const InputDecoration(
+                    labelText: "Chairman's Bonus",
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Repeat Purchase Rates',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: rpPackCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Per Pack',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: rpBoxCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Per Box',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: rpBottleCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Per Bottle',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Group Sales',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: groupDirectCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Direct (per item)',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: groupIndirectCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Indirect (per item)',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),  // Column
+          ),    // Form
+        ),      // SingleChildScrollView
+      ),        // SizedBox
+        actions: [
+          if (existing != null)
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: ctx,
+                  builder: (c) => AlertDialog(
+                    title: const Text('Delete Package'),
+                    content: Text('Delete "${existing.name}"?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(c, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.red,
+                        ),
+                        onPressed: () => Navigator.pop(c, true),
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true) {
+                  await repository.deletePackage(existing.id!);
+                  Navigator.pop(ctx);
+                  _loadData();
+                }
+              },
+              child: const Text('Delete'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+              final repeatJson = jsonEncode({
+                'pack': int.tryParse(rpPackCtrl.text) ?? 0,
+                'box': int.tryParse(rpBoxCtrl.text) ?? 0,
+                'bottle': int.tryParse(rpBottleCtrl.text) ?? 0,
+              });
+              if (existing != null) {
+                final updated = existing.copyWith(
+                  name: nameCtrl.text.trim(),
+                  price: int.tryParse(priceCtrl.text) ?? 0,
+                  directReferralBonus: int.tryParse(directCtrl.text) ?? 0,
+                  indirectReferralBonus: int.tryParse(indirectCtrl.text) ?? 0,
+                  chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
+                  repeatPurchaseJson: repeatJson,
+                  groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
+                  groupSalesIndirect: int.tryParse(groupIndirectCtrl.text) ?? 0,
+                );
+                await repository.updatePackage(updated);
+              } else {
+                await repository.addPackage(
+                  name: nameCtrl.text.trim(),
+                  price: int.tryParse(priceCtrl.text) ?? 0,
+                  directReferralBonus: int.tryParse(directCtrl.text) ?? 0,
+                  indirectReferralBonus: int.tryParse(indirectCtrl.text) ?? 0,
+                  chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
+                  repeatPurchaseJson: repeatJson,
+                  groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
+                  groupSalesIndirect: int.tryParse(groupIndirectCtrl.text) ?? 0,
+                );
+              }
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+              _loadData();
+            },
+            child: Text(existing != null ? 'Save' : 'Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header ─────────────────────────────────
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Package Management',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: isDark
+                            ? StockpileColors.darkTextPrimary
+                            : StockpileColors.darkText,
+                      ),
+                    ),
+                    Text(
+                      'Configure membership packages, bonuses, and view availers.',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 13,
+                        color: isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              FilledButton.icon(
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add Package'),
+                onPressed: () => _showEditPackageDialog(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // ── Analytics Cards ────────────────────────
+          if (_packages.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(48),
+                child: Column(
+                  children: [
+                    Icon(Icons.card_giftcard_outlined,
+                        size: 64,
+                        color: isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText),
+                    const SizedBox(height: 12),
+                    Text('No packages configured yet.',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 16,
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText,
+                        )),
+                  ],
+                ),
+              ),
+            ),
+
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: _packages.map((pkg) {
+              final count = _availerCounts[pkg.id] ?? 0;
+              return SizedBox(
+                width: 240,
+                child: GestureDetector(
+                  onTap: count > 0 ? () => _showAvailersList(pkg) : null,
+                  child: Card(
+                    elevation: 1,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    color: isDark
+                        ? StockpileColors.darkSurface
+                        : StockpileColors.surface,
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 42,
+                                height: 42,
+                                decoration: BoxDecoration(
+                                  color: StockpileColors.primary900
+                                      .withAlpha(isDark ? 40 : 20),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.card_giftcard_rounded,
+                                  color: StockpileColors.primary900,
+                                  size: 22,
+                                ),
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined,
+                                    size: 18),
+                                onPressed: () =>
+                                    _showEditPackageDialog(existing: pkg),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            pkg.name,
+                            style: StockpileFonts.satoshi(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: isDark
+                                  ? StockpileColors.darkTextPrimary
+                                  : StockpileColors.darkText,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '₱${pkg.price}',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: StockpileColors.primary900,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: (count > 0
+                                      ? StockpileColors.success
+                                      : theme.colorScheme.onSurfaceVariant)
+                                  .withAlpha(20),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.people_alt_rounded,
+                                  size: 18,
+                                  color: count > 0
+                                      ? StockpileColors.success
+                                      : theme.colorScheme.onSurfaceVariant,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '$count Availer${count == 1 ? '' : 's'}',
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: count > 0
+                                        ? StockpileColors.success
+                                        : theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _BonusRow(
+                            label: 'Direct Bonus',
+                            value: '₱${pkg.directReferralBonus}',
+                            isDark: isDark,
+                          ),
+                          const SizedBox(height: 4),
+                          _BonusRow(
+                            label: 'Indirect Bonus',
+                            value: '₱${pkg.indirectReferralBonus}',
+                            isDark: isDark,
+                          ),
+                          const SizedBox(height: 4),
+                          _BonusRow(
+                            label: "Chairman's Bonus",
+                            value: '₱${pkg.chairmansBonus}',
+                            isDark: isDark,
+                          ),
+                          const SizedBox(height: 8),
+                          _RepeatPurchaseRow(pkg: pkg, isDark: isDark),
+                          const SizedBox(height: 8),
+                          _GroupSalesRow(
+                            icon: Icons.arrow_downward_rounded,
+                            label: 'Group Sales Direct',
+                            value: '${pkg.groupSalesDirect} / item',
+                            isDark: isDark,
+                          ),
+                          const SizedBox(height: 4),
+                          _GroupSalesRow(
+                            icon: Icons.arrow_downward_rounded,
+                            label: 'Group Sales Indirect',
+                            value: '${pkg.groupSalesIndirect} / item',
+                            isDark: isDark,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BonusRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool isDark;
+
+  const _BonusRow({
+    required this.label,
+    required this.value,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: StockpileFonts.satoshi(
+              fontSize: 12,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: StockpileFonts.satoshi(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: isDark
+                ? StockpileColors.darkTextPrimary
+                : StockpileColors.darkText,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RepeatPurchaseRow extends StatelessWidget {
+  final Package pkg;
+  final bool isDark;
+
+  const _RepeatPurchaseRow({required this.pkg, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    Map<String, dynamic> rates;
+    try {
+      rates = jsonDecode(pkg.repeatPurchaseJson) as Map<String, dynamic>;
+    } catch (_) {
+      rates = {};
+    }
+    if (rates.isEmpty) return const SizedBox.shrink();
+
+    final entries = rates.entries.map((e) => '${e.value}/${e.key}').join(', ');
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.repeat_rounded,
+            size: 14,
+            color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            'Repeat Purchase',
+            style: StockpileFonts.satoshi(
+              fontSize: 12,
+              color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText,
+            ),
+          ),
+        ),
+        Flexible(
+          child: Text(
+            entries,
+            textAlign: TextAlign.end,
+            style: StockpileFonts.satoshi(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GroupSalesRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool isDark;
+
+  const _GroupSalesRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon,
+            size: 14,
+            color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            label,
+            style: StockpileFonts.satoshi(
+              fontSize: 12,
+              color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: StockpileFonts.satoshi(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: StockpileColors.primary900,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ─── Admin · Settings Tab — Global Config relocated from top nav ───────────
 
 class _AdminSettingsTab extends StatefulWidget {
@@ -2023,6 +2758,7 @@ class _AdminSidebar extends StatelessWidget {
     _NavItem(Icons.people_alt_rounded, 'Members'),
     _NavItem(Icons.person_remove_rounded, 'Requests'),
     _NavItem(Icons.add_box_rounded, 'Borrow Stock'),
+    _NavItem(Icons.card_giftcard_rounded, 'Package'),
   ];
 
   static const _bottomItems = <_NavItem>[
@@ -2144,13 +2880,13 @@ class _AdminSidebar extends StatelessWidget {
                 endIndent: 12,
               ),
               const SizedBox(height: 8),
-              // Settings → index 8
+              // Settings → index 9
               _AdminSidebarTile(
                 item: _bottomItems[0],
-                isSelected: selectedIndex == 8,
+                isSelected: selectedIndex == 9,
                 activeBg: activeBg,
                 isDark: isDark,
-                onTap: () => onItemSelected(8),
+                onTap: () => onItemSelected(9),
                 expanded: wide,
               ),
             ],

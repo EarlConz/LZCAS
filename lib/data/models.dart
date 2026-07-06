@@ -80,6 +80,7 @@ class Member {
   final String? idImagePath;
   final String? email;
   final String? userId;
+  final int? packageId;
 
   const Member({
     this.id,
@@ -98,6 +99,7 @@ class Member {
     this.idImagePath,
     this.email,
     this.userId,
+    this.packageId,
   });
 
   factory Member.fromJson(Map<String, dynamic> json) => Member(
@@ -117,6 +119,7 @@ class Member {
     idImagePath: json['id_image_path'] as String?,
     email: json['email'] as String?,
     userId: json['user_id'] as String?,
+    packageId: json['package_id'] as int?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -135,6 +138,7 @@ class Member {
     if (idImagePath != null) 'id_image_path': idImagePath,
     if (email != null) 'email': email,
     if (userId != null) 'user_id': userId,
+    if (packageId != null) 'package_id': packageId,
   };
 
   Member copyWith({
@@ -154,6 +158,7 @@ class Member {
     String? idImagePath,
     String? email,
     String? userId,
+    int? packageId,
   }) => Member(
     id: id ?? this.id,
     lastName: lastName ?? this.lastName,
@@ -171,6 +176,83 @@ class Member {
     idImagePath: idImagePath ?? this.idImagePath,
     email: email ?? this.email,
     userId: userId ?? this.userId,
+    packageId: packageId ?? this.packageId,
+  );
+}
+
+/// A package / membership tier with referral bonuses and rates.
+class Package {
+  final int? id;
+  final String name;
+  final int price;
+  final int directReferralBonus;
+  final int indirectReferralBonus;
+  final int chairmansBonus;
+  final String repeatPurchaseJson;
+  final int groupSalesDirect;
+  final int groupSalesIndirect;
+  final DateTime? createdAt;
+
+  const Package({
+    this.id,
+    required this.name,
+    this.price = 0,
+    this.directReferralBonus = 0,
+    this.indirectReferralBonus = 0,
+    this.chairmansBonus = 0,
+    this.repeatPurchaseJson = '{}',
+    this.groupSalesDirect = 0,
+    this.groupSalesIndirect = 0,
+    this.createdAt,
+  });
+
+  factory Package.fromJson(Map<String, dynamic> json) => Package(
+    id: json['id'] as int?,
+    name: json['name'] as String? ?? '',
+    price: json['price'] as int? ?? 0,
+    directReferralBonus: json['direct_referral_bonus'] as int? ?? 0,
+    indirectReferralBonus: json['indirect_referral_bonus'] as int? ?? 0,
+    chairmansBonus: json['chairmans_bonus'] as int? ?? 0,
+    repeatPurchaseJson: json['repeat_purchase_json'] as String? ?? '{}',
+    groupSalesDirect: json['group_sales_direct'] as int? ?? 0,
+    groupSalesIndirect: json['group_sales_indirect'] as int? ?? 0,
+    createdAt: json['created_at'] != null
+        ? DateTime.tryParse(json['created_at'].toString())
+        : null,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'price': price,
+    'direct_referral_bonus': directReferralBonus,
+    'indirect_referral_bonus': indirectReferralBonus,
+    'chairmans_bonus': chairmansBonus,
+    'repeat_purchase_json': repeatPurchaseJson,
+    'group_sales_direct': groupSalesDirect,
+    'group_sales_indirect': groupSalesIndirect,
+  };
+
+  Package copyWith({
+    int? id,
+    String? name,
+    int? price,
+    int? directReferralBonus,
+    int? indirectReferralBonus,
+    int? chairmansBonus,
+    String? repeatPurchaseJson,
+    int? groupSalesDirect,
+    int? groupSalesIndirect,
+  }) => Package(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    price: price ?? this.price,
+    directReferralBonus: directReferralBonus ?? this.directReferralBonus,
+    indirectReferralBonus: indirectReferralBonus ?? this.indirectReferralBonus,
+    chairmansBonus: chairmansBonus ?? this.chairmansBonus,
+    repeatPurchaseJson: repeatPurchaseJson ?? this.repeatPurchaseJson,
+    groupSalesDirect: groupSalesDirect ?? this.groupSalesDirect,
+    groupSalesIndirect: groupSalesIndirect ?? this.groupSalesIndirect,
+    createdAt: createdAt,
   );
 }
 
@@ -707,6 +789,7 @@ List<Map<String, dynamic>> membersFromRows(List<Member> rows) {
           'idImagePath': m.idImagePath ?? '',
           'email': m.email ?? '',
           'user_id': m.userId ?? '',
+          'packageId': m.packageId,
         },
       )
       .toList();

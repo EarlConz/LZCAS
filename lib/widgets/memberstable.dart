@@ -199,9 +199,10 @@ class MembersTableState extends State<MembersTable> {
       }
     }
 
-    // Auto-verify if an ID photo was uploaded
+    // Auto-verify if an ID photo was uploaded AND a package was selected
     final hasId = (newMember['idImagePath']?.toString() ?? '').isNotEmpty;
-    final role = hasId
+    final hasPackage = (newMember['packageId'] as int?) != null;
+    final role = (hasId && hasPackage)
         ? 'Verified Reseller'
         : (newMember['role']?.toString() ?? 'Member');
 
@@ -222,6 +223,7 @@ class MembersTableState extends State<MembersTable> {
         idType: newMember['idType']?.toString(),
         idNumber: newMember['idNumber']?.toString(),
         idImagePath: null, // set after upload
+        packageId: newMember['packageId'] as int?,
       );
     } catch (e) {
       debugPrint('[MembersTable] addMember failed: $e');
@@ -264,6 +266,26 @@ class MembersTableState extends State<MembersTable> {
             '[MembersTable] Image upload failed, keeping local path: $e',
           );
         }
+      }
+    }
+
+    // ── Auto-create sale transaction when a package is selected ──────
+    final pkgId = newMember['packageId'] as int?;
+    if (pkgId != null) {
+      final pkg = await repository.getPackageById(pkgId);
+      if (pkg != null) {
+        final buyerName = [
+          newMember['firstName'],
+          newMember['lastName'],
+        ].where((p) => p != null && p.toString().isNotEmpty).join(' ');
+        await repository.addSale(
+          itemId: 0, // sentinel — package sales use item 0
+          itemName: pkg.name,
+          quantity: 1,
+          price: pkg.price,
+          buyerId: memberId,
+          buyerName: buyerName.isNotEmpty ? buyerName : 'Member #$memberId',
+        );
       }
     }
 

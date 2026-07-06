@@ -6,7 +6,7 @@ import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
-import 'package:lzcas/db/db.dart' show repository, Member;
+import 'package:lzcas/db/db.dart' show repository, Member, Package;
 import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -32,8 +32,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final usernameController = TextEditingController();
   final passwordController = TextEditingController();
   List<Member> _members = [];
+  List<Package> _packages = [];
   Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
+  int? _selectedPackageId;
   String? _selectedIdType;
   String? _selectedIdImagePath;
   bool _createAccount = false;
@@ -138,9 +140,11 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
 
   Future<void> _loadMembers() async {
     final rows = await repository.fetchMembers();
+    final packages = await repository.fetchPackages();
     if (!mounted) return;
     setState(() {
       _members = rows;
+      _packages = packages;
       // Compute referral counts: count how many members have each referrerId
       _referralCounts = {};
       for (final m in rows) {
@@ -394,6 +398,46 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               ),
 
               const SizedBox(height: 24),
+              // ── Package section ────────────────────────────
+              _sectionLabel('Package', theme, colorScheme),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int?>(
+                initialValue: _selectedPackageId,
+                decoration: InputDecoration(
+                  labelText: 'Select Package',
+                  hintText: 'No package (standard member)',
+                  prefixIcon: const Icon(Icons.card_giftcard_outlined),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('None (Standard Member)'),
+                  ),
+                  ..._packages.map(
+                    (p) => DropdownMenuItem<int?>(
+                      value: p.id,
+                      child: Text('${p.name} — ₱${p.price}'),
+                    ),
+                  ),
+                ],
+                onChanged: (v) => setState(() => _selectedPackageId = v),
+              ),
+              if (_selectedPackageId != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '⚠ Selecting a package will auto-verify this member as a '
+                  'Verified Reseller and create a transaction record.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.primary,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 24),
               // ── Account section ───────────────────────────
               _sectionLabel('Account (Optional)', theme, colorScheme),
               const SizedBox(height: 12),
@@ -599,6 +643,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           ? null
           : idNumberController.text.trim(),
       'idImagePath': _selectedIdImagePath,
+      'packageId': _selectedPackageId,
       'createAccount': _createAccount,
       'username': _createAccount ? usernameController.text.trim() : null,
       'password': _createAccount ? passwordController.text : null,
