@@ -91,6 +91,8 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   List<Member> _indirectReferrals = [];
   String _referrerName = '';
   bool _referralsLoading = true;
+  List<Sale> _availedPackages = [];
+  bool _packagesLoading = true;
   late final StreamSubscription<String> _sub;
 
   @override
@@ -98,6 +100,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     super.initState();
     member = widget.member;
     _computeReferralCount();
+    _loadAvailedPackages();
     _sub = repository.changes.listen((e) {
       if (e == 'sale_added' ||
           e == 'sale_imported' ||
@@ -113,8 +116,29 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
         if (mounted) {
           setState(() {});
           _computeReferralCount();
+          _loadAvailedPackages();
         }
       }
+    });
+  }
+
+  /// Load the packages this member availed (sales rows with a package_id).
+  Future<void> _loadAvailedPackages() async {
+    final memberId = member['id'] as int?;
+    if (memberId == null) {
+      if (mounted) setState(() => _packagesLoading = false);
+      return;
+    }
+    final sales = await repository.fetchSalesForMember(memberId);
+    if (!mounted) return;
+    setState(() {
+      _availedPackages = sales.where((s) => s.isPackage).toList()
+        ..sort(
+          (a, b) => (b.timestamp ?? DateTime(0)).compareTo(
+            a.timestamp ?? DateTime(0),
+          ),
+        );
+      _packagesLoading = false;
     });
   }
 
@@ -420,6 +444,8 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             indirectReferrals: _indirectReferrals,
             referrerName: _referrerName,
             referralsLoading: _referralsLoading,
+            availedPackages: _availedPackages,
+            packagesLoading: _packagesLoading,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
             onIdImageTap: () {
@@ -459,6 +485,8 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             indirectReferrals: _indirectReferrals,
             referrerName: _referrerName,
             referralsLoading: _referralsLoading,
+            availedPackages: _availedPackages,
+            packagesLoading: _packagesLoading,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
             onIdImageTap: () {
@@ -484,6 +512,8 @@ class _MemberProfileSection extends StatelessWidget {
     this.indirectReferrals = const [],
     this.referrerName = '',
     this.referralsLoading = false,
+    this.availedPackages = const [],
+    this.packagesLoading = false,
     this.showHeader = true,
     this.onIdImageTap,
     this.onCreateAccount,
@@ -496,6 +526,8 @@ class _MemberProfileSection extends StatelessWidget {
   final List<Member> indirectReferrals;
   final String referrerName;
   final bool referralsLoading;
+  final List<Sale> availedPackages;
+  final bool packagesLoading;
   final bool showHeader;
   final VoidCallback? onIdImageTap;
   final VoidCallback? onCreateAccount;
@@ -652,6 +684,40 @@ class _MemberProfileSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
+
+        // ── Packages section (Verified Resellers only) ─────
+        // Packages are exclusive to resellers; standard members never
+        // see this section.
+        if ((member['role'] ?? '').toString() == 'Verified Reseller') ...[
+          _SectionHeader(
+            icon: Icons.card_giftcard_outlined,
+            title: 'Packages Availed',
+          ),
+          const SizedBox(height: 8),
+          if (packagesLoading)
+            _DetailLine(
+              icon: Icons.card_giftcard_outlined,
+              label: 'Packages',
+              value: 'Loading…',
+            )
+          else if (availedPackages.isEmpty)
+            _DetailLine(
+              icon: Icons.card_giftcard_outlined,
+              label: 'Packages',
+              value: 'No package availed yet',
+            )
+          else
+            ...availedPackages.map(
+              (s) => _DetailLine(
+                icon: Icons.card_giftcard_outlined,
+                label: s.itemName,
+                value:
+                    '₱${s.price}'
+                    '${s.timestamp != null ? ' · ${formatDisplayDate(s.timestamp)}' : ''}',
+              ),
+            ),
+          const SizedBox(height: 8),
+        ],
 
         // ── Account section ───────────────────────────────
         _SectionHeader(icon: Icons.security_outlined, title: 'Account'),

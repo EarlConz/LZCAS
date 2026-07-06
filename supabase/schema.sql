@@ -74,7 +74,10 @@ create table public.sales (
   id bigint generated always as identity primary key,
   user_id uuid not null, item_id bigint not null, buyer_id bigint,
   item_name text not null, quantity integer not null,
-  price integer not null default 0, timestamp timestamptz not null default now()
+  price integer not null default 0, timestamp timestamptz not null default now(),
+  -- Set when the sale is a package availment (no FK: history must survive
+  -- package deletion). Package sales are excluded from product metrics.
+  package_id bigint
 );
 
 create table public.member_transactions (
@@ -228,11 +231,58 @@ create table if not exists public.packages (
   created_at timestamptz not null default now()
 );
 
-alter table public.packages disable row level security;
+-- ── Packages RLS: everyone logged in can read, only admins can write ──
+-- Helper: check whether the current auth user is an admin.
+-- SECURITY DEFINER so it works even if profiles gets RLS later.
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+alter table public.packages enable row level security;
+
+drop policy if exists "packages_read_authenticated" on public.packages;
+create policy "packages_read_authenticated" on public.packages
+  for select to authenticated
+  using (true);
+
+drop policy if exists "packages_insert_admin" on public.packages;
+create policy "packages_insert_admin" on public.packages
+  for insert to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "packages_update_admin" on public.packages;
+create policy "packages_update_admin" on public.packages
+  for update to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists "packages_delete_admin" on public.packages;
+create policy "packages_delete_admin" on public.packages
+  for delete to authenticated
+  using (public.is_admin());
 
 -- Link members to packages
 alter table public.members add column if not exists package_id bigint
   references public.packages(id);
+
+-- Mark package availments in sales (safe to re-run).
+-- A sale is a package sale iff package_id is not null; item_id 0 alone is
+-- NOT reliable (CSV-imported sales also use item_id 0).
+alter table public.sales add column if not exists package_id bigint;
+-- Backfill: historical package sales used item_id 0 + the package's name
+update public.sales s set package_id = p.id
+  from public.packages p
+  where s.package_id is null and s.item_id = 0
+    and lower(s.item_name) = lower(p.name);
 
 -- Seed default packages (safe to re-run with ON CONFLICT)
 insert into public.packages (id, name, price, direct_referral_bonus, indirect_referral_bonus, chairmans_bonus, repeat_purchase_json, group_sales_direct, group_sales_indirect)

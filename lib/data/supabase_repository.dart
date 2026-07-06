@@ -394,13 +394,13 @@ class SupabaseRepository {
       // This month's sales
       _supabase
           .from('sales')
-          .select('price, quantity')
+          .select('price, quantity, package_id')
           .gte('timestamp', thisMonthStart.toIso8601String())
           .lt('timestamp', thisMonthEnd.toIso8601String()),
       // Last month's sales
       _supabase
           .from('sales')
-          .select('price')
+          .select('price, package_id')
           .gte('timestamp', lastMonthStart.toIso8601String())
           .lt('timestamp', lastMonthEnd.toIso8601String()),
       // Low stock items (id only, lightweight)
@@ -415,17 +415,37 @@ class SupabaseRepository {
     final lastMonthSales = results[1] as List;
     final lowStockRows = results[2] as List;
 
-    // Aggregate client-side (rows limited to one month each, not all time)
+    // Aggregate client-side (rows limited to one month each, not all time).
+    // Package availments (package_id set) are tallied separately — they are
+    // not products and must not inflate revenue or order counts.
     int monthlyRevenue = 0;
-    int activeOrders = thisMonthSales.length;
+    int activeOrders = 0;
+    int packageRevenue = 0;
+    int packagesSold = 0;
     for (final row in thisMonthSales) {
-      monthlyRevenue += (row['price'] as int?) ?? 0;
+      final price = (row['price'] as int?) ?? 0;
+      if (row['package_id'] != null) {
+        packageRevenue += price;
+        packagesSold++;
+      } else {
+        monthlyRevenue += price;
+        activeOrders++;
+      }
     }
 
     int previousMonthRevenue = 0;
-    int previousMonthOrders = lastMonthSales.length;
+    int previousMonthOrders = 0;
+    int previousPackageRevenue = 0;
+    int previousPackagesSold = 0;
     for (final row in lastMonthSales) {
-      previousMonthRevenue += (row['price'] as int?) ?? 0;
+      final price = (row['price'] as int?) ?? 0;
+      if (row['package_id'] != null) {
+        previousPackageRevenue += price;
+        previousPackagesSold++;
+      } else {
+        previousMonthRevenue += price;
+        previousMonthOrders++;
+      }
     }
 
     return {
@@ -434,6 +454,10 @@ class SupabaseRepository {
       'previousMonthRevenue': previousMonthRevenue,
       'previousMonthOrders': previousMonthOrders,
       'lowStockItems': lowStockRows.length,
+      'packageRevenue': packageRevenue,
+      'packagesSold': packagesSold,
+      'previousPackageRevenue': previousPackageRevenue,
+      'previousPackagesSold': previousPackagesSold,
     };
   }
 
@@ -450,14 +474,16 @@ class SupabaseRepository {
 
     final data = await _supabase
         .from('sales')
-        .select('price, timestamp')
+        .select('price, timestamp, package_id')
         .gte('timestamp', startDate.toIso8601String())
         .lt('timestamp', endDate.toIso8601String());
 
-    // Aggregate by YYYY-MM key
+    // Aggregate by YYYY-MM key (products only — package availments are
+    // not part of product revenue)
     final Map<String, Map<String, dynamic>> monthly = {};
     for (final row in (data as List)) {
       final rowMap = row as Map<String, dynamic>;
+      if (rowMap['package_id'] != null) continue;
       final ts = DateTime.parse(rowMap['timestamp'] as String);
       final key = '${ts.year}-${ts.month.toString().padLeft(2, '0')}';
       monthly.putIfAbsent(
@@ -995,6 +1021,7 @@ class SupabaseRepository {
     DateTime? timestamp,
     int? buyerId,
     String? buyerName,
+    int? packageId,
   }) async {
     final result = await _supabase
         .from('sales')
@@ -1006,6 +1033,7 @@ class SupabaseRepository {
           'price': price,
           if (buyerId != null) 'buyer_id': buyerId,
           if (buyerName != null) 'buyer_name': buyerName,
+          if (packageId != null) 'package_id': packageId,
           'timestamp': (timestamp ?? DateTime.now()).toUtc().toIso8601String(),
         })
         .select('id');

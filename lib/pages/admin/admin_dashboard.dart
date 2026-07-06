@@ -2782,27 +2782,38 @@ class _AdminSidebar extends StatelessWidget {
         ? StockpileColors.darkSidebarActive
         : StockpileColors.sidebarActive;
 
+    // Fixed geometry shared by both states: an icon slot at
+    // 8 (padding) + 4 = 12 from the left, 44 wide — icon center x = 34.
+    // Text reveals to the right as the sidebar width animates, so nothing
+    // slides or jumps between the compact and expanded forms.
     Widget buildContent(bool wide) => Column(
       children: [
         // ── Brand ────────────────────────────────────────────────────
-        if (wide)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
-            child: Row(
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: StockpileColors.primary900,
-                    borderRadius: BorderRadius.circular(3),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 28, 8, 24),
+          child: Row(
+            children: [
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 44,
+                child: Center(
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: StockpileColors.primary900,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Flexible(
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 12),
                   child: Text(
                     'LZCAS · Admin',
                     maxLines: 1,
+                    softWrap: false,
                     overflow: TextOverflow.clip,
                     style: StockpileFonts.satoshi(
                       fontSize: 22,
@@ -2814,23 +2825,10 @@ class _AdminSidebar extends StatelessWidget {
                     ),
                   ),
                 ),
-              ],
-            ),
-          )
-        else
-          Padding(
-            padding: const EdgeInsets.only(top: 28, bottom: 24),
-            child: Center(
-              child: Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: StockpileColors.primary900,
-                  borderRadius: BorderRadius.circular(3),
-                ),
               ),
-            ),
+            ],
           ),
+        ),
 
         // ── Navigation Items ─────────────────────────────────────────
         Expanded(
@@ -2907,88 +2905,21 @@ class _AdminSidebar extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             onTap: () => _confirmLogout(context, auth),
             child: Container(
-              padding: wide
-                  ? const EdgeInsets.symmetric(horizontal: 14, vertical: 12)
-                  : const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
                 color: isDark
                     ? StockpileColors.darkInputBg
                     : StockpileColors.inputBg,
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: wide
-                  ? Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: StockpileColors.primary900,
-                          child: Text(
-                            auth.username.isNotEmpty
-                                ? auth.username[0].toUpperCase()
-                                : 'A',
-                            style: StockpileFonts.satoshi(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                auth.username.isNotEmpty
-                                    ? auth.username
-                                    : 'Admin',
-                                maxLines: 1,
-                                overflow: TextOverflow.clip,
-                                style: StockpileFonts.satoshi(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: isDark
-                                      ? StockpileColors.darkTextPrimary
-                                      : StockpileColors.darkText,
-                                  height: 1.2,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Admin',
-                                style: StockpileFonts.satoshi(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  color: isDark
-                                      ? StockpileColors.darkTextMuted
-                                      : StockpileColors.mutedText,
-                                  height: 1.2,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.logout_rounded,
-                            size: 20,
-                            color: isDark
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
-                          ),
-                          onPressed: () => _confirmLogout(context, auth),
-                          tooltip: 'Logout',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
-                        ),
-                      ],
-                    )
-                  : Center(
+              // Avatar sits in the same fixed 44-wide slot as the nav
+              // icons (center x = 34) in both compact and expanded forms.
+              child: Row(
+                children: [
+                  const SizedBox(width: 4),
+                  SizedBox(
+                    width: 44,
+                    child: Center(
                       child: CircleAvatar(
                         radius: 16,
                         backgroundColor: StockpileColors.primary900,
@@ -3004,6 +2935,68 @@ class _AdminSidebar extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ),
+                  if (wide) ...[
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              auth.username.isNotEmpty
+                                  ? auth.username
+                                  : 'Admin',
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.clip,
+                              style: StockpileFonts.satoshi(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: isDark
+                                    ? StockpileColors.darkTextPrimary
+                                    : StockpileColors.darkText,
+                                height: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Admin',
+                              style: StockpileFonts.satoshi(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: isDark
+                                    ? StockpileColors.darkTextMuted
+                                    : StockpileColors.mutedText,
+                                height: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.logout_rounded,
+                        size: 20,
+                        color: isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText,
+                      ),
+                      onPressed: () => _confirmLogout(context, auth),
+                      tooltip: 'Logout',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ],
+              ),
             ),
           ),
         ),
@@ -3088,6 +3081,35 @@ class _AdminSidebarTile extends StatelessWidget {
 
     final bgColor = isSelected ? activeBg : Colors.transparent;
 
+    // Same layout in both states: fixed 44-wide icon slot on the left,
+    // label revealed/clipped by the animating sidebar width. Keeps the
+    // icon at the exact same x-position whether compact or expanded.
+    final content = Row(
+      children: [
+        const SizedBox(width: 4),
+        SizedBox(
+          width: 44,
+          child: Center(child: Icon(item.icon, size: 20, color: textColor)),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(left: 12, right: 4),
+            child: Text(
+              item.label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.clip,
+              style: StockpileFonts.satoshi(
+                fontSize: 14,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                color: textColor,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: InkWell(
@@ -3102,43 +3124,8 @@ class _AdminSidebarTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
           ),
           child: expanded
-              ? Row(
-                  children: [
-                    const SizedBox(width: 4),
-                    SizedBox(
-                      width: 44,
-                      child: Center(
-                        child: Icon(item.icon, size: 20, color: textColor),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: Text(
-                        item.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.clip,
-                        style: StockpileFonts.satoshi(
-                          fontSize: 14,
-                          fontWeight: isSelected
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                          color: textColor,
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              : Tooltip(
-                  message: item.label,
-                  child: Center(
-                    child: SizedBox(
-                      width: 44,
-                      child: Center(
-                        child: Icon(item.icon, size: 20, color: textColor),
-                      ),
-                    ),
-                  ),
-                ),
+              ? content
+              : Tooltip(message: item.label, child: content),
         ),
       ),
     );
