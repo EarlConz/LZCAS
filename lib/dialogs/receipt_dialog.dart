@@ -28,12 +28,14 @@ class ReceiptDialog extends StatefulWidget {
   final List<ReceiptLineItem> lineItems;
   final String? buyerName;
   final DateTime? transactionTime;
+  final String title;
 
   const ReceiptDialog({
     super.key,
     required this.lineItems,
     this.buyerName,
     required this.transactionTime,
+    this.title = 'Sell Receipt',
   });
 
   factory ReceiptDialog.fromSale(Sale sale, {String? buyerName}) {
@@ -129,7 +131,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _ReceiptHeader(colorScheme: colorScheme),
+                _ReceiptHeader(colorScheme: colorScheme, title: widget.title),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                   child: Column(
@@ -361,7 +363,11 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
 
 class _ReceiptHeader extends StatelessWidget {
   final ColorScheme colorScheme;
-  const _ReceiptHeader({required this.colorScheme});
+  final String title;
+  const _ReceiptHeader({
+    required this.colorScheme,
+    this.title = 'Sell Receipt',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -383,7 +389,7 @@ class _ReceiptHeader extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'SALES RECEIPT',
+            title,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               color: colorScheme.onPrimary,
               fontWeight: FontWeight.w800,
