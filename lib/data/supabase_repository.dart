@@ -1191,9 +1191,8 @@ class SupabaseRepository {
   }
 
   /// Compute active (unremitted) earnings for a member from their package.
-  /// Compute collected earnings from REMITTED borrows (Paid-on-Collection rule).
-  /// Balance = Direct Referral Bonus (flat per remitted batch).
-  /// Total Earnings = Indirect + Chairman's + Group Sales + Repeat Purchase.
+  /// Balance = flat one-time signup bonus × count of direct referrals with a package.
+  /// Total Earnings = indirect + chairman's + group sales + repeat purchase (all remitted).
   Future<Map<String, int>> fetchMemberEarningsBreakdown(int memberId) async {
     final member = await getMemberById(memberId);
     Package? pkg;
@@ -1201,8 +1200,67 @@ class SupabaseRepository {
       pkg = await getPackageById(member!.packageId!);
     }
 
-    // Only count quantity_remitted (paid/collected) — not borrowed/outstanding
-    final data = await _supabase
+    // Fetch all members for referral tree
+    final allMembers = await fetchMembers();
+
+    // Direct referrals: members whose referrer_id == this member's id
+    final directReferrals = allMembers
+        .where((m) => m.referrerId == memberId)
+        .toList();
+
+    // Indirect referrals: members whose referrer_id is in the direct set
+    final directIds = directReferrals.map((m) => m.id).whereType<int>().toSet();
+    final indirectIds = allMembers
+        .where((m) => m.referrerId != null && directIds.contains(m.referrerId))
+        .map((m) => m.id)
+        .whereType<int>()
+        .toSet();
+
+    // Balance = flat one-time signup bonus × ALL direct referrals
+    int balance = 0;
+    if (pkg != null) {
+      balance = directReferrals.length * pkg.directReferralBonus;
+    }
+
+    int totalEarnings = 0;
+
+    // Indirect Referral Bonus = flat × count of indirect referrals (not tied to borrows)
+    if (pkg != null) {
+      final indirectCount = allMembers
+          .where(
+            (m) => m.referrerId != null && directIds.contains(m.referrerId),
+          )
+          .length;
+      totalEarnings += indirectCount * pkg.indirectReferralBonus;
+    }
+
+    // Group Sales: ₱3 per direct downline outstanding item, ₱2 per indirect
+    final allDownlineIds = {...directIds, ...indirectIds};
+    if (allDownlineIds.isNotEmpty && pkg != null) {
+      final downlineData = await _supabase
+          .from('borrows')
+          .select('member_id, quantity, quantity_returned, quantity_remitted')
+          .inFilter('member_id', allDownlineIds.toList());
+
+      for (final row in (downlineData as List)) {
+        final downlineMemberId = (row['member_id'] as num).toInt();
+        final borrowed = row['quantity'] as int? ?? 0;
+        final returned = row['quantity_returned'] as int? ?? 0;
+        final remitted = row['quantity_remitted'] as int? ?? 0;
+        final outstanding = borrowed - returned - remitted;
+        if (outstanding <= 0) continue;
+
+        if (directIds.contains(downlineMemberId)) {
+          totalEarnings += pkg.groupSalesDirect * outstanding;
+        }
+        if (indirectIds.contains(downlineMemberId)) {
+          totalEarnings += pkg.groupSalesIndirect * outstanding;
+        }
+      }
+    }
+
+    // Own remitted borrows: chairman's + repeat purchase
+    final ownData = await _supabase
         .from('borrows')
         .select('quantity_remitted, item_name')
         .eq('member_id', memberId);
@@ -1213,21 +1271,13 @@ class SupabaseRepository {
       catMap[c.name.toLowerCase()] = c.commissionRate;
     }
 
-    int totalEarnings = 0; // passive/team incentives
-    int balance = 0; // direct referral bonuses
-    if (data != null) {
-      for (final row in (data as List)) {
+    if (ownData != null && pkg != null) {
+      for (final row in (ownData as List)) {
         final qty = row['quantity_remitted'] as int? ?? 0;
         if (qty <= 0) continue;
 
-        if (pkg != null) {
-          balance += pkg.directReferralBonus;
-          totalEarnings += pkg.indirectReferralBonus + pkg.chairmansBonus;
-          totalEarnings += pkg.groupSalesDirect * qty;
-          totalEarnings += pkg.groupSalesIndirect * qty;
-        }
+        totalEarnings += pkg.chairmansBonus;
 
-        // Repeat purchase: match item category
         final itemName = (row['item_name'] as String? ?? '').toLowerCase();
         for (final entry in catMap.entries) {
           if (itemName.contains(entry.key)) {
@@ -1237,6 +1287,7 @@ class SupabaseRepository {
         }
       }
     }
+
     return {'totalEarnings': totalEarnings, 'balance': balance};
   }
 

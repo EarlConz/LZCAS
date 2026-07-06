@@ -1417,18 +1417,19 @@ class _EarningsTabState extends State<_EarningsTab> {
                   const SizedBox(height: 8),
                   _BreakdownRow(
                     label: 'Balance',
-                    detail: 'Direct referral bonus per remitted (paid) batch',
+                    detail:
+                        'Flat one-time signup bonus (₱300/₱600) × number of direct referrals who activated a package',
                     isDark: isDark,
                   ),
                   _BreakdownRow(
                     label: 'Total Earnings',
                     detail:
-                        "Indirect + Chairman's + Group Sales (₱3/direct, ₱2/indirect per item) + Repeat Purchase (category rates)",
+                        "Indirect referral bonuses + Group Sales (₱3 per item your referrals remit, ₱2 per item their referrals remit) + Chairman's + Repeat Purchase commissions",
                     isDark: isDark,
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Only REMITTED (paid/collected) borrows count — borrowed/outstanding items are excluded.',
+                    'Earnings are Paid-on-Collection: you only earn when items are remitted (paid). Borrowed or past-due items count for nothing until settled.',
                     style: TextStyle(
                       fontSize: 11,
                       fontStyle: FontStyle.italic,
