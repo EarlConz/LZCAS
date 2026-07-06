@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 
@@ -271,7 +272,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
       member['firstName'],
       member['lastName'],
     ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
-    final emailCtrl = TextEditingController();
+    final usernameCtrl = TextEditingController();
     final passwordCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
@@ -287,16 +288,13 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
               Text('Create a login account for $name.'),
               const SizedBox(height: 12),
               TextFormField(
-                controller: emailCtrl,
+                controller: usernameCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Email',
+                  labelText: 'Username',
                   border: OutlineInputBorder(),
                 ),
-                keyboardType: TextInputType.emailAddress,
                 validator: (v) =>
-                    (v == null || v.trim().isEmpty || !v.contains('@'))
-                    ? 'Enter a valid email'
-                    : null,
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 8),
               TextFormField(
@@ -323,21 +321,25 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
               Navigator.pop(ctx);
               final result = await repository.createMemberAuthAccount(
                 memberId: memberId,
-                email: emailCtrl.text.trim(),
+                username: usernameCtrl.text.trim(),
                 password: passwordCtrl.text,
               );
               if (!mounted) return;
               if (result != null) {
-                setState(() {
-                  member['email'] = result['email'];
-                  member['user_id'] = result['id'];
-                });
-                BotToast.showText(
-                  text:
-                      'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
-                );
+                final err = result['error']?.toString();
+                if (err != null) {
+                  showErrorToast(err);
+                } else {
+                  setState(() {
+                    member['email'] = result['email'];
+                    member['user_id'] = result['id'];
+                  });
+                  showSuccessToast(
+                    'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
+                  );
+                }
               } else {
-                BotToast.showText(text: 'Failed to create account.');
+                showErrorToast('Failed to create account.');
               }
             },
             child: const Text('Create'),
@@ -678,7 +680,6 @@ class _MemberProfileSection extends StatelessWidget {
         ? 'Verified Reseller'
         : (member['role'] ?? 'Member').toString();
     final isReseller = role == 'Verified Reseller';
-    final level = (member['level'] ?? 1).toString();
     final memberId = member['id']?.toString() ?? '—';
 
     return Container(
@@ -723,25 +724,6 @@ class _MemberProfileSection extends StatelessWidget {
               value: role,
             ),
           ),
-          if (isReseller) ...[
-            const SizedBox(width: 4),
-            // ── Divider ──────────────────────────────────
-            Container(
-              width: 1,
-              height: 28,
-              color: theme.dividerColor.withAlpha(50),
-            ),
-            const SizedBox(width: 12),
-            // ── Level ────────────────────────────────────
-            Expanded(
-              flex: 2,
-              child: _KeyDetailTile(
-                icon: Icons.stars_outlined,
-                label: 'Lvl',
-                value: level,
-              ),
-            ),
-          ],
         ],
       ),
     );

@@ -7,7 +7,6 @@ drop table if exists public.stock_movements cascade;
 drop table if exists public.items cascade;
 drop table if exists public.members cascade;
 drop table if exists public.pending_requests cascade;
-drop table if exists public.reseller_levels cascade;
 
 -- Profiles: create only if missing — never drop (preserves admin users)
 create table if not exists public.profiles (
@@ -63,7 +62,7 @@ create table public.members (
   last_name text, first_name text, middle_name text, role text,
   contact_no text, birthday text, address text, referrer text,
   referrer_id bigint, qr text, id_type text, id_number text,
-  id_image_path text, email text, level integer not null default 1,
+  id_image_path text, email text,
   is_deleted boolean not null default false
 );
 
@@ -132,15 +131,6 @@ create table public.pending_requests (
   created_at timestamptz not null default now()
 );
 
-create table public.reseller_levels (
-  level integer not null, user_id uuid not null,
-  remittance_min integer not null default 0,
-  remittance_max integer not null default 0,
-  cash_advance integer not null default 0,
-  boxes_required integer not null default 0,
-  primary key (level, user_id)
-);
-
 -- ── Admin-viewable passwords (client requirement) ────────────────
 -- Plaintext password columns so admins can view/reset user credentials.
 alter table public.profiles add column if not exists password text;
@@ -155,7 +145,6 @@ alter table public.borrows disable row level security;
 alter table public.stock_movements disable row level security;
 alter table public.member_transactions disable row level security;
 alter table public.pending_requests disable row level security;
-alter table public.reseller_levels disable row level security;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- ── Performance Indexes (safe to re-run) ─────────────────────────

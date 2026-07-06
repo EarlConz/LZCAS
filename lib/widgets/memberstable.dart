@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
@@ -180,10 +181,23 @@ class MembersTableState extends State<MembersTable> {
     });
   }
 
-  Future<void> addMember(Map<String, dynamic> newMember) async {
+  Future<int> addMember(Map<String, dynamic> newMember) async {
     // Handle renaming the ID image from temp name to member-id-based name
     final rawImagePath = newMember['idImagePath']?.toString();
     String? finalImagePath = rawImagePath;
+
+    // Check username availability BEFORE creating the member.
+    // This ensures nothing is written to the database if the username is taken.
+    if (newMember['createAccount'] == true) {
+      final username = newMember['username']?.toString() ?? '';
+      if (username.isNotEmpty) {
+        final available = await repository.isUsernameAvailable(username);
+        if (!available) {
+          if (mounted) showErrorToast('Username already taken');
+          return 0; // Dialog stays open, nothing was created
+        }
+      }
+    }
 
     // Auto-verify if an ID photo was uploaded
     final hasId = (newMember['idImagePath']?.toString() ?? '').isNotEmpty;
@@ -205,19 +219,14 @@ class MembersTableState extends State<MembersTable> {
         address: newMember['address']?.toString(),
         referrer: newMember['referrer']?.toString(),
         referrerId: newMember['referrerId'] as int?,
-        level: int.tryParse(newMember['level']?.toString() ?? '1') ?? 1,
         idType: newMember['idType']?.toString(),
         idNumber: newMember['idNumber']?.toString(),
         idImagePath: null, // set after upload
       );
     } catch (e) {
       debugPrint('[MembersTable] addMember failed: $e');
-      if (mounted) {
-        BotToast.showText(
-          text: 'Failed to add member. Please restart the app.',
-        );
-      }
-      return;
+      if (mounted) showErrorToast('Failed to add member. Please restart the app.');
+      return 0;
     }
 
     // Upload image to Supabase Storage for cross-device access.
@@ -258,39 +267,26 @@ class MembersTableState extends State<MembersTable> {
       }
     }
 
-    _loadMembers();
-
-    if (!mounted) return;
-    final created = await repository.getMemberById(memberId);
-    if (created != null && mounted) {
-      await _showMemberQrDialog(created);
-    }
-
-    // Auto-create login account if requested in the add dialog
-    if (mounted && newMember['createAccount'] == true && created != null) {
-      final email = newMember['email']?.toString();
-      final password = newMember['password']?.toString();
-      if (email != null &&
-          email.isNotEmpty &&
-          password != null &&
-          password.isNotEmpty) {
+    // Account was already pre-checked above — now create it.
+    if (newMember['createAccount'] == true) {
+      final username = newMember['username']?.toString() ?? '';
+      final password = newMember['password']?.toString() ?? '';
+      if (username.isNotEmpty && password.isNotEmpty) {
         final acct = await repository.createMemberAuthAccount(
-          memberId: created.id!,
-          email: email,
+          memberId: memberId,
+          username: username,
           password: password,
         );
-        if (mounted) {
-          if (acct != null) {
-            BotToast.showText(
-              text:
-                  'Account created!\nEmail: ${acct['email']}\nPassword: ${acct['password']}',
-            );
-          } else {
-            BotToast.showText(text: 'Failed to create login account.');
-          }
+        if (mounted && acct != null && acct['error'] == null) {
+          showSuccessToast(
+            'Account created!\nEmail: ${acct['email']}\nPassword: ${acct['password']}',
+          );
         }
       }
     }
+
+    _loadMembers();
+    return memberId;
   }
 
   Future<void> _showMemberQrDialog(Member member) async {
@@ -406,9 +402,6 @@ class MembersTableState extends State<MembersTable> {
       referrer: updatedMember['referrer']?.toString(),
       referrerId: updatedMember['referrerId'] is int
           ? updatedMember['referrerId'] as int
-          : null,
-      level: updatedMember['level'] is int
-          ? updatedMember['level'] as int
           : null,
       idType: updatedMember['idType']?.toString(),
       idNumber: updatedMember['idNumber']?.toString(),
@@ -628,7 +621,7 @@ class MembersTableState extends State<MembersTable> {
                     DataColumn(label: Text('Contact No.')),
                     DataColumn(label: Text('Birthday')),
                     DataColumn(label: Text('Address')),
-                    DataColumn(label: Text('Level')),
+
                     DataColumn(label: Text('QR')),
                   ],
                   source: _membersSource,
@@ -718,7 +711,7 @@ class _MembersDataSource extends DataTableSource {
   @override
   DataRow getRow(int index) {
     if (index >= _items.length) {
-      return DataRow(cells: List.filled(9, const DataCell(Text('Loading…'))));
+      return DataRow(cells: List.filled(8, const DataCell(Text('Loading…'))));
     }
     final member = _items[index];
     final id = member['id'] as int?;
@@ -791,14 +784,6 @@ class _MembersDataSource extends DataTableSource {
           Text(member["address"] ?? ""),
           onTap: () => onRowSelected(member),
         ),
-        DataCell(
-          Text(
-            (member['role'] ?? '') == 'Verified Reseller'
-                ? (member['level'] ?? 1).toString()
-                : '—',
-          ),
-          onTap: () => onRowSelected(member),
-        ),
         DataCell(_QrIconButton(member: member)),
       ],
     );
@@ -868,10 +853,7 @@ class _MemberListCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   if ((member['role'] ?? '') == 'Verified Reseller')
-                    _MemberMetaPill(
-                      icon: Icons.stars_outlined,
-                      text: (member['level'] ?? 1).toString(),
-                    ),
+                    _MemberMetaPill(icon: Icons.stars_outlined, text: ''),
                   const SizedBox(width: 4),
                   _QrIconButton(member: member),
                 ],

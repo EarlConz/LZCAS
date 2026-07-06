@@ -79,7 +79,6 @@ class Member {
   final String? idNumber;
   final String? idImagePath;
   final String? email;
-  final int level;
   final String? userId;
 
   const Member({
@@ -98,7 +97,6 @@ class Member {
     this.idNumber,
     this.idImagePath,
     this.email,
-    this.level = 1,
     this.userId,
   });
 
@@ -118,7 +116,6 @@ class Member {
     idNumber: json['id_number'] as String?,
     idImagePath: json['id_image_path'] as String?,
     email: json['email'] as String?,
-    level: json['level'] as int? ?? 1,
     userId: json['user_id'] as String?,
   );
 
@@ -137,7 +134,6 @@ class Member {
     if (idNumber != null) 'id_number': idNumber,
     if (idImagePath != null) 'id_image_path': idImagePath,
     if (email != null) 'email': email,
-    'level': level,
     if (userId != null) 'user_id': userId,
   };
 
@@ -157,7 +153,6 @@ class Member {
     String? idNumber,
     String? idImagePath,
     String? email,
-    int? level,
     String? userId,
   }) => Member(
     id: id ?? this.id,
@@ -175,7 +170,6 @@ class Member {
     idNumber: idNumber ?? this.idNumber,
     idImagePath: idImagePath ?? this.idImagePath,
     email: email ?? this.email,
-    level: level ?? this.level,
     userId: userId ?? this.userId,
   );
 }
@@ -250,43 +244,6 @@ class Sale {
     timestamp: timestamp ?? this.timestamp,
     userId: userId ?? this.userId,
   );
-}
-
-/// Reseller level configuration (1-10).
-class ResellerLevel {
-  final int level;
-  final int remittanceMin;
-  final int remittanceMax;
-  final int cashAdvance;
-  final int boxesRequired;
-  final String? userId;
-
-  const ResellerLevel({
-    required this.level,
-    this.remittanceMin = 0,
-    this.remittanceMax = 0,
-    this.cashAdvance = 0,
-    this.boxesRequired = 0,
-    this.userId,
-  });
-
-  factory ResellerLevel.fromJson(Map<String, dynamic> json) => ResellerLevel(
-    level: json['level'] as int? ?? 1,
-    remittanceMin: json['remittance_min'] as int? ?? 0,
-    remittanceMax: json['remittance_max'] as int? ?? 0,
-    cashAdvance: json['cash_advance'] as int? ?? 0,
-    boxesRequired: json['boxes_required'] as int? ?? 0,
-    userId: json['user_id'] as String?,
-  );
-
-  Map<String, dynamic> toJson() => {
-    'level': level,
-    'remittance_min': remittanceMin,
-    'remittance_max': remittanceMax,
-    'cash_advance': cashAdvance,
-    'boxes_required': boxesRequired,
-    if (userId != null) 'user_id': userId,
-  };
 }
 
 /// Audit row for member transactions (member_transactions table).
@@ -744,7 +701,6 @@ List<Map<String, dynamic>> membersFromRows(List<Member> rows) {
           'address': m.address ?? '',
           'referrer': m.referrer ?? '',
           'referrerId': m.referrerId,
-          'level': m.level,
           'qr': m.qr ?? '',
           'idType': m.idType ?? '',
           'idNumber': m.idNumber ?? '',

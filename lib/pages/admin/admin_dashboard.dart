@@ -13,6 +13,7 @@ import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 import 'package:lzcas/widgets/stockpile_topbar.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
@@ -1774,16 +1775,7 @@ class _AdminSettingsTab extends StatefulWidget {
   State<_AdminSettingsTab> createState() => _AdminSettingsTabState();
 }
 
-class _AdminSettingsTabState extends State<_AdminSettingsTab>
-    with SingleTickerProviderStateMixin {
-  late final TabController _settingsTabController;
-  List<ResellerLevel> _levels = [];
-  bool _levelsLoading = true;
-  final Map<int, TextEditingController> _remMinCtls = {};
-  final Map<int, TextEditingController> _remMaxCtls = {};
-  final Map<int, TextEditingController> _cashAdvCtls = {};
-  final Map<int, TextEditingController> _boxesReqCtls = {};
-
+class _AdminSettingsTabState extends State<_AdminSettingsTab> {
   // General config state
   bool _configLoading = true;
   final _lowStockCtrl = TextEditingController();
@@ -1795,22 +1787,11 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   @override
   void initState() {
     super.initState();
-    _settingsTabController = TabController(length: 2, vsync: this);
-    _loadLevels();
     _loadConfig();
   }
 
   @override
   void dispose() {
-    _settingsTabController.dispose();
-    for (final c in [
-      ..._remMinCtls.values,
-      ..._remMaxCtls.values,
-      ..._cashAdvCtls.values,
-      ..._boxesReqCtls.values,
-    ]) {
-      c.dispose();
-    }
     _lowStockCtrl.dispose();
     _borrowDaysCtrl.dispose();
     _overdueDaysCtrl.dispose();
@@ -1852,56 +1833,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     BotToast.showText(text: 'Settings saved');
   }
 
-  Future<void> _loadLevels() async {
-    final rows = await repository.fetchResellerLevels();
-    // Ensure ascending order (Level 1 first)
-    rows.sort((a, b) => a.level.compareTo(b.level));
-    for (final c in [
-      ..._remMinCtls.values,
-      ..._remMaxCtls.values,
-      ..._cashAdvCtls.values,
-      ..._boxesReqCtls.values,
-    ]) {
-      c.dispose();
-    }
-    _remMinCtls.clear();
-    _remMaxCtls.clear();
-    _cashAdvCtls.clear();
-    _boxesReqCtls.clear();
-    for (final r in rows) {
-      _remMinCtls[r.level] = TextEditingController(
-        text: r.remittanceMin.toString(),
-      );
-      _remMaxCtls[r.level] = TextEditingController(
-        text: r.remittanceMax.toString(),
-      );
-      _cashAdvCtls[r.level] = TextEditingController(
-        text: r.cashAdvance.toString(),
-      );
-      _boxesReqCtls[r.level] = TextEditingController(
-        text: r.boxesRequired.toString(),
-      );
-    }
-    setState(() {
-      _levels = rows;
-      _levelsLoading = false;
-    });
-  }
-
-  Future<void> _saveLevels() async {
-    for (final lvl in _levels) {
-      await repository.upsertResellerLevel(
-        level: lvl.level,
-        remittanceMin: int.tryParse(_remMinCtls[lvl.level]?.text ?? '0') ?? 0,
-        remittanceMax: int.tryParse(_remMaxCtls[lvl.level]?.text ?? '0') ?? 0,
-        cashAdvance: int.tryParse(_cashAdvCtls[lvl.level]?.text ?? '0') ?? 0,
-        boxesRequired: int.tryParse(_boxesReqCtls[lvl.level]?.text ?? '0') ?? 0,
-      );
-    }
-    if (!mounted) return;
-    BotToast.showText(text: 'Reseller levels saved');
-  }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1926,32 +1857,8 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
             ],
           ),
         ),
-        const SizedBox(height: 8),
-        // Tab bar: General | Reseller Levels
-        TabBar(
-          controller: _settingsTabController,
-          labelColor: StockpileColors.primary900,
-          unselectedLabelColor: isDark
-              ? StockpileColors.darkTextMuted
-              : StockpileColors.mutedText,
-          indicatorColor: StockpileColors.primary900,
-          tabs: const [
-            Tab(text: 'General'),
-            Tab(text: 'Reseller Levels'),
-          ],
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: TabBarView(
-            controller: _settingsTabController,
-            children: [
-              // ── General Tab ─────────────────────────────────────────
-              _buildGeneralTab(isDark),
-              // ── Reseller Levels Tab ─────────────────────────────────
-              _buildResellerLevelsTab(isDark),
-            ],
-          ),
-        ),
+        const Divider(height: 24),
+        Expanded(child: _buildGeneralTab(isDark)),
       ],
     );
   }
@@ -2079,97 +1986,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildResellerLevelsTab(bool isDark) {
-    if (_levelsLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    return Column(
-      children: [
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _levels.length,
-            itemBuilder: (context, index) {
-              final lvl = _levels[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Level ${lvl.level}',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? StockpileColors.darkTextPrimary
-                              : StockpileColors.darkText,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _remMinCtls[lvl.level],
-                        decoration: const InputDecoration(
-                          labelText: 'Remittance Min',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _remMaxCtls[lvl.level],
-                        decoration: const InputDecoration(
-                          labelText: 'Remittance Max',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _cashAdvCtls[lvl.level],
-                        decoration: const InputDecoration(
-                          labelText: 'Cash Advance',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _boxesReqCtls[lvl.level],
-                        decoration: const InputDecoration(
-                          labelText: 'Boxes to Level Up',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _saveLevels,
-              icon: const Icon(Icons.save_rounded),
-              label: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                child: Text('Save Reseller Levels'),
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -2794,7 +2610,6 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                               : fullName,
                           memberId: member['id']?.toString() ?? '—',
                           isReseller: isReseller,
-                          level: (member['level'] ?? 1).toString(),
                           email: email,
                           hasAccount: hasAccount,
                           isDark: isDark,
@@ -3282,6 +3097,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
             onPressed: () {
               Navigator.pop(c, true);
               _deleteMember(member);
+              Navigator.pop(ctx); // close the member detail modal
             },
             style: FilledButton.styleFrom(
               backgroundColor: StockpileColors.danger,
@@ -3307,7 +3123,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
 
   void _deleteMember(Map<String, dynamic> member) {
     _tableKey.currentState?.removeMember(member);
-    BotToast.showText(text: 'Member deleted.');
+    showSuccessToast('Member deleted.');
   }
 
   void _showCreateAccountDialog(BuildContext ctx, Map<String, dynamic> member) {
@@ -3316,7 +3132,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
       member['firstName'],
       member['lastName'],
     ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
-    final emailCtrl = TextEditingController();
+    final usernameCtrl = TextEditingController();
     final passwordCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
@@ -3344,17 +3160,14 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
               ),
               const SizedBox(height: 16),
               TextFormField(
-                controller: emailCtrl,
+                controller: usernameCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'Email',
-                  prefixIcon: Icon(Icons.email_outlined),
+                  labelText: 'Username',
+                  prefixIcon: Icon(Icons.person_outline),
                   border: OutlineInputBorder(),
                 ),
-                keyboardType: TextInputType.emailAddress,
                 validator: (v) =>
-                    (v == null || v.trim().isEmpty || !v.contains('@'))
-                    ? 'Enter a valid email'
-                    : null,
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -3382,23 +3195,27 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
               Navigator.pop(c);
               final result = await repository.createMemberAuthAccount(
                 memberId: memberId,
-                email: emailCtrl.text.trim(),
+                username: usernameCtrl.text.trim(),
                 password: passwordCtrl.text,
               );
               if (!ctx.mounted) return;
               if (result != null) {
-                member['email'] = result['email'];
-                BotToast.showText(
-                  text:
-                      'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
-                );
-                // Reopen modal with updated data so "Has account" shows
-                if (ctx.mounted) {
-                  Navigator.pop(ctx);
-                  _showMemberDetail(context, member);
+                final err = result['error']?.toString();
+                if (err != null) {
+                  showErrorToast(err);
+                } else {
+                  member['email'] = result['email'];
+                  showSuccessToast(
+                    'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
+                  );
+                  // Reopen modal with updated data so "Has account" shows
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                    _showMemberDetail(context, member);
+                  }
                 }
               } else {
-                BotToast.showText(text: 'Failed to create account.');
+                showErrorToast('Failed to create account.');
               }
             },
             icon: const Icon(Icons.check, size: 18),
@@ -3541,7 +3358,6 @@ class _ModalAvatarHeader extends StatelessWidget {
     required this.fullName,
     required this.memberId,
     required this.isReseller,
-    required this.level,
     required this.email,
     required this.hasAccount,
     required this.isDark,
@@ -3553,7 +3369,6 @@ class _ModalAvatarHeader extends StatelessWidget {
   final String fullName;
   final String memberId;
   final bool isReseller;
-  final String level;
   final String email;
   final bool hasAccount;
   final bool isDark;
@@ -3643,13 +3458,6 @@ class _ModalAvatarHeader extends StatelessWidget {
                         bgColor: StockpileColors.successBg,
                         textColor: StockpileColors.success,
                         iconColor: StockpileColors.success,
-                      ),
-                      _InfoBadge(
-                        icon: Icons.stars_rounded,
-                        label: 'Level $level',
-                        bgColor: StockpileColors.primary900.withAlpha(25),
-                        textColor: StockpileColors.primary900,
-                        iconColor: StockpileColors.primary900,
                       ),
                     ] else
                       _InfoBadge(

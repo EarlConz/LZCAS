@@ -134,15 +134,6 @@ class MemberSidebar extends StatelessWidget {
                     isDark: isDark,
                     onTap: () => onItemSelected(3),
                   ),
-                  _SidebarTile(
-                    icon: Icons.leaderboard_rounded,
-                    label: 'Rankings',
-                    index: 4,
-                    selectedIndex: selectedIndex,
-                    activeBg: activeBg,
-                    isDark: isDark,
-                    onTap: () => onItemSelected(4),
-                  ),
                   const SizedBox(height: 12),
                   Divider(
                     color: isDark
@@ -156,11 +147,11 @@ class MemberSidebar extends StatelessWidget {
                 _SidebarTile(
                   icon: Icons.person_rounded,
                   label: 'Profile',
-                  index: isReseller ? 5 : 2,
+                  index: isReseller ? 4 : 2,
                   selectedIndex: selectedIndex,
                   activeBg: activeBg,
                   isDark: isDark,
-                  onTap: () => onItemSelected(isReseller ? 5 : 2),
+                  onTap: () => onItemSelected(isReseller ? 4 : 2),
                 ),
               ],
             ),
