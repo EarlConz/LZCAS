@@ -87,6 +87,10 @@ class MemberDetailsCard extends StatefulWidget {
 class _MemberDetailsCardState extends State<MemberDetailsCard> {
   late Map<String, dynamic> member;
   int _referralCount = 0;
+  List<Member> _directReferrals = [];
+  List<Member> _indirectReferrals = [];
+  String _referrerName = '';
+  bool _referralsLoading = true;
   late final StreamSubscription<String> _sub;
 
   @override
@@ -116,7 +120,12 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
 
   Future<void> _computeReferralCount() async {
     final memberId = member['id'] as int?;
-    if (memberId == null) return;
+    if (memberId == null) {
+      setState(() => _referralsLoading = false);
+      return;
+    }
+
+    setState(() => _referralsLoading = true);
 
     final memberName =
         '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'
@@ -125,8 +134,26 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
 
     final all = await repository.fetchMembers();
     if (!mounted) return;
-    final matched = all.where((m) {
-      // Primary: match by referrerId (new records)
+
+    // ── Resolve the referrer's full name ───────────────
+    String referrerName = '';
+    final referrerIdRaw = member['referrerId'] as int?;
+    if (referrerIdRaw != null) {
+      final refMember = all.where((m) => m.id == referrerIdRaw).firstOrNull;
+      if (refMember != null) {
+        referrerName = [
+          refMember.firstName,
+          refMember.lastName,
+        ].where((p) => p != null && p.isNotEmpty).join(' ');
+      }
+    }
+    // Fallback to legacy text field
+    if (referrerName.isEmpty) {
+      referrerName = (member['referrer']?.toString() ?? '').trim();
+    }
+
+    // ── Direct referrals (members whose referrerId == this member's id) ──
+    final direct = all.where((m) {
       if (m.referrerId == memberId) return true;
       // Fallback: match by referrer name string (legacy records)
       if (memberName.isNotEmpty) {
@@ -135,7 +162,21 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
       }
       return false;
     }).toList();
-    setState(() => _referralCount = matched.length);
+
+    // ── Indirect referrals (members whose referrerId matches a direct referral's id) ──
+    final directIds = direct.map((d) => d.id).whereType<int>().toSet();
+    final indirect = all.where((m) {
+      if (m.referrerId != null && directIds.contains(m.referrerId)) return true;
+      return false;
+    }).toList();
+
+    setState(() {
+      _referrerName = referrerName;
+      _directReferrals = direct;
+      _indirectReferrals = indirect;
+      _referralCount = direct.length + indirect.length;
+      _referralsLoading = false;
+    });
   }
 
   @override
@@ -361,6 +402,10 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
           return _MemberProfileSection(
             member: widget.member,
             referralCount: _referralCount,
+            directReferrals: _directReferrals,
+            indirectReferrals: _indirectReferrals,
+            referrerName: _referrerName,
+            referralsLoading: _referralsLoading,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
             onIdImageTap: () {
@@ -396,6 +441,10 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
           return _MemberProfileSection(
             member: widget.member,
             referralCount: _referralCount,
+            directReferrals: _directReferrals,
+            indirectReferrals: _indirectReferrals,
+            referrerName: _referrerName,
+            referralsLoading: _referralsLoading,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
             onIdImageTap: () {
@@ -417,6 +466,10 @@ class _MemberProfileSection extends StatelessWidget {
     required this.member,
     required this.onViewTransactions,
     this.referralCount = 0,
+    this.directReferrals = const [],
+    this.indirectReferrals = const [],
+    this.referrerName = '',
+    this.referralsLoading = false,
     this.showHeader = true,
     this.onIdImageTap,
     this.onCreateAccount,
@@ -425,6 +478,10 @@ class _MemberProfileSection extends StatelessWidget {
   final Map<String, dynamic> member;
   final VoidCallback onViewTransactions;
   final int referralCount;
+  final List<Member> directReferrals;
+  final List<Member> indirectReferrals;
+  final String referrerName;
+  final bool referralsLoading;
   final bool showHeader;
   final VoidCallback? onIdImageTap;
   final VoidCallback? onCreateAccount;
@@ -531,20 +588,54 @@ class _MemberProfileSection extends StatelessWidget {
         // ── Referral section ──────────────────────────────
         _SectionHeader(icon: Icons.group_outlined, title: 'Referral'),
         const SizedBox(height: 8),
-        _DetailLine(
-          icon: Icons.person_add_outlined,
-          label: 'Referrer',
-          value:
-              member['referrer'] != null &&
-                  member['referrer'].toString().trim().isNotEmpty
-              ? member['referrer']
-              : 'None',
-          italic: true,
+        // Row 1: Referred by | Direct Referral
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _ReferralDetailLine(
+                icon: Icons.person_add_outlined,
+                label: 'Referred by',
+                value: referrerName.isEmpty ? 'None' : referrerName,
+                isLoading: referralsLoading,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ReferralDropdown(
+                icon: Icons.arrow_forward_rounded,
+                label: 'Direct Referral',
+                members: directReferrals,
+                emptyText: 'No direct referrals',
+                isLoading: referralsLoading,
+              ),
+            ),
+          ],
         ),
-        _DetailLine(
-          icon: Icons.people_outline,
-          label: 'Referrals',
-          value: referralCount > 0 ? '$referralCount' : 'None',
+        const SizedBox(height: 8),
+        // Row 2: Referral Count | Indirect Referral
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _ReferralDetailLine(
+                icon: Icons.people_outline,
+                label: 'Referral Count',
+                value: referralsLoading ? '...' : '$referralCount',
+                isLoading: referralsLoading,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ReferralDropdown(
+                icon: Icons.arrow_forward_rounded,
+                label: 'Indirect Referral',
+                members: indirectReferrals,
+                emptyText: 'No indirect referrals',
+                isLoading: referralsLoading,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
 
@@ -1268,6 +1359,152 @@ class _EmptyTransactions extends StatelessWidget {
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Referral UI helpers ───────────────────────────────────────────────────
+
+/// Compact detail line for the two-column referral layout.
+class _ReferralDetailLine extends StatelessWidget {
+  const _ReferralDetailLine({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.isLoading = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withAlpha(80),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Flexible(
+            child: Text(
+              isLoading ? '...' : value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Dropdown button showing a list of referral member names.
+class _ReferralDropdown extends StatelessWidget {
+  const _ReferralDropdown({
+    required this.icon,
+    required this.label,
+    required this.members,
+    required this.emptyText,
+    this.isLoading = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final List<Member> members;
+  final String emptyText;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasItems = members.isNotEmpty && !isLoading;
+
+    return PopupMenuButton<Member>(
+      enabled: hasItems,
+      offset: const Offset(0, 44),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      itemBuilder: (_) => members.map((m) {
+        final name = [
+          m.firstName,
+          m.lastName,
+        ].where((p) => p != null && p.isNotEmpty).join(' ');
+        return PopupMenuItem<Member>(
+          value: m,
+          child: Row(
+            children: [
+              Icon(
+                Icons.person_outline,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  name.isNotEmpty ? name : 'Member #${m.id}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withAlpha(80),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 17, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Text(
+              isLoading
+                  ? '...'
+                  : hasItems
+                  ? '${members.length} ▼'
+                  : emptyText,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: hasItems
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+                fontWeight: hasItems ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
           ],

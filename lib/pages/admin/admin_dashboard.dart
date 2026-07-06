@@ -2658,39 +2658,13 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                         const SizedBox(height: 12),
 
                         // ── Referral card ──────────────────
-                        _ModalInfoCard(
+                        _ReferralModalCard(
+                          member: member,
                           isDark: isDark,
                           textColor: textColor,
                           muted: muted,
                           surface: surface,
                           divider: divider,
-                          title: 'Referral',
-                          icon: Icons.group_outlined,
-                          children: [
-                            _ModalInfoRow(
-                              icon: Icons.person_add_outlined,
-                              label: 'Referred by',
-                              value:
-                                  (member['referrer']?.toString() ?? '')
-                                      .isNotEmpty
-                                  ? member['referrer']
-                                  : 'None',
-                              muted: muted,
-                              textColor: textColor,
-                              isDark: isDark,
-                              italic: (member['referrer']?.toString() ?? '')
-                                  .isEmpty,
-                            ),
-                            _ModalInfoRow(
-                              icon: Icons.people_outline,
-                              label: 'Referral count',
-                              value: 'Loading…',
-                              muted: muted,
-                              textColor: textColor,
-                              isDark: isDark,
-                              isLast: true,
-                            ),
-                          ],
                         ),
                         const SizedBox(height: 12),
 
@@ -7118,4 +7092,258 @@ class _NavItem {
   final String label;
 
   const _NavItem(this.icon, this.label);
+}
+
+// ── Referral card for admin member detail modal ──────────────────────────
+
+class _ReferralModalCard extends StatefulWidget {
+  const _ReferralModalCard({
+    required this.member,
+    required this.isDark,
+    required this.textColor,
+    required this.muted,
+    required this.surface,
+    required this.divider,
+  });
+
+  final Map<String, dynamic> member;
+  final bool isDark;
+  final Color textColor;
+  final Color muted;
+  final Color surface;
+  final Color divider;
+
+  @override
+  State<_ReferralModalCard> createState() => _ReferralModalCardState();
+}
+
+class _ReferralModalCardState extends State<_ReferralModalCard> {
+  int _referralCount = 0;
+  List<Member> _directReferrals = [];
+  List<Member> _indirectReferrals = [];
+  String _referrerName = '';
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _computeReferrals();
+  }
+
+  Future<void> _computeReferrals() async {
+    final memberId = widget.member['id'] as int?;
+    if (memberId == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+
+    final memberName =
+        '${widget.member['firstName'] ?? ''} ${widget.member['lastName'] ?? ''}'
+            .trim()
+            .toLowerCase();
+
+    final all = await repository.fetchMembers();
+    if (!mounted) return;
+
+    // Resolve referrer name
+    String referrerName = '';
+    final referrerIdRaw = widget.member['referrerId'] as int?;
+    if (referrerIdRaw != null) {
+      final refMember = all.where((m) => m.id == referrerIdRaw).firstOrNull;
+      if (refMember != null) {
+        referrerName = [
+          refMember.firstName,
+          refMember.lastName,
+        ].where((p) => p != null && p.isNotEmpty).join(' ');
+      }
+    }
+    if (referrerName.isEmpty) {
+      referrerName = (widget.member['referrer']?.toString() ?? '').trim();
+    }
+
+    // Direct referrals
+    final direct = all.where((m) {
+      if (m.referrerId == memberId) return true;
+      if (memberName.isNotEmpty) {
+        final ref = (m.referrer ?? '').trim().toLowerCase();
+        if (ref.isNotEmpty && ref == memberName) return true;
+      }
+      return false;
+    }).toList();
+
+    // Indirect referrals
+    final directIds = direct.map((d) => d.id).whereType<int>().toSet();
+    final indirect = all.where((m) {
+      if (m.referrerId != null && directIds.contains(m.referrerId)) return true;
+      return false;
+    }).toList();
+
+    if (!mounted) return;
+    setState(() {
+      _referrerName = referrerName;
+      _directReferrals = direct;
+      _indirectReferrals = indirect;
+      _referralCount = direct.length + indirect.length;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final w = widget;
+
+    return _ModalInfoCard(
+      isDark: w.isDark,
+      textColor: w.textColor,
+      muted: w.muted,
+      surface: w.surface,
+      divider: w.divider,
+      title: 'Referral',
+      icon: Icons.group_outlined,
+      children: [
+        // Row 1: Referred by | Direct Referral
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _ModalInfoRow(
+                icon: Icons.person_add_outlined,
+                label: 'Referred by',
+                value: _loading
+                    ? '...'
+                    : (_referrerName.isEmpty ? 'None' : _referrerName),
+                muted: w.muted,
+                textColor: w.textColor,
+                isDark: w.isDark,
+                italic: _referrerName.isEmpty,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ModalReferralDropdown(
+                label: 'Direct Referral',
+                members: _directReferrals,
+                emptyText: 'No direct referrals',
+                isLoading: _loading,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // Row 2: Referral Count | Indirect Referral
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _ModalInfoRow(
+                icon: Icons.people_outline,
+                label: 'Referral Count',
+                value: _loading ? '...' : '$_referralCount',
+                muted: w.muted,
+                textColor: w.textColor,
+                isDark: w.isDark,
+                isLast: true,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ModalReferralDropdown(
+                label: 'Indirect Referral',
+                members: _indirectReferrals,
+                emptyText: 'No indirect referrals',
+                isLoading: _loading,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Dropdown widget matching the modal's visual style.
+class _ModalReferralDropdown extends StatelessWidget {
+  const _ModalReferralDropdown({
+    required this.label,
+    required this.members,
+    required this.emptyText,
+    this.isLoading = false,
+  });
+
+  final String label;
+  final List<Member> members;
+  final String emptyText;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasItems = members.isNotEmpty && !isLoading;
+
+    return PopupMenuButton<Member>(
+      enabled: hasItems,
+      offset: const Offset(0, 40),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      itemBuilder: (_) => members.map((m) {
+        final name = [
+          m.firstName,
+          m.lastName,
+        ].where((p) => p != null && p.isNotEmpty).join(' ');
+        return PopupMenuItem<Member>(
+          value: m,
+          child: Row(
+            children: [
+              Icon(
+                Icons.person_outline,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  name.isNotEmpty ? name : 'Member #${m.id}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withAlpha(60),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            Text(
+              isLoading
+                  ? '...'
+                  : hasItems
+                  ? '${members.length} ▼'
+                  : emptyText,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: hasItems ? FontWeight.w600 : FontWeight.normal,
+                color: hasItems
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
