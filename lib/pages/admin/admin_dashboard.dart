@@ -206,7 +206,6 @@ class _UserManagementTabState extends State<_UserManagementTab>
   final _confirmPasswordCtrl = TextEditingController();
   UserRole _selectedRole = UserRole.cashier;
   bool _creating = false;
-  String? _createError;
   String? _successMessage;
   bool _passwordVisible = false;
   bool _confirmPasswordVisible = false;
@@ -238,11 +237,18 @@ class _UserManagementTabState extends State<_UserManagementTab>
     if (!_formKey.currentState!.validate()) return;
 
     final username = _nameCtrl.text.trim();
+
+    // Pre-check: make sure the username isn't already taken by any user type.
+    if (!await repository.isUsernameAvailable(username)) {
+      showErrorToast('Username already taken');
+      return;
+    }
+
     final password = _passwordCtrls[0].text;
     final confirm = _confirmPasswordCtrl.text;
 
     if (password != confirm) {
-      setState(() => _createError = 'Passwords do not match.');
+      showErrorToast('Passwords do not match.');
       return;
     }
     // Supabase Auth requires email format — auto-generate from username
@@ -250,7 +256,6 @@ class _UserManagementTabState extends State<_UserManagementTab>
 
     setState(() {
       _creating = true;
-      _createError = null;
     });
 
     try {
@@ -264,10 +269,8 @@ class _UserManagementTabState extends State<_UserManagementTab>
       );
 
       if (!ok) {
-        setState(
-          () => _createError = auth.error.isNotEmpty
-              ? auth.error
-              : 'Failed to create user.',
+        showErrorToast(
+          auth.error.isNotEmpty ? auth.error : 'Failed to create user.',
         );
         return;
       }
@@ -277,13 +280,10 @@ class _UserManagementTabState extends State<_UserManagementTab>
       _passwordCtrls[0].clear();
       _confirmPasswordCtrl.clear();
 
-      setState(() => _successMessage = 'User created successfully.');
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _successMessage = null);
-      });
+      showSuccessToast('User created successfully.');
       _fetchUsers();
     } catch (e) {
-      setState(() => _createError = e.toString());
+      showErrorToast(e.toString());
     } finally {
       if (mounted) setState(() => _creating = false);
     }
@@ -336,14 +336,12 @@ class _UserManagementTabState extends State<_UserManagementTab>
         });
         _fetchUsers();
       } else {
-        setState(
-          () => _createError = auth.error.isNotEmpty
-              ? auth.error
-              : 'Failed to delete user.',
+        showErrorToast(
+          auth.error.isNotEmpty ? auth.error : 'Failed to delete user.',
         );
       }
     } catch (e) {
-      if (mounted) setState(() => _createError = e.toString());
+      showErrorToast(e.toString());
     }
   }
 
@@ -384,14 +382,12 @@ class _UserManagementTabState extends State<_UserManagementTab>
         });
         _fetchUsers();
       } else {
-        setState(
-          () => _createError = auth.error.isNotEmpty
-              ? auth.error
-              : 'Failed to update user.',
+        showErrorToast(
+          auth.error.isNotEmpty ? auth.error : 'Failed to update user.',
         );
       }
     } catch (e) {
-      if (mounted) setState(() => _createError = e.toString());
+      showErrorToast(e.toString());
     }
   }
 
@@ -629,23 +625,6 @@ class _UserManagementTabState extends State<_UserManagementTab>
                             ),
                           ),
                           const SizedBox(height: 20),
-
-                          if (_createError != null)
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              margin: const EdgeInsets.only(bottom: 16),
-                              decoration: BoxDecoration(
-                                color: StockpileColors.dangerBg,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                _createError!,
-                                style: const TextStyle(
-                                  color: StockpileColors.danger,
-                                ),
-                              ),
-                            ),
 
                           Form(
                             key: _formKey,
@@ -3110,93 +3089,105 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     final passwordCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
+    var obscured = true;
     showDialog<void>(
       context: ctx,
-      builder: (c) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Icon(Icons.person_add_rounded, color: StockpileColors.primary900),
-            const SizedBox(width: 10),
-            const Text('Create Login Account'),
-          ],
-        ),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (c) => StatefulBuilder(
+        builder: (c, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
             children: [
-              Text(
-                'Create a login account for $name so they can '
-                'access the member portal.',
-                style: Theme.of(c).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: usernameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Username',
-                  prefixIcon: Icon(Icons.person_outline),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: passwordCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  prefixIcon: Icon(Icons.lock_outlined),
-                  border: OutlineInputBorder(),
-                ),
-                obscureText: true,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
+              Icon(Icons.person_add_rounded, color: StockpileColors.primary900),
+              const SizedBox(width: 10),
+              const Text('Create Login Account'),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('Cancel'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Create a login account for $name so they can '
+                  'access the member portal.',
+                  style: Theme.of(c).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: usernameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    prefixIcon: Icon(Icons.person_outline),
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: passwordCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    prefixIcon: const Icon(Icons.lock_outlined),
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscured ? Icons.visibility_off : Icons.visibility,
+                      ),
+                      onPressed: () =>
+                          setDialogState(() => obscured = !obscured),
+                    ),
+                  ),
+                  obscureText: obscured,
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+              ],
+            ),
           ),
-          FilledButton.icon(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-              Navigator.pop(c);
-              final result = await repository.createMemberAuthAccount(
-                memberId: memberId,
-                username: usernameCtrl.text.trim(),
-                password: passwordCtrl.text,
-              );
-              if (!ctx.mounted) return;
-              if (result != null) {
-                final err = result['error']?.toString();
-                if (err != null) {
-                  showErrorToast(err);
-                } else {
-                  member['email'] = result['email'];
-                  showSuccessToast(
-                    'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
-                  );
-                  // Reopen modal with updated data so "Has account" shows
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                    _showMemberDetail(context, member);
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+                final result = await repository.createMemberAuthAccount(
+                  memberId: memberId,
+                  username: usernameCtrl.text.trim(),
+                  password: passwordCtrl.text,
+                );
+                if (!ctx.mounted) return;
+                if (result != null) {
+                  final err = result['error']?.toString();
+                  if (err != null) {
+                    showErrorToast(err);
+                  } else {
+                    member['email'] = result['email'];
+                    showSuccessToast(
+                      'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
+                    );
+                    Navigator.pop(c); // close create dialog
+                    // Reopen modal with updated data so "Has account" shows
+                    if (ctx.mounted) {
+                      Navigator.pop(ctx);
+                      _showMemberDetail(context, member);
+                    }
                   }
+                } else {
+                  showErrorToast('Failed to create account.');
                 }
-              } else {
-                showErrorToast('Failed to create account.');
-              }
-            },
-            icon: const Icon(Icons.check, size: 18),
-            label: const Text('Create'),
-          ),
-        ],
-      ),
+              },
+              icon: const Icon(Icons.check, size: 18),
+              label: const Text('Create'),
+            ),
+          ],
+        ),
+      ), // StatefulBuilder
     );
   }
 
