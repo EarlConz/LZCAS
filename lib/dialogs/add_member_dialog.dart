@@ -38,6 +38,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   String? _selectedIdImagePath;
   bool _createAccount = false;
   bool _obscurePassword = true;
+  bool _submitting = false;
 
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
@@ -544,16 +545,23 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
         ),
         const SizedBox(width: 12),
         FilledButton.icon(
-          onPressed: _submit,
-          icon: const Icon(Icons.person_add, size: 20),
-          label: const Text('Add Member'),
+          onPressed: _submitting ? null : _submit,
+          icon: _submitting
+              ? const SizedBox(
+                  width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Icon(Icons.person_add, size: 20),
+          label: Text(_submitting ? 'Adding…' : 'Add Member'),
         ),
       ],
     );
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
     if (!_validateAll()) return;
+    setState(() => _submitting = true);
 
     final newMember = {
       'lastName': lastNameController.text.trim(),
@@ -597,7 +605,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     };
 
     final memberId = await widget.onMemberAdded(newMember);
-    if (memberId == null || memberId == 0) return; // failure — dialog stays open
+    if (memberId == null || memberId == 0) {
+      if (mounted) setState(() => _submitting = false);
+      return; // failure — dialog stays open
+    }
 
     if (!mounted) return;
     Navigator.pop(context);
