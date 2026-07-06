@@ -256,6 +256,32 @@ class Package {
   );
 }
 
+/// A product category with a commission rate for earnings calculations.
+class Category {
+  final int? id;
+  final String name;
+  final int commissionRate;
+
+  const Category({this.id, required this.name, this.commissionRate = 0});
+
+  factory Category.fromJson(Map<String, dynamic> json) => Category(
+    id: json['id'] as int?,
+    name: json['name'] as String? ?? '',
+    commissionRate: json['commission_rate'] as int? ?? 0,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'commission_rate': commissionRate,
+  };
+
+  Category copyWith({int? id, String? name, int? commissionRate}) => Category(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    commissionRate: commissionRate ?? this.commissionRate,
+  );
+}
+
 /// A sale / transaction record.
 class Sale {
   final int? id;

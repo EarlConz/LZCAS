@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../db/db.dart';
 import '../services/config_service.dart';
 
 class AddProductDialog extends StatefulWidget {
@@ -13,17 +14,28 @@ class AddProductDialog extends StatefulWidget {
 
 class _AddProductDialogState extends State<AddProductDialog> {
   final nameController = TextEditingController();
-  final categoryController = TextEditingController();
   final stockController = TextEditingController();
+  String? _selectedCategory;
+  List<Category> _categories = [];
 
   final _nameKey = GlobalKey<FormFieldState>();
-  final _categoryKey = GlobalKey<FormFieldState>();
   final _stockKey = GlobalKey<FormFieldState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    final cats = await repository.fetchProductCategories();
+    if (!mounted) return;
+    setState(() => _categories = cats);
+  }
 
   @override
   void dispose() {
     nameController.dispose();
-    categoryController.dispose();
     stockController.dispose();
     super.dispose();
   }
@@ -34,10 +46,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
       _nameKey.currentState?.validate();
       valid = false;
     }
-    if (categoryController.text.trim().isEmpty) {
-      _categoryKey.currentState?.validate();
-      valid = false;
-    }
+    if (_selectedCategory == null) return false;
     if (stockController.text.trim().isEmpty) {
       _stockKey.currentState?.validate();
       valid = false;
@@ -91,18 +100,20 @@ class _AddProductDialogState extends State<AddProductDialog> {
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 16),
-              TextFormField(
-                key: _categoryKey,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                controller: categoryController,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-                decoration: InputDecoration(
+              DropdownButtonFormField<String>(
+                value: _selectedCategory,
+                decoration: const InputDecoration(
                   labelText: 'Category',
-                  hintText: 'e.g. Apparel',
-                  prefixIcon: const Icon(Icons.category_outlined),
+                  prefixIcon: Icon(Icons.category_outlined),
                 ),
-                textInputAction: TextInputAction.next,
+                items: _categories
+                    .map(
+                      (c) =>
+                          DropdownMenuItem(value: c.name, child: Text(c.name)),
+                    )
+                    .toList(),
+                onChanged: (v) => setState(() => _selectedCategory = v),
+                validator: (v) => v == null ? 'Required' : null,
               ),
 
               const SizedBox(height: 24),
@@ -146,9 +157,8 @@ class _AddProductDialogState extends State<AddProductDialog> {
 
   void _submit() {
     if (!_validateAll()) return;
-
     final name = nameController.text.trim();
-    final category = categoryController.text.trim();
+    final category = _selectedCategory ?? '';
     final stock = int.tryParse(stockController.text) ?? 0;
     widget.onProductAdded({
       'name': name,

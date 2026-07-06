@@ -6,7 +6,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:csv/csv.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' hide Category;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'models.dart';
 
@@ -1190,8 +1190,57 @@ class SupabaseRepository {
         : err;
   }
 
-  /// Compute the total number of boxes this reseller has ever remitted
-  /// across all borrows (settled or not).
+  /// Compute active (unremitted) earnings for a member from their package.
+  /// Compute collected earnings from REMITTED borrows (Paid-on-Collection rule).
+  /// Balance = Direct Referral Bonus (flat per remitted batch).
+  /// Total Earnings = Indirect + Chairman's + Group Sales + Repeat Purchase.
+  Future<Map<String, int>> fetchMemberEarningsBreakdown(int memberId) async {
+    final member = await getMemberById(memberId);
+    Package? pkg;
+    if (member?.packageId != null) {
+      pkg = await getPackageById(member!.packageId!);
+    }
+
+    // Only count quantity_remitted (paid/collected) — not borrowed/outstanding
+    final data = await _supabase
+        .from('borrows')
+        .select('quantity_remitted, item_name')
+        .eq('member_id', memberId);
+
+    final categories = await fetchProductCategories();
+    final catMap = <String, int>{};
+    for (final c in categories) {
+      catMap[c.name.toLowerCase()] = c.commissionRate;
+    }
+
+    int totalEarnings = 0; // passive/team incentives
+    int balance = 0; // direct referral bonuses
+    if (data != null) {
+      for (final row in (data as List)) {
+        final qty = row['quantity_remitted'] as int? ?? 0;
+        if (qty <= 0) continue;
+
+        if (pkg != null) {
+          balance += pkg.directReferralBonus;
+          totalEarnings += pkg.indirectReferralBonus + pkg.chairmansBonus;
+          totalEarnings += pkg.groupSalesDirect * qty;
+          totalEarnings += pkg.groupSalesIndirect * qty;
+        }
+
+        // Repeat purchase: match item category
+        final itemName = (row['item_name'] as String? ?? '').toLowerCase();
+        for (final entry in catMap.entries) {
+          if (itemName.contains(entry.key)) {
+            totalEarnings += entry.value * qty;
+            break;
+          }
+        }
+      }
+    }
+    return {'totalEarnings': totalEarnings, 'balance': balance};
+  }
+
+  /// Sum of quantity_remitted across all borrows for a member.
   Future<int> getTotalRemittedBoxes(int memberId) async {
     final data = await _supabase
         .from('borrows')
@@ -1205,21 +1254,36 @@ class SupabaseRepository {
     return total;
   }
 
-  /// Compute total remitted earnings for a member.
-  /// Sum of (quantity_remitted × price) across all borrows.
-  Future<int> fetchMemberEarnings(int memberId) async {
+  // ── Category CRUD ──────────────────────────────────────────────────────
+
+  Future<List<Category>> fetchProductCategories() async {
+    final data = await _supabase.from('categories').select().order('id');
+    return (data as List).map((j) => Category.fromJson(j)).toList();
+  }
+
+  Future<int> addCategory({
+    required String name,
+    int commissionRate = 0,
+  }) async {
     final data = await _supabase
-        .from('borrows')
-        .select('quantity_remitted, price')
-        .eq('member_id', memberId);
-    if (data == null || (data as List).isEmpty) return 0;
-    var total = 0;
-    for (final row in data) {
-      final qty = row['quantity_remitted'] as int? ?? 0;
-      final price = row['price'] as int? ?? 0;
-      total += qty * price;
+        .from('categories')
+        .insert({'name': name, 'commission_rate': commissionRate})
+        .select('id');
+    if (data is List && data.isNotEmpty) {
+      return (data.first['id'] as num).toInt();
     }
-    return total;
+    return 0;
+  }
+
+  Future<bool> updateCategory(Category cat) async {
+    if (cat.id == null) return false;
+    await _supabase.from('categories').update(cat.toJson()).eq('id', cat.id!);
+    return true;
+  }
+
+  Future<bool> deleteCategory(int id) async {
+    await _supabase.from('categories').delete().eq('id', id);
+    return true;
   }
 
   // ── Delete Methods ───────────────────────────────────────────────────────

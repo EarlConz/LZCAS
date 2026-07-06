@@ -266,14 +266,12 @@ class _OverviewTabState extends State<_OverviewTab> {
           .length;
       _recentSales = results[2] as List<Sale>;
       _purchaseCount = _recentSales.length;
-      _availedPackages = (results[3] as List<Sale>)
-          .where((s) => s.isPackage)
-          .toList()
-        ..sort(
-          (a, b) => (b.timestamp ?? DateTime(0)).compareTo(
-            a.timestamp ?? DateTime(0),
-          ),
-        );
+      _availedPackages =
+          (results[3] as List<Sale>).where((s) => s.isPackage).toList()..sort(
+            (a, b) => (b.timestamp ?? DateTime(0)).compareTo(
+              a.timestamp ?? DateTime(0),
+            ),
+          );
       _loadingStats = false;
     });
   }
@@ -1296,6 +1294,7 @@ class _EarningsTab extends StatefulWidget {
 
 class _EarningsTabState extends State<_EarningsTab> {
   int _totalEarnings = 0;
+  int _balance = 0;
   int _totalBoxes = 0;
   List<Sale> _recentRemits = [];
   bool _loading = true;
@@ -1309,13 +1308,15 @@ class _EarningsTabState extends State<_EarningsTab> {
   Future<void> _load() async {
     final id = widget.member.id!;
     final results = await Future.wait([
-      repository.fetchMemberEarnings(id),
+      repository.fetchMemberEarningsBreakdown(id),
       repository.getTotalRemittedBoxes(id),
       repository.fetchMemberPurchaseHistory(id, limit: 10),
     ]);
     if (!mounted) return;
+    final breakdown = results[0] as Map<String, int>;
     setState(() {
-      _totalEarnings = results[0] as int;
+      _totalEarnings = breakdown['totalEarnings'] ?? 0;
+      _balance = breakdown['balance'] ?? 0;
       _totalBoxes = results[1] as int;
       _recentRemits = results[2] as List<Sale>;
       _loading = false;
@@ -1326,9 +1327,6 @@ class _EarningsTabState extends State<_EarningsTab> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currencySymbol = context.watch<ConfigService>().currencySymbol;
-    final avgPerBox = _totalBoxes > 0
-        ? (_totalEarnings / _totalBoxes).round()
-        : 0;
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -1338,72 +1336,31 @@ class _EarningsTabState extends State<_EarningsTab> {
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
-          // ── Hero earnings card ──────────────────────────
-          Card(
-            elevation: 0,
-            color: isDark
-                ? StockpileColors.darkSurface
-                : StockpileColors.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
-              child: Column(
-                children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: StockpileColors.primary900.withAlpha(25),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    alignment: Alignment.center,
-                    child: Icon(
-                      Icons.account_balance_wallet_rounded,
-                      size: 32,
-                      color: StockpileColors.primary900,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Total Earnings',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: isDark
-                          ? StockpileColors.darkTextMuted
-                          : StockpileColors.mutedText,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '$currencySymbol$_totalEarnings',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 40,
-                      fontWeight: FontWeight.w900,
-                      color: isDark
-                          ? StockpileColors.darkTextPrimary
-                          : StockpileColors.darkText,
-                      height: 1.1,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'From $_totalBoxes remitted boxes',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 13,
-                      color: isDark
-                          ? StockpileColors.darkTextMuted
-                          : StockpileColors.mutedText,
-                    ),
-                  ),
-                ],
+          // ── Top card row: Total Earnings | Balance ──────
+          Row(
+            children: [
+              Expanded(
+                child: _EarningsHeroCard(
+                  icon: Icons.account_balance_wallet_rounded,
+                  label: 'Total Earnings',
+                  value: '$currencySymbol$_totalEarnings',
+                  isDark: isDark,
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _EarningsHeroCard(
+                  icon: Icons.savings_rounded,
+                  label: 'Balance',
+                  value: '$currencySymbol$_balance',
+                  isDark: isDark,
+                  accentColor: const Color(0xFF6366F1),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
-          // ── Breakdown stats ─────────────────────────────
+          // ── Stats row ────────────────────────────────────
           Row(
             children: [
               Expanded(
@@ -1419,13 +1376,70 @@ class _EarningsTabState extends State<_EarningsTab> {
               Expanded(
                 child: _StatCard(
                   icon: Icons.trending_up_rounded,
-                  label: 'Avg per Box',
-                  value: '$currencySymbol$avgPerBox',
+                  label: 'Total (Earn + Balance)',
+                  value: '$currencySymbol${_totalEarnings + _balance}',
                   color: const Color(0xFF6366F1),
                   isDark: isDark,
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 16),
+          // ── Breakdown explanation ────────────────────────
+          Card(
+            elevation: 0,
+            color: isDark
+                ? StockpileColors.darkSurface
+                : StockpileColors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: isDark
+                    ? StockpileColors.darkDivider
+                    : StockpileColors.divider,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'How earnings are calculated',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isDark
+                          ? StockpileColors.darkTextPrimary
+                          : StockpileColors.darkText,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _BreakdownRow(
+                    label: 'Balance',
+                    detail: 'Direct referral bonus per remitted (paid) batch',
+                    isDark: isDark,
+                  ),
+                  _BreakdownRow(
+                    label: 'Total Earnings',
+                    detail:
+                        "Indirect + Chairman's + Group Sales (₱3/direct, ₱2/indirect per item) + Repeat Purchase (category rates)",
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Only REMITTED (paid/collected) borrows count — borrowed/outstanding items are excluded.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                      color: isDark
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 16),
           // ── Recent remittances ──────────────────────────
@@ -1554,6 +1568,112 @@ class _EarningsTabState extends State<_EarningsTab> {
 
   String _fmtDate(DateTime dt) =>
       '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+}
+
+class _EarningsHeroCard extends StatelessWidget {
+  final IconData icon;
+  final String label, value;
+  final bool isDark;
+  final Color? accentColor;
+  const _EarningsHeroCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.isDark,
+    this.accentColor,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final color = accentColor ?? StockpileColors.primary900;
+    return Card(
+      elevation: 0,
+      color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+        child: Column(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: color.withAlpha(25),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              alignment: Alignment.center,
+              child: Icon(icon, size: 28, color: color),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              label,
+              style: StockpileFonts.satoshi(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isDark
+                    ? StockpileColors.darkTextMuted
+                    : StockpileColors.mutedText,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: StockpileFonts.satoshi(
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                color: isDark
+                    ? StockpileColors.darkTextPrimary
+                    : StockpileColors.darkText,
+                height: 1.1,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BreakdownRow extends StatelessWidget {
+  final String label, detail;
+  final bool isDark;
+  const _BreakdownRow({
+    required this.label,
+    required this.detail,
+    required this.isDark,
+  });
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 120,
+          child: Text(
+            label,
+            style: StockpileFonts.satoshi(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            detail,
+            style: StockpileFonts.satoshi(
+              fontSize: 11,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 // ─── Profile Tab ───────────────────────────────────────────────────────────

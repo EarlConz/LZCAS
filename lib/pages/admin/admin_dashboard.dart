@@ -2517,7 +2517,9 @@ class _AdminSettingsTab extends StatefulWidget {
   State<_AdminSettingsTab> createState() => _AdminSettingsTabState();
 }
 
-class _AdminSettingsTabState extends State<_AdminSettingsTab> {
+class _AdminSettingsTabState extends State<_AdminSettingsTab>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
   // General config state
   bool _configLoading = true;
   final _lowStockCtrl = TextEditingController();
@@ -2526,14 +2528,21 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab> {
   final _currencyCtrl = TextEditingController();
   bool _notificationsOn = true;
 
+  // Category state
+  List<Category> _categories = [];
+  bool _catLoading = true;
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadConfig();
+    _loadCategories();
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _lowStockCtrl.dispose();
     _borrowDaysCtrl.dispose();
     _overdueDaysCtrl.dispose();
@@ -2570,18 +2579,162 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab> {
       _notificationsOn ? 'true' : 'false',
     );
     if (!mounted) return;
-    // Refresh in-memory config so the rest of the app picks up changes
     context.read<ConfigService>().refresh();
     BotToast.showText(text: 'Settings saved');
+  }
+
+  Future<void> _loadCategories() async {
+    final cats = await repository.fetchProductCategories();
+    if (!mounted) return;
+    setState(() {
+      _categories = cats;
+      _catLoading = false;
+    });
+  }
+
+  void _showCategoryDialog({Category? existing}) {
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final rateCtrl = TextEditingController(
+      text: existing != null ? '${existing.commissionRate}' : '0',
+    );
+    final formKey = GlobalKey<FormState>();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(existing != null ? 'Edit Category' : 'Add Category'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Name',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? 'Required' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: rateCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Commission Rate (₱)',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          if (existing != null)
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () async {
+                await repository.deleteCategory(existing.id!);
+                Navigator.pop(ctx);
+                _loadCategories();
+              },
+              child: const Text('Delete'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+              if (existing != null) {
+                await repository.updateCategory(
+                  existing.copyWith(
+                    name: nameCtrl.text.trim(),
+                    commissionRate: int.tryParse(rateCtrl.text) ?? 0,
+                  ),
+                );
+              } else {
+                await repository.addCategory(
+                  name: nameCtrl.text.trim(),
+                  commissionRate: int.tryParse(rateCtrl.text) ?? 0,
+                );
+              }
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+              _loadCategories();
+            },
+            child: Text(existing != null ? 'Save' : 'Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryTab(bool isDark) {
+    if (_catLoading) return const Center(child: CircularProgressIndicator());
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Categories & Commission Rates',
+                style: StockpileFonts.satoshi(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: isDark
+                      ? StockpileColors.darkTextPrimary
+                      : StockpileColors.darkText,
+                ),
+              ),
+              const Spacer(),
+              FilledButton.icon(
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add Category'),
+                onPressed: () => _showCategoryDialog(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_categories.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(
+                  'No categories yet',
+                  style: StockpileFonts.satoshi(
+                    color: isDark
+                        ? StockpileColors.darkTextMuted
+                        : StockpileColors.mutedText,
+                  ),
+                ),
+              ),
+            )
+          else
+            ..._categories.map(
+              (c) => _ConfigTile(
+                icon: Icons.category_rounded,
+                title: c.name,
+                subtitle: 'Commission: ₱${c.commissionRate} per item',
+                trailing: IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 20),
+                  onPressed: () => _showCategoryDialog(existing: c),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Column(
       children: [
-        // Settings header
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
           child: Row(
@@ -2599,8 +2752,50 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab> {
             ],
           ),
         ),
-        const Divider(height: 24),
-        Expanded(child: _buildGeneralTab(isDark)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Container(
+            decoration: BoxDecoration(
+              color: isDark
+                  ? StockpileColors.darkInputBg
+                  : StockpileColors.inputBg,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              padding: const EdgeInsets.all(5),
+              labelStyle: StockpileFonts.satoshi(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+              indicator: BoxDecoration(
+                color: isDark ? StockpileColors.darkSurface : Colors.white,
+                borderRadius: BorderRadius.circular(11),
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark
+                        ? Colors.white.withAlpha(10)
+                        : Colors.black.withAlpha(15),
+                    blurRadius: 6,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              dividerColor: Colors.transparent,
+              tabs: const [
+                Tab(child: Text('General')),
+                Tab(child: Text('Category')),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [_buildGeneralTab(isDark), _buildCategoryTab(isDark)],
+          ),
+        ),
       ],
     );
   }

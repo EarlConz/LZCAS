@@ -12,6 +12,7 @@ export '../data/models.dart'
         StockMovement,
         PendingRequest,
         Package,
+        Category,
         MemberTransactionEntry,
         inventoryItemsFromRows,
         membersFromRows,

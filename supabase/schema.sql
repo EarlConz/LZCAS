@@ -299,3 +299,38 @@ on conflict (id) do update set
   repeat_purchase_json  = excluded.repeat_purchase_json,
   group_sales_direct    = excluded.group_sales_direct,
   group_sales_indirect  = excluded.group_sales_indirect;
+
+-- ═══════════════════════════════════════════════════════════════════
+-- ── Category Management ───────────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════
+
+create table if not exists public.categories (
+  id bigint generated always as identity primary key,
+  name text not null unique,
+  commission_rate integer not null default 0
+);
+
+alter table public.categories disable row level security;
+
+-- Seed default categories
+insert into public.categories (name, commission_rate) values
+  ('Pack', 5), ('Box', 5), ('Bottle', 20)
+on conflict (name) do update set commission_rate = excluded.commission_rate;
+
+-- ═══════════════════════════════════════════════════════════════════
+-- ── Borrow due-date trigger ────────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════
+
+create or replace function public.set_borrow_due_date()
+returns trigger as $$
+begin
+  -- Always enforce exactly 10 days from borrowed_at
+  new.due_date := coalesce(new.borrowed_at, now()) + interval '10 days';
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_borrow_due_date on public.borrows;
+create trigger trg_borrow_due_date
+  before insert on public.borrows
+  for each row execute function public.set_borrow_due_date();
