@@ -225,7 +225,8 @@ class MembersTableState extends State<MembersTable> {
       );
     } catch (e) {
       debugPrint('[MembersTable] addMember failed: $e');
-      if (mounted) showErrorToast('Failed to add member. Please restart the app.');
+      if (mounted)
+        showErrorToast('Failed to add member. Please restart the app.');
       return 0;
     }
 
@@ -268,6 +269,8 @@ class MembersTableState extends State<MembersTable> {
     }
 
     // Account was already pre-checked above — now create it.
+    // If creation fails (race condition or pre-check bug), roll back the
+    // member so nothing persists.
     if (newMember['createAccount'] == true) {
       final username = newMember['username']?.toString() ?? '';
       final password = newMember['password']?.toString() ?? '';
@@ -277,6 +280,14 @@ class MembersTableState extends State<MembersTable> {
           username: username,
           password: password,
         );
+        if (acct != null) {
+          final err = acct['error']?.toString();
+          if (err != null) {
+            await repository.deleteMemberById(memberId);
+            if (mounted) showErrorToast(err);
+            return 0; // Rolled back — dialog stays open
+          }
+        }
         if (mounted && acct != null && acct['error'] == null) {
           showSuccessToast(
             'Account created!\nEmail: ${acct['email']}\nPassword: ${acct['password']}',

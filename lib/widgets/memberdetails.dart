@@ -317,76 +317,90 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     final passwordCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
+    var obscured = true;
     showDialog<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Create Login Account'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Create a login account for $name.'),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: usernameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Username',
-                  border: OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Create Login Account'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Create a login account for $name.'),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: usernameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: passwordCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: passwordCtrl,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscured ? Icons.visibility_off : Icons.visibility,
+                      ),
+                      onPressed: () =>
+                          setDialogState(() => obscured = !obscured),
+                    ),
+                  ),
+                  obscureText: obscured,
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
-                obscureText: true,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-              Navigator.pop(ctx);
-              final result = await repository.createMemberAuthAccount(
-                memberId: memberId,
-                username: usernameCtrl.text.trim(),
-                password: passwordCtrl.text,
-              );
-              if (!mounted) return;
-              if (result != null) {
-                final err = result['error']?.toString();
-                if (err != null) {
-                  showErrorToast(err);
-                } else {
-                  setState(() {
-                    member['email'] = result['email'];
-                    member['user_id'] = result['id'];
-                  });
-                  showSuccessToast(
-                    'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
-                  );
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+                final username = usernameCtrl.text.trim();
+                final available = await repository.isUsernameAvailable(
+                  username,
+                );
+                if (!available) {
+                  showErrorToast('Username already exists');
+                  return;
                 }
-              } else {
-                showErrorToast('Failed to create account.');
-              }
-            },
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+                final result = await repository.createMemberAuthAccount(
+                  memberId: memberId,
+                  username: username,
+                  password: passwordCtrl.text,
+                );
+                if (!mounted) return;
+                if (result != null) {
+                  final err = result['error']?.toString();
+                  if (err != null) {
+                    showErrorToast(err);
+                  } else {
+                    showSuccessToast(
+                      'Account created!\nEmail: ${result['email']}\nPassword: ${result['password']}',
+                    );
+                    Navigator.pop(ctx); // close on success
+                  }
+                } else {
+                  showErrorToast('Failed to create account.');
+                }
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        ),
+      ), // StatefulBuilder
     );
   }
 

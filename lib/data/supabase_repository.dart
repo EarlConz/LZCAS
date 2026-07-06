@@ -3,6 +3,7 @@
 // Mirrors DbRepository's public API exactly for drop-in replacement.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart';
@@ -957,19 +958,30 @@ class SupabaseRepository {
     return true;
   }
 
-  /// Check whether a username is available for account creation.
-  /// Returns false if the username (as {username}@lzcas.local) already
-  /// exists in Supabase Auth, true otherwise.
+  /// Check whether a username is available across all user types
+  /// (staff in profiles, members with accounts in members.email).
+  /// Returns true if available, false if already taken.
+  /// Case-insensitive: "Tep" and "tep" collide.
   Future<bool> isUsernameAvailable(String username) async {
-    final email = '$username@lzcas.local';
+    final email = '$username@lzcas.local'.toLowerCase();
     try {
-      final result = await _supabase.rpc(
-        'check_user_exists',
-        params: {'email_to_check': email},
-      );
-      return result != true;
+      final profile = await _supabase
+          .from('profiles')
+          .select('username')
+          .ilike('username', username)
+          .maybeSingle();
+      if (profile != null) return false;
+
+      final member = await _supabase
+          .from('members')
+          .select('email')
+          .ilike('email', email)
+          .maybeSingle();
+      if (member != null) return false;
+
+      return true;
     } catch (_) {
-      return true; // If the check fails, assume available
+      return false; // Can't verify — block to be safe
     }
   }
 
@@ -1002,26 +1014,59 @@ class SupabaseRepository {
         },
       );
 
-      if (result.status == 200 && result.data is Map) {
-        final data = result.data as Map;
+      // Handle success (200) and error responses (4xx/5xx).
+      // The SDK may parse JSON into a Map, or return the raw body as a String.
+      Map<String, dynamic>? data;
+      if (result.data is Map) {
+        data = (result.data as Map).cast<String, dynamic>();
+      } else if (result.data is String) {
+        try {
+          data = (jsonDecode(result.data as String) as Map)
+              .cast<String, dynamic>();
+        } catch (_) {
+          data = {'error': result.data.toString()};
+        }
+      }
+
+      if (data != null) {
         if (data['success'] == true) {
           final authUserId = data['id'] as String? ?? '';
           final updated = member.copyWith(email: email);
           await updateMember(updated);
           return {'email': email, 'password': password, 'id': authUserId};
         }
-        // Edge function returned structured failure — map to user-friendly text
         final err = data['error']?.toString() ?? '';
-        final friendly = err.toLowerCase().contains('already')
-            ? 'Username already taken'
-            : err;
-        if (friendly.isNotEmpty) return {'error': friendly};
+        if (err.isNotEmpty) {
+          return {'error': _friendlyAuthError(err)};
+        }
       }
+      return null;
+    } on FunctionException catch (e) {
+      // functions_client v2 throws on non-2xx; the JSON body is in e.details.
+      String err = '';
+      final details = e.details;
+      if (details is Map && details['error'] != null) {
+        err = details['error'].toString();
+      } else if (details is String) {
+        err = details;
+      } else {
+        err = e.reasonPhrase ?? '';
+      }
+      debugPrint('[createMemberAuthAccount] edge function error: $err');
+      if (err.isNotEmpty) return {'error': _friendlyAuthError(err)};
       return null;
     } catch (e) {
       debugPrint('[createMemberAuthAccount] error: $e');
       return null;
     }
+  }
+
+  /// Map raw auth/edge-function error messages to user-friendly text.
+  String _friendlyAuthError(String err) {
+    final lower = err.toLowerCase();
+    return (lower.contains('already') || lower.contains('exists'))
+        ? 'Username already exists'
+        : err;
   }
 
   /// Compute the total number of boxes this reseller has ever remitted
