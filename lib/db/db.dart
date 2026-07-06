@@ -11,6 +11,7 @@ export '../data/models.dart'
         Borrow,
         StockMovement,
         PendingRequest,
+        Package,
         MemberTransactionEntry,
         inventoryItemsFromRows,
         membersFromRows,

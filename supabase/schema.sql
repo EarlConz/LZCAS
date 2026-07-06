@@ -210,3 +210,42 @@ create index if not exists idx_sales_buyer_name_trgm
 --   INSERT INTO public.profiles (id, username, role)
 --   VALUES ('<paste-uuid>', '<your-email>', 'admin')
 --   ON CONFLICT (id) DO UPDATE SET role = 'admin';
+
+-- ═══════════════════════════════════════════════════════════════════
+-- ── Package Management ────────────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════
+
+create table if not exists public.packages (
+  id bigint generated always as identity primary key,
+  name text not null,
+  price integer not null default 0,
+  direct_referral_bonus integer not null default 0,
+  indirect_referral_bonus integer not null default 0,
+  chairmans_bonus integer not null default 0,
+  repeat_purchase_json text not null default '{}',
+  group_sales_direct integer not null default 0,
+  group_sales_indirect integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+alter table public.packages disable row level security;
+
+-- Link members to packages
+alter table public.members add column if not exists package_id bigint
+  references public.packages(id);
+
+-- Seed default packages (safe to re-run with ON CONFLICT)
+insert into public.packages (id, name, price, direct_referral_bonus, indirect_referral_bonus, chairmans_bonus, repeat_purchase_json, group_sales_direct, group_sales_indirect)
+OVERRIDING SYSTEM VALUE
+values
+  (1, 'STARTER PACK',   3999, 300, 150, 50,  '{"pack":5,"box":5,"bottle":20}', 3, 2),
+  (2, 'AMBASSADOR PACK', 7999, 600, 300, 100, '{"pack":5,"box":5,"bottle":20}', 3, 2)
+on conflict (id) do update set
+  name                 = excluded.name,
+  price                = excluded.price,
+  direct_referral_bonus  = excluded.direct_referral_bonus,
+  indirect_referral_bonus = excluded.indirect_referral_bonus,
+  chairmans_bonus       = excluded.chairmans_bonus,
+  repeat_purchase_json  = excluded.repeat_purchase_json,
+  group_sales_direct    = excluded.group_sales_direct,
+  group_sales_indirect  = excluded.group_sales_indirect;
