@@ -75,7 +75,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
     // Map: Overview→0, Purchases→1, Profile→2
     if (_selectedIndex == 0) return 0;
     if (_selectedIndex == 1) return 1;
-    return 5; // Profile
+    return 4; // Profile
   }
 
   @override
@@ -144,14 +144,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
 
   Widget _buildTopBar(bool isDark, bool isDesktop) {
     final titles = _isReseller
-        ? [
-            'Overview',
-            'My Purchases',
-            'My Borrows',
-            'Earnings',
-            'Rankings',
-            'Profile',
-          ]
+        ? ['Overview', 'My Purchases', 'My Borrows', 'Earnings', 'Profile']
         : ['Overview', 'My Purchases', 'Profile'];
     final title = titles[_selectedIndex.clamp(0, titles.length - 1)];
 
@@ -223,8 +216,6 @@ class _MemberDashboardState extends State<MemberDashboard> {
       case 3:
         return _EarningsTab(member: _member!);
       case 4:
-        return _RankingsTab(member: _member!);
-      case 5:
         return _ProfileTab(member: _member!, onUpdated: _loadMemberData);
       default:
         return _OverviewTab(member: _member!, isReseller: _isReseller);
@@ -299,14 +290,6 @@ class _OverviewTabState extends State<_OverviewTab> {
             const Center(child: CircularProgressIndicator())
           else
             _buildStatsRow(isDark, isWide),
-          if (widget.isReseller) ...[
-            const SizedBox(height: 20),
-            _LevelProgressCard(
-              member: widget.member,
-              isDark: isDark,
-              totalBoxes: _totalBoxes,
-            ),
-          ],
           const SizedBox(height: 20),
           // Recent activity
           _RecentActivityCard(
@@ -473,7 +456,7 @@ class _OverviewHero extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        'Verified Reseller · Level ${member.level}',
+                        'Verified Reseller',
                         style: StockpileFonts.satoshi(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -565,162 +548,6 @@ class _StatCard extends StatelessWidget {
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LevelProgressCard extends StatefulWidget {
-  final Member member;
-  final bool isDark;
-  final int totalBoxes;
-
-  const _LevelProgressCard({
-    required this.member,
-    required this.isDark,
-    required this.totalBoxes,
-  });
-
-  @override
-  State<_LevelProgressCard> createState() => _LevelProgressCardState();
-}
-
-class _LevelProgressCardState extends State<_LevelProgressCard> {
-  int _levelReq = 0;
-  int _nextLevel = 0;
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final rawLevels = await repository.fetchResellerLevels(
-      tenantUserId: widget.member.userId,
-    );
-    final levels = rawLevels.toList()
-      ..sort((a, b) => a.level.compareTo(b.level));
-    final currentLevel = widget.member.level;
-    final cur = levels.where((l) => l.level == currentLevel).firstOrNull;
-    final nxt = levels.where((l) => l.level == currentLevel + 1).firstOrNull;
-
-    if (!mounted) return;
-    setState(() {
-      _levelReq = cur?.boxesRequired ?? 0;
-      _nextLevel = nxt?.level ?? 0;
-      _loading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-
-    final total = widget.totalBoxes;
-    final progress = _levelReq > 0 ? (total / _levelReq).clamp(0.0, 1.0) : 1.0;
-
-    return Card(
-      elevation: 0,
-      color: widget.isDark
-          ? StockpileColors.darkSurface
-          : StockpileColors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: widget.isDark
-              ? StockpileColors.darkDivider
-              : StockpileColors.divider,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.trending_up_rounded,
-                  size: 20,
-                  color: StockpileColors.primary900,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Level Progress',
-                  style: StockpileFonts.satoshi(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: widget.isDark
-                        ? StockpileColors.darkTextPrimary
-                        : StockpileColors.darkText,
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: StockpileColors.primary900,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    'Level ${widget.member.level}',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 14,
-                backgroundColor: widget.isDark
-                    ? StockpileColors.darkDivider
-                    : StockpileColors.divider,
-                valueColor: const AlwaysStoppedAnimation(
-                  StockpileColors.primary900,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Text(
-                  _nextLevel > 0
-                      ? '$total / $_levelReq boxes — ${(progress * 100).round()}%'
-                      : '$total boxes — Max level!',
-                  style: StockpileFonts.satoshi(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: widget.isDark
-                        ? StockpileColors.darkTextMuted
-                        : StockpileColors.mutedText,
-                  ),
-                ),
-                const Spacer(),
-                if (_nextLevel > 0)
-                  Text(
-                    'Next: Level $_nextLevel',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: StockpileColors.primary900,
-                    ),
-                  ),
-              ],
             ),
           ],
         ),
@@ -1497,215 +1324,6 @@ class _EarningsTabState extends State<_EarningsTab> {
       '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 }
 
-// ─── Rankings Tab (Reseller-only) ──────────────────────────────────────────
-
-class _RankingsTab extends StatefulWidget {
-  final Member member;
-  const _RankingsTab({required this.member});
-
-  @override
-  State<_RankingsTab> createState() => _RankingsTabState();
-}
-
-class _RankingsTabState extends State<_RankingsTab> {
-  List<Map<String, dynamic>> _resellers = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final resellers = await repository.fetchAllResellers();
-    if (!mounted) return;
-    setState(() {
-      _resellers = resellers;
-      _loading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (_loading) return const Center(child: CircularProgressIndicator());
-
-    if (_resellers.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.leaderboard_rounded,
-              size: 48,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'No resellers yet',
-              style: StockpileFonts.satoshi(
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _resellers.length,
-      itemBuilder: (context, i) {
-        final r = _resellers[i];
-        final isMe = r['id'] == widget.member.id;
-        final rank = i + 1;
-        final rankColor = rank == 1
-            ? const Color(0xFFFFD700)
-            : rank == 2
-            ? const Color(0xFFC0C0C0)
-            : rank == 3
-            ? const Color(0xFFCD7F32)
-            : Colors.grey;
-
-        return Card(
-          elevation: 0,
-          color: isMe
-              ? StockpileColors.primary900.withAlpha(15)
-              : (isDark
-                    ? StockpileColors.darkSurface
-                    : StockpileColors.surface),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: isMe
-                ? BorderSide(color: StockpileColors.primary900.withAlpha(50))
-                : BorderSide(
-                    color: isDark
-                        ? StockpileColors.darkDivider
-                        : StockpileColors.divider,
-                  ),
-          ),
-          margin: const EdgeInsets.only(bottom: 10),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                // Rank badge
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: rank <= 3
-                        ? rankColor.withAlpha(30)
-                        : Colors.grey.withAlpha(20),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '$rank',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: rank <= 3 ? rankColor : Colors.grey,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                // Name + level
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              r['name'] ?? '—',
-                              style: StockpileFonts.satoshi(
-                                fontSize: 15,
-                                fontWeight: isMe
-                                    ? FontWeight.w800
-                                    : FontWeight.w600,
-                                color: isDark
-                                    ? StockpileColors.darkTextPrimary
-                                    : StockpileColors.darkText,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (isMe) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: StockpileColors.primary900,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                'YOU',
-                                style: StockpileFonts.satoshi(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Level ${r['level'] ?? 1} · ${r['boxes'] ?? 0} boxes remitted',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 12,
-                          color: isDark
-                              ? StockpileColors.darkTextMuted
-                              : StockpileColors.mutedText,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Earnings
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      '₱${r['earnings'] ?? 0}',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: isDark
-                            ? StockpileColors.darkTextPrimary
-                            : StockpileColors.darkText,
-                      ),
-                    ),
-                    Text(
-                      'earnings',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 10,
-                        color: StockpileColors.mutedText,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
 // ─── Profile Tab ───────────────────────────────────────────────────────────
 
 class _ProfileTab extends StatefulWidget {
@@ -1951,7 +1569,7 @@ class _ProfileTabState extends State<_ProfileTab> {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
-                            'Level ${widget.member.level}',
+                            'Verified Reseller',
                             style: StockpileFonts.satoshi(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,

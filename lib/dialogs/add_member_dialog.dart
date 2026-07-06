@@ -12,7 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 class AddMemberDialog extends StatefulWidget {
-  final Function(Map<String, dynamic>) onMemberAdded;
+  final Future<int?> Function(Map<String, dynamic>) onMemberAdded;
 
   const AddMemberDialog({super.key, required this.onMemberAdded});
 
@@ -29,7 +29,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final addressController = TextEditingController();
   final idNumberController = TextEditingController();
   final referrerSearchController = TextEditingController();
-  final emailController = TextEditingController();
+  final usernameController = TextEditingController();
   final passwordController = TextEditingController();
   List<Member> _members = [];
   Map<int, int> _referralCounts = {};
@@ -37,6 +37,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   String? _selectedIdType;
   String? _selectedIdImagePath;
   bool _createAccount = false;
+  bool _obscurePassword = true;
 
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
@@ -160,7 +161,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     addressController.dispose();
     idNumberController.dispose();
     referrerSearchController.dispose();
-    emailController.dispose();
+    usernameController.dispose();
     passwordController.dispose();
     super.dispose();
   }
@@ -227,7 +228,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
                 decoration: InputDecoration(
-                  labelText: 'Last Name',
+                  label: const Text.rich(TextSpan(
+                    text: 'Last Name ',
+                    children: [TextSpan(text: '*', style: TextStyle(color: Colors.red))],
+                  )),
                   hintText: 'e.g. Dela Cruz',
                   prefixIcon: const Icon(Icons.badge_outlined),
                   border: inputBorder,
@@ -242,7 +246,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
                 decoration: InputDecoration(
-                  labelText: 'First Name',
+                  label: const Text.rich(TextSpan(
+                    text: 'First Name ',
+                    children: [TextSpan(text: '*', style: TextStyle(color: Colors.red))],
+                  )),
                   hintText: 'e.g. Juan',
                   prefixIcon: const Icon(Icons.person_outline),
                   border: inputBorder,
@@ -402,29 +409,42 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               if (_createAccount) ...[
                 const SizedBox(height: 12),
                 TextFormField(
-                  controller: emailController,
+                  controller: usernameController,
                   decoration: InputDecoration(
-                    labelText: 'Email',
-                    hintText: 'member@example.com',
-                    prefixIcon: const Icon(Icons.email_outlined),
+                    label: const Text.rich(TextSpan(
+                      text: 'Username ',
+                      children: [TextSpan(text: '*', style: TextStyle(color: Colors.red))],
+                    )),
+                    hintText: 'Enter a username',
+                    prefixIcon: const Icon(Icons.person_outline),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  keyboardType: TextInputType.emailAddress,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: passwordController,
+                  obscureText: _obscurePassword,
                   decoration: InputDecoration(
-                    labelText: 'Password',
+                    label: const Text.rich(TextSpan(
+                      text: 'Password ',
+                      children: [TextSpan(text: '*', style: TextStyle(color: Colors.red))],
+                    )),
                     hintText: 'Enter a password',
                     prefixIcon: const Icon(Icons.lock_outlined),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  obscureText: true,
                 ),
               ],
               const SizedBox(height: 24),
@@ -532,7 +552,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     );
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_validateAll()) return;
 
     final newMember = {
@@ -558,7 +578,6 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                   birthday: null,
                   address: null,
                   referrer: null,
-                  level: 1,
                   qr: null,
                 ),
               );
@@ -573,11 +592,14 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           : idNumberController.text.trim(),
       'idImagePath': _selectedIdImagePath,
       'createAccount': _createAccount,
-      'email': _createAccount ? emailController.text.trim() : null,
+      'username': _createAccount ? usernameController.text.trim() : null,
       'password': _createAccount ? passwordController.text : null,
     };
 
-    widget.onMemberAdded(newMember);
+    final memberId = await widget.onMemberAdded(newMember);
+    if (memberId == null || memberId == 0) return; // failure — dialog stays open
+
+    if (!mounted) return;
     Navigator.pop(context);
   }
 

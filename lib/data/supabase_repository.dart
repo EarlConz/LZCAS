@@ -70,7 +70,7 @@ class SupabaseRepository {
     if (userId == null) return;
 
     // Tables filtered by the current user's user_id
-    final userTables = ['items', 'members', 'sales', 'reseller_levels'];
+    final userTables = ['items', 'members', 'sales'];
     for (final table in userTables) {
       _supabase
           .channel('public:$table')
@@ -113,7 +113,6 @@ class SupabaseRepository {
 
   // ── Idempotent migrations (no-ops in cloud) ──────────────────────────────
 
-  Future<void> ensurePointsConsistency() async {}
   Future<void> ensureVerifiedResellerConsistency() async {}
   Future<void> ensureReferrerIdBackfill() async {}
 
@@ -140,35 +139,6 @@ class SupabaseRepository {
     final memberId = profile['member_id'] as int?;
     if (memberId == null) return null;
     return getMemberById(memberId);
-  }
-
-  /// Fetch all verified resellers with their stats for the rankings tab.
-  Future<List<Map<String, dynamic>>> fetchAllResellers() async {
-    final members = await _supabase
-        .from('members')
-        .select()
-        .eq('role', 'Verified Reseller')
-        .order('level', ascending: false);
-    final results = <Map<String, dynamic>>[];
-    for (final m in (members as List)) {
-      final id = m['id'] as int? ?? 0;
-      final boxes = await getTotalRemittedBoxes(id);
-      final earnings = await fetchMemberEarnings(id);
-      results.add({
-        'id': id,
-        'name': '${m['first_name'] ?? ''} ${m['last_name'] ?? ''}'.trim(),
-        'level': m['level'] as int? ?? 1,
-        'boxes': boxes,
-        'earnings': earnings,
-      });
-    }
-    // Sort by level desc then boxes desc (preserving the DB order + custom logic)
-    results.sort((a, b) {
-      final levelCmp = (b['level'] as int).compareTo(a['level'] as int);
-      if (levelCmp != 0) return levelCmp;
-      return (b['boxes'] as int).compareTo(a['boxes'] as int);
-    });
-    return results;
   }
 
   Future<List<Sale>> fetchSales() async {
@@ -253,30 +223,6 @@ class SupabaseRepository {
         .maybeSingle();
     if (data == null) return null;
     return Item.fromJson(data);
-  }
-
-  Future<List<ResellerLevel>> fetchResellerLevels({
-    String? tenantUserId,
-  }) async {
-    final uid = tenantUserId ?? _uid;
-    final data = await _supabase
-        .from('reseller_levels')
-        .select()
-        .eq('user_id', uid)
-        .order('level');
-    final levels = (data as List)
-        .map((j) => ResellerLevel.fromJson(j))
-        .toList();
-    if (levels.isEmpty) {
-      await _seedDefaultLevels(tenantUserId: tenantUserId);
-      final newData = await _supabase
-          .from('reseller_levels')
-          .select()
-          .eq('user_id', uid)
-          .order('level');
-      return (newData as List).map((j) => ResellerLevel.fromJson(j)).toList();
-    }
-    return levels;
   }
 
   /// Fetch only items whose stock is below [threshold] but above 0.
@@ -742,9 +688,6 @@ class SupabaseRepository {
       buyerId: borrow.memberId,
     );
 
-    // Auto-level-up: check if reseller now qualifies for a higher level
-    await _autoLevelUp(borrow.memberId);
-
     _changes.add('borrow_updated');
     return true;
   }
@@ -896,7 +839,6 @@ class SupabaseRepository {
     String? address,
     String? referrer,
     int? referrerId,
-    int level = 1,
     String? idType,
     String? idNumber,
     String? idImagePath,
@@ -918,7 +860,6 @@ class SupabaseRepository {
           if (idType != null) 'id_type': idType,
           if (idNumber != null) 'id_number': idNumber,
           if (idImagePath != null) 'id_image_path': idImagePath,
-          'level': level,
         })
         .select('id');
 
@@ -1016,16 +957,37 @@ class SupabaseRepository {
     return true;
   }
 
+  /// Check whether a username is available for account creation.
+  /// Returns false if the username (as {username}@lzcas.local) already
+  /// exists in Supabase Auth, true otherwise.
+  Future<bool> isUsernameAvailable(String username) async {
+    final email = '$username@lzcas.local';
+    try {
+      final result = await _supabase.rpc(
+        'check_user_exists',
+        params: {'email_to_check': email},
+      );
+      return result != true;
+    } catch (_) {
+      return true; // If the check fails, assume available
+    }
+  }
+
   /// Create a Supabase Auth account for an existing member.
+  /// Accepts a username and password; email is auto-generated as
+  /// '{username}@lzcas.local' (Supabase Auth requires email format).
   /// Calls the create-member-user edge function and updates the member's email.
-  /// Returns a map with {email, password, id} on success, or null on failure.
+  /// Returns a map with {email, password, id} on success,
+  /// {error: 'message'} on a known edge-function failure, or null on
+  /// unexpected errors.
   Future<Map<String, dynamic>?> createMemberAuthAccount({
     required int memberId,
-    required String email,
+    required String username,
     required String password,
   }) async {
     final member = await getMemberById(memberId);
     if (member == null) return null;
+    final email = '$username@lzcas.local';
 
     try {
       final result = await _supabase.functions.invoke(
@@ -1043,28 +1005,23 @@ class SupabaseRepository {
       if (result.status == 200 && result.data is Map) {
         final data = result.data as Map;
         if (data['success'] == true) {
-          // Update the member record with the email locally.
-          // Note: user_id on the members table is the staff creator's ID,
-          // not the member's auth ID — so only update email here.
           final authUserId = data['id'] as String? ?? '';
           final updated = member.copyWith(email: email);
           await updateMember(updated);
           return {'email': email, 'password': password, 'id': authUserId};
         }
+        // Edge function returned structured failure — map to user-friendly text
+        final err = data['error']?.toString() ?? '';
+        final friendly = err.toLowerCase().contains('already')
+            ? 'Username already taken'
+            : err;
+        if (friendly.isNotEmpty) return {'error': friendly};
       }
       return null;
     } catch (e) {
       debugPrint('[createMemberAuthAccount] error: $e');
       return null;
     }
-  }
-
-  Future<bool> setMemberLevel(int memberId, int level) async {
-    final member = await getMemberById(memberId);
-    if (member == null) return false;
-    final updated = member.copyWith(level: level.clamp(1, 10));
-    await updateMember(updated);
-    return true;
   }
 
   /// Compute the total number of boxes this reseller has ever remitted
@@ -1097,53 +1054,6 @@ class SupabaseRepository {
       total += qty * price;
     }
     return total;
-  }
-
-  /// Automatically level up a reseller if their total remitted boxes
-  /// meet the threshold for a higher level. Returns the new level (or
-  /// current level if no change).
-  Future<int> _autoLevelUp(int memberId) async {
-    final member = await getMemberById(memberId);
-    if (member == null) return 1;
-    // Only auto-level verified resellers
-    if ((member.role ?? '') != 'Verified Reseller') return member.level;
-
-    final totalBoxes = await getTotalRemittedBoxes(memberId);
-    final levels = await fetchResellerLevels();
-
-    // Find the highest level whose boxes_required <= totalBoxes
-    int newLevel = member.level;
-    for (final lvl in levels) {
-      if (totalBoxes >= lvl.boxesRequired && lvl.level > newLevel) {
-        newLevel = lvl.level;
-      }
-    }
-
-    if (newLevel > member.level) {
-      final updated = member.copyWith(level: newLevel);
-      await updateMember(updated);
-      _changes.add('reseller_level_up');
-    }
-
-    return newLevel;
-  }
-
-  Future<void> upsertResellerLevel({
-    required int level,
-    required int remittanceMin,
-    required int remittanceMax,
-    required int cashAdvance,
-    required int boxesRequired,
-  }) async {
-    await _supabase.from('reseller_levels').upsert({
-      'level': level,
-      'user_id': _uid,
-      'remittance_min': remittanceMin,
-      'remittance_max': remittanceMax,
-      'cash_advance': cashAdvance,
-      'boxes_required': boxesRequired,
-    });
-    _changes.add('reseller_levels_updated');
   }
 
   // ── Delete Methods ───────────────────────────────────────────────────────
@@ -1916,7 +1826,6 @@ class SupabaseRepository {
         if (addrIdx >= 0 && addrIdx < row.length) 'address': row[addrIdx],
         if (refIdx >= 0 && refIdx < row.length) 'referrer': row[refIdx],
         'qr': _generateMemberQr(),
-        'level': 1,
       });
       inserted++;
     }
@@ -1989,7 +1898,6 @@ class SupabaseRepository {
         'Birthday',
         'Address',
         'Referrer',
-        'Level',
       ],
       for (final m in members)
         [
@@ -2002,7 +1910,6 @@ class SupabaseRepository {
           m.birthday ?? '',
           m.address ?? '',
           m.referrer ?? '',
-          m.level.toString(),
         ],
     ];
     return const ListToCsvConverter().convert(rows);
@@ -2054,32 +1961,6 @@ class SupabaseRepository {
       return 'Session expired. Please log in again.';
     }
     return 'Something went wrong. Please try again.';
-  }
-
-  Future<void> _seedDefaultLevels({String? tenantUserId}) async {
-    final uid = tenantUserId ?? _uid;
-    final defaults = [
-      (level: 1, remMin: 500, remMax: 500, ca: 0, boxes: 0),
-      (level: 2, remMin: 800, remMax: 1000, ca: 100, boxes: 10),
-      (level: 3, remMin: 1700, remMax: 2100, ca: 200, boxes: 50),
-      (level: 4, remMin: 3400, remMax: 4200, ca: 400, boxes: 150),
-      (level: 5, remMin: 6800, remMax: 8400, ca: 800, boxes: 300),
-      (level: 6, remMin: 13600, remMax: 16800, ca: 1600, boxes: 500),
-      (level: 7, remMin: 27200, remMax: 33600, ca: 3200, boxes: 800),
-      (level: 8, remMin: 54400, remMax: 67200, ca: 6400, boxes: 1200),
-      (level: 9, remMin: 108800, remMax: 134400, ca: 12800, boxes: 1800),
-      (level: 10, remMin: 217600, remMax: 268800, ca: 25600, boxes: 2500),
-    ];
-    for (final d in defaults) {
-      await _supabase.from('reseller_levels').upsert({
-        'level': d.level,
-        'user_id': uid,
-        'remittance_min': d.remMin,
-        'remittance_max': d.remMax,
-        'cash_advance': d.ca,
-        'boxes_required': d.boxes,
-      });
-    }
   }
 
   void dispose() {

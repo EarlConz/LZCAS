@@ -20,10 +20,6 @@ class StockpileSidebar extends StatelessWidget {
     _NavItem(Icons.description_rounded, 'Reports'),
   ];
 
-  static const _bottomItems = <_NavItem>[
-    _NavItem(Icons.settings_rounded, 'Settings'),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -90,15 +86,6 @@ class StockpileSidebar extends StatelessWidget {
                       : StockpileColors.divider,
                   indent: 12,
                   endIndent: 12,
-                ),
-                const SizedBox(height: 12),
-                // Settings â†’ index 5
-                _SidebarTile(
-                  item: _bottomItems[0],
-                  isSelected: selectedIndex == 5,
-                  activeBg: activeBg,
-                  isDark: isDark,
-                  onTap: () => onItemSelected(5),
                 ),
               ],
             ),

@@ -32,7 +32,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   late final TextEditingController contactController;
   late final TextEditingController birthdayController;
   late final TextEditingController addressController;
-  late final TextEditingController pointsController;
   late final TextEditingController idNumberController;
   late final TextEditingController referrerSearchController;
   late String _roleValue;
@@ -93,9 +92,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     );
     addressController = TextEditingController(
       text: widget.member['address']?.toString() ?? '',
-    );
-    pointsController = TextEditingController(
-      text: widget.member['level']?.toString() ?? '1',
     );
     _selectedReferrerId = widget.member['referrerId'] as int?;
     _selectedIdType = widget.member['idType']?.toString();
@@ -188,7 +184,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     contactController.dispose();
     birthdayController.dispose();
     addressController.dispose();
-    pointsController.dispose();
+
     idNumberController.dispose();
     referrerSearchController.dispose();
     super.dispose();
@@ -303,17 +299,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                 ),
               ),
               const SizedBox(height: 14),
-              if ((widget.member['role'] ?? '') == 'Verified Reseller')
-                TextFormField(
-                  controller: pointsController,
-                  decoration: InputDecoration(
-                    labelText: 'Level (1-10)',
-                    prefixIcon: const Icon(Icons.stars_outlined),
-                    border: inputBorder,
-                  ),
-                  keyboardType: TextInputType.number,
-                  textInputAction: TextInputAction.next,
-                ),
 
               const SizedBox(height: 20),
               // ── Contact section ───────────────────────────
@@ -570,7 +555,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
           : contactController.text.replaceAll(' ', '').trim(),
       'birthday': birthdayController.text.trim(),
       'address': addressController.text.trim(),
-      'level': int.tryParse(pointsController.text) ?? 1,
       'referrer': _selectedReferrerId != null
           ? (_members
                 .firstWhere(
@@ -585,7 +569,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                     birthday: null,
                     address: null,
                     referrer: null,
-                    level: 1,
+
                     qr: null,
                   ),
                 )

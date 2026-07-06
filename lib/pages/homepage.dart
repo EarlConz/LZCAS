@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dashboardpage.dart';
 import 'inventorypage.dart';
-import 'settingspage.dart';
 import 'supplierspage.dart';
 import 'orderspage.dart';
 import 'analyticspage.dart';
@@ -26,7 +25,6 @@ class _HomePageState extends State<HomePage> {
     'Members',
     'Transactions',
     'Reports',
-    'Settings',
   ];
 
   List<Widget> _buildPages() => const [
@@ -35,7 +33,6 @@ class _HomePageState extends State<HomePage> {
     SuppliersPage(),
     OrdersPage(),
     AnalyticsPage(),
-    SettingsPage(),
   ];
 
   void _onItemTapped(int index) {
