@@ -286,6 +286,7 @@ class MembersTableState extends State<MembersTable> {
           price: pkg.price,
           buyerId: memberId,
           buyerName: buyerName.isNotEmpty ? buyerName : 'Member #$memberId',
+          packageId: pkgId, // marks this as a package availment, not a product
         );
       }
     }

@@ -240,6 +240,7 @@ class _OverviewTabState extends State<_OverviewTab> {
   int _activeBorrows = 0;
   int _purchaseCount = 0;
   List<Sale> _recentSales = [];
+  List<Sale> _availedPackages = [];
   bool _loadingStats = true;
 
   @override
@@ -254,6 +255,7 @@ class _OverviewTabState extends State<_OverviewTab> {
       repository.getTotalRemittedBoxes(id),
       repository.fetchBorrowsForMember(id),
       repository.fetchMemberPurchaseHistory(id, limit: 5),
+      repository.fetchSalesForMember(id),
     ]);
     if (!mounted) return;
     setState(() {
@@ -264,6 +266,14 @@ class _OverviewTabState extends State<_OverviewTab> {
           .length;
       _recentSales = results[2] as List<Sale>;
       _purchaseCount = _recentSales.length;
+      _availedPackages = (results[3] as List<Sale>)
+          .where((s) => s.isPackage)
+          .toList()
+        ..sort(
+          (a, b) => (b.timestamp ?? DateTime(0)).compareTo(
+            a.timestamp ?? DateTime(0),
+          ),
+        );
       _loadingStats = false;
     });
   }
@@ -291,6 +301,11 @@ class _OverviewTabState extends State<_OverviewTab> {
           else
             _buildStatsRow(isDark, isWide),
           const SizedBox(height: 20),
+          // Availed package — resellers only
+          if (widget.isReseller && !_loadingStats) ...[
+            _PackageAvailedCard(packages: _availedPackages, isDark: isDark),
+            const SizedBox(height: 20),
+          ],
           // Recent activity
           _RecentActivityCard(
             sales: _recentSales,
@@ -378,6 +393,223 @@ class _OverviewTabState extends State<_OverviewTab> {
           isDark: isDark,
         ),
       ],
+    );
+  }
+}
+
+/// "Membership card"-style banner showing the package(s) a reseller availed.
+/// The most recent package is featured; earlier ones are listed below it.
+class _PackageAvailedCard extends StatelessWidget {
+  final List<Sale> packages;
+  final bool isDark;
+
+  const _PackageAvailedCard({required this.packages, required this.isDark});
+
+  static String _fmtDate(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    if (packages.isEmpty) {
+      // Reseller without a recorded availment — slim, quiet card.
+      return Card(
+        elevation: 0,
+        color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: isDark
+                ? StockpileColors.darkDivider
+                : StockpileColors.divider,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              Icon(
+                Icons.card_giftcard_outlined,
+                size: 20,
+                color: isDark
+                    ? StockpileColors.darkTextMuted
+                    : StockpileColors.mutedText,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'No package availed yet',
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  color: isDark
+                      ? StockpileColors.darkTextMuted
+                      : StockpileColors.mutedText,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final latest = packages.first;
+    final earlier = packages.skip(1).toList();
+
+    return Container(
+      width: double.infinity,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF3B1F7E), Color(0xFF6366F1)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF6366F1).withAlpha(isDark ? 40 : 70),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Oversized watermark icon, clipped by the card
+          Positioned(
+            right: -18,
+            top: -18,
+            child: Icon(
+              Icons.card_giftcard_rounded,
+              size: 130,
+              color: Colors.white.withAlpha(22),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Eyebrow label
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withAlpha(35),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: Text(
+                    'MY PACKAGE',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withAlpha(35),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.card_giftcard_rounded,
+                        size: 24,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            latest.itemName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: StockpileFonts.satoshi(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            latest.timestamp != null
+                                ? 'Availed ${_fmtDate(latest.timestamp!)}'
+                                : 'Availed —',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 12,
+                              color: Colors.white.withAlpha(190),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '₱${latest.price}',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+                if (earlier.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Divider(color: Colors.white.withAlpha(60), height: 1),
+                  const SizedBox(height: 10),
+                  ...earlier.map(
+                    (s) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.history_rounded,
+                            size: 14,
+                            color: Colors.white.withAlpha(160),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              s.timestamp != null
+                                  ? '${s.itemName} · ${_fmtDate(s.timestamp!)}'
+                                  : s.itemName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: StockpileFonts.satoshi(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white.withAlpha(220),
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '₱${s.price}',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white.withAlpha(220),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

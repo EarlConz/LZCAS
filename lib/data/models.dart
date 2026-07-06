@@ -268,6 +268,9 @@ class Sale {
   final DateTime? timestamp;
   final String? userId;
 
+  /// Set when this sale is a package availment, not a product sale.
+  final int? packageId;
+
   const Sale({
     this.id,
     required this.itemId,
@@ -278,7 +281,12 @@ class Sale {
     this.price = 0,
     this.timestamp,
     this.userId,
+    this.packageId,
   });
+
+  /// Package availments are not products and are excluded from
+  /// product metrics (revenue, category breakdown, top products).
+  bool get isPackage => packageId != null;
 
   factory Sale.fromJson(Map<String, dynamic> json) => Sale(
     id: json['id'] as int?,
@@ -292,6 +300,7 @@ class Sale {
         ? DateTime.tryParse(json['timestamp'].toString())
         : null,
     userId: json['user_id'] as String?,
+    packageId: json['package_id'] as int?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -303,6 +312,7 @@ class Sale {
     'price': price,
     if (timestamp != null) 'timestamp': timestamp!.toIso8601String(),
     if (userId != null) 'user_id': userId,
+    if (packageId != null) 'package_id': packageId,
   };
 
   Sale copyWith({
@@ -315,6 +325,7 @@ class Sale {
     int? price,
     DateTime? timestamp,
     String? userId,
+    int? packageId,
   }) => Sale(
     id: id ?? this.id,
     itemId: itemId ?? this.itemId,
@@ -325,6 +336,7 @@ class Sale {
     price: price ?? this.price,
     timestamp: timestamp ?? this.timestamp,
     userId: userId ?? this.userId,
+    packageId: packageId ?? this.packageId,
   );
 }
 

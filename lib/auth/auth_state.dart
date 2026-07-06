@@ -192,8 +192,13 @@ class AuthState extends ChangeNotifier {
         // ── Case-sensitivity check: typed username must match stored exactly ──
         // Only compare when both are usernames (not emails). Supabase Auth is
         // case-insensitive for emails, so we enforce case-sensitivity here.
+        // Reject only when the two differ by case ALONE: member accounts
+        // store their display name (full name) in profiles.username, which
+        // legitimately differs from the typed login username — that must
+        // not be treated as a wrong-case rejection.
         if (!isEmail &&
             !_username.contains('@') &&
+            _username.toLowerCase() == typedUsername.toLowerCase() &&
             _username != typedUsername) {
           await _sb.auth.signOut();
           _error = 'Invalid credentials.';

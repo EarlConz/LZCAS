@@ -42,6 +42,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   bool _obscurePassword = true;
   bool _submitting = false;
 
+  bool get _hasIdPhoto =>
+      _selectedIdImagePath != null && _selectedIdImagePath!.isNotEmpty;
+
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
   final _contactKey = GlobalKey<FormFieldState>();
@@ -107,7 +110,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
         final base64 = base64Encode(bytes);
         setState(() => _selectedIdImagePath = 'data:$mime;base64,$base64');
       } catch (_) {
-        setState(() => _selectedIdImagePath = null);
+        setState(() {
+          _selectedIdImagePath = null;
+          _selectedPackageId = null; // packages require an ID photo
+        });
       }
       return;
     }
@@ -413,13 +419,17 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
 
               const SizedBox(height: 24),
               // ── Package section ────────────────────────────
+              // Packages can only be availed by verified resellers, which
+              // requires an uploaded ID photo — gate the dropdown on it.
               _sectionLabel('Package', theme, colorScheme),
               const SizedBox(height: 12),
               DropdownButtonFormField<int?>(
                 initialValue: _selectedPackageId,
                 decoration: InputDecoration(
                   labelText: 'Select Package',
-                  hintText: 'No package (standard member)',
+                  hintText: _hasIdPhoto
+                      ? 'No package (standard member)'
+                      : 'Upload an ID photo to avail a package',
                   prefixIcon: const Icon(Icons.card_giftcard_outlined),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -437,12 +447,24 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                     ),
                   ),
                 ],
-                onChanged: (v) => setState(() => _selectedPackageId = v),
+                onChanged: _hasIdPhoto
+                    ? (v) => setState(() => _selectedPackageId = v)
+                    : null,
               ),
-              if (_selectedPackageId != null) ...[
+              if (!_hasIdPhoto) ...[
                 const SizedBox(height: 8),
                 Text(
-                  '⚠ Selecting a package will auto-verify this member as a '
+                  'Packages can only be availed by verified resellers. '
+                  'Upload an ID photo under Verification ID to enable this.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.outline,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ] else if (_selectedPackageId != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '⚠ Selecting a package will verify this member as a '
                   'Verified Reseller and create a transaction record.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: colorScheme.primary,
@@ -676,7 +698,8 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           ? null
           : idNumberController.text.trim(),
       'idImagePath': _selectedIdImagePath,
-      'packageId': _selectedPackageId,
+      // Packages require an uploaded ID photo (verified resellers only)
+      'packageId': _hasIdPhoto ? _selectedPackageId : null,
       'createAccount': _createAccount,
       'username': _createAccount ? usernameController.text.trim() : null,
       'password': _createAccount ? passwordController.text : null,

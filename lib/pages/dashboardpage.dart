@@ -25,10 +25,25 @@ class _DashboardPageState extends State<DashboardPage> {
   int activeOrders = 0;
   int previousMonthOrders = 0;
   int lowStockItems = 0;
+  int packageRevenue = 0;
+  int packagesSold = 0;
+  int previousPackagesSold = 0;
   List<Map<String, dynamic>> categoryRevenue = [];
   List<Map<String, dynamic>> topProducts = [];
   List<double> revenueTrend = [];
   List<double> lowStockTrend = [];
+
+  /// Package series names in fixed display order (top 3 by 6-month
+  /// revenue, extras folded into 'Other'). Colors are assigned by this
+  /// order and never reshuffled.
+  List<String> packageSeries = [];
+
+  /// Per month (oldest→newest, 6 entries):
+  /// `{'label': 'Feb', 'revenue': Map<String,int>, 'count': Map<String,int>}`
+  List<Map<String, dynamic>> packageMonthly = [];
+
+  /// This month's per-package totals: {'name', 'count', 'revenue'}
+  List<Map<String, dynamic>> packageBreakdown = [];
   List<Map<String, dynamic>> monthlyHistory = [];
 
   @override
@@ -59,6 +74,9 @@ class _DashboardPageState extends State<DashboardPage> {
     previousMonthRevenue = stats['previousMonthRevenue'] as int;
     previousMonthOrders = stats['previousMonthOrders'] as int;
     lowStockItems = stats['lowStockItems'] as int;
+    packageRevenue = stats['packageRevenue'] as int? ?? 0;
+    packagesSold = stats['packagesSold'] as int? ?? 0;
+    previousPackagesSold = stats['previousPackagesSold'] as int? ?? 0;
 
     // ── 2. This month's sales + items (date-scoped, not all-time) ──
     final results = await Future.wait([
@@ -71,9 +89,10 @@ class _DashboardPageState extends State<DashboardPage> {
     final thisMonthSales = results[0] as List<Sale>;
     final items = results[1] as List<Item>;
 
-    // ── 3. Category revenue breakdown ───────────────────────────────
+    // ── 3. Category revenue breakdown (products only) ───────────────
     final Map<String, int> catRevenue = {};
     for (final s in thisMonthSales) {
+      if (s.isPackage) continue; // packages are not products
       final item = items.where((i) => i.id == s.itemId).firstOrNull;
       final cat = item?.category?.isNotEmpty == true
           ? item!.category!
@@ -88,9 +107,10 @@ class _DashboardPageState extends State<DashboardPage> {
             (a, b) => (b['revenue'] as int).compareTo(a['revenue'] as int),
           );
 
-    // ── 4. Top products (this month only) ───────────────────────────
+    // ── 4. Top products (this month only, products only) ────────────
     final Map<int, Map<String, dynamic>> productAgg = {};
     for (final s in thisMonthSales) {
+      if (s.isPackage) continue; // packages are not products
       productAgg[s.itemId] = {
         'itemId': s.itemId,
         'productName': s.itemName,
@@ -104,12 +124,41 @@ class _DashboardPageState extends State<DashboardPage> {
       );
     topProducts = topProducts.take(5).toList();
 
+    // ── 4b. This month's package breakdown ──────────────────────────
+    final Map<String, Map<String, int>> pkgAgg = {};
+    for (final s in thisMonthSales) {
+      if (!s.isPackage) continue;
+      final name = s.itemName.isNotEmpty ? s.itemName : 'Package';
+      final entry = pkgAgg.putIfAbsent(name, () => {'count': 0, 'revenue': 0});
+      entry['count'] = entry['count']! + s.quantity;
+      entry['revenue'] = entry['revenue']! + s.price;
+    }
+    packageBreakdown =
+        pkgAgg.entries
+            .map(
+              (e) => {
+                'name': e.key,
+                'count': e.value['count'],
+                'revenue': e.value['revenue'],
+              },
+            )
+            .toList()
+          ..sort(
+            (a, b) => (b['revenue'] as int).compareTo(a['revenue'] as int),
+          );
+
     // ── 5. Monthly revenue history (single query, client-aggregated)
     monthlyHistory = await repository.fetchMonthlyRevenueHistory(12);
 
-    // ── 6. 6-month revenue trend for mini chart ─────────────────────
+    // ── 6. 6-month trends: product revenue + per-package breakdown ──
+    // One pass per month; product revenue feeds the mini bar chart,
+    // package sales are aggregated per package name for the panel.
     if (!mounted) return;
     revenueTrend = [];
+    final List<String> monthLabels = [];
+    final List<Map<String, int>> monthlyPkgRevenue = [];
+    final List<Map<String, int>> monthlyPkgCount = [];
+    final Map<String, int> pkgTotals = {};
     for (int i = 5; i >= 0; i--) {
       final monthStart = DateTime(now.year, now.month - i, 1);
       final monthEnd = DateTime(now.year, now.month - i + 1, 1);
@@ -117,9 +166,43 @@ class _DashboardPageState extends State<DashboardPage> {
         monthStart,
         monthEnd,
       );
-      final sum = monthSales.fold<double>(0, (s, sale) => s + sale.price);
-      revenueTrend.add(sum);
+      double productSum = 0;
+      final Map<String, int> mRev = {};
+      final Map<String, int> mCnt = {};
+      for (final sale in monthSales) {
+        if (sale.isPackage) {
+          final name = sale.itemName.isNotEmpty ? sale.itemName : 'Package';
+          mRev[name] = (mRev[name] ?? 0) + sale.price;
+          mCnt[name] = (mCnt[name] ?? 0) + sale.quantity;
+          pkgTotals[name] = (pkgTotals[name] ?? 0) + sale.price;
+        } else {
+          productSum += sale.price;
+        }
+      }
+      revenueTrend.add(productSum);
+      monthLabels.add(DateFormat('MMM').format(monthStart));
+      monthlyPkgRevenue.add(mRev);
+      monthlyPkgCount.add(mCnt);
     }
+
+    // Series order fixed by 6-month revenue; 4th+ packages fold into 'Other'
+    final ordered = pkgTotals.keys.toList()
+      ..sort((a, b) => pkgTotals[b]!.compareTo(pkgTotals[a]!));
+    final topSeries = ordered.take(3).toList();
+    packageSeries = [...topSeries, if (ordered.length > 3) 'Other'];
+    packageMonthly = List.generate(monthLabels.length, (m) {
+      final rev = <String, int>{};
+      final cnt = <String, int>{};
+      monthlyPkgRevenue[m].forEach((name, v) {
+        final key = topSeries.contains(name) ? name : 'Other';
+        rev[key] = (rev[key] ?? 0) + v;
+      });
+      monthlyPkgCount[m].forEach((name, v) {
+        final key = topSeries.contains(name) ? name : 'Other';
+        cnt[key] = (cnt[key] ?? 0) + v;
+      });
+      return {'label': monthLabels[m], 'revenue': rev, 'count': cnt};
+    });
 
     // ── 7. Low stock trend (snapshot of current state) ──────────────
     lowStockTrend = List.generate(6, (_) => lowStockItems.toDouble());
@@ -163,6 +246,8 @@ class _DashboardPageState extends State<DashboardPage> {
             _buildProductsTableCompact(isDark),
           ] else
             _buildChartAndProductsRow(isDark),
+          const SizedBox(height: 32),
+          _packageSalesPanel(isDark, isMobile),
           const SizedBox(height: 32),
           MonthlyRevenueView(
             data: monthlyHistory,
@@ -223,21 +308,19 @@ class _DashboardPageState extends State<DashboardPage> {
     if (mobile) {
       return Column(
         children: [
-          metricCards[0],
-          const SizedBox(height: 14),
-          metricCards[1],
-          const SizedBox(height: 14),
-          metricCards[2],
+          for (var i = 0; i < metricCards.length; i++) ...[
+            if (i > 0) const SizedBox(height: 14),
+            metricCards[i],
+          ],
         ],
       );
     }
     return Row(
       children: [
-        Expanded(child: metricCards[0]),
-        const SizedBox(width: appSpacing),
-        Expanded(child: metricCards[1]),
-        const SizedBox(width: appSpacing),
-        Expanded(child: metricCards[2]),
+        for (var i = 0; i < metricCards.length; i++) ...[
+          if (i > 0) const SizedBox(width: appSpacing),
+          Expanded(child: metricCards[i]),
+        ],
       ],
     );
   }
@@ -563,4 +646,328 @@ class _DashboardPageState extends State<DashboardPage> {
       ],
     ),
   );
+
+  // ── Package Sales Panel ─────────────────────────────────────────────
+  // Packages are not products: they get their own panel instead of a
+  // slot in the product metrics. Monthly grouped bars (6 months) per
+  // package + this-month breakdown list.
+
+  /// Fixed categorical colors, assigned by [packageSeries] order.
+  /// Blue and orange validated for CVD separation and contrast on both
+  /// the light (#FFFFFF) and dark (#1A1A2E) card surfaces; the orange
+  /// uses a darker step in dark mode to stay in the lightness band.
+  /// Gray is reserved for the 'Other' fold.
+  List<Color> _packageColors(bool d) => [
+    StockpileColors.secondary400,
+    d ? const Color(0xFFE65C00) : StockpileColors.primary900,
+    d ? StockpileColors.darkTextMuted : StockpileColors.mutedText,
+    d ? StockpileColors.darkTextBody : StockpileColors.bodyText,
+  ];
+
+  Color _packageColor(bool d, int index) {
+    final colors = _packageColors(d);
+    return colors[index.clamp(0, colors.length - 1)];
+  }
+
+  Widget _packageSalesPanel(bool d, bool mobile) {
+    final hasData = packageSeries.isNotEmpty;
+    final availedUp = packagesSold >= previousPackagesSold;
+    final titleColor = d
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final mutedColor = d
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    return _card(
+      d,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Package Sales',
+                style: StockpileFonts.satoshi(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: titleColor,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color:
+                      (availedUp
+                              ? StockpileColors.success
+                              : StockpileColors.danger)
+                          .withAlpha(26),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$packagesSold Availed This Month',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: availedUp
+                        ? StockpileColors.success
+                        : StockpileColors.danger,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _fmt(packageRevenue),
+            style: StockpileFonts.satoshi(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: titleColor,
+            ),
+          ),
+          Text(
+            'Package revenue this month',
+            style: StockpileFonts.satoshi(fontSize: 12, color: mutedColor),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            height: 200,
+            child: !hasData
+                ? Center(
+                    child: Text(
+                      'No package sales in the last 6 months',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 14,
+                        color: mutedColor,
+                      ),
+                    ),
+                  )
+                : _buildPackageBarChart(d, mobile),
+          ),
+          if (hasData && packageSeries.length > 1) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 16,
+              runSpacing: 6,
+              children: [
+                for (var i = 0; i < packageSeries.length; i++)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: _packageColor(d, i),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        packageSeries[i],
+                        style: StockpileFonts.satoshi(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: d
+                              ? StockpileColors.darkTextBody
+                              : StockpileColors.bodyText,
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ],
+          if (hasData) ...[
+            const SizedBox(height: 16),
+            Divider(
+              height: 1,
+              color: d ? StockpileColors.darkDivider : StockpileColors.divider,
+            ),
+            const SizedBox(height: 8),
+            ..._buildPackageBreakdownRows(d),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// This-month totals per package — doubles as the labeled table view
+  /// (identity is never color-alone).
+  List<Widget> _buildPackageBreakdownRows(bool d) {
+    return [
+      for (var i = 0; i < packageSeries.length; i++)
+        Builder(
+          builder: (context) {
+            final name = packageSeries[i];
+            final row = packageBreakdown.firstWhere(
+              (b) => b['name'] == name,
+              orElse: () => {'name': name, 'count': 0, 'revenue': 0},
+            );
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: _packageColor(d, i),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: d
+                            ? StockpileColors.darkTextPrimary
+                            : StockpileColors.darkText,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${row['count']} availed',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 12,
+                      color: d
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  SizedBox(
+                    width: 90,
+                    child: Text(
+                      _fmt(row['revenue'] as int),
+                      textAlign: TextAlign.right,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: d
+                            ? StockpileColors.darkTextBody
+                            : StockpileColors.bodyText,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+    ];
+  }
+
+  Widget _buildPackageBarChart(bool d, bool mobile) {
+    double maxRev = 0;
+    for (final m in packageMonthly) {
+      for (final v in (m['revenue'] as Map<String, int>).values) {
+        if (v > maxRev) maxRev = v.toDouble();
+      }
+    }
+    if (maxRev <= 0) maxRev = 1;
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        maxY: maxRev * 1.25,
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipItem: (group, _, rod, rodIndex) {
+              final name = packageSeries[rodIndex];
+              final month = packageMonthly[group.x];
+              final count = (month['count'] as Map<String, int>)[name] ?? 0;
+              return BarTooltipItem(
+                '$name\n₱${rod.toY.toInt()} · $count availed',
+                StockpileFonts.satoshi(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              );
+            },
+          ),
+        ),
+        titlesData: FlTitlesData(
+          leftTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 26,
+              getTitlesWidget: (v, _) {
+                final idx = v.toInt();
+                if (idx < 0 || idx >= packageMonthly.length) {
+                  return const SizedBox.shrink();
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    packageMonthly[idx]['label'] as String,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: d
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (v) => FlLine(
+            color: (d ? StockpileColors.darkDivider : StockpileColors.divider)
+                .withAlpha((0.4 * 255).round()),
+            strokeWidth: 1,
+          ),
+        ),
+        barGroups: [
+          for (var m = 0; m < packageMonthly.length; m++)
+            BarChartGroupData(
+              x: m,
+              barsSpace: 2,
+              barRods: [
+                for (var i = 0; i < packageSeries.length; i++)
+                  BarChartRodData(
+                    toY:
+                        ((packageMonthly[m]['revenue']
+                                    as Map<String, int>)[packageSeries[i]] ??
+                                0)
+                            .toDouble(),
+                    color: _packageColor(d, i),
+                    width: mobile ? 8 : 12,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(4),
+                    ),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
 }
