@@ -227,7 +227,8 @@ class MembersTableState extends State<MembersTable> {
       );
     } catch (e) {
       debugPrint('[MembersTable] addMember failed: $e');
-      if (mounted) showErrorToast('Failed to add member. Please restart the app.');
+      if (mounted)
+        showErrorToast('Failed to add member. Please restart the app.');
       return 0;
     }
 

@@ -233,10 +233,17 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
                 decoration: InputDecoration(
-                  label: const Text.rich(TextSpan(
-                    text: 'Last Name ',
-                    children: [TextSpan(text: '*', style: TextStyle(color: Colors.red))],
-                  )),
+                  label: const Text.rich(
+                    TextSpan(
+                      text: 'Last Name ',
+                      children: [
+                        TextSpan(
+                          text: '*',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      ],
+                    ),
+                  ),
                   hintText: 'e.g. Dela Cruz',
                   prefixIcon: const Icon(Icons.badge_outlined),
                   border: inputBorder,
@@ -251,10 +258,17 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Required' : null,
                 decoration: InputDecoration(
-                  label: const Text.rich(TextSpan(
-                    text: 'First Name ',
-                    children: [TextSpan(text: '*', style: TextStyle(color: Colors.red))],
-                  )),
+                  label: const Text.rich(
+                    TextSpan(
+                      text: 'First Name ',
+                      children: [
+                        TextSpan(
+                          text: '*',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      ],
+                    ),
+                  ),
                   hintText: 'e.g. Juan',
                   prefixIcon: const Icon(Icons.person_outline),
                   border: inputBorder,
@@ -456,10 +470,17 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 TextFormField(
                   controller: usernameController,
                   decoration: InputDecoration(
-                    label: const Text.rich(TextSpan(
-                      text: 'Username ',
-                      children: [TextSpan(text: '*', style: TextStyle(color: Colors.red))],
-                    )),
+                    label: const Text.rich(
+                      TextSpan(
+                        text: 'Username ',
+                        children: [
+                          TextSpan(
+                            text: '*',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ],
+                      ),
+                    ),
                     hintText: 'Enter a username',
                     prefixIcon: const Icon(Icons.person_outline),
                     border: OutlineInputBorder(
@@ -472,10 +493,17 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                   controller: passwordController,
                   obscureText: _obscurePassword,
                   decoration: InputDecoration(
-                    label: const Text.rich(TextSpan(
-                      text: 'Password ',
-                      children: [TextSpan(text: '*', style: TextStyle(color: Colors.red))],
-                    )),
+                    label: const Text.rich(
+                      TextSpan(
+                        text: 'Password ',
+                        children: [
+                          TextSpan(
+                            text: '*',
+                            style: TextStyle(color: Colors.red),
+                          ),
+                        ],
+                      ),
+                    ),
                     hintText: 'Enter a password',
                     prefixIcon: const Icon(Icons.lock_outlined),
                     suffixIcon: IconButton(
@@ -484,7 +512,8 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                             ? Icons.visibility_off
                             : Icons.visibility,
                       ),
-                      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -592,8 +621,12 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           onPressed: _submitting ? null : _submit,
           icon: _submitting
               ? const SizedBox(
-                  width: 20, height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : const Icon(Icons.person_add, size: 20),
           label: Text(_submitting ? 'Adding…' : 'Add Member'),

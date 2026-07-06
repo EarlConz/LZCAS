@@ -1836,9 +1836,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                       leading: CircleAvatar(
                         backgroundColor: StockpileColors.primary900,
                         child: Text(
-                          name.isNotEmpty
-                              ? name[0].toUpperCase()
-                              : '?',
+                          name.isNotEmpty ? name[0].toUpperCase() : '?',
                           style: const TextStyle(color: Colors.white),
                         ),
                       ),
@@ -1884,7 +1882,8 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
     Map<String, dynamic> existingRates = {};
     if (existing != null) {
       try {
-        existingRates = jsonDecode(existing.repeatPurchaseJson) as Map<String, dynamic>;
+        existingRates =
+            jsonDecode(existing.repeatPurchaseJson) as Map<String, dynamic>;
       } catch (_) {}
     }
     final rpPackCtrl = TextEditingController(
@@ -1917,146 +1916,156 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                TextFormField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Package Name',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: priceCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Price (₱)',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: directCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Direct Referral Bonus',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: indirectCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Indirect Referral Bonus',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: chairmansCtrl,
-                  decoration: const InputDecoration(
-                    labelText: "Chairman's Bonus",
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Repeat Purchase Rates',
-                  style: StockpileFonts.satoshi(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: rpPackCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Per Pack',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      ),
+                  TextFormField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Package Name',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        controller: rpBoxCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Per Box',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        controller: rpBottleCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Per Bottle',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Group Sales',
-                  style: StockpileFonts.satoshi(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Theme.of(context).colorScheme.primary,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Required' : null,
                   ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: groupDirectCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Direct (per item)',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: priceCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Price (₱)',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        controller: groupIndirectCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Indirect (per item)',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      ),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: directCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Direct Referral Bonus',
+                      border: OutlineInputBorder(),
                     ),
-                  ],
-                ),
-              ],
-            ),  // Column
-          ),    // Form
-        ),      // SingleChildScrollView
-      ),        // SizedBox
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: indirectCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Indirect Referral Bonus',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: chairmansCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "Chairman's Bonus",
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Repeat Purchase Rates',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: rpPackCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Per Pack',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          controller: rpBoxCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Per Box',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          controller: rpBottleCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Per Bottle',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Group Sales',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: groupDirectCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Direct (per item)',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          controller: groupIndirectCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Indirect (per item)',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ), // Column
+            ), // Form
+          ), // SingleChildScrollView
+        ), // SizedBox
         actions: [
           if (existing != null)
             TextButton(
@@ -2196,19 +2205,23 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                 padding: const EdgeInsets.all(48),
                 child: Column(
                   children: [
-                    Icon(Icons.card_giftcard_outlined,
-                        size: 64,
+                    Icon(
+                      Icons.card_giftcard_outlined,
+                      size: 64,
+                      color: isDark
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No packages configured yet.',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 16,
                         color: isDark
                             ? StockpileColors.darkTextMuted
-                            : StockpileColors.mutedText),
-                    const SizedBox(height: 12),
-                    Text('No packages configured yet.',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 16,
-                          color: isDark
-                              ? StockpileColors.darkTextMuted
-                              : StockpileColors.mutedText,
-                        )),
+                            : StockpileColors.mutedText,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -2242,8 +2255,9 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                                 width: 42,
                                 height: 42,
                                 decoration: BoxDecoration(
-                                  color: StockpileColors.primary900
-                                      .withAlpha(isDark ? 40 : 20),
+                                  color: StockpileColors.primary900.withAlpha(
+                                    isDark ? 40 : 20,
+                                  ),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Icon(
@@ -2254,8 +2268,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                               ),
                               const Spacer(),
                               IconButton(
-                                icon: const Icon(Icons.edit_outlined,
-                                    size: 18),
+                                icon: const Icon(Icons.edit_outlined, size: 18),
                                 onPressed: () =>
                                     _showEditPackageDialog(existing: pkg),
                                 visualDensity: VisualDensity.compact,
@@ -2290,10 +2303,11 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                               vertical: 10,
                             ),
                             decoration: BoxDecoration(
-                              color: (count > 0
-                                      ? StockpileColors.success
-                                      : theme.colorScheme.onSurfaceVariant)
-                                  .withAlpha(20),
+                              color:
+                                  (count > 0
+                                          ? StockpileColors.success
+                                          : theme.colorScheme.onSurfaceVariant)
+                                      .withAlpha(20),
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Row(
@@ -2429,16 +2443,22 @@ class _RepeatPurchaseRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(Icons.repeat_rounded,
-            size: 14,
-            color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText),
+        Icon(
+          Icons.repeat_rounded,
+          size: 14,
+          color: isDark
+              ? StockpileColors.darkTextMuted
+              : StockpileColors.mutedText,
+        ),
         const SizedBox(width: 6),
         Expanded(
           child: Text(
             'Repeat Purchase',
             style: StockpileFonts.satoshi(
               fontSize: 12,
-              color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
             ),
           ),
         ),
@@ -2449,7 +2469,9 @@ class _RepeatPurchaseRow extends StatelessWidget {
             style: StockpileFonts.satoshi(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
             ),
           ),
         ),
@@ -2475,16 +2497,22 @@ class _GroupSalesRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon,
-            size: 14,
-            color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText),
+        Icon(
+          icon,
+          size: 14,
+          color: isDark
+              ? StockpileColors.darkTextMuted
+              : StockpileColors.mutedText,
+        ),
         const SizedBox(width: 6),
         Expanded(
           child: Text(
             label,
             style: StockpileFonts.satoshi(
               fontSize: 12,
-              color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
             ),
           ),
         ),

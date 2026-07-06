@@ -900,7 +900,9 @@ class SupabaseRepository {
   Future<List<Package>> fetchPackages() async {
     try {
       final data = await _supabase.from('packages').select().order('id');
-      debugPrint('[Repo] fetchPackages raw data: $data (${data is List ? (data).length : 'not a list'} items)');
+      debugPrint(
+        '[Repo] fetchPackages raw data: $data (${data is List ? (data).length : 'not a list'} items)',
+      );
       return (data as List).map((j) => Package.fromJson(j)).toList();
     } catch (e) {
       debugPrint('[Repo] fetchPackages ERROR: $e');
