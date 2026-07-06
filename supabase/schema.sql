@@ -310,7 +310,30 @@ create table if not exists public.categories (
   commission_rate integer not null default 0
 );
 
-alter table public.categories disable row level security;
+-- ── Categories RLS: everyone logged in can read, only admins can write ──
+-- (uses the is_admin() helper defined in the Packages section above)
+alter table public.categories enable row level security;
+
+drop policy if exists "categories_read_authenticated" on public.categories;
+create policy "categories_read_authenticated" on public.categories
+  for select to authenticated
+  using (true);
+
+drop policy if exists "categories_insert_admin" on public.categories;
+create policy "categories_insert_admin" on public.categories
+  for insert to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "categories_update_admin" on public.categories;
+create policy "categories_update_admin" on public.categories
+  for update to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists "categories_delete_admin" on public.categories;
+create policy "categories_delete_admin" on public.categories
+  for delete to authenticated
+  using (public.is_admin());
 
 -- Seed default categories
 insert into public.categories (name, commission_rate) values
