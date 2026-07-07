@@ -156,12 +156,37 @@ class SupabaseRepository {
     return (data as List).map((j) => Sale.fromJson(j)).toList();
   }
 
+  /// Replace package availment names with the current catalog name so
+  /// renamed packages display correctly in purchase/remittance history.
+  /// Prices are left as recorded (what the member actually paid).
+  /// Falls back to the stored snapshot if the catalog is unavailable or
+  /// the package was deleted.
+  Future<List<Sale>> _withCurrentPackageNames(List<Sale> sales) async {
+    if (!sales.any((s) => s.isPackage)) return sales;
+    try {
+      final packages = await fetchPackages();
+      final byId = {
+        for (final p in packages)
+          if (p.id != null) p.id!: p,
+      };
+      return sales.map((s) {
+        final current = byId[s.packageId];
+        return (s.isPackage && current != null)
+            ? s.copyWith(itemName: current.name)
+            : s;
+      }).toList();
+    } catch (_) {
+      return sales;
+    }
+  }
+
   Future<List<Sale>> fetchSalesForMember(int memberId) async {
     final data = await _supabase
         .from('sales')
         .select()
         .eq('buyer_id', memberId);
-    return (data as List).map((j) => Sale.fromJson(j)).toList();
+    final sales = (data as List).map((j) => Sale.fromJson(j)).toList();
+    return _withCurrentPackageNames(sales);
   }
 
   /// Fetch purchase history for a member (sales where they were the buyer).
@@ -176,7 +201,8 @@ class SupabaseRepository {
         .order('timestamp', ascending: false);
     if (limit != null) query = query.limit(limit);
     final data = await query;
-    return (data as List).map((j) => Sale.fromJson(j)).toList();
+    final sales = (data as List).map((j) => Sale.fromJson(j)).toList();
+    return _withCurrentPackageNames(sales);
   }
 
   Future<List<Sale>> fetchSalesForReferrer(int referrerMemberId) async {
@@ -635,7 +661,106 @@ class SupabaseRepository {
     return (data as List).map((j) => Borrow.fromJson(j)).toList();
   }
 
-  /// Return unsold borrowed items — restores stock.
+  // ── Quota Compliance ─────────────────────────────────────────
+
+  /// Count of active quota_overdue alerts (for notification badge).
+  Future<int> fetchActiveQuotaAlertCount() async {
+    try {
+      final result = await _supabase
+          .from('system_alerts')
+          .select('id')
+          .eq('alert_type', 'quota_overdue')
+          .eq('is_active', true)
+          .count(CountOption.exact);
+      return (result as PostgrestResponse).count;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// All active quota overdue alerts (for admin dashboard).
+  Future<List<SystemAlert>> fetchActiveQuotaAlerts() async {
+    try {
+      final data = await _supabase
+          .from('system_alerts')
+          .select()
+          .eq('alert_type', 'quota_overdue')
+          .eq('is_active', true)
+          .order('created_at');
+      return (data as List).map((j) => SystemAlert.fromJson(j)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Members with their active quota alerts (joined query for admin table).
+  Future<List<Map<String, dynamic>>> fetchQuotaDelinquentMembers() async {
+    try {
+      // Fetch active quota overdue alerts
+      final alertData = await _supabase
+          .from('system_alerts')
+          .select()
+          .eq('alert_type', 'quota_overdue')
+          .eq('is_active', true)
+          .order('created_at');
+      final alerts = (alertData as List).cast<Map<String, dynamic>>();
+
+      if (alerts.isEmpty) return [];
+
+      // Batch fetch all referenced members
+      final memberIds = alerts
+          .map((a) => a['member_id'] as int)
+          .toSet()
+          .toList();
+      final memberData = await _supabase
+          .from('members')
+          .select()
+          .inFilter('id', memberIds);
+      final members = (memberData as List).cast<Map<String, dynamic>>();
+
+      final memberById = <int, Map<String, dynamic>>{};
+      for (final m in members) {
+        memberById[m['id'] as int] = m;
+      }
+
+      // Attach member data to each alert row
+      for (final a in alerts) {
+        a['members'] = memberById[a['member_id'] as int];
+      }
+
+      return alerts;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Snooze a quota alert (hide for N hours).
+  Future<void> snoozeQuotaAlert(int alertId, {int hours = 24}) async {
+    await _supabase
+        .from('system_alerts')
+        .update({
+          'snoozed_until': DateTime.now()
+              .add(Duration(hours: hours))
+              .toUtc()
+              .toIso8601String(),
+        })
+        .eq('id', alertId);
+    _changes.add('system_alerts_changed');
+  }
+
+  /// Dismiss (deactivate) a quota alert.
+  Future<void> dismissQuotaAlert(int alertId) async {
+    await _supabase
+        .from('system_alerts')
+        .update({
+          'is_active': false,
+          'read_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', alertId);
+    _changes.add('system_alerts_changed');
+  }
+
+  // ── Borrow Return / Remit ────────────────────────────────────
   Future<bool> returnBorrowedItem(int borrowId, int returnQty) async {
     final data = await _supabase
         .from('borrows')
@@ -927,9 +1052,6 @@ class SupabaseRepository {
   Future<List<Package>> fetchPackages() async {
     try {
       final data = await _supabase.from('packages').select().order('id');
-      debugPrint(
-        '[Repo] fetchPackages raw data: $data (${data is List ? (data).length : 'not a list'} items)',
-      );
       return (data as List).map((j) => Package.fromJson(j)).toList();
     } catch (e) {
       debugPrint('[Repo] fetchPackages ERROR: $e');
@@ -980,7 +1102,15 @@ class SupabaseRepository {
   Future<bool> updatePackage(Package pkg) async {
     if (pkg.id == null) return false;
     await _supabase.from('packages').update(pkg.toJson()).eq('id', pkg.id!);
+    // Keep availment records in sync: package sales display the package
+    // name from sales.item_name, so a rename must propagate to them
+    // (unlike product sales, where item_name is a historical snapshot).
+    await _supabase
+        .from('sales')
+        .update({'item_name': pkg.name})
+        .eq('package_id', pkg.id!);
     _changes.add('package_updated');
+    _changes.add('sale_updated');
     return true;
   }
 
@@ -1222,7 +1352,11 @@ class SupabaseRepository {
       balance = directReferrals.length * pkg.directReferralBonus;
     }
 
-    int totalEarnings = 0;
+    // Component totals — kept separate so history entries can attribute
+    // changes to their source (indirect referral, group sales, etc.)
+    int indirectBonus = 0;
+    int groupSales = 0;
+    int repeatPurchase = 0;
 
     // Indirect Referral Bonus = flat × count of indirect referrals (not tied to borrows)
     if (pkg != null) {
@@ -1231,7 +1365,7 @@ class SupabaseRepository {
             (m) => m.referrerId != null && directIds.contains(m.referrerId),
           )
           .length;
-      totalEarnings += indirectCount * pkg.indirectReferralBonus;
+      indirectBonus = indirectCount * pkg.indirectReferralBonus;
     }
 
     // Group Sales: ₱3 per direct downline outstanding item, ₱2 per indirect
@@ -1251,15 +1385,15 @@ class SupabaseRepository {
         if (outstanding <= 0) continue;
 
         if (directIds.contains(downlineMemberId)) {
-          totalEarnings += pkg.groupSalesDirect * outstanding;
+          groupSales += pkg.groupSalesDirect * outstanding;
         }
         if (indirectIds.contains(downlineMemberId)) {
-          totalEarnings += pkg.groupSalesIndirect * outstanding;
+          groupSales += pkg.groupSalesIndirect * outstanding;
         }
       }
     }
 
-    // Own remitted borrows: chairman's + repeat purchase
+    // Own remitted borrows: repeat purchase commissions
     final ownData = await _supabase
         .from('borrows')
         .select('quantity_remitted, item_name')
@@ -1276,19 +1410,175 @@ class SupabaseRepository {
         final qty = row['quantity_remitted'] as int? ?? 0;
         if (qty <= 0) continue;
 
-        totalEarnings += pkg.chairmansBonus;
-
         final itemName = (row['item_name'] as String? ?? '').toLowerCase();
         for (final entry in catMap.entries) {
           if (itemName.contains(entry.key)) {
-            totalEarnings += entry.value * qty;
+            repeatPurchase += entry.value * qty;
             break;
           }
         }
       }
     }
 
-    return {'totalEarnings': totalEarnings, 'balance': balance};
+    // ── Chairman's bonus: accrues every Friday since the package was
+    // availed (package's chairmansBonus × number of Fridays elapsed).
+    // Replaces the old per-remittance chairman's bonus.
+    int chairmanBonus = 0;
+    int chairmanFridays = 0;
+    if (pkg != null) {
+      final availedAt = await _packageAvailedAt(memberId, member!.packageId!);
+      if (availedAt != null) {
+        chairmanFridays = _fridaysSince(availedAt);
+        chairmanBonus = chairmanFridays * pkg.chairmansBonus;
+      }
+    }
+
+    final totalEarnings =
+        indirectBonus + groupSales + repeatPurchase + chairmanBonus;
+
+    return {
+      'totalEarnings': totalEarnings,
+      'balance': balance,
+      'indirectBonus': indirectBonus,
+      'groupSales': groupSales,
+      'repeatPurchase': repeatPurchase,
+      'chairmanBonus': chairmanBonus,
+      'chairmanFridays': chairmanFridays,
+    };
+  }
+
+  /// When the member availed their current package: earliest sale with
+  /// that package_id, falling back to their earliest package sale of any
+  /// kind (covers availments recorded before package_id existed only if
+  /// backfilled). Null when no package availment sale exists.
+  Future<DateTime?> _packageAvailedAt(int memberId, int packageId) async {
+    try {
+      final rows = await _supabase
+          .from('sales')
+          .select('timestamp, package_id')
+          .eq('buyer_id', memberId)
+          .not('package_id', 'is', null)
+          .order('timestamp', ascending: true);
+      DateTime? anyPackage;
+      for (final row in (rows as List)) {
+        final ts = DateTime.tryParse(row['timestamp']?.toString() ?? '');
+        if (ts == null) continue;
+        anyPackage ??= ts;
+        if ((row['package_id'] as num?)?.toInt() == packageId) return ts;
+      }
+      return anyPackage;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Number of Fridays whose date has passed since [from] (exclusive of
+  /// the availment day itself — availing on a Friday starts accruing the
+  /// following Friday).
+  int _fridaysSince(DateTime from) {
+    final start = DateTime(
+      from.year,
+      from.month,
+      from.day,
+    ).add(const Duration(days: 1));
+    var firstFriday = start;
+    while (firstFriday.weekday != DateTime.friday) {
+      firstFriday = firstFriday.add(const Duration(days: 1));
+    }
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (firstFriday.isAfter(today)) return 0;
+    return today.difference(firstFriday).inDays ~/ 7 + 1;
+  }
+
+  // ── Earnings history (snapshot ledger) ────────────────────────────
+
+  /// Record a snapshot of the member's computed earnings/balance — but
+  /// only when the values changed since the last snapshot, so the log
+  /// reads as a ledger of changes rather than one row per page view.
+  /// Returns true when a new snapshot was written.
+  Future<bool> recordEarningsSnapshot({
+    required int memberId,
+    required int totalEarnings,
+    required int balance,
+    int indirectBonus = 0,
+    int groupSales = 0,
+    int repeatPurchase = 0,
+    int chairmanBonus = 0,
+  }) async {
+    try {
+      // Nothing earned yet and nothing to compare against — don't write
+      // a meaningless all-zero first entry.
+      final allZero =
+          totalEarnings == 0 &&
+          balance == 0 &&
+          indirectBonus == 0 &&
+          groupSales == 0 &&
+          repeatPurchase == 0 &&
+          chairmanBonus == 0;
+
+      final last = await _supabase
+          .from('earnings_history')
+          .select(
+            'total_earnings, balance, indirect_bonus, group_sales, '
+            'repeat_purchase, chairman_bonus',
+          )
+          .eq('member_id', memberId)
+          .order('recorded_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (last == null && allZero) return false;
+
+      final lastEarnings = last?['total_earnings'] as int? ?? 0;
+      final lastBalance = last?['balance'] as int? ?? 0;
+      final unchanged =
+          last != null &&
+          lastEarnings == totalEarnings &&
+          lastBalance == balance &&
+          (last['indirect_bonus'] as int? ?? 0) == indirectBonus &&
+          (last['group_sales'] as int? ?? 0) == groupSales &&
+          (last['repeat_purchase'] as int? ?? 0) == repeatPurchase &&
+          (last['chairman_bonus'] as int? ?? 0) == chairmanBonus;
+      if (unchanged) return false; // nothing changed — no log entry
+
+      await _supabase.from('earnings_history').insert({
+        'member_id': memberId,
+        'total_earnings': totalEarnings,
+        'balance': balance,
+        'earnings_delta': totalEarnings - lastEarnings,
+        'balance_delta': balance - lastBalance,
+        'indirect_bonus': indirectBonus,
+        'group_sales': groupSales,
+        'repeat_purchase': repeatPurchase,
+        'chairman_bonus': chairmanBonus,
+      });
+      return true;
+    } catch (e) {
+      debugPrint('[recordEarningsSnapshot] failed: $e');
+      return false;
+    }
+  }
+
+  /// Fetch a member's earnings history, newest first.
+  Future<List<EarningsSnapshot>> fetchEarningsHistory(
+    int memberId, {
+    int limit = 30,
+  }) async {
+    try {
+      final data = await _supabase
+          .from('earnings_history')
+          .select()
+          .eq('member_id', memberId)
+          .order('recorded_at', ascending: false)
+          .limit(limit);
+      return (data as List)
+          .map((j) => EarningsSnapshot.fromJson(j as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('[fetchEarningsHistory] failed: $e');
+      return [];
+    }
   }
 
   /// Sum of quantity_remitted across all borrows for a member.

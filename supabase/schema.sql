@@ -284,6 +284,13 @@ update public.sales s set package_id = p.id
   where s.package_id is null and s.item_id = 0
     and lower(s.item_name) = lower(p.name);
 
+-- Keep package availment names in sync with the catalog (safe to re-run).
+-- The app propagates renames on updatePackage(); this repairs rows renamed
+-- before that behavior existed.
+update public.sales s set item_name = p.name
+  from public.packages p
+  where s.package_id = p.id and s.item_name <> p.name;
+
 -- Seed default packages (safe to re-run with ON CONFLICT)
 insert into public.packages (id, name, price, direct_referral_bonus, indirect_referral_bonus, chairmans_bonus, repeat_purchase_json, group_sales_direct, group_sales_indirect)
 OVERRIDING SYSTEM VALUE
@@ -339,6 +346,65 @@ create policy "categories_delete_admin" on public.categories
 insert into public.categories (name, commission_rate) values
   ('Pack', 5), ('Box', 5), ('Bottle', 20)
 on conflict (name) do update set commission_rate = excluded.commission_rate;
+
+-- ═══════════════════════════════════════════════════════════════════
+-- ── Earnings history (snapshot ledger) ─────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════
+-- Earnings/balance are computed live from the referral tree and borrows,
+-- so they have no natural event log (and can decrease). The app records
+-- a snapshot whenever the computed values change; deltas are stored so
+-- the history reads as a ledger.
+
+create table if not exists public.earnings_history (
+  id bigint generated always as identity primary key,
+  member_id bigint not null,
+  total_earnings integer not null default 0,
+  balance integer not null default 0,
+  earnings_delta integer not null default 0,
+  balance_delta integer not null default 0,
+  -- Component snapshot: where total_earnings comes from. Diffing two
+  -- consecutive rows attributes a change to its source(s).
+  -- (balance's only source is the direct referral bonus)
+  indirect_bonus integer not null default 0,
+  group_sales integer not null default 0,
+  repeat_purchase integer not null default 0,
+  chairman_bonus integer not null default 0,
+  recorded_at timestamptz not null default now()
+);
+
+-- Component columns for pre-existing installs (safe to re-run)
+alter table public.earnings_history add column if not exists indirect_bonus integer not null default 0;
+alter table public.earnings_history add column if not exists group_sales integer not null default 0;
+alter table public.earnings_history add column if not exists repeat_purchase integer not null default 0;
+alter table public.earnings_history add column if not exists chairman_bonus integer not null default 0;
+
+create index if not exists idx_earnings_history_member
+  on public.earnings_history (member_id, recorded_at desc);
+
+alter table public.earnings_history enable row level security;
+
+-- Members see and write their own history; admins see everything.
+drop policy if exists "earnings_history_select_own" on public.earnings_history;
+create policy "earnings_history_select_own" on public.earnings_history
+  for select to authenticated
+  using (
+    public.is_admin()
+    or exists (
+      select 1 from public.profiles pr
+      where pr.id = auth.uid() and pr.member_id = earnings_history.member_id
+    )
+  );
+
+drop policy if exists "earnings_history_insert_own" on public.earnings_history;
+create policy "earnings_history_insert_own" on public.earnings_history
+  for insert to authenticated
+  with check (
+    public.is_admin()
+    or exists (
+      select 1 from public.profiles pr
+      where pr.id = auth.uid() and pr.member_id = earnings_history.member_id
+    )
+  );
 
 -- ═══════════════════════════════════════════════════════════════════
 -- ── Borrow due-date trigger ────────────────────────────────────────

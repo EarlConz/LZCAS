@@ -48,6 +48,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
   final _contactKey = GlobalKey<FormFieldState>();
+  final _packageKey = GlobalKey<FormFieldState>();
 
   static const _idTypes = [
     'Driver\'s License',
@@ -191,6 +192,12 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     final contact = contactController.text.trim();
     if (contact.isNotEmpty && !RegExp(r'^[0-9 ]+$').hasMatch(contact)) {
       _contactKey.currentState?.validate();
+      valid = false;
+    }
+    // Package: required once an ID photo is uploaded (an ID photo means
+    // this member is being verified as a reseller, which needs a package)
+    if (_hasIdPhoto && _selectedPackageId == null) {
+      _packageKey.currentState?.validate();
       valid = false;
     }
     return valid;
@@ -424,11 +431,16 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               _sectionLabel('Package', theme, colorScheme),
               const SizedBox(height: 12),
               DropdownButtonFormField<int?>(
+                key: _packageKey,
                 initialValue: _selectedPackageId,
+                autovalidateMode: AutovalidateMode.onUserInteraction,
+                validator: (v) => (_hasIdPhoto && v == null)
+                    ? 'Required — verified resellers must avail a package'
+                    : null,
                 decoration: InputDecoration(
                   labelText: 'Select Package',
                   hintText: _hasIdPhoto
-                      ? 'No package (standard member)'
+                      ? 'Select a package (required)'
                       : 'Upload an ID photo to avail a package',
                   prefixIcon: const Icon(Icons.card_giftcard_outlined),
                   border: OutlineInputBorder(

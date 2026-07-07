@@ -81,6 +81,8 @@ class Member {
   final String? email;
   final String? userId;
   final int? packageId;
+  final DateTime? quotaValidUntil;
+  final DateTime? lastRemittanceAt;
 
   const Member({
     this.id,
@@ -100,6 +102,8 @@ class Member {
     this.email,
     this.userId,
     this.packageId,
+    this.quotaValidUntil,
+    this.lastRemittanceAt,
   });
 
   factory Member.fromJson(Map<String, dynamic> json) => Member(
@@ -120,6 +124,12 @@ class Member {
     email: json['email'] as String?,
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
+    quotaValidUntil: json['quota_valid_until'] != null
+        ? DateTime.tryParse(json['quota_valid_until'].toString())
+        : null,
+    lastRemittanceAt: json['last_remittance_at'] != null
+        ? DateTime.tryParse(json['last_remittance_at'].toString())
+        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -159,6 +169,8 @@ class Member {
     String? email,
     String? userId,
     int? packageId,
+    DateTime? quotaValidUntil,
+    DateTime? lastRemittanceAt,
   }) => Member(
     id: id ?? this.id,
     lastName: lastName ?? this.lastName,
@@ -177,6 +189,8 @@ class Member {
     email: email ?? this.email,
     userId: userId ?? this.userId,
     packageId: packageId ?? this.packageId,
+    quotaValidUntil: quotaValidUntil ?? this.quotaValidUntil,
+    lastRemittanceAt: lastRemittanceAt ?? this.lastRemittanceAt,
   );
 }
 
@@ -254,6 +268,81 @@ class Package {
     groupSalesIndirect: groupSalesIndirect ?? this.groupSalesIndirect,
     createdAt: createdAt,
   );
+}
+
+/// A point-in-time record of a member's computed earnings and balance.
+/// Earnings are computed live (and can decrease), so history is captured
+/// as snapshots with deltas whenever the computed values change.
+class EarningsSnapshot {
+  final int? id;
+  final int memberId;
+  final int totalEarnings;
+  final int balance;
+  final int earningsDelta;
+  final int balanceDelta;
+
+  // Component snapshot — where total_earnings comes from. Diffing two
+  // consecutive snapshots attributes a change to its source(s).
+  // (balance's only source is the direct referral bonus)
+  final int indirectBonus;
+  final int groupSales;
+  final int repeatPurchase;
+  final int chairmanBonus;
+
+  final DateTime? recordedAt;
+
+  const EarningsSnapshot({
+    this.id,
+    required this.memberId,
+    this.totalEarnings = 0,
+    this.balance = 0,
+    this.earningsDelta = 0,
+    this.balanceDelta = 0,
+    this.indirectBonus = 0,
+    this.groupSales = 0,
+    this.repeatPurchase = 0,
+    this.chairmanBonus = 0,
+    this.recordedAt,
+  });
+
+  /// True for rows recorded before component tracking existed — their
+  /// components are all zero despite a nonzero total, so a component
+  /// diff against them would mislead.
+  bool get isLegacy =>
+      totalEarnings != 0 &&
+      indirectBonus == 0 &&
+      groupSales == 0 &&
+      repeatPurchase == 0 &&
+      chairmanBonus == 0;
+
+  factory EarningsSnapshot.fromJson(Map<String, dynamic> json) =>
+      EarningsSnapshot(
+        id: json['id'] as int?,
+        memberId: json['member_id'] as int? ?? 0,
+        totalEarnings: json['total_earnings'] as int? ?? 0,
+        balance: json['balance'] as int? ?? 0,
+        earningsDelta: json['earnings_delta'] as int? ?? 0,
+        balanceDelta: json['balance_delta'] as int? ?? 0,
+        indirectBonus: json['indirect_bonus'] as int? ?? 0,
+        groupSales: json['group_sales'] as int? ?? 0,
+        repeatPurchase: json['repeat_purchase'] as int? ?? 0,
+        chairmanBonus: json['chairman_bonus'] as int? ?? 0,
+        recordedAt: json['recorded_at'] != null
+            ? DateTime.tryParse(json['recorded_at'].toString())
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'member_id': memberId,
+    'total_earnings': totalEarnings,
+    'balance': balance,
+    'earnings_delta': earningsDelta,
+    'balance_delta': balanceDelta,
+    'indirect_bonus': indirectBonus,
+    'group_sales': groupSales,
+    'repeat_purchase': repeatPurchase,
+    'chairman_bonus': chairmanBonus,
+  };
 }
 
 /// A product category with a commission rate for earnings calculations.
@@ -864,4 +953,70 @@ class AppConfigEntry {
   );
 
   Map<String, dynamic> toJson() => {'key': key, 'value': value};
+}
+
+// ── System Alert (Quota Compliance) ──────────────────────────────
+
+class SystemAlert {
+  final int? id;
+  final int memberId;
+  final String alertType;
+  final String severity;
+  final String title;
+  final String? message;
+  final bool isActive;
+  final bool isRead;
+  final DateTime? snoozedUntil;
+  final DateTime? createdAt;
+  final DateTime? readAt;
+
+  const SystemAlert({
+    this.id,
+    required this.memberId,
+    required this.alertType,
+    this.severity = 'warning',
+    required this.title,
+    this.message,
+    this.isActive = true,
+    this.isRead = false,
+    this.snoozedUntil,
+    this.createdAt,
+    this.readAt,
+  });
+
+  factory SystemAlert.fromJson(Map<String, dynamic> json) => SystemAlert(
+    id: json['id'] as int?,
+    memberId: json['member_id'] as int? ?? 0,
+    alertType: json['alert_type'] as String? ?? '',
+    severity: json['severity'] as String? ?? 'warning',
+    title: json['title'] as String? ?? '',
+    message: json['message'] as String?,
+    isActive: json['is_active'] as bool? ?? true,
+    isRead: json['is_read'] as bool? ?? false,
+    snoozedUntil: json['snoozed_until'] != null
+        ? DateTime.tryParse(json['snoozed_until'].toString())
+        : null,
+    createdAt: json['created_at'] != null
+        ? DateTime.tryParse(json['created_at'].toString())
+        : null,
+    readAt: json['read_at'] != null
+        ? DateTime.tryParse(json['read_at'].toString())
+        : null,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'member_id': memberId,
+    'alert_type': alertType,
+    'severity': severity,
+    'title': title,
+    if (message != null) 'message': message,
+    'is_active': isActive,
+    'is_read': isRead,
+    if (snoozedUntil != null) 'snoozed_until': snoozedUntil!.toIso8601String(),
+  };
+
+  int get daysOverdue {
+    if (createdAt == null) return 0;
+    return DateTime.now().difference(createdAt!).inDays;
+  }
 }

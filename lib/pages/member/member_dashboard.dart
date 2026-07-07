@@ -3,6 +3,7 @@
 // Feature visibility is gated by the member's role field in the members table.
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:bot_toast/bot_toast.dart';
@@ -14,6 +15,8 @@ import '../../services/config_service.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../widgets/member_sidebar.dart';
+import '../../widgets/reseller_quota_status.dart';
+import '../../widgets/quota_explanation_card.dart';
 
 class MemberDashboard extends StatefulWidget {
   const MemberDashboard({super.key});
@@ -256,6 +259,7 @@ class _OverviewTabState extends State<_OverviewTab> {
       repository.fetchBorrowsForMember(id),
       repository.fetchMemberPurchaseHistory(id, limit: 5),
       repository.fetchSalesForMember(id),
+      repository.fetchPackages(),
     ]);
     if (!mounted) return;
     setState(() {
@@ -266,8 +270,20 @@ class _OverviewTabState extends State<_OverviewTab> {
           .length;
       _recentSales = results[2] as List<Sale>;
       _purchaseCount = _recentSales.length;
+      // Availed packages display the CURRENT catalog name/price (renames
+      // and price changes must reflect immediately); the sale row's
+      // snapshot is only a fallback for packages deleted from the catalog.
+      final pkgById = {
+        for (final p in results[4] as List<Package>)
+          if (p.id != null) p.id!: p,
+      };
       _availedPackages =
-          (results[3] as List<Sale>).where((s) => s.isPackage).toList()..sort(
+          (results[3] as List<Sale>).where((s) => s.isPackage).map((s) {
+            final current = pkgById[s.packageId];
+            return current == null
+                ? s
+                : s.copyWith(itemName: current.name, price: current.price);
+          }).toList()..sort(
             (a, b) => (b.timestamp ?? DateTime(0)).compareTo(
               a.timestamp ?? DateTime(0),
             ),
@@ -299,6 +315,16 @@ class _OverviewTabState extends State<_OverviewTab> {
           else
             _buildStatsRow(isDark, isWide),
           const SizedBox(height: 20),
+          // Quota explanation — resellers only
+          if (widget.isReseller && !_loadingStats) ...[
+            const QuotaExplanationCard(),
+            const SizedBox(height: 16),
+          ],
+          // Quota countdown — resellers only, after stats load
+          if (widget.isReseller && !_loadingStats) ...[
+            ResellerQuotaStatus(memberId: widget.member.id!),
+            const SizedBox(height: 20),
+          ],
           // Availed package — resellers only
           if (widget.isReseller && !_loadingStats) ...[
             _PackageAvailedCard(packages: _availedPackages, isDark: isDark),
@@ -469,145 +495,465 @@ class _PackageAvailedCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Stack(
-        children: [
-          // Oversized watermark icon, clipped by the card
-          Positioned(
-            right: -18,
-            top: -18,
-            child: Icon(
-              Icons.card_giftcard_rounded,
-              size: 130,
-              color: Colors.white.withAlpha(22),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Eyebrow label
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withAlpha(35),
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-                  child: Text(
-                    'MY PACKAGE',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.5,
-                      color: Colors.white,
-                    ),
-                  ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _showPackageDetails(context, latest),
+          borderRadius: BorderRadius.circular(20),
+          child: Stack(
+            children: [
+              // Oversized watermark icon, clipped by the card
+              Positioned(
+                right: -18,
+                top: -18,
+                child: Icon(
+                  Icons.card_giftcard_rounded,
+                  size: 130,
+                  color: Colors.white.withAlpha(22),
                 ),
-                const SizedBox(height: 14),
-                Row(
+              ),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Eyebrow label
                     Container(
-                      width: 48,
-                      height: 48,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withAlpha(35),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(100),
                       ),
-                      child: const Icon(
-                        Icons.card_giftcard_rounded,
-                        size: 24,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            latest.itemName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: StockpileFonts.satoshi(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            latest.timestamp != null
-                                ? 'Availed ${_fmtDate(latest.timestamp!)}'
-                                : 'Availed —',
-                            style: StockpileFonts.satoshi(
-                              fontSize: 12,
-                              color: Colors.white.withAlpha(190),
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        'MY PACKAGE',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.5,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      '₱${latest.price}',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withAlpha(35),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.card_giftcard_rounded,
+                            size: 24,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                latest.itemName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: StockpileFonts.satoshi(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                latest.timestamp != null
+                                    ? 'Availed ${_fmtDate(latest.timestamp!)}'
+                                    : 'Availed —',
+                                style: StockpileFonts.satoshi(
+                                  fontSize: 12,
+                                  color: Colors.white.withAlpha(190),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '₱${latest.price}',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (earlier.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Divider(color: Colors.white.withAlpha(60), height: 1),
+                      const SizedBox(height: 10),
+                      ...earlier.map(
+                        (s) => InkWell(
+                          onTap: () => _showPackageDetails(context, s),
+                          borderRadius: BorderRadius.circular(8),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.history_rounded,
+                                  size: 14,
+                                  color: Colors.white.withAlpha(160),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    s.timestamp != null
+                                        ? '${s.itemName} · ${_fmtDate(s.timestamp!)}'
+                                        : s.itemName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: StockpileFonts.satoshi(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white.withAlpha(220),
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  '₱${s.price}',
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white.withAlpha(220),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
+                    ],
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          size: 13,
+                          color: Colors.white.withAlpha(170),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Tap to view package contents & benefits',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 11,
+                            color: Colors.white.withAlpha(170),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-                if (earlier.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Divider(color: Colors.white.withAlpha(60), height: 1),
-                  const SizedBox(height: 10),
-                  ...earlier.map(
-                    (s) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.history_rounded,
-                            size: 14,
-                            color: Colors.white.withAlpha(160),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Open a dialog with the contents & benefits of the availed package.
+  void _showPackageDetails(BuildContext context, Sale sale) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        backgroundColor: isDark
+            ? StockpileColors.darkSurface
+            : StockpileColors.surface,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: _PackageDetailsSheet(sale: sale, isDark: isDark),
+        ),
+      ),
+    );
+  }
+}
+
+/// Dialog body: fetches the package behind an availment and lists its
+/// contents & benefits (mirrors the admin package manager's semantics).
+class _PackageDetailsSheet extends StatelessWidget {
+  final Sale sale;
+  final bool isDark;
+
+  const _PackageDetailsSheet({required this.sale, required this.isDark});
+
+  static String _fmtDate(DateTime dt) =>
+      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final mutedColor = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    return FutureBuilder<Package?>(
+      future: sale.packageId != null
+          ? repository.getPackageById(sale.packageId!)
+          : Future.value(null),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Padding(
+            padding: EdgeInsets.all(48),
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2.5)),
+          );
+        }
+
+        final pkg = snapshot.data;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Gradient header (matches the overview card) ─────────
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(20),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF3B1F7E), Color(0xFF6366F1)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(35),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.card_giftcard_rounded,
+                      size: 22,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          sale.itemName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: StockpileFonts.satoshi(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              s.timestamp != null
-                                  ? '${s.itemName} · ${_fmtDate(s.timestamp!)}'
-                                  : s.itemName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: StockpileFonts.satoshi(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.white.withAlpha(220),
-                              ),
-                            ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          sale.timestamp != null
+                              ? 'Availed ${_fmtDate(sale.timestamp!)}'
+                              : 'Availed —',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            color: Colors.white.withAlpha(190),
                           ),
-                          Text(
-                            '₱${s.price}',
-                            style: StockpileFonts.satoshi(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white.withAlpha(220),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '₱${sale.price}',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
+
+            // ── Body ─────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+              child: pkg == null
+                  ? Text(
+                      'The details of this package are no longer available — '
+                      'it may have been removed from the catalog.',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 13,
+                        color: mutedColor,
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _sectionLabel('BENEFITS', mutedColor),
+                        const SizedBox(height: 10),
+                        _benefitRow(
+                          Icons.person_add_alt_rounded,
+                          'Direct Referral Bonus',
+                          '₱${pkg.directReferralBonus}',
+                          textColor,
+                          mutedColor,
+                        ),
+                        _benefitRow(
+                          Icons.group_add_rounded,
+                          'Indirect Referral Bonus',
+                          '₱${pkg.indirectReferralBonus}',
+                          textColor,
+                          mutedColor,
+                        ),
+                        _benefitRow(
+                          Icons.workspace_premium_rounded,
+                          "Chairman's Bonus",
+                          '₱${pkg.chairmansBonus}',
+                          textColor,
+                          mutedColor,
+                        ),
+                        _benefitRow(
+                          Icons.groups_rounded,
+                          'Group Sales (Direct)',
+                          '${pkg.groupSalesDirect} / item',
+                          textColor,
+                          mutedColor,
+                        ),
+                        _benefitRow(
+                          Icons.groups_outlined,
+                          'Group Sales (Indirect)',
+                          '${pkg.groupSalesIndirect} / item',
+                          textColor,
+                          mutedColor,
+                        ),
+                        const SizedBox(height: 14),
+                        _sectionLabel(
+                          'REPEAT PURCHASE COMMISSIONS',
+                          mutedColor,
+                        ),
+                        const SizedBox(height: 10),
+                        _repeatPurchaseChips(pkg, textColor, mutedColor),
+                      ],
+                    ),
+            ),
+
+            // ── Close ────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _sectionLabel(String text, Color mutedColor) => Text(
+    text,
+    style: StockpileFonts.satoshi(
+      fontSize: 11,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 1.2,
+      color: mutedColor,
+    ),
+  );
+
+  Widget _benefitRow(
+    IconData icon,
+    String label,
+    String value,
+    Color textColor,
+    Color mutedColor,
+  ) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: const Color(0xFF6366F1).withAlpha(isDark ? 45 : 25),
+            borderRadius: BorderRadius.circular(9),
           ),
-        ],
-      ),
+          child: Icon(icon, size: 16, color: const Color(0xFF6366F1)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: StockpileFonts.satoshi(fontSize: 13, color: mutedColor),
+          ),
+        ),
+        Text(
+          value,
+          style: StockpileFonts.satoshi(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: textColor,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  /// Per-unit repeat-purchase commission chips, e.g. "₱5 / pack".
+  Widget _repeatPurchaseChips(Package pkg, Color textColor, Color mutedColor) {
+    Map<String, dynamic> rates;
+    try {
+      rates = jsonDecode(pkg.repeatPurchaseJson) as Map<String, dynamic>;
+    } catch (_) {
+      rates = {};
+    }
+    if (rates.isEmpty) {
+      return Text(
+        'None',
+        style: StockpileFonts.satoshi(fontSize: 13, color: mutedColor),
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: rates.entries
+          .map(
+            (e) => Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF6366F1).withAlpha(isDark ? 45 : 25),
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: Text(
+                '₱${e.value} / ${e.key}',
+                style: StockpileFonts.satoshi(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+            ),
+          )
+          .toList(),
     );
   }
 }
@@ -1296,8 +1642,14 @@ class _EarningsTabState extends State<_EarningsTab> {
   int _totalEarnings = 0;
   int _balance = 0;
   int _totalBoxes = 0;
+  int _chairmanBonus = 0;
+  int _chairmanFridays = 0;
   List<Sale> _recentRemits = [];
+  List<EarningsSnapshot> _history = [];
   bool _loading = true;
+
+  /// Which list the ledger card shows: 0 = Earnings History, 1 = Remittances.
+  int _ledgerView = 0;
 
   @override
   void initState() {
@@ -1312,13 +1664,32 @@ class _EarningsTabState extends State<_EarningsTab> {
       repository.getTotalRemittedBoxes(id),
       repository.fetchMemberPurchaseHistory(id, limit: 10),
     ]);
-    if (!mounted) return;
     final breakdown = results[0] as Map<String, int>;
+    final totalEarnings = breakdown['totalEarnings'] ?? 0;
+    final balance = breakdown['balance'] ?? 0;
+
+    // Log a ledger entry when the computed values changed, then load
+    // the history (including the entry just written, if any).
+    await repository.recordEarningsSnapshot(
+      memberId: id,
+      totalEarnings: totalEarnings,
+      balance: balance,
+      indirectBonus: breakdown['indirectBonus'] ?? 0,
+      groupSales: breakdown['groupSales'] ?? 0,
+      repeatPurchase: breakdown['repeatPurchase'] ?? 0,
+      chairmanBonus: breakdown['chairmanBonus'] ?? 0,
+    );
+    final history = await repository.fetchEarningsHistory(id);
+
+    if (!mounted) return;
     setState(() {
-      _totalEarnings = breakdown['totalEarnings'] ?? 0;
-      _balance = breakdown['balance'] ?? 0;
+      _totalEarnings = totalEarnings;
+      _balance = balance;
       _totalBoxes = results[1] as int;
+      _chairmanBonus = breakdown['chairmanBonus'] ?? 0;
+      _chairmanFridays = breakdown['chairmanFridays'] ?? 0;
       _recentRemits = results[2] as List<Sale>;
+      _history = history;
       _loading = false;
     });
   }
@@ -1332,59 +1703,70 @@ class _EarningsTabState extends State<_EarningsTab> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final screenWidth = MediaQuery.of(context).size.width;
+    // Breakpoints: < 500 mobile, 500-700 tablet, > 700 desktop
+    final isMobile = screenWidth < 500;
+    final isTablet = screenWidth >= 500 && screenWidth < 700;
+    final hPad = isMobile ? 12.0 : 24.0;
+    final gap = isMobile ? 8.0 : (isTablet ? 10.0 : 12.0);
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.fromLTRB(hPad, 16, hPad, 24),
       child: Column(
         children: [
           // ── Top card row: Total Earnings | Balance ──────
-          Row(
-            children: [
-              Expanded(
-                child: _EarningsHeroCard(
-                  icon: Icons.account_balance_wallet_rounded,
-                  label: 'Total Earnings',
-                  value: '$currencySymbol$_totalEarnings',
-                  isDark: isDark,
+          if (isMobile) ...[
+            _EarningsHeroCard(
+              icon: Icons.account_balance_wallet_rounded,
+              label: 'Total Earnings',
+              value: '$currencySymbol$_totalEarnings',
+              isDark: isDark,
+              isCompact: true,
+            ),
+            SizedBox(height: gap),
+            _EarningsHeroCard(
+              icon: Icons.savings_rounded,
+              label: 'Balance',
+              value: '$currencySymbol$_balance',
+              isDark: isDark,
+              accentColor: const Color(0xFF6366F1),
+              isCompact: true,
+            ),
+          ] else ...[
+            Row(
+              children: [
+                Expanded(
+                  child: _EarningsHeroCard(
+                    icon: Icons.account_balance_wallet_rounded,
+                    label: 'Total Earnings',
+                    value: '$currencySymbol$_totalEarnings',
+                    isDark: isDark,
+                    isCompact: isTablet,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _EarningsHeroCard(
-                  icon: Icons.savings_rounded,
-                  label: 'Balance',
-                  value: '$currencySymbol$_balance',
-                  isDark: isDark,
-                  accentColor: const Color(0xFF6366F1),
+                SizedBox(width: gap),
+                Expanded(
+                  child: _EarningsHeroCard(
+                    icon: Icons.savings_rounded,
+                    label: 'Balance',
+                    value: '$currencySymbol$_balance',
+                    isDark: isDark,
+                    accentColor: const Color(0xFF6366F1),
+                    isCompact: isTablet,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+              ],
+            ),
+          ],
+          SizedBox(height: isMobile ? 8 : 16),
           // ── Stats row ────────────────────────────────────
-          Row(
-            children: [
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.inventory_2_rounded,
-                  label: 'Boxes Remitted',
-                  value: '$_totalBoxes',
-                  color: StockpileColors.primary900,
-                  isDark: isDark,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _StatCard(
-                  icon: Icons.trending_up_rounded,
-                  label: 'Total (Earn + Balance)',
-                  value: '$currencySymbol${_totalEarnings + _balance}',
-                  color: const Color(0xFF6366F1),
-                  isDark: isDark,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+          if (isMobile)
+            _buildStatsMobile(isDark, currencySymbol)
+          else if (isTablet)
+            _buildStatsTablet(isDark, currencySymbol)
+          else
+            _buildStatsDesktop(isDark, currencySymbol),
+          SizedBox(height: isMobile ? 8 : 16),
           // ── Breakdown explanation ────────────────────────
           Card(
             elevation: 0,
@@ -1400,7 +1782,7 @@ class _EarningsTabState extends State<_EarningsTab> {
               ),
             ),
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(isMobile ? 12 : 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1420,12 +1802,21 @@ class _EarningsTabState extends State<_EarningsTab> {
                     detail:
                         'Flat one-time signup bonus (₱300/₱600) × number of direct referrals who activated a package',
                     isDark: isDark,
+                    isCompact: isMobile,
                   ),
                   _BreakdownRow(
                     label: 'Total Earnings',
                     detail:
-                        "Indirect referral bonuses + Group Sales (₱3 per item your referrals remit, ₱2 per item their referrals remit) + Chairman's + Repeat Purchase commissions",
+                        "Indirect referral bonuses + Group Sales (₱3 per item your referrals remit, ₱2 per item their referrals remit) + Chairman's Bonus + Repeat Purchase commissions",
                     isDark: isDark,
+                    isCompact: isMobile,
+                  ),
+                  _BreakdownRow(
+                    label: "Chairman's Bonus",
+                    detail:
+                        "Earned every Friday since you availed your package — your package's Chairman's Bonus amount per week, added to Total Earnings automatically",
+                    isDark: isDark,
+                    isCompact: isMobile,
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1442,133 +1833,665 @@ class _EarningsTabState extends State<_EarningsTab> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          // ── Recent remittances ──────────────────────────
-          Card(
-            elevation: 0,
-            color: isDark
-                ? StockpileColors.darkSurface
-                : StockpileColors.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                color: isDark
-                    ? StockpileColors.darkDivider
-                    : StockpileColors.divider,
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.receipt_long_rounded,
-                        size: 20,
-                        color: StockpileColors.primary900,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Recent Remittances',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? StockpileColors.darkTextPrimary
-                              : StockpileColors.darkText,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  if (_recentRemits.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
-                      child: Center(
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.inbox_rounded,
-                              size: 40,
-                              color: isDark
-                                  ? StockpileColors.darkTextMuted
-                                  : StockpileColors.mutedText,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'No remittances yet',
-                              style: StockpileFonts.satoshi(
-                                color: isDark
-                                    ? StockpileColors.darkTextMuted
-                                    : StockpileColors.mutedText,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    ..._recentRemits
-                        .take(8)
-                        .map(
-                          (s) => Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: ListTile(
-                              dense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                              leading: CircleAvatar(
-                                radius: 16,
-                                backgroundColor: StockpileColors.primary900
-                                    .withAlpha(25),
-                                child: Icon(
-                                  Icons.payments_rounded,
-                                  size: 16,
-                                  color: StockpileColors.primary900,
-                                ),
-                              ),
-                              title: Text(
-                                s.itemName,
-                                style: StockpileFonts.satoshi(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              subtitle: Text(
-                                s.timestamp != null
-                                    ? '${s.quantity}× — ${_fmtDate(s.timestamp!)}'
-                                    : '${s.quantity}×',
-                                style: StockpileFonts.satoshi(
-                                  fontSize: 11,
-                                  color: isDark
-                                      ? StockpileColors.darkTextMuted
-                                      : StockpileColors.mutedText,
-                                ),
-                              ),
-                              trailing: Text(
-                                '$currencySymbol${s.price}',
-                                style: StockpileFonts.satoshi(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                ],
-              ),
-            ),
+          SizedBox(height: isMobile ? 8 : 16),
+          // ── Ledger: Earnings History ⇄ Remittances (toggleable) ──
+          _EarningsLedgerCard(
+            history: _history,
+            remits: _recentRemits,
+            view: _ledgerView,
+            onViewChanged: (v) => setState(() => _ledgerView = v),
+            isDark: isDark,
+            currencySymbol: currencySymbol,
+            isCompact: isMobile,
           ),
         ],
       ),
     );
   }
 
-  String _fmtDate(DateTime dt) =>
+  Widget _buildStatsDesktop(bool isDark, String currencySymbol) {
+    return Row(
+      children: [
+        Expanded(
+          child: _StatCard(
+            icon: Icons.inventory_2_rounded,
+            label: 'Boxes Remitted',
+            value: '$_totalBoxes',
+            color: StockpileColors.primary900,
+            isDark: isDark,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _StatCard(
+            icon: Icons.workspace_premium_rounded,
+            label:
+                "Chairman's Bonus"
+                '${_chairmanFridays > 0 ? ' ($_chairmanFridays Friday${_chairmanFridays == 1 ? '' : 's'})' : ''}',
+            value: '$currencySymbol$_chairmanBonus',
+            color: StockpileColors.success,
+            isDark: isDark,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _StatCard(
+            icon: Icons.trending_up_rounded,
+            label: 'Total (Earn + Balance)',
+            value: '$currencySymbol${_totalEarnings + _balance}',
+            color: const Color(0xFF6366F1),
+            isDark: isDark,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatsTablet(bool isDark, String currencySymbol) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _StatCard(
+                icon: Icons.inventory_2_rounded,
+                label: 'Boxes Remitted',
+                value: '$_totalBoxes',
+                color: StockpileColors.primary900,
+                isDark: isDark,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatCard(
+                icon: Icons.workspace_premium_rounded,
+                label:
+                    "Chairman's Bonus"
+                    '${_chairmanFridays > 0 ? ' ($_chairmanFridays Friday${_chairmanFridays == 1 ? '' : 's'})' : ''}',
+                value: '$currencySymbol$_chairmanBonus',
+                color: StockpileColors.success,
+                isDark: isDark,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _StatCard(
+          icon: Icons.trending_up_rounded,
+          label: 'Total (Earn + Balance)',
+          value: '$currencySymbol${_totalEarnings + _balance}',
+          color: const Color(0xFF6366F1),
+          isDark: isDark,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatsMobile(bool isDark, String currencySymbol) {
+    return Column(
+      children: [
+        _StatCard(
+          icon: Icons.inventory_2_rounded,
+          label: 'Boxes Remitted',
+          value: '$_totalBoxes',
+          color: StockpileColors.primary900,
+          isDark: isDark,
+        ),
+        const SizedBox(height: 8),
+        _StatCard(
+          icon: Icons.workspace_premium_rounded,
+          label:
+              "Chairman's Bonus"
+              '${_chairmanFridays > 0 ? ' ($_chairmanFridays Friday${_chairmanFridays == 1 ? '' : 's'})' : ''}',
+          value: '$currencySymbol$_chairmanBonus',
+          color: StockpileColors.success,
+          isDark: isDark,
+        ),
+        const SizedBox(height: 8),
+        _StatCard(
+          icon: Icons.trending_up_rounded,
+          label: 'Total (Earn + Balance)',
+          value: '$currencySymbol${_totalEarnings + _balance}',
+          color: const Color(0xFF6366F1),
+          isDark: isDark,
+        ),
+      ],
+    );
+  }
+}
+
+/// Ledger-style log of a member's earnings/balance changes over time.
+/// Each row is a snapshot recorded when the computed values changed.
+/// One card, two lists: Earnings History and Recent Remittances, switched
+/// by segmented pills — keeps the page short instead of stacking two
+/// ever-growing tables.
+class _EarningsLedgerCard extends StatelessWidget {
+  final List<EarningsSnapshot> history;
+  final List<Sale> remits;
+  final int view; // 0 = history, 1 = remittances
+  final ValueChanged<int> onViewChanged;
+  final bool isDark;
+  final String currencySymbol;
+  final bool isCompact;
+
+  const _EarningsLedgerCard({
+    required this.history,
+    required this.remits,
+    required this.view,
+    required this.onViewChanged,
+    required this.isDark,
+    required this.currencySymbol,
+    this.isCompact = false,
+  });
+
+  static String _fmtDate(DateTime dt) =>
       '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+
+  static String _fmtDateTime(DateTime dt) {
+    final local = dt.toLocal();
+    final h = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final ampm = local.hour < 12 ? 'AM' : 'PM';
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')} '
+        '$h:${local.minute.toString().padLeft(2, '0')}$ampm';
+  }
+
+  /// "+₱50" green, "−₱20" red, null when zero (not shown).
+  Widget? _deltaChip(int delta, String label) {
+    if (delta == 0) return null;
+    final up = delta > 0;
+    final color = up ? StockpileColors.success : StockpileColors.danger;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withAlpha(25),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        '${up ? '+' : '−'}$currencySymbol${delta.abs()} $label',
+        style: StockpileFonts.satoshi(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final mutedColor = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    final titleFontSize = isCompact ? 14.0 : 16.0;
+    final cardPad = isCompact ? 12.0 : 20.0;
+
+    return Card(
+      elevation: 0,
+      color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isDark ? StockpileColors.darkDivider : StockpileColors.divider,
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(cardPad),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (isCompact) ...[
+              // Compact: title + toggle stacked
+              Row(
+                children: [
+                  Icon(
+                    view == 0
+                        ? Icons.history_rounded
+                        : Icons.receipt_long_rounded,
+                    size: 20,
+                    color: StockpileColors.primary900,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      view == 0 ? 'Earnings History' : 'Recent Remittances',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: StockpileFonts.satoshi(
+                        fontSize: titleFontSize,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              // Segmented toggle — full width on mobile
+              _segmentedToggle(textColor, mutedColor),
+              const SizedBox(height: 8),
+              Text(
+                view == 0
+                    ? 'Logged whenever your earnings or balance change.'
+                    : 'Your latest remitted (paid) transactions.',
+                style: StockpileFonts.satoshi(fontSize: 11, color: mutedColor),
+              ),
+            ] else ...[
+              Row(
+                children: [
+                  Icon(
+                    view == 0
+                        ? Icons.history_rounded
+                        : Icons.receipt_long_rounded,
+                    size: 20,
+                    color: StockpileColors.primary900,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      view == 0 ? 'Earnings History' : 'Recent Remittances',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: StockpileFonts.satoshi(
+                        fontSize: titleFontSize,
+                        fontWeight: FontWeight.w700,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Segmented toggle
+                  _segmentedToggle(textColor, mutedColor),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                view == 0
+                    ? 'Logged whenever your earnings or balance change.'
+                    : 'Your latest remitted (paid) transactions.',
+                style: StockpileFonts.satoshi(fontSize: 11, color: mutedColor),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (view == 1)
+              _remitsBody(textColor, mutedColor)
+            else
+              () {
+                // Hide "ghost" rows (all-zero totals and deltas) — an
+                // artifact of early snapshots recorded with nothing earned.
+                final visible = history
+                    .where(
+                      (h) =>
+                          h.totalEarnings != 0 ||
+                          h.balance != 0 ||
+                          h.earningsDelta != 0 ||
+                          h.balanceDelta != 0,
+                    )
+                    .toList();
+
+                if (visible.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: Text(
+                        'No history yet — changes will appear here.',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 13,
+                          color: mutedColor,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                final shown = visible.take(15).toList();
+                return Column(
+                  children: [
+                    for (var i = 0; i < shown.length; i++) ...[
+                      if (i > 0)
+                        Divider(
+                          height: 1,
+                          color:
+                              (isDark
+                                      ? StockpileColors.darkDivider
+                                      : StockpileColors.divider)
+                                  .withAlpha(120),
+                        ),
+                      _historyRow(
+                        shown[i],
+                        i + 1 < visible.length ? visible[i + 1] : null,
+                        visible.length < 30,
+                        textColor,
+                        mutedColor,
+                      ),
+                    ],
+                    if (visible.length > 15) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Showing the latest 15 entries',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 11,
+                          color: mutedColor,
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              }(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Segmented toggle: "History" | "Remittances"
+  Widget _segmentedToggle(Color textColor, Color mutedColor) {
+    return IntrinsicWidth(
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: isCompact ? MainAxisSize.max : MainAxisSize.min,
+          children: [
+            Flexible(
+              fit: isCompact ? FlexFit.tight : FlexFit.loose,
+              child: _pill('History', 0, textColor, mutedColor),
+            ),
+            Flexible(
+              fit: isCompact ? FlexFit.tight : FlexFit.loose,
+              child: _pill('Remittances', 1, textColor, mutedColor),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One pill of the History ⇄ Remittances segmented toggle.
+  Widget _pill(String label, int index, Color textColor, Color mutedColor) {
+    final selected = view == index;
+    return InkWell(
+      onTap: () => onViewChanged(index),
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected
+              ? (isDark ? StockpileColors.darkSurface : StockpileColors.surface)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(isDark ? 60 : 20),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ]
+              : null,
+        ),
+        child: Text(
+          label,
+          style: StockpileFonts.satoshi(
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? textColor : mutedColor,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Remittances list body (shown when the toggle is on "Remittances").
+  Widget _remitsBody(Color textColor, Color mutedColor) {
+    if (remits.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.inbox_rounded, size: 40, color: mutedColor),
+              const SizedBox(height: 8),
+              Text(
+                'No remittances yet',
+                style: StockpileFonts.satoshi(color: mutedColor),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    final itemFontSize = isCompact ? 13.0 : 14.0;
+    final priceFontSize = isCompact ? 13.0 : 14.0;
+    return Column(
+      children: [
+        ...remits
+            .take(8)
+            .map(
+              (s) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: isCompact ? 4 : 8,
+                  ),
+                  leading: CircleAvatar(
+                    radius: isCompact ? 14 : 16,
+                    backgroundColor: StockpileColors.primary900.withAlpha(25),
+                    child: Icon(
+                      Icons.payments_rounded,
+                      size: isCompact ? 14 : 16,
+                      color: StockpileColors.primary900,
+                    ),
+                  ),
+                  title: Text(
+                    s.itemName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: StockpileFonts.satoshi(
+                      fontSize: itemFontSize,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    s.timestamp != null
+                        ? '${s.quantity}× — ${_fmtDate(s.timestamp!)}'
+                        : '${s.quantity}×',
+                    style: StockpileFonts.satoshi(
+                      fontSize: isCompact ? 10 : 11,
+                      color: mutedColor,
+                    ),
+                  ),
+                  trailing: Text(
+                    '$currencySymbol${s.price}',
+                    style: StockpileFonts.satoshi(
+                      fontWeight: FontWeight.w700,
+                      fontSize: priceFontSize,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+      ],
+    );
+  }
+
+  /// One ledger entry: direction icon, source chips + date, running totals.
+  Widget _historyRow(
+    EarningsSnapshot h,
+    EarningsSnapshot? prev,
+    bool prevIsComplete,
+    Color textColor,
+    Color mutedColor,
+  ) {
+    final firstEver = prev == null && prevIsComplete;
+
+    List<Widget> chips;
+    if (h.isLegacy || (prev?.isLegacy ?? false)) {
+      // Rows from before component tracking — sources unknown.
+      chips = <Widget>[
+        ?_deltaChip(h.earningsDelta, 'earnings'),
+        ?_deltaChip(h.balanceDelta, 'balance'),
+      ];
+    } else if (prev != null || firstEver) {
+      chips = <Widget>[
+        ?_deltaChip(h.balanceDelta, 'Direct Referral'),
+        ?_deltaChip(
+          h.indirectBonus - (prev?.indirectBonus ?? 0),
+          'Indirect Referral',
+        ),
+        ?_deltaChip(h.groupSales - (prev?.groupSales ?? 0), 'Group Sales'),
+        ?_deltaChip(
+          h.repeatPurchase - (prev?.repeatPurchase ?? 0),
+          'Repeat Purchase',
+        ),
+        ?_deltaChip(
+          h.chairmanBonus - (prev?.chairmanBonus ?? 0),
+          "Chairman's Bonus",
+        ),
+      ];
+    } else {
+      chips = <Widget>[
+        ?_deltaChip(h.earningsDelta, 'earnings'),
+        ?_deltaChip(h.balanceDelta, 'balance'),
+      ];
+    }
+
+    // Direction of the net change drives the leading icon.
+    final net = h.earningsDelta + h.balanceDelta;
+    final IconData dirIcon;
+    final Color dirColor;
+    if (net > 0) {
+      dirIcon = Icons.trending_up_rounded;
+      dirColor = StockpileColors.success;
+    } else if (net < 0) {
+      dirIcon = Icons.trending_down_rounded;
+      dirColor = StockpileColors.danger;
+    } else {
+      dirIcon = Icons.swap_vert_rounded;
+      dirColor = mutedColor;
+    }
+
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: isCompact ? 8 : 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: isCompact ? 28 : 32,
+            height: isCompact ? 28 : 32,
+            decoration: BoxDecoration(
+              color: dirColor.withAlpha(25),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(dirIcon, size: isCompact ? 15 : 17, color: dirColor),
+          ),
+          SizedBox(width: isCompact ? 8 : 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (chips.isNotEmpty)
+                  Wrap(
+                    spacing: isCompact ? 4 : 6,
+                    runSpacing: 4,
+                    children: chips,
+                  )
+                else
+                  Text(
+                    'Adjustment',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 12,
+                      color: mutedColor,
+                    ),
+                  ),
+                const SizedBox(height: 4),
+                Text(
+                  h.recordedAt != null ? _fmtDateTime(h.recordedAt!) : '—',
+                  style: StockpileFonts.satoshi(
+                    fontSize: isCompact ? 10 : 11,
+                    color: mutedColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: isCompact ? 8 : 12),
+          if (isCompact)
+            // Compact: totals stacked with abbreviated labels
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '$currencySymbol${h.totalEarnings}',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: textColor,
+                  ),
+                ),
+                Text(
+                  'Earn',
+                  style: StockpileFonts.satoshi(fontSize: 8, color: mutedColor),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$currencySymbol${h.balance}',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+                Text(
+                  'Bal',
+                  style: StockpileFonts.satoshi(fontSize: 8, color: mutedColor),
+                ),
+              ],
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '$currencySymbol${h.totalEarnings}',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: textColor,
+                  ),
+                ),
+                Text(
+                  'Total Earnings',
+                  style: StockpileFonts.satoshi(fontSize: 9, color: mutedColor),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '$currencySymbol${h.balance}',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: textColor,
+                  ),
+                ),
+                Text(
+                  'Balance',
+                  style: StockpileFonts.satoshi(fontSize: 9, color: mutedColor),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _EarningsHeroCard extends StatelessWidget {
@@ -1576,59 +2499,113 @@ class _EarningsHeroCard extends StatelessWidget {
   final String label, value;
   final bool isDark;
   final Color? accentColor;
+  final bool isCompact;
   const _EarningsHeroCard({
     required this.icon,
     required this.label,
     required this.value,
     required this.isDark,
     this.accentColor,
+    this.isCompact = false,
   });
   @override
   Widget build(BuildContext context) {
     final color = accentColor ?? StockpileColors.primary900;
+    final iconSize = isCompact ? 38.0 : 56.0;
+    final iconInner = isCompact ? 20.0 : 28.0;
+    final vPad = isCompact ? 16.0 : 28.0;
+    final hPad = isCompact ? 12.0 : 16.0;
+    final valueFont = isCompact ? 22.0 : 28.0;
     return Card(
       elevation: 0,
       color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-        child: Column(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: color.withAlpha(25),
-                borderRadius: BorderRadius.circular(16),
+        padding: EdgeInsets.symmetric(vertical: vPad, horizontal: hPad),
+        child: isCompact
+            ? Row(
+                children: [
+                  Container(
+                    width: iconSize,
+                    height: iconSize,
+                    decoration: BoxDecoration(
+                      color: color.withAlpha(25),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(icon, size: iconInner, color: color),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          style: StockpileFonts.satoshi(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: isDark
+                                ? StockpileColors.darkTextMuted
+                                : StockpileColors.mutedText,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          value,
+                          style: StockpileFonts.satoshi(
+                            fontSize: valueFont,
+                            fontWeight: FontWeight.w900,
+                            color: isDark
+                                ? StockpileColors.darkTextPrimary
+                                : StockpileColors.darkText,
+                            height: 1.1,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                children: [
+                  Container(
+                    width: iconSize,
+                    height: iconSize,
+                    decoration: BoxDecoration(
+                      color: color.withAlpha(25),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(icon, size: iconInner, color: color),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    label,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isDark
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: StockpileFonts.satoshi(
+                      fontSize: valueFont,
+                      fontWeight: FontWeight.w900,
+                      color: isDark
+                          ? StockpileColors.darkTextPrimary
+                          : StockpileColors.darkText,
+                      height: 1.1,
+                    ),
+                  ),
+                ],
               ),
-              alignment: Alignment.center,
-              child: Icon(icon, size: 28, color: color),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              label,
-              style: StockpileFonts.satoshi(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: StockpileFonts.satoshi(
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                color: isDark
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
-                height: 1.1,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1637,44 +2614,72 @@ class _EarningsHeroCard extends StatelessWidget {
 class _BreakdownRow extends StatelessWidget {
   final String label, detail;
   final bool isDark;
+  final bool isCompact;
   const _BreakdownRow({
     required this.label,
     required this.detail,
     required this.isDark,
+    this.isCompact = false,
   });
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 4),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 120,
-          child: Text(
-            label,
-            style: StockpileFonts.satoshi(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
+  Widget build(BuildContext context) {
+    final textPrimary = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final textMuted = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    if (isCompact) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: StockpileFonts.satoshi(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: textPrimary,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              detail,
+              style: StockpileFonts.satoshi(fontSize: 11, color: textMuted),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: StockpileFonts.satoshi(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: textPrimary,
+              ),
             ),
           ),
-        ),
-        Expanded(
-          child: Text(
-            detail,
-            style: StockpileFonts.satoshi(
-              fontSize: 11,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
+          Expanded(
+            child: Text(
+              detail,
+              style: StockpileFonts.satoshi(fontSize: 11, color: textMuted),
             ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 // ─── Profile Tab ───────────────────────────────────────────────────────────
@@ -1870,7 +2875,9 @@ class _ProfileTabState extends State<_ProfileTab> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
                     children: [
                       if (isReseller)
                         Container(
@@ -1910,8 +2917,7 @@ class _ProfileTabState extends State<_ProfileTab> {
                             color: mutedColor,
                           ),
                         ),
-                      if (isReseller) ...[
-                        const SizedBox(width: 8),
+                      if (isReseller)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
@@ -1930,7 +2936,6 @@ class _ProfileTabState extends State<_ProfileTab> {
                             ),
                           ),
                         ),
-                      ],
                     ],
                   ),
                   const SizedBox(height: 6),

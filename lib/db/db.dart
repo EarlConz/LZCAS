@@ -13,7 +13,9 @@ export '../data/models.dart'
         PendingRequest,
         Package,
         Category,
+        EarningsSnapshot,
         MemberTransactionEntry,
+        SystemAlert,
         inventoryItemsFromRows,
         membersFromRows,
         statusFromStock;
