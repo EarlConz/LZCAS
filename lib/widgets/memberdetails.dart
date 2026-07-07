@@ -123,21 +123,37 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   }
 
   /// Load the packages this member availed (sales rows with a package_id).
+  /// Shows the CURRENT catalog name/price so renames and price changes
+  /// reflect immediately; falls back to the sale snapshot for packages
+  /// that were deleted from the catalog.
   Future<void> _loadAvailedPackages() async {
     final memberId = member['id'] as int?;
     if (memberId == null) {
       if (mounted) setState(() => _packagesLoading = false);
       return;
     }
-    final sales = await repository.fetchSalesForMember(memberId);
+    final results = await Future.wait([
+      repository.fetchSalesForMember(memberId),
+      repository.fetchPackages(),
+    ]);
     if (!mounted) return;
+    final sales = results[0] as List<Sale>;
+    final pkgById = {
+      for (final p in results[1] as List<Package>)
+        if (p.id != null) p.id!: p,
+    };
     setState(() {
-      _availedPackages = sales.where((s) => s.isPackage).toList()
-        ..sort(
-          (a, b) => (b.timestamp ?? DateTime(0)).compareTo(
-            a.timestamp ?? DateTime(0),
-          ),
-        );
+      _availedPackages =
+          sales.where((s) => s.isPackage).map((s) {
+            final current = pkgById[s.packageId];
+            return current == null
+                ? s
+                : s.copyWith(itemName: current.name, price: current.price);
+          }).toList()..sort(
+            (a, b) => (b.timestamp ?? DateTime(0)).compareTo(
+              a.timestamp ?? DateTime(0),
+            ),
+          );
       _packagesLoading = false;
     });
   }

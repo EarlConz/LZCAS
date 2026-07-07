@@ -21,6 +21,7 @@ import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
+import 'package:lzcas/widgets/quota_compliance_queue.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
@@ -189,7 +190,15 @@ class _AdminDashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const DashboardPage();
+    return const SingleChildScrollView(
+      child: Column(
+        children: [
+          DashboardPage(),
+          SizedBox(height: 24),
+          QuotaComplianceQueue(),
+        ],
+      ),
+    );
   }
 }
 
@@ -6621,13 +6630,12 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
 
   String _formatDate(DateTime dt) {
     final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
-        '${dt.day.toString().padLeft(2, '0')}';
+    final diff = dt.difference(now); // positive = future, negative = past
+    if (diff.inDays > 0) return 'in ${diff.inDays}d';
+    if (diff.inDays == 0) return 'today';
+    // Past — overdue
+    final overdue = -diff.inDays;
+    return '${overdue}d overdue';
   }
 }
 
@@ -7817,12 +7825,11 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
 
   String _formatDateShort(DateTime dt) {
     final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${dt.month}/${dt.day}/${dt.year}';
+    final diff = dt.difference(now); // positive = future, negative = past
+    if (diff.inDays > 0) return 'in ${diff.inDays}d';
+    if (diff.inDays == 0) return 'today';
+    final overdue = -diff.inDays;
+    return '${overdue}d overdue';
   }
 }
 
