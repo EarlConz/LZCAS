@@ -278,7 +278,10 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
                   height: 46,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [color, color.withBlue((color.blue + 40).clamp(0, 255))],
+                      colors: [
+                        color,
+                        color.withBlue((color.blue + 40).clamp(0, 255)),
+                      ],
                     ),
                     borderRadius: BorderRadius.circular(13),
                     boxShadow: [
@@ -289,7 +292,11 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
                       ),
                     ],
                   ),
-                  child: const Icon(Icons.timer_outlined, color: Colors.white, size: 26),
+                  child: const Icon(
+                    Icons.timer_outlined,
+                    color: Colors.white,
+                    size: 26,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -353,7 +360,10 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: color.withAlpha(isDark ? 25 : 18),
                     borderRadius: BorderRadius.circular(8),
@@ -368,13 +378,23 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
                   ),
                 ),
                 const Spacer(),
-                Icon(Icons.calendar_today, size: 12, color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText),
+                Icon(
+                  Icons.calendar_today,
+                  size: 12,
+                  color: isDark
+                      ? StockpileColors.darkTextMuted
+                      : StockpileColors.mutedText,
+                ),
                 const SizedBox(width: 4),
                 Text(
-                  _quota.quotaValidUntil != null ? _formatDate(_quota.quotaValidUntil!) : '—',
+                  _quota.quotaValidUntil != null
+                      ? _formatDate(_quota.quotaValidUntil!)
+                      : '—',
                   style: StockpileFonts.satoshi(
                     fontSize: 11,
-                    color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText,
+                    color: isDark
+                        ? StockpileColors.darkTextMuted
+                        : StockpileColors.mutedText,
                   ),
                 ),
               ],
@@ -419,7 +439,10 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
                   height: 46,
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [StockpileColors.danger, StockpileColors.error700],
+                      colors: [
+                        StockpileColors.danger,
+                        StockpileColors.error700,
+                      ],
                     ),
                     borderRadius: BorderRadius.circular(13),
                     boxShadow: [
@@ -430,7 +453,11 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
                       ),
                     ],
                   ),
-                  child: const Icon(Icons.warning_rounded, color: Colors.white, size: 26),
+                  child: const Icon(
+                    Icons.warning_rounded,
+                    color: Colors.white,
+                    size: 26,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -450,7 +477,9 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
                         'Your status is at risk — remit a box to reactivate.',
                         style: StockpileFonts.satoshi(
                           fontSize: 12,
-                          color: isDark ? StockpileColors.darkTextMuted : StockpileColors.bodyText,
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.bodyText,
                         ),
                       ),
                     ],
@@ -471,7 +500,9 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
                   backgroundColor: color,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   elevation: 0,
                 ),
               ),
@@ -488,7 +519,9 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
                     'reseller status and clears this warning.',
                     style: StockpileFonts.satoshi(
                       fontSize: 11,
-                      color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText,
+                      color: isDark
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
                     ).copyWith(fontStyle: FontStyle.italic),
                   ),
                 ),
@@ -534,10 +567,10 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
     final color = isOverdue
         ? StockpileColors.danger
         : quota.daysRemaining <= 1
-            ? StockpileColors.danger
-            : quota.daysRemaining <= 3
-                ? StockpileColors.primary900
-                : StockpileColors.secondary500;
+        ? StockpileColors.danger
+        : quota.daysRemaining <= 3
+        ? StockpileColors.primary900
+        : StockpileColors.secondary500;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
