@@ -686,6 +686,87 @@ class PendingRequest {
   );
 }
 
+/// A withdrawal request submitted by a member against their Total Earnings
+/// or Balance pool. Admins approve or reject each request.
+class WithdrawalRequest {
+  final String? id; // UUID
+  final int memberId;
+  final String sourceBucket; // 'total_earnings' or 'balance'
+  final int requestedAmount;
+  final String status; // 'pending', 'approved', 'rejected'
+  final String? rejectionReason;
+  final String? reviewedBy;
+  final DateTime? reviewedAt;
+  final DateTime? createdAt;
+
+  const WithdrawalRequest({
+    this.id,
+    required this.memberId,
+    required this.sourceBucket,
+    required this.requestedAmount,
+    this.status = 'pending',
+    this.rejectionReason,
+    this.reviewedBy,
+    this.reviewedAt,
+    this.createdAt,
+  });
+
+  bool get isPending => status == 'pending';
+
+  String get sourceLabel =>
+      sourceBucket == 'total_earnings' ? 'Total Earnings' : 'Balance';
+
+  factory WithdrawalRequest.fromJson(Map<String, dynamic> json) =>
+      WithdrawalRequest(
+        id: json['id'] as String?,
+        memberId: json['member_id'] as int? ?? 0,
+        sourceBucket: json['source_bucket'] as String? ?? 'total_earnings',
+        requestedAmount: json['requested_amount'] as int? ?? 0,
+        status: json['status'] as String? ?? 'pending',
+        rejectionReason: json['rejection_reason'] as String?,
+        reviewedBy: json['reviewed_by'] as String?,
+        reviewedAt: json['reviewed_at'] != null
+            ? DateTime.tryParse(json['reviewed_at'].toString())
+            : null,
+        createdAt: json['created_at'] != null
+            ? DateTime.tryParse(json['created_at'].toString())
+            : null,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'member_id': memberId,
+    'source_bucket': sourceBucket,
+    'requested_amount': requestedAmount,
+    'status': status,
+    if (rejectionReason != null) 'rejection_reason': rejectionReason,
+    if (reviewedBy != null) 'reviewed_by': reviewedBy,
+    if (reviewedAt != null) 'reviewed_at': reviewedAt!.toIso8601String(),
+    if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+  };
+
+  WithdrawalRequest copyWith({
+    String? id,
+    int? memberId,
+    String? sourceBucket,
+    int? requestedAmount,
+    String? status,
+    String? rejectionReason,
+    String? reviewedBy,
+    DateTime? reviewedAt,
+    DateTime? createdAt,
+  }) => WithdrawalRequest(
+    id: id ?? this.id,
+    memberId: memberId ?? this.memberId,
+    sourceBucket: sourceBucket ?? this.sourceBucket,
+    requestedAmount: requestedAmount ?? this.requestedAmount,
+    status: status ?? this.status,
+    rejectionReason: rejectionReason ?? this.rejectionReason,
+    reviewedBy: reviewedBy ?? this.reviewedBy,
+    reviewedAt: reviewedAt ?? this.reviewedAt,
+    createdAt: createdAt ?? this.createdAt,
+  );
+}
+
 /// User profile linked to Supabase Auth.
 class UserProfile {
   final String id; // matches auth.users.id (UUID)

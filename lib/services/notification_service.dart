@@ -63,6 +63,12 @@ class NotificationService extends ChangeNotifier {
         case 'pending_requests_changed':
           _refreshPending();
           break;
+        case 'withdrawal_request_added':
+        case 'withdrawal_request_approved':
+        case 'withdrawal_request_rejected':
+        case 'withdrawal_requests_changed':
+          _refreshPending();
+          break;
         case 'items_changed':
         case 'stock_movement_added':
           _refreshLowStock();
@@ -96,7 +102,9 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> _refreshPending() async {
     try {
-      final count = await repository.fetchPendingCount();
+      final reqCount = await repository.fetchPendingCount();
+      final withdrawalCount = await repository.fetchWithdrawalPendingCount();
+      final count = reqCount + withdrawalCount;
       if (_pendingCount != count) {
         _pendingCount = count;
         notifyListeners();

@@ -4604,11 +4604,13 @@ class _AdminDeleteRequestTab extends StatefulWidget {
 class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   List<PendingRequest> _pendingRequests = [];
   List<PendingRequest> _historyRequests = [];
+  List<WithdrawalRequest> _withdrawalRequests = [];
   Map<String, String> _profiles = {};
   Map<String, String> _roles = {};
+  Map<int, String> _memberNames = {}; // memberId → "First Last"
   bool _showHistory = false;
   String _historyFilter = 'all'; // all, approved, rejected
-  String _historyTypeFilter = 'all'; // all, delete, reduce
+  String _historyTypeFilter = 'all'; // all, delete, reduce, withdrawal
   bool _loading = true;
   bool _loadingMore = false;
   static const _pageSize = 25;
@@ -4630,6 +4632,12 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
           event == 'pending_request_approved' ||
           event == 'pending_request_rejected') {
         _loadRequests();
+      }
+      if (event == 'withdrawal_request_added' ||
+          event == 'withdrawal_request_approved' ||
+          event == 'withdrawal_request_rejected' ||
+          event == 'withdrawal_requests_changed') {
+        _loadWithdrawals();
       }
     });
   }
@@ -4691,10 +4699,36 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         _loading = false;
       });
       _loadProfiles();
+      _loadWithdrawals();
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadWithdrawals() async {
+    try {
+      final withdrawals = await repository.fetchPendingWithdrawals();
+
+      // Load member names for display
+      final memberIds = <int>{};
+      for (final w in withdrawals) {
+        memberIds.add(w.memberId);
+      }
+      final names = <int, String>{};
+      for (final id in memberIds) {
+        final m = await repository.getMemberById(id);
+        if (m != null) {
+          names[id] = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _withdrawalRequests = withdrawals;
+        _memberNames = names;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadPendingNextPage() async {
@@ -5274,6 +5308,88 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     _loadRequests();
   }
 
+  Future<void> _approveWithdrawal(WithdrawalRequest req) async {
+    if (req.id == null) return;
+
+    final err = await repository.approveWithdrawalRequest(req.id!);
+    if (!mounted) return;
+    if (err == null) {
+      BotToast.showText(
+        text:
+            'Withdrawal (${req.sourceLabel} ₱${req.requestedAmount}) — approved',
+      );
+    } else {
+      BotToast.showText(text: 'Failed to approve withdrawal: $err');
+    }
+    _loadWithdrawals();
+  }
+
+  Future<void> _rejectWithdrawal(WithdrawalRequest req) async {
+    if (req.id == null) return;
+
+    // Show rejection reason dialog
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject Withdrawal'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Withdraw ₱${req.requestedAmount} from ${req.sourceLabel}',
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: reasonController,
+              autofocus: true,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Rejection reason',
+                hintText: 'Explain why this withdrawal is being rejected',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: StockpileColors.error500,
+            ),
+            onPressed: () {
+              if (reasonController.text.trim().isEmpty) {
+                BotToast.showText(text: 'Please provide a rejection reason');
+                return;
+              }
+              Navigator.pop(ctx, reasonController.text.trim());
+            },
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || reason == null) return;
+
+    final ok = await repository.rejectWithdrawalRequest(
+      req.id!,
+      rejectionReason: reason,
+    );
+    if (!mounted) return;
+    if (ok) {
+      BotToast.showText(text: 'Withdrawal — rejected');
+    } else {
+      BotToast.showText(text: 'Failed to reject withdrawal');
+    }
+    _loadWithdrawals();
+  }
+
   /// Shows a modal listing the member's active borrows.
   Future<void> _showBorrowsModal(
     String memberName,
@@ -5652,7 +5768,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                 children: [
                   _ToggleChip(
                     label: 'Pending',
-                    count: _pendingRequests.length,
+                    count: _pendingRequests.length + _withdrawalRequests.length,
                     isSelected: false,
                     onTap: () => setState(() {
                       _showHistory = false;
@@ -5712,7 +5828,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
               children: [
                 _ToggleChip(
                   label: 'Pending',
-                  count: _pendingRequests.length,
+                  count: _pendingRequests.length + _withdrawalRequests.length,
                   isSelected: false,
                   onTap: () => setState(() {
                     _showHistory = false;
@@ -5792,7 +5908,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     }
 
     // Pending view
-    if (_pendingRequests.isEmpty) {
+    if (_pendingRequests.isEmpty && _withdrawalRequests.isEmpty) {
       return Column(
         children: [
           Padding(
@@ -5841,8 +5957,8 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Deletion and stock reduction requests submitted by inventory '
-                    'staff will appear here for your review and approval.',
+                    'Deletion, stock reduction, and withdrawal requests '
+                    'will appear here for your review and approval.',
                     textAlign: TextAlign.center,
                     style: StockpileFonts.satoshi(
                       fontSize: 13,
@@ -5868,7 +5984,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
             children: [
               _ToggleChip(
                 label: 'Pending',
-                count: _pendingRequests.length,
+                count: _pendingRequests.length + _withdrawalRequests.length,
                 isSelected: true,
                 onTap: () {},
               ),
@@ -5885,195 +6001,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
             ],
           ),
         ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            itemCount: _pendingRequests.take(_pendingVisibleCount).length,
-            itemBuilder: (context, index) {
-              final req = _pendingRequests[index];
-              final isMemberDelete = req.requestType == 'delete_member';
-              final isDelete = req.requestType == 'delete';
-              final isBorrow = req.requestType == 'borrow';
-              final icon = isMemberDelete
-                  ? Icons.person_remove_rounded
-                  : isDelete
-                  ? Icons.delete_forever_rounded
-                  : isBorrow
-                  ? Icons.swap_horiz_rounded
-                  : Icons.arrow_downward_rounded;
-
-              if (isMemberDelete) {
-                final hasBorrows = _memberBorrowStatus[req.memberId] ?? false;
-                final submitter = _profiles[req.userId] ?? 'Unknown';
-                final role = _roles[req.userId] ?? '';
-                final submitterLabel = role.isNotEmpty
-                    ? '$submitter ($role)'
-                    : submitter;
-
-                return _buildModernRequestCard(
-                  isDark: isDark,
-                  accentColor: Colors.purple.shade600,
-                  icon: icon,
-                  title: 'Delete Member Request',
-                  body: req.memberName ?? 'Unknown',
-                  detail: hasBorrows
-                      ? '⚠ This member has unsettled borrows'
-                      : null,
-                  detailColor: Colors.red,
-                  reason: req.reason,
-                  submitter: submitterLabel,
-                  timeAgo: req.createdAt != null
-                      ? _formatDate(req.createdAt!)
-                      : '',
-                  actions: [
-                    if (hasBorrows)
-                      _ActionButton(
-                        icon: Icons.info_outline_rounded,
-                        color: Colors.blue.shade600,
-                        tooltip: 'View unsettled borrows',
-                        onTap: () async {
-                          final borrows = await repository
-                              .fetchActiveBorrowsForMember(req.memberId!);
-                          if (!mounted) return;
-                          await _showBorrowsModal(
-                            req.memberName ?? 'Member',
-                            borrows,
-                          );
-                        },
-                      ),
-                    _ActionButton(
-                      icon: Icons.check_circle_outline,
-                      color: hasBorrows
-                          ? Colors.grey.shade400
-                          : StockpileColors.success,
-                      tooltip: hasBorrows
-                          ? 'Cannot approve — unsettled borrows'
-                          : 'Approve',
-                      onTap: hasBorrows ? null : () => _approve(req),
-                    ),
-                    _ActionButton(
-                      icon: Icons.cancel_outlined,
-                      color: StockpileColors.error500,
-                      tooltip: 'Reject',
-                      onTap: () => _reject(req),
-                    ),
-                  ],
-                );
-              }
-
-              if (isBorrow) {
-                final submitter = _profiles[req.userId] ?? 'Unknown';
-                final role = _roles[req.userId] ?? '';
-                final submitterLabel = role.isNotEmpty
-                    ? '$submitter ($role)'
-                    : submitter;
-
-                final detailParts = <String>[
-                  'For ${req.memberName ?? 'Unknown'}',
-                  '×${req.quantity ?? 0}',
-                ];
-                if (req.price != null && req.price! > 0) {
-                  detailParts.add('₱${req.price} each');
-                }
-                final notes = req.notes;
-
-                return _buildModernRequestCard(
-                  isDark: isDark,
-                  accentColor: Colors.orange.shade600,
-                  icon: icon,
-                  title: 'Borrow Request',
-                  body: req.itemName ?? 'Unknown item',
-                  detail: detailParts.join(' · '),
-                  notes: notes != null && notes.isNotEmpty ? notes : null,
-                  reason: req.reason,
-                  submitter: submitterLabel,
-                  timeAgo: req.createdAt != null
-                      ? _formatDate(req.createdAt!)
-                      : '',
-                  actions: [
-                    _ActionButton(
-                      icon: Icons.check_circle_outline,
-                      color: StockpileColors.success,
-                      tooltip: 'Approve borrow',
-                      onTap: () => _approve(req),
-                    ),
-                    _ActionButton(
-                      icon: Icons.cancel_outlined,
-                      color: StockpileColors.error500,
-                      tooltip: 'Reject',
-                      onTap: () => _reject(req),
-                    ),
-                  ],
-                );
-              }
-
-              final submitter = _profiles[req.userId] ?? 'Unknown';
-              final role = _roles[req.userId] ?? '';
-              final submitterLabel = role.isNotEmpty
-                  ? '$submitter ($role)'
-                  : submitter;
-
-              if (isDelete) {
-                return _buildModernRequestCard(
-                  isDark: isDark,
-                  accentColor: StockpileColors.error500,
-                  icon: icon,
-                  title: 'Delete Request',
-                  body: req.itemName ?? 'Unknown item',
-                  reason: req.reason,
-                  submitter: submitterLabel,
-                  timeAgo: req.createdAt != null
-                      ? _formatDate(req.createdAt!)
-                      : '',
-                  actions: [
-                    _ActionButton(
-                      icon: Icons.check_circle_outline,
-                      color: StockpileColors.success,
-                      tooltip: 'Approve',
-                      onTap: () => _approve(req),
-                    ),
-                    _ActionButton(
-                      icon: Icons.cancel_outlined,
-                      color: StockpileColors.error500,
-                      tooltip: 'Reject',
-                      onTap: () => _reject(req),
-                    ),
-                  ],
-                );
-              } else {
-                return _buildModernRequestCard(
-                  isDark: isDark,
-                  accentColor: Colors.orange.shade600,
-                  icon: icon,
-                  title: 'Reduce Stock Request',
-                  body: req.itemName ?? 'Unknown item',
-                  detail: req.quantity != null
-                      ? 'Reduce by ${req.quantity}'
-                      : null,
-                  reason: req.reason,
-                  submitter: submitterLabel,
-                  timeAgo: req.createdAt != null
-                      ? _formatDate(req.createdAt!)
-                      : '',
-                  actions: [
-                    _ActionButton(
-                      icon: Icons.check_circle_outline,
-                      color: StockpileColors.success,
-                      tooltip: 'Approve',
-                      onTap: () => _approve(req),
-                    ),
-                    _ActionButton(
-                      icon: Icons.cancel_outlined,
-                      color: StockpileColors.error500,
-                      tooltip: 'Reject',
-                      onTap: () => _reject(req),
-                    ),
-                  ],
-                );
-              }
-            },
-          ),
-        ),
+        Expanded(child: _buildCombinedPendingList(isDark, theme)),
         if (_pendingVisibleCount < _pendingRequests.length || _pendingHasMore)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -6636,6 +6564,447 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     // Past — overdue
     final overdue = -diff.inDays;
     return '${overdue}d overdue';
+  }
+
+  Widget _buildCombinedPendingList(bool isDark, ThemeData theme) {
+    // Show withdrawal requests first, then pending requests
+    final pendingSlice = _pendingRequests.take(_pendingVisibleCount).toList();
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      itemCount:
+          _withdrawalRequests.length +
+          pendingSlice.length +
+          (_withdrawalRequests.isNotEmpty ? 1 : 0), // section header
+      itemBuilder: (context, index) {
+        // Withdrawal section header
+        if (_withdrawalRequests.isNotEmpty && index == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8, top: 4),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.account_balance_wallet_rounded,
+                  size: 18,
+                  color: StockpileColors.primary900,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Withdrawal Requests',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: isDark
+                        ? StockpileColors.darkTextPrimary
+                        : StockpileColors.darkText,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: StockpileColors.primary900.withAlpha(25),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${_withdrawalRequests.length}',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: StockpileColors.primary900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Withdrawal cards
+        final withdrawalOffset = _withdrawalRequests.isNotEmpty ? 1 : 0;
+        if (index < _withdrawalRequests.length + withdrawalOffset) {
+          final wIndex = index - withdrawalOffset;
+          return _buildWithdrawalCard(
+            _withdrawalRequests[wIndex],
+            isDark,
+            theme,
+          );
+        }
+
+        // Pending request cards
+        final reqIndex = index - _withdrawalRequests.length - withdrawalOffset;
+        final req = pendingSlice[reqIndex];
+        return _buildPendingRequestCard(req, isDark, theme);
+      },
+    );
+  }
+
+  Widget _buildPendingRequestCard(
+    PendingRequest req,
+    bool isDark,
+    ThemeData theme,
+  ) {
+    final isMemberDelete = req.requestType == 'delete_member';
+    final isDelete = req.requestType == 'delete';
+    final isBorrow = req.requestType == 'borrow';
+    final icon = isMemberDelete
+        ? Icons.person_remove_rounded
+        : isDelete
+        ? Icons.delete_forever_rounded
+        : isBorrow
+        ? Icons.swap_horiz_rounded
+        : Icons.arrow_downward_rounded;
+
+    if (isMemberDelete) {
+      final hasBorrows = _memberBorrowStatus[req.memberId] ?? false;
+      final submitter = _profiles[req.userId] ?? 'Unknown';
+      final role = _roles[req.userId] ?? '';
+      final submitterLabel = role.isNotEmpty ? '$submitter ($role)' : submitter;
+
+      return _buildModernRequestCard(
+        isDark: isDark,
+        accentColor: Colors.purple.shade600,
+        icon: icon,
+        title: 'Delete Member Request',
+        body: req.memberName ?? 'Unknown',
+        detail: hasBorrows ? '⚠ This member has unsettled borrows' : null,
+        detailColor: Colors.red,
+        reason: req.reason,
+        submitter: submitterLabel,
+        timeAgo: req.createdAt != null ? _formatDate(req.createdAt!) : '',
+        actions: [
+          if (hasBorrows)
+            _ActionButton(
+              icon: Icons.info_outline_rounded,
+              color: Colors.blue.shade600,
+              tooltip: 'View unsettled borrows',
+              onTap: () async {
+                final borrows = await repository.fetchActiveBorrowsForMember(
+                  req.memberId!,
+                );
+                if (!mounted) return;
+                await _showBorrowsModal(req.memberName ?? 'Member', borrows);
+              },
+            ),
+          _ActionButton(
+            icon: Icons.check_circle_outline,
+            color: hasBorrows ? Colors.grey.shade400 : StockpileColors.success,
+            tooltip: hasBorrows
+                ? 'Cannot approve — unsettled borrows'
+                : 'Approve',
+            onTap: hasBorrows ? null : () => _approve(req),
+          ),
+          _ActionButton(
+            icon: Icons.cancel_outlined,
+            color: StockpileColors.error500,
+            tooltip: 'Reject',
+            onTap: () => _reject(req),
+          ),
+        ],
+      );
+    }
+
+    if (isBorrow) {
+      final submitter = _profiles[req.userId] ?? 'Unknown';
+      final role = _roles[req.userId] ?? '';
+      final submitterLabel = role.isNotEmpty ? '$submitter ($role)' : submitter;
+
+      final detailParts = <String>[
+        'For ${req.memberName ?? 'Unknown'}',
+        '×${req.quantity ?? 0}',
+      ];
+      if (req.price != null && req.price! > 0) {
+        detailParts.add('₱${req.price} each');
+      }
+      final notes = req.notes;
+
+      return _buildModernRequestCard(
+        isDark: isDark,
+        accentColor: Colors.orange.shade600,
+        icon: icon,
+        title: 'Borrow Request',
+        body: req.itemName ?? 'Unknown item',
+        detail: detailParts.join(' · '),
+        notes: notes != null && notes.isNotEmpty ? notes : null,
+        reason: req.reason,
+        submitter: submitterLabel,
+        timeAgo: req.createdAt != null ? _formatDate(req.createdAt!) : '',
+        actions: [
+          _ActionButton(
+            icon: Icons.check_circle_outline,
+            color: StockpileColors.success,
+            tooltip: 'Approve borrow',
+            onTap: () => _approve(req),
+          ),
+          _ActionButton(
+            icon: Icons.cancel_outlined,
+            color: StockpileColors.error500,
+            tooltip: 'Reject',
+            onTap: () => _reject(req),
+          ),
+        ],
+      );
+    }
+
+    final submitter = _profiles[req.userId] ?? 'Unknown';
+    final role = _roles[req.userId] ?? '';
+    final submitterLabel = role.isNotEmpty ? '$submitter ($role)' : submitter;
+
+    if (isDelete) {
+      return _buildModernRequestCard(
+        isDark: isDark,
+        accentColor: StockpileColors.error500,
+        icon: icon,
+        title: 'Delete Request',
+        body: req.itemName ?? 'Unknown item',
+        reason: req.reason,
+        submitter: submitterLabel,
+        timeAgo: req.createdAt != null ? _formatDate(req.createdAt!) : '',
+        actions: [
+          _ActionButton(
+            icon: Icons.check_circle_outline,
+            color: StockpileColors.success,
+            tooltip: 'Approve',
+            onTap: () => _approve(req),
+          ),
+          _ActionButton(
+            icon: Icons.cancel_outlined,
+            color: StockpileColors.error500,
+            tooltip: 'Reject',
+            onTap: () => _reject(req),
+          ),
+        ],
+      );
+    } else {
+      return _buildModernRequestCard(
+        isDark: isDark,
+        accentColor: Colors.orange.shade600,
+        icon: icon,
+        title: 'Reduce Stock Request',
+        body: req.itemName ?? 'Unknown item',
+        detail: req.quantity != null ? 'Reduce by ${req.quantity}' : null,
+        reason: req.reason,
+        submitter: submitterLabel,
+        timeAgo: req.createdAt != null ? _formatDate(req.createdAt!) : '',
+        actions: [
+          _ActionButton(
+            icon: Icons.check_circle_outline,
+            color: StockpileColors.success,
+            tooltip: 'Approve',
+            onTap: () => _approve(req),
+          ),
+          _ActionButton(
+            icon: Icons.cancel_outlined,
+            color: StockpileColors.error500,
+            tooltip: 'Reject',
+            onTap: () => _reject(req),
+          ),
+        ],
+      );
+    }
+  }
+
+  Widget _buildWithdrawalCard(
+    WithdrawalRequest req,
+    bool isDark,
+    ThemeData theme,
+  ) {
+    final memberName = _memberNames[req.memberId] ?? 'Member #${req.memberId}';
+    final cs = context.read<ConfigService>().currencySymbol;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isDark ? Colors.white10 : Colors.grey.shade200,
+          width: 1,
+        ),
+      ),
+      color: isDark ? Colors.grey.shade900 : Colors.white,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Left accent bar
+            Container(
+              width: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFF6366F1),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  bottomLeft: Radius.circular(16),
+                ),
+              ),
+            ),
+            // Content
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: const Color(
+                              0xFF6366F1,
+                            ).withAlpha(isDark ? 30 : 20),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.account_balance_wallet_rounded,
+                            size: 18,
+                            color: Color(0xFF6366F1),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Withdrawal Request',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: isDark
+                                  ? Colors.white
+                                  : const Color(0xFF1E293B),
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '$cs${req.requestedAmount} from ${req.sourceLabel}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : const Color(0xFF334155),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'By $memberName',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark
+                            ? Colors.white54
+                            : const Color(0xFF64748B),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Divider(
+                      color: isDark ? Colors.white10 : Colors.grey.shade200,
+                      height: 1,
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.access_time_rounded,
+                                size: 13,
+                                color: isDark
+                                    ? Colors.white38
+                                    : Colors.grey.shade500,
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  req.createdAt != null
+                                      ? _formatDateTimeShort(req.createdAt!)
+                                      : '',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.grey.shade500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Material(
+                                color: StockpileColors.success.withAlpha(
+                                  isDark ? 25 : 15,
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                                child: InkWell(
+                                  onTap: () => _approveWithdrawal(req),
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    width: 36,
+                                    height: 36,
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.check_circle_outline,
+                                      size: 20,
+                                      color: StockpileColors.success,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Material(
+                                color: StockpileColors.error500.withAlpha(
+                                  isDark ? 25 : 15,
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                                child: InkWell(
+                                  onTap: () => _rejectWithdrawal(req),
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    width: 36,
+                                    height: 36,
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.cancel_outlined,
+                                      size: 20,
+                                      color: StockpileColors.error500,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDateTimeShort(DateTime dt) {
+    final local = dt.toLocal();
+    final h = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final ampm = local.hour < 12 ? 'AM' : 'PM';
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')} '
+        '$h:${local.minute.toString().padLeft(2, '0')}$ampm';
   }
 }
 

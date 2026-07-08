@@ -1647,6 +1647,7 @@ class _EarningsTabState extends State<_EarningsTab> {
   List<Sale> _recentRemits = [];
   List<EarningsSnapshot> _history = [];
   bool _loading = true;
+  StreamSubscription<String>? _changeSub;
 
   /// Which list the ledger card shows: 0 = Earnings History, 1 = Remittances.
   int _ledgerView = 0;
@@ -1655,6 +1656,19 @@ class _EarningsTabState extends State<_EarningsTab> {
   void initState() {
     super.initState();
     _load();
+    _changeSub = repository.changes.listen((event) {
+      if (event == 'withdrawal_request_approved' ||
+          event == 'withdrawal_request_rejected' ||
+          event == 'withdrawal_requests_changed') {
+        _load();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _changeSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -1758,6 +1772,15 @@ class _EarningsTabState extends State<_EarningsTab> {
               ],
             ),
           ],
+          SizedBox(height: isMobile ? 8 : 16),
+          // ── Withdrawal request buttons ─────────────────
+          _WithdrawalButtons(
+            isDark: isDark,
+            totalEarnings: _totalEarnings,
+            balance: _balance,
+            memberId: widget.member.id!,
+            onWithdrew: _load,
+          ),
           SizedBox(height: isMobile ? 8 : 16),
           // ── Stats row ────────────────────────────────────
           if (isMobile)
@@ -3267,6 +3290,808 @@ class _ChangePasswordFormState extends State<_ChangePasswordForm> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Withdrawal Request Buttons (Earnings Tab) ───────────────────────────
+
+class _WithdrawalButtons extends StatelessWidget {
+  final bool isDark;
+  final int totalEarnings;
+  final int balance;
+  final int memberId;
+  final VoidCallback onWithdrew;
+
+  const _WithdrawalButtons({
+    required this.isDark,
+    required this.totalEarnings,
+    required this.balance,
+    required this.memberId,
+    required this.onWithdrew,
+  });
+
+  bool get _isFriday => DateTime.now().weekday == DateTime.friday;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // "Withdraw From Total Earnings" — only active on Fridays
+        _WithdrawButton(
+          label: 'Withdraw Request From Total Earnings',
+          icon: Icons.account_balance_wallet_rounded,
+          amount: totalEarnings,
+          sourceBucket: 'total_earnings',
+          isDark: isDark,
+          memberId: memberId,
+          enabled: _isFriday && totalEarnings > 0,
+          lockedHint: _isFriday ? null : 'Available on Fridays only',
+          onWithdrew: onWithdrew,
+        ),
+        const SizedBox(height: 10),
+        // "Withdraw From Balance" — always available
+        _WithdrawButton(
+          label: 'Withdraw Request From Balance',
+          icon: Icons.savings_rounded,
+          amount: balance,
+          sourceBucket: 'balance',
+          isDark: isDark,
+          memberId: memberId,
+          enabled: balance > 0,
+          lockedHint: balance <= 0 ? 'No balance available' : null,
+          onWithdrew: onWithdrew,
+        ),
+        const SizedBox(height: 10),
+        // "View Withdrawal History" — opens bottom sheet
+        _ViewHistoryButton(isDark: isDark, memberId: memberId),
+      ],
+    );
+  }
+}
+
+class _ViewHistoryButton extends StatelessWidget {
+  final bool isDark;
+  final int memberId;
+
+  const _ViewHistoryButton({required this.isDark, required this.memberId});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: () => _showHistorySheet(context),
+        icon: const Icon(Icons.history_rounded, size: 18),
+        label: const Text('View Withdrawal History'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: isDark
+              ? StockpileColors.darkTextPrimary
+              : StockpileColors.darkText,
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          side: BorderSide(
+            color: isDark
+                ? StockpileColors.darkDivider
+                : StockpileColors.divider,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showHistorySheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) =>
+          _WithdrawalHistorySheet(memberId: memberId, isDark: isDark),
+    );
+  }
+}
+
+class _WithdrawButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final int amount;
+  final String sourceBucket;
+  final bool isDark;
+  final int memberId;
+  final bool enabled;
+  final String? lockedHint;
+  final VoidCallback onWithdrew;
+
+  const _WithdrawButton({
+    required this.label,
+    required this.icon,
+    required this.amount,
+    required this.sourceBucket,
+    required this.isDark,
+    required this.memberId,
+    required this.enabled,
+    this.lockedHint,
+    required this.onWithdrew,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.watch<ConfigService>().currencySymbol;
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: enabled
+            ? () => _showWithdrawalDialog(context, cs)
+            : lockedHint != null
+            ? () => BotToast.showText(text: lockedHint!)
+            : null,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: enabled
+              ? (isDark
+                    ? StockpileColors.darkTextPrimary
+                    : StockpileColors.darkText)
+              : (isDark
+                    ? StockpileColors.darkTextMuted
+                    : StockpileColors.mutedText),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          side: BorderSide(
+            color: enabled
+                ? StockpileColors.primary900.withAlpha(80)
+                : (isDark
+                      ? StockpileColors.darkDivider
+                      : StockpileColors.divider),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showWithdrawalDialog(BuildContext context, String cs) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => _WithdrawalRequestDialog(
+        sourceBucket: sourceBucket,
+        sourceLabel: sourceBucket == 'total_earnings'
+            ? 'Total Earnings'
+            : 'Balance',
+        maxAmount: amount,
+        currencySymbol: cs,
+        memberId: memberId,
+        isDark: isDark,
+        onWithdrew: onWithdrew,
+      ),
+    );
+  }
+}
+
+// ─── Withdrawal Request Dialog ─────────────────────────────────────────────
+
+class _WithdrawalRequestDialog extends StatefulWidget {
+  final String sourceBucket;
+  final String sourceLabel;
+  final int maxAmount;
+  final String currencySymbol;
+  final int memberId;
+  final bool isDark;
+  final VoidCallback onWithdrew;
+
+  const _WithdrawalRequestDialog({
+    required this.sourceBucket,
+    required this.sourceLabel,
+    required this.maxAmount,
+    required this.currencySymbol,
+    required this.memberId,
+    required this.isDark,
+    required this.onWithdrew,
+  });
+
+  @override
+  State<_WithdrawalRequestDialog> createState() =>
+      _WithdrawalRequestDialogState();
+}
+
+class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
+  final _amountCtrl = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _submitting = true);
+
+    final amount = int.tryParse(_amountCtrl.text.trim());
+    if (amount == null || amount <= 0) {
+      if (mounted) setState(() => _submitting = false);
+      return;
+    }
+
+    try {
+      final result = await repository.submitWithdrawalRequest(
+        memberId: widget.memberId,
+        sourceBucket: widget.sourceBucket,
+        amount: amount,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      if (result != null) {
+        BotToast.showText(
+          text:
+              'Withdrawal request submitted for '
+              '${widget.currencySymbol}$amount',
+        );
+        widget.onWithdrew();
+      } else {
+        BotToast.showText(text: 'Failed to submit request. Please try again.');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      BotToast.showText(text: 'Error: $e');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = widget.isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final mutedColor = widget.isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: [
+          Icon(
+            widget.sourceBucket == 'total_earnings'
+                ? Icons.account_balance_wallet_rounded
+                : Icons.savings_rounded,
+            color: StockpileColors.primary900,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Withdraw from ${widget.sourceLabel}',
+              style: StockpileFonts.satoshi(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+            ),
+          ),
+        ],
+      ),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Available: ${widget.currencySymbol}${widget.maxAmount}',
+              style: StockpileFonts.satoshi(fontSize: 13, color: mutedColor),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _amountCtrl,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: 'Amount to withdraw',
+                prefixText: '${widget.currencySymbol} ',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) {
+                  return 'Please enter an amount';
+                }
+                final n = int.tryParse(v.trim());
+                if (n == null || n <= 0) {
+                  return 'Enter a valid positive amount';
+                }
+                if (n > widget.maxAmount) {
+                  return 'Amount exceeds available ${widget.sourceLabel} '
+                      '(${widget.currencySymbol}${widget.maxAmount})';
+                }
+                return null;
+              },
+              onFieldSubmitted: (_) => _submit(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submitting ? null : _submit,
+          child: _submitting
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Submit Request'),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Withdrawal History Bottom Sheet ────────────────────────────────────────
+
+class _WithdrawalHistorySheet extends StatefulWidget {
+  final int memberId;
+  final bool isDark;
+
+  const _WithdrawalHistorySheet({required this.memberId, required this.isDark});
+
+  @override
+  State<_WithdrawalHistorySheet> createState() =>
+      _WithdrawalHistorySheetState();
+}
+
+class _WithdrawalHistorySheetState extends State<_WithdrawalHistorySheet> {
+  List<WithdrawalRequest> _requests = [];
+  bool _loading = true;
+  String? _error;
+  final Set<String> _expandedIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final requests = await repository.fetchWithdrawalsForMember(
+        widget.memberId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _requests = requests;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Failed to load history';
+        _loading = false;
+      });
+    }
+  }
+
+  void _toggleExpanded(String id) {
+    setState(() {
+      if (_expandedIds.contains(id)) {
+        _expandedIds.remove(id);
+      } else {
+        _expandedIds.add(id);
+      }
+    });
+  }
+
+  static String _formatDateTime(DateTime dt) {
+    final local = dt.toLocal();
+    final h = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final ampm = local.hour < 12 ? 'AM' : 'PM';
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')} '
+        '$h:${local.minute.toString().padLeft(2, '0')}$ampm';
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'approved':
+        return StockpileColors.success;
+      case 'rejected':
+        return StockpileColors.danger;
+      default:
+        return Colors.orange.shade600;
+    }
+  }
+
+  Color _statusBg(String status) {
+    switch (status) {
+      case 'approved':
+        return StockpileColors.successBg;
+      case 'rejected':
+        return StockpileColors.dangerBg;
+      default:
+        return Colors.orange.shade50;
+    }
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'approved':
+        return 'Approved';
+      case 'rejected':
+        return 'Rejected';
+      default:
+        return 'Pending';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.watch<ConfigService>().currencySymbol;
+    final isDark = widget.isDark;
+    final textColor = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final mutedColor = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (context, scrollController) {
+        return Column(
+          children: [
+            // ── Handle + Title ──────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+              child: Column(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white24 : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.history_rounded,
+                        size: 22,
+                        color: StockpileColors.primary900,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Withdrawal History',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: textColor,
+                          ),
+                        ),
+                      ),
+                      if (_requests.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: StockpileColors.primary900.withAlpha(20),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${_requests.length}',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: StockpileColors.primary900,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Divider(
+                    color: isDark
+                        ? StockpileColors.darkDivider
+                        : StockpileColors.divider,
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Body ────────────────────────────────────────
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            size: 40,
+                            color: Colors.red,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(_error!),
+                          const SizedBox(height: 12),
+                          OutlinedButton(
+                            onPressed: () {
+                              setState(() {
+                                _loading = true;
+                                _error = null;
+                              });
+                              _load();
+                            },
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : _requests.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.inbox_rounded,
+                            size: 48,
+                            color: mutedColor,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No withdrawal requests yet',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: mutedColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                      itemCount: _requests.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final req = _requests[index];
+                        return _HistoryCard(
+                          request: req,
+                          currencySymbol: cs,
+                          isDark: isDark,
+                          textColor: textColor,
+                          mutedColor: mutedColor,
+                          statusColor: _statusColor(req.status),
+                          statusBg: _statusBg(req.status),
+                          statusLabel: _statusLabel(req.status),
+                          formattedDate: req.createdAt != null
+                              ? _formatDateTime(req.createdAt!)
+                              : '',
+                          isExpanded: _expandedIds.contains(req.id),
+                          onTap:
+                              req.status == 'rejected' &&
+                                  req.rejectionReason != null &&
+                                  req.rejectionReason!.isNotEmpty
+                              ? () => _toggleExpanded(req.id!)
+                              : null,
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _HistoryCard extends StatelessWidget {
+  final WithdrawalRequest request;
+  final String currencySymbol;
+  final bool isDark;
+  final Color textColor;
+  final Color mutedColor;
+  final Color statusColor;
+  final Color statusBg;
+  final String statusLabel;
+  final String formattedDate;
+  final bool isExpanded;
+  final VoidCallback? onTap;
+
+  const _HistoryCard({
+    required this.request,
+    required this.currencySymbol,
+    required this.isDark,
+    required this.textColor,
+    required this.mutedColor,
+    required this.statusColor,
+    required this.statusBg,
+    required this.statusLabel,
+    required this.formattedDate,
+    required this.isExpanded,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+          decoration: BoxDecoration(
+            color: isDark
+                ? StockpileColors.darkSurface
+                : StockpileColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isDark
+                  ? StockpileColors.darkDivider
+                  : StockpileColors.divider,
+            ),
+          ),
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Top row: pool icon + source label + status badge ──
+              Row(
+                children: [
+                  Icon(
+                    request.sourceBucket == 'total_earnings'
+                        ? Icons.account_balance_wallet_rounded
+                        : Icons.savings_rounded,
+                    size: 18,
+                    color: mutedColor,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      request.sourceLabel,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusBg,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: statusColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // ── Amount + date ──────────────────────────────────
+              Row(
+                children: [
+                  Text(
+                    '$currencySymbol${request.requestedAmount}',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: textColor,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(Icons.access_time_rounded, size: 13, color: mutedColor),
+                  const SizedBox(width: 4),
+                  Text(
+                    formattedDate,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 12,
+                      color: mutedColor,
+                    ),
+                  ),
+                ],
+              ),
+
+              // ── Rejection reason (expandable) ──────────────────
+              if (request.status == 'rejected' &&
+                  request.rejectionReason != null &&
+                  request.rejectionReason!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(
+                      isExpanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      size: 16,
+                      color: StockpileColors.danger,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      isExpanded ? 'Hide reason' : 'View rejection reason',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: StockpileColors.danger,
+                      ),
+                    ),
+                  ],
+                ),
+                AnimatedCrossFade(
+                  firstChild: const SizedBox.shrink(),
+                  secondChild: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: StockpileColors.dangerBg.withAlpha(60),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border(
+                          left: BorderSide(
+                            color: StockpileColors.danger.withAlpha(100),
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                      child: Text(
+                        request.rejectionReason!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontStyle: FontStyle.italic,
+                          color: isDark
+                              ? const Color(0xFFFCA5A5)
+                              : const Color(0xFF991B1B),
+                          height: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  crossFadeState: isExpanded
+                      ? CrossFadeState.showSecond
+                      : CrossFadeState.showFirst,
+                  duration: const Duration(milliseconds: 250),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
