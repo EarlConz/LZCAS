@@ -81,6 +81,7 @@ class Member {
   final String? email;
   final String? userId;
   final int? packageId;
+  final String? packageName; // joined via Supabase FK -> packages(name)
   final DateTime? quotaValidUntil;
   final DateTime? lastRemittanceAt;
 
@@ -102,6 +103,7 @@ class Member {
     this.email,
     this.userId,
     this.packageId,
+    this.packageName,
     this.quotaValidUntil,
     this.lastRemittanceAt,
   });
@@ -124,6 +126,7 @@ class Member {
     email: json['email'] as String?,
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
+    packageName: _extractPackageName(json['packages']),
     quotaValidUntil: json['quota_valid_until'] != null
         ? DateTime.tryParse(json['quota_valid_until'].toString())
         : null,
@@ -169,6 +172,7 @@ class Member {
     String? email,
     String? userId,
     int? packageId,
+    String? packageName,
     DateTime? quotaValidUntil,
     DateTime? lastRemittanceAt,
   }) => Member(
@@ -189,6 +193,7 @@ class Member {
     email: email ?? this.email,
     userId: userId ?? this.userId,
     packageId: packageId ?? this.packageId,
+    packageName: packageName ?? this.packageName,
     quotaValidUntil: quotaValidUntil ?? this.quotaValidUntil,
     lastRemittanceAt: lastRemittanceAt ?? this.lastRemittanceAt,
   );
@@ -1022,6 +1027,7 @@ List<Map<String, dynamic>> membersFromRows(List<Member> rows) {
           'email': m.email ?? '',
           'user_id': m.userId ?? '',
           'packageId': m.packageId,
+          'packageName': m.packageName ?? '',
         },
       )
       .toList();
@@ -1032,6 +1038,20 @@ String statusFromStock(int stock, {int threshold = 50}) {
   if (stock <= 0) return 'Out of Stock';
   if (stock < threshold) return 'Low Stock';
   return 'Good';
+}
+
+/// Extract a package name from a PostgREST FK join result.
+/// Handles: null, single map {name: "..."}, or array [{name: "..."}].
+String? _extractPackageName(dynamic packages) {
+  if (packages == null) return null;
+  if (packages is List) {
+    if (packages.isEmpty) return null;
+    return (packages.first as Map<String, dynamic>)['name'] as String?;
+  }
+  if (packages is Map<String, dynamic>) {
+    return packages['name'] as String?;
+  }
+  return null;
 }
 
 /// Default configuration values used when no app_config row exists.

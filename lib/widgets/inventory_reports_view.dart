@@ -42,6 +42,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     'Return',
     'Remit',
     'Sale',
+    'Package',
   ];
 
   /// Compute start and end UTC dates from the selected period,
@@ -251,7 +252,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                   : 'Walk-in';
             })());
         movements.add({
-          'type': 'Sale',
+          'type': s.isPackage ? 'Package' : 'Sale',
           'item': s.itemName,
           'qty': s.quantity,
           'user': userName,
@@ -542,6 +543,12 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           color: Colors.purple,
           label: 'Remit',
         );
+      case 'Package':
+        return (
+          icon: Icons.inventory_2_rounded,
+          color: StockpileColors.success,
+          label: 'Package',
+        );
       default:
         return (
           icon: Icons.shopping_cart_rounded,
@@ -604,6 +611,14 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                     value:
                         '${_movements.where((m) => m['type'] == 'Sale').length}',
                     color: StockpileColors.primary900,
+                    isDark: isDark,
+                  ),
+                  _ReportStatCard(
+                    icon: Icons.inventory_2_rounded,
+                    label: 'Packages',
+                    value:
+                        '${_movements.where((m) => m['type'] == 'Package').length}',
+                    color: StockpileColors.success,
                     isDark: isDark,
                   ),
                   _ReportStatCard(

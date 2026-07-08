@@ -3595,7 +3595,24 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     );
   }
 
-  void _showMemberDetail(BuildContext context, Map<String, dynamic> member) {
+  void _showMemberDetail(
+    BuildContext context,
+    Map<String, dynamic> member,
+  ) async {
+    // Resolve package name client-side from the member's packageId.
+    String packageName = '';
+    try {
+      final pkgIdRaw = member['packageId'];
+      final pkgId = pkgIdRaw is int ? pkgIdRaw : int.tryParse('$pkgIdRaw');
+      if (pkgId != null) {
+        final packages = await repository.fetchPackages();
+        final pkg = packages.where((p) => p.id == pkgId).firstOrNull;
+        if (pkg != null) packageName = pkg.name;
+      }
+    } catch (_) {}
+
+    if (!mounted) return;
+
     final fullName = [
       member['firstName'],
       member['middleName'],
@@ -3673,6 +3690,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                           isReseller: isReseller,
                           email: email,
                           hasAccount: hasAccount,
+                          packageName: packageName,
                           isDark: isDark,
                           textColor: textColor,
                           muted: muted,
@@ -4407,6 +4425,7 @@ class _ModalAvatarHeader extends StatelessWidget {
     required this.isReseller,
     required this.email,
     required this.hasAccount,
+    required this.packageName,
     required this.isDark,
     required this.textColor,
     required this.muted,
@@ -4418,6 +4437,7 @@ class _ModalAvatarHeader extends StatelessWidget {
   final bool isReseller;
   final String email;
   final bool hasAccount;
+  final String packageName;
   final bool isDark;
   final Color textColor;
   final Color muted;
@@ -4525,6 +4545,22 @@ class _ModalAvatarHeader extends StatelessWidget {
                           : textColor.withAlpha(10),
                       textColor: hasAccount ? StockpileColors.success : muted,
                       iconColor: hasAccount ? StockpileColors.success : muted,
+                    ),
+                    // Package badge (always visible beside account status)
+                    _InfoBadge(
+                      icon: Icons.inventory_2,
+                      label: packageName.isNotEmpty
+                          ? packageName
+                          : 'Standard Account',
+                      bgColor: packageName.isNotEmpty
+                          ? StockpileColors.secondary400.withAlpha(26)
+                          : textColor.withAlpha(12),
+                      textColor: packageName.isNotEmpty
+                          ? StockpileColors.secondary400
+                          : muted,
+                      iconColor: packageName.isNotEmpty
+                          ? StockpileColors.secondary400
+                          : muted,
                     ),
                   ],
                 ),

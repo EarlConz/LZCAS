@@ -93,6 +93,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   bool _referralsLoading = true;
   List<Sale> _availedPackages = [];
   bool _packagesLoading = true;
+  String _currentPackageName = '';
   late final StreamSubscription<String> _sub;
 
   @override
@@ -122,28 +123,29 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     });
   }
 
-  /// Load the packages this member availed (sales rows with a package_id).
-  /// Shows the CURRENT catalog name/price so renames and price changes
-  /// reflect immediately; falls back to the sale snapshot for packages
-  /// that were deleted from the catalog.
+  /// Resolves the current package name client-side (no PostgREST join):
+  ///   1) member.packageId → lookup in catalog
+  ///   2) Most-recent availed package from sales history
   Future<void> _loadAvailedPackages() async {
     final memberId = member['id'] as int?;
     if (memberId == null) {
       if (mounted) setState(() => _packagesLoading = false);
       return;
     }
-    final results = await Future.wait([
-      repository.fetchSalesForMember(memberId),
-      repository.fetchPackages(),
-    ]);
-    if (!mounted) return;
-    final sales = results[0] as List<Sale>;
-    final pkgById = {
-      for (final p in results[1] as List<Package>)
-        if (p.id != null) p.id!: p,
-    };
-    setState(() {
-      _availedPackages =
+    try {
+      final results = await Future.wait([
+        repository.fetchSalesForMember(memberId),
+        repository.fetchPackages(),
+      ]);
+      if (!mounted) return;
+      final sales = results[0] as List<Sale>;
+      final packages = results[1] as List<Package>;
+      final pkgById = {
+        for (final p in packages)
+          if (p.id != null) p.id!: p,
+      };
+
+      final availed =
           sales.where((s) => s.isPackage).map((s) {
             final current = pkgById[s.packageId];
             return current == null
@@ -154,8 +156,37 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
               a.timestamp ?? DateTime(0),
             ),
           );
-      _packagesLoading = false;
-    });
+
+      final rawPkgId = member['packageId'];
+      final pkgId = rawPkgId is int ? rawPkgId : int.tryParse('$rawPkgId');
+
+      debugPrint(
+        '[MbrDetail] memberId=$memberId pkgId=$pkgId '
+        'pkgIdType=${rawPkgId.runtimeType} '
+        'catalogKeys=${pkgById.keys.toList()} '
+        'availedCount=${availed.length}',
+      );
+
+      if (!mounted) return;
+      setState(() {
+        if (pkgId != null && pkgById.containsKey(pkgId)) {
+          _currentPackageName = pkgById[pkgId]!.name;
+          debugPrint('[MbrDetail] RESOLVED via catalog: $_currentPackageName');
+        }
+        if (_currentPackageName.isEmpty && availed.isNotEmpty) {
+          _currentPackageName = availed.first.itemName;
+          debugPrint('[MbrDetail] RESOLVED via availed: $_currentPackageName');
+        }
+        _availedPackages = availed;
+        _packagesLoading = false;
+        debugPrint(
+          '[MbrDetail] FINAL _currentPackageName="$_currentPackageName"',
+        );
+      });
+    } catch (e) {
+      debugPrint('[MemberDetailsCard] _loadAvailedPackages error: $e');
+      if (mounted) setState(() => _packagesLoading = false);
+    }
   }
 
   Future<void> _computeReferralCount() async {
@@ -225,6 +256,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     if (oldWidget.member['id'] != widget.member['id']) {
       member = widget.member;
       _computeReferralCount();
+      _loadAvailedPackages();
     }
   }
 
@@ -462,6 +494,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             referralsLoading: _referralsLoading,
             availedPackages: _availedPackages,
             packagesLoading: _packagesLoading,
+            currentPackageName: _currentPackageName,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
             onIdImageTap: () {
@@ -503,6 +536,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             referralsLoading: _referralsLoading,
             availedPackages: _availedPackages,
             packagesLoading: _packagesLoading,
+            currentPackageName: _currentPackageName,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
             onIdImageTap: () {
@@ -530,6 +564,7 @@ class _MemberProfileSection extends StatelessWidget {
     this.referralsLoading = false,
     this.availedPackages = const [],
     this.packagesLoading = false,
+    this.currentPackageName = '',
     this.showHeader = true,
     this.onIdImageTap,
     this.onCreateAccount,
@@ -544,6 +579,7 @@ class _MemberProfileSection extends StatelessWidget {
   final bool referralsLoading;
   final List<Sale> availedPackages;
   final bool packagesLoading;
+  final String currentPackageName;
   final bool showHeader;
   final VoidCallback? onIdImageTap;
   final VoidCallback? onCreateAccount;
@@ -817,6 +853,9 @@ class _MemberProfileSection extends StatelessWidget {
     final hasEmail = (member['email']?.toString() ?? '').trim().isNotEmpty;
     final hasAccount = hasEmail;
     final email = hasEmail ? member['email']!.toString().trim() : null;
+    final pkgLabel = currentPackageName.isNotEmpty
+        ? currentPackageName
+        : 'Standard Account';
 
     if (hasAccount) {
       // ── Has login account ──────────────────────────────
@@ -827,6 +866,11 @@ class _MemberProfileSection extends StatelessWidget {
             icon: Icons.check_circle_outline,
             label: 'Status',
             value: 'Active login account',
+          ),
+          _DetailLine(
+            icon: Icons.inventory_2_outlined,
+            label: 'Package',
+            value: pkgLabel,
           ),
           if (email != null)
             _DetailLine(
@@ -846,6 +890,11 @@ class _MemberProfileSection extends StatelessWidget {
           icon: Icons.person_outline,
           label: 'Status',
           value: 'No login account',
+        ),
+        _DetailLine(
+          icon: Icons.inventory_2_outlined,
+          label: 'Package',
+          value: pkgLabel,
         ),
         if (onCreateAccount != null) ...[
           const SizedBox(height: 6),
@@ -868,6 +917,9 @@ class _MemberProfileSection extends StatelessWidget {
         : (member['role'] ?? 'Member').toString();
     final isReseller = role == 'Verified Reseller';
     final memberId = member['id']?.toString() ?? '—';
+    final displayPkg = currentPackageName.isNotEmpty
+        ? currentPackageName
+        : 'Standard Account';
 
     return Container(
       width: double.infinity,
@@ -904,11 +956,27 @@ class _MemberProfileSection extends StatelessWidget {
           const SizedBox(width: 12),
           // ── Role ────────────────────────────────────────
           Expanded(
-            flex: 3,
+            flex: 2,
             child: _KeyDetailTile(
               icon: isReseller ? Icons.verified_user : Icons.badge_outlined,
               label: 'Role',
               value: role,
+            ),
+          ),
+          // ── Divider ────────────────────────────────────
+          Container(
+            width: 1,
+            height: 28,
+            color: theme.dividerColor.withAlpha(50),
+          ),
+          const SizedBox(width: 12),
+          // ── Package (always visible, positioned beside role/account) ─
+          Expanded(
+            flex: 3,
+            child: _KeyDetailTile(
+              icon: Icons.inventory_2_outlined,
+              label: 'Package',
+              value: displayPkg,
             ),
           ),
         ],

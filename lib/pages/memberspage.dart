@@ -272,6 +272,7 @@ class _MembersPageState extends State<MembersPage>
                                     vertical: 12,
                                   ),
                                   child: MemberDetailsCard(
+                                    key: ValueKey(selectedMember!['id']),
                                     member: selectedMember!,
                                     showHeader: false,
                                     showCardStyling: false,
