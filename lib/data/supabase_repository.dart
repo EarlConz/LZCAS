@@ -683,6 +683,8 @@ class SupabaseRepository {
   // ── Quota Compliance ─────────────────────────────────────────
 
   /// Count of active quota_overdue alerts (for notification badge).
+  /// Legacy — cron-dependent. Prefer [fetchOverdueResellerCount] for
+  /// real-time accuracy on the sidebar badge.
   Future<int> fetchActiveQuotaAlertCount() async {
     try {
       final result = await _supabase
@@ -692,6 +694,49 @@ class SupabaseRepository {
           .eq('is_active', true)
           .count(CountOption.exact);
       return (result as PostgrestResponse).count;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Real-time count of verified resellers whose quota has expired
+  /// (excludes snoozed members). Used by the sidebar notification badge
+  /// so the count is accurate regardless of nightly cron timing.
+  Future<int> fetchOverdueResellerCount() async {
+    try {
+      final nowUtc = DateTime.now().toUtc().toIso8601String();
+
+      // Get all overdue members
+      final overdueData = await _supabase
+          .from('members')
+          .select('id')
+          .eq('role', 'Verified Reseller')
+          .not('quota_valid_until', 'is', null)
+          .lt('quota_valid_until', nowUtc);
+      final overdueIds = (overdueData as List)
+          .map((m) => (m as Map<String, dynamic>)['id'] as int)
+          .toSet();
+
+      if (overdueIds.isEmpty) return 0;
+
+      // Exclude snoozed members
+      final snoozedData = await _supabase
+          .from('system_alerts')
+          .select('member_id, snoozed_until')
+          .eq('alert_type', 'quota_overdue')
+          .eq('is_active', true)
+          .inFilter('member_id', overdueIds.toList());
+      for (final s in (snoozedData as List)) {
+        final sm = s as Map<String, dynamic>;
+        final snoozedUntil = sm['snoozed_until'] != null
+            ? DateTime.tryParse(sm['snoozed_until'].toString())
+            : null;
+        if (snoozedUntil != null && snoozedUntil.isAfter(DateTime.now())) {
+          overdueIds.remove(sm['member_id'] as int);
+        }
+      }
+
+      return overdueIds.length;
     } catch (_) {
       return 0;
     }
@@ -712,70 +757,314 @@ class SupabaseRepository {
     }
   }
 
-  /// Members with their active quota alerts (joined query for admin table).
-  Future<List<Map<String, dynamic>>> fetchQuotaDelinquentMembers() async {
+  /// Active alerts for a specific member (reseller-facing).
+  Future<List<SystemAlert>> fetchMemberAlerts(int memberId) async {
     try {
-      // Fetch active quota overdue alerts
-      final alertData = await _supabase
+      final nowUtc = DateTime.now().toUtc().toIso8601String();
+      final data = await _supabase
           .from('system_alerts')
           .select()
-          .eq('alert_type', 'quota_overdue')
+          .eq('member_id', memberId)
           .eq('is_active', true)
-          .order('created_at');
-      final alerts = (alertData as List).cast<Map<String, dynamic>>();
-
-      if (alerts.isEmpty) return [];
-
-      // Batch fetch all referenced members
-      final memberIds = alerts
-          .map((a) => a['member_id'] as int)
-          .toSet()
-          .toList();
-      final memberData = await _supabase
-          .from('members')
-          .select()
-          .inFilter('id', memberIds);
-      final members = (memberData as List).cast<Map<String, dynamic>>();
-
-      final memberById = <int, Map<String, dynamic>>{};
-      for (final m in members) {
-        memberById[m['id'] as int] = m;
-      }
-
-      // Attach member data to each alert row
-      for (final a in alerts) {
-        a['members'] = memberById[a['member_id'] as int];
-      }
-
-      return alerts;
+          .or('snoozed_until.is.null, snoozed_until.lte.$nowUtc')
+          .order('created_at', ascending: false);
+      return (data as List).map((j) => SystemAlert.fromJson(j)).toList();
     } catch (_) {
       return [];
     }
   }
 
-  /// Snooze a quota alert (hide for N hours).
-  Future<void> snoozeQuotaAlert(int alertId, {int hours = 24}) async {
+  /// Mark a member's alert as read (dismiss it from their view).
+  Future<void> markAlertRead(int alertId) async {
     await _supabase
         .from('system_alerts')
         .update({
-          'snoozed_until': DateTime.now()
-              .add(Duration(hours: hours))
-              .toUtc()
-              .toIso8601String(),
+          'is_read': true,
+          'read_at': DateTime.now().toUtc().toIso8601String(),
         })
         .eq('id', alertId);
     _changes.add('system_alerts_changed');
   }
 
-  /// Dismiss (deactivate) a quota alert.
-  Future<void> dismissQuotaAlert(int alertId) async {
+  /// KPI summary for the admin Compliance page: total verified resellers,
+  /// overdue count, and compliant count (excludes snoozed members).
+  Future<Map<String, String>> fetchQuotaComplianceSummary() async {
+    try {
+      final nowUtc = DateTime.now().toUtc().toIso8601String();
+
+      // Total verified resellers
+      final totalResult = await _supabase
+          .from('members')
+          .select('id')
+          .eq('role', 'Verified Reseller')
+          .count(CountOption.exact);
+      final total = (totalResult as PostgrestResponse).count;
+
+      // Overdue (quota_valid_until < now, not null)
+      final overdueData = await _supabase
+          .from('members')
+          .select('id')
+          .eq('role', 'Verified Reseller')
+          .not('quota_valid_until', 'is', null)
+          .lt('quota_valid_until', nowUtc);
+      final overdueIds = (overdueData as List)
+          .map((m) => (m as Map<String, dynamic>)['id'] as int)
+          .toSet();
+
+      // Exclude snoozed from overdue
+      if (overdueIds.isNotEmpty) {
+        final snoozedData = await _supabase
+            .from('system_alerts')
+            .select('member_id, snoozed_until')
+            .eq('alert_type', 'quota_overdue')
+            .eq('is_active', true)
+            .inFilter('member_id', overdueIds.toList());
+        for (final s in (snoozedData as List)) {
+          final sm = s as Map<String, dynamic>;
+          final snoozedUntil = sm['snoozed_until'] != null
+              ? DateTime.tryParse(sm['snoozed_until'].toString())
+              : null;
+          if (snoozedUntil != null && snoozedUntil.isAfter(DateTime.now())) {
+            overdueIds.remove(sm['member_id'] as int);
+          }
+        }
+      }
+
+      final overdue = overdueIds.length;
+      final compliant = total - overdue;
+
+      return {
+        'total': '$total',
+        'overdue': '$overdue',
+        'compliant': '$compliant',
+      };
+    } catch (_) {
+      return {'total': '0', 'overdue': '0', 'compliant': '0'};
+    }
+  }
+
+  /// Members with overdue quotas — queried directly from the members table
+  /// (not gated on system_alerts cron), so the compliance page reflects
+  /// real-time quota expiry regardless of whether the nightly job has run.
+  ///
+  /// Returns member rows with an optional `alert_id` key when an active
+  /// quota_overdue alert already exists for that member.
+  Future<List<Map<String, dynamic>>> fetchQuotaDelinquentMembers() async {
+    try {
+      final nowUtc = DateTime.now().toUtc().toIso8601String();
+
+      // Query members directly — catches anyone whose deadline is in the past
+      final memberData = await _supabase
+          .from('members')
+          .select()
+          .eq('role', 'Verified Reseller')
+          .not('quota_valid_until', 'is', null)
+          .lt('quota_valid_until', nowUtc)
+          .order('quota_valid_until');
+      final members = (memberData as List).cast<Map<String, dynamic>>();
+
+      if (members.isEmpty) return [];
+
+      // Fetch any active alerts for these members (for snooze/dismiss actions)
+      final memberIds = members.map((m) => m['id'] as int).toList();
+      final alertData = await _supabase
+          .from('system_alerts')
+          .select('id, member_id, snoozed_until')
+          .eq('alert_type', 'quota_overdue')
+          .eq('is_active', true)
+          .inFilter('member_id', memberIds);
+      final alerts = (alertData as List).cast<Map<String, dynamic>>();
+
+      final alertByMember = <int, int>{};
+      final snoozedMemberIds = <int>{};
+      for (final a in alerts) {
+        final mid = a['member_id'] as int;
+        alertByMember[mid] = a['id'] as int;
+        // Exclude members with an active snooze
+        if (a['snoozed_until'] != null) {
+          final snoozedUntil = DateTime.tryParse(a['snoozed_until'].toString());
+          if (snoozedUntil != null && snoozedUntil.isAfter(DateTime.now())) {
+            snoozedMemberIds.add(mid);
+          }
+        }
+      }
+
+      // Filter out snoozed members
+      members.removeWhere((m) => snoozedMemberIds.contains(m['id'] as int));
+
+      // Attach alert_id to each remaining member row
+      for (final m in members) {
+        m['alert_id'] = alertByMember[m['id'] as int];
+      }
+
+      return members;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Snooze a member's quota alert — creates one if it doesn't exist yet.
+  Future<void> snoozeMemberQuota(int memberId, {int hours = 24}) async {
+    final nowUtc = DateTime.now().toUtc().toIso8601String();
+    final snoozedUntil = DateTime.now()
+        .add(Duration(hours: hours))
+        .toUtc()
+        .toIso8601String();
+
+    // Upsert: try update existing active alert first
+    final existing = await _supabase
+        .from('system_alerts')
+        .select('id')
+        .eq('member_id', memberId)
+        .eq('alert_type', 'quota_overdue')
+        .eq('is_active', true)
+        .maybeSingle();
+
+    if (existing != null) {
+      await _supabase
+          .from('system_alerts')
+          .update({'snoozed_until': snoozedUntil})
+          .eq('id', (existing as Map<String, dynamic>)['id']);
+    } else {
+      // No active alert yet — insert a snoozed one so the member
+      // temporarily drops out of the direct-members query (the next
+      // cron run will recreate it when the snooze expires).
+      final member = await _supabase
+          .from('members')
+          .select('first_name, last_name, quota_valid_until')
+          .eq('id', memberId)
+          .maybeSingle();
+      final m = member as Map<String, dynamic>? ?? {};
+      final displayName = [
+        m['first_name'],
+        m['last_name'],
+      ].where((p) => p != null && (p as String).trim().isNotEmpty).join(' ');
+      final quotaUntil = m['quota_valid_until'] != null
+          ? DateTime.tryParse(m['quota_valid_until'].toString())
+          : null;
+
+      await _supabase.from('system_alerts').insert({
+        'member_id': memberId,
+        'alert_type': 'quota_overdue',
+        'severity': 'warning',
+        'title':
+            'Quota Overdue — ${displayName.isNotEmpty ? displayName : 'Reseller #$memberId'}',
+        'message': quotaUntil != null
+            ? 'Weekly remittance quota expired on '
+                  '${quotaUntil.year}-${quotaUntil.month.toString().padLeft(2, '0')}-${quotaUntil.day.toString().padLeft(2, '0')}.'
+            : 'Weekly remittance quota has expired.',
+        'is_active': true,
+        'is_read': false,
+        'snoozed_until': snoozedUntil,
+        'created_at': nowUtc,
+      });
+    }
+
+    _changes.add('system_alerts_changed');
+  }
+
+  /// Ping a compliance warning to a reseller — creates an active, critical,
+  /// non-snoozed alert that is immediately visible in the notification
+  /// badge and quota compliance views. Unlike snoozeMemberQuota, the
+  /// member stays on the compliance page.
+  Future<void> sendPingWarning(int memberId) async {
+    final nowUtc = DateTime.now().toUtc().toIso8601String();
+
+    // Deactivate any existing active alert so the ping is a new event
     await _supabase
         .from('system_alerts')
-        .update({
-          'is_active': false,
-          'read_at': DateTime.now().toUtc().toIso8601String(),
-        })
-        .eq('id', alertId);
+        .update({'is_active': false, 'read_at': nowUtc})
+        .eq('member_id', memberId)
+        .eq('alert_type', 'quota_overdue')
+        .eq('is_active', true);
+
+    // Fetch member name for the alert message
+    final member = await _supabase
+        .from('members')
+        .select('first_name, last_name, quota_valid_until')
+        .eq('id', memberId)
+        .maybeSingle();
+    final m = member as Map<String, dynamic>? ?? {};
+    final displayName = [
+      m['first_name'],
+      m['last_name'],
+    ].where((p) => p != null && (p as String).trim().isNotEmpty).join(' ');
+    final quotaUntil = m['quota_valid_until'] != null
+        ? DateTime.tryParse(m['quota_valid_until'].toString())
+        : null;
+
+    // Insert a fresh critical alert — no snooze, immediately active
+    await _supabase.from('system_alerts').insert({
+      'member_id': memberId,
+      'alert_type': 'quota_overdue',
+      'severity': 'critical',
+      'title':
+          '⚠️ Compliance Warning — ${displayName.isNotEmpty ? displayName : 'Reseller #$memberId'}',
+      'message': quotaUntil != null
+          ? 'Your weekly remittance quota expired on '
+                '${quotaUntil.year}-${quotaUntil.month.toString().padLeft(2, '0')}-${quotaUntil.day.toString().padLeft(2, '0')}. '
+                'Please remit immediately to restore your account standing.'
+          : 'Your weekly remittance quota has expired. '
+                'Please remit immediately to restore your account standing.',
+      'is_active': true,
+      'is_read': false,
+      'created_at': nowUtc,
+    });
+
+    _changes.add('system_alerts_changed');
+  }
+
+  /// Dismiss a member's quota alert — creates one if it doesn't exist yet.
+  Future<void> dismissMemberQuota(int memberId) async {
+    final nowUtc = DateTime.now().toUtc().toIso8601String();
+
+    final existing = await _supabase
+        .from('system_alerts')
+        .select('id')
+        .eq('member_id', memberId)
+        .eq('alert_type', 'quota_overdue')
+        .eq('is_active', true)
+        .maybeSingle();
+
+    if (existing != null) {
+      await _supabase
+          .from('system_alerts')
+          .update({'is_active': false, 'read_at': nowUtc})
+          .eq('id', (existing as Map<String, dynamic>)['id']);
+    } else {
+      // Insert a dismissed alert so the nightly cron won't re-flag
+      // this member until the quota situation changes.
+      final member = await _supabase
+          .from('members')
+          .select('first_name, last_name, quota_valid_until')
+          .eq('id', memberId)
+          .maybeSingle();
+      final m = member as Map<String, dynamic>? ?? {};
+      final displayName = [
+        m['first_name'],
+        m['last_name'],
+      ].where((p) => p != null && (p as String).trim().isNotEmpty).join(' ');
+      final quotaUntil = m['quota_valid_until'] != null
+          ? DateTime.tryParse(m['quota_valid_until'].toString())
+          : null;
+
+      await _supabase.from('system_alerts').insert({
+        'member_id': memberId,
+        'alert_type': 'quota_overdue',
+        'severity': 'warning',
+        'title':
+            'Quota Overdue — ${displayName.isNotEmpty ? displayName : 'Reseller #$memberId'}',
+        'message': quotaUntil != null
+            ? 'Weekly remittance quota expired on '
+                  '${quotaUntil.year}-${quotaUntil.month.toString().padLeft(2, '0')}-${quotaUntil.day.toString().padLeft(2, '0')}.'
+            : 'Weekly remittance quota has expired.',
+        'is_active': false,
+        'is_read': true,
+        'read_at': nowUtc,
+        'created_at': nowUtc,
+      });
+    }
+
     _changes.add('system_alerts_changed');
   }
 

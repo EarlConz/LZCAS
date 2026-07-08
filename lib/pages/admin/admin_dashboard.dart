@@ -55,6 +55,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'Members',
     'Requests',
     'Borrow Stock',
+    'Compliance',
     'Package',
     'Settings',
   ];
@@ -76,9 +77,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _AdminDeleteRequestTab(),
     // 7: Borrow Stock
     _AdminBorrowStockTab(),
-    // 8: Package Management
+    // 8: Compliance — quota delinquency queue
+    _AdminComplianceTab(),
+    // 9: Package Management
     _AdminPackageTab(),
-    // 9: Settings — Global Config moved here
+    // 10: Settings — Global Config moved here
     _AdminSettingsTab(),
   ];
 
@@ -109,6 +112,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       selectedIndex: _selectedIndex,
       auth: auth,
       pendingCount: notifService.pendingCount,
+      quotaAlertCount: notifService.quotaAlertCount,
       onItemSelected: (int i) {
         if (!isDesktop) Navigator.pop(context);
         if (i == 6) notifService.markPendingSeen(); // Requests tab
@@ -120,6 +124,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       selectedIndex: sharedSidebarArgs.selectedIndex,
       auth: sharedSidebarArgs.auth,
       pendingCount: sharedSidebarArgs.pendingCount,
+      quotaAlertCount: sharedSidebarArgs.quotaAlertCount,
       onItemSelected: sharedSidebarArgs.onItemSelected,
       useDrawer: true,
     );
@@ -128,6 +133,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       selectedIndex: sharedSidebarArgs.selectedIndex,
       auth: sharedSidebarArgs.auth,
       pendingCount: sharedSidebarArgs.pendingCount,
+      quotaAlertCount: sharedSidebarArgs.quotaAlertCount,
       onItemSelected: sharedSidebarArgs.onItemSelected,
       useDrawer: false,
       expanded: _sidebarHovered,
@@ -191,15 +197,18 @@ class _AdminDashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SingleChildScrollView(
-      child: Column(
-        children: [
-          DashboardPage(),
-          SizedBox(height: 24),
-          QuotaComplianceQueue(),
-        ],
-      ),
-    );
+    return const SingleChildScrollView(child: DashboardPage());
+  }
+}
+
+// ─── Compliance Tab — quota delinquency queue ───────────────────────────────
+
+class _AdminComplianceTab extends StatelessWidget {
+  const _AdminComplianceTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return const QuotaComplianceQueue();
   }
 }
 
@@ -3070,6 +3079,7 @@ class _AdminSidebar extends StatelessWidget {
   final AuthState auth;
   final ValueChanged<int> onItemSelected;
   final int pendingCount;
+  final int quotaAlertCount;
 
   /// When true wraps the content in a [Drawer] (for Scaffold.drawer on mobile).
   /// When false uses a plain Container (for inline desktop sidebar).
@@ -3083,6 +3093,7 @@ class _AdminSidebar extends StatelessWidget {
     required this.auth,
     required this.onItemSelected,
     this.pendingCount = 0,
+    this.quotaAlertCount = 0,
     this.useDrawer = true,
     this.expanded = true,
   });
@@ -3096,6 +3107,7 @@ class _AdminSidebar extends StatelessWidget {
     _NavItem(Icons.people_alt_rounded, 'Members'),
     _NavItem(Icons.person_remove_rounded, 'Requests'),
     _NavItem(Icons.add_box_rounded, 'Borrow Stock'),
+    _NavItem(Icons.gavel_rounded, 'Compliance'),
     _NavItem(Icons.card_giftcard_rounded, 'Package'),
   ];
 
@@ -3205,6 +3217,36 @@ class _AdminSidebar extends StatelessWidget {
                     ],
                   );
                 }
+                // Show badge on Compliance item (index 8)
+                if (i == 8 && quotaAlertCount > 0) {
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      tile,
+                      Positioned(
+                        top: 6,
+                        right: wide ? 6 : 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: StockpileColors.danger,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '$quotaAlertCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }
                 return tile;
               }),
               const SizedBox(height: 8),
@@ -3216,13 +3258,13 @@ class _AdminSidebar extends StatelessWidget {
                 endIndent: 12,
               ),
               const SizedBox(height: 8),
-              // Settings → index 9
+              // Settings → index 10
               _AdminSidebarTile(
                 item: _bottomItems[0],
-                isSelected: selectedIndex == 9,
+                isSelected: selectedIndex == 10,
                 activeBg: activeBg,
                 isDark: isDark,
-                onTap: () => onItemSelected(9),
+                onTap: () => onItemSelected(10),
                 expanded: wide,
               ),
             ],

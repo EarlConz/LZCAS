@@ -50,7 +50,28 @@ create index if not exists idx_system_alerts_active
   on public.system_alerts (alert_type, is_active)
   where is_active = true;
 
-alter table public.system_alerts disable row level security;
+alter table public.system_alerts enable row level security;
+
+drop policy if exists "system_alerts_read_authenticated" on public.system_alerts;
+create policy "system_alerts_read_authenticated" on public.system_alerts
+  for select to authenticated
+  using (true);
+
+drop policy if exists "system_alerts_insert_authenticated" on public.system_alerts;
+create policy "system_alerts_insert_authenticated" on public.system_alerts
+  for insert to authenticated
+  with check (true);
+
+drop policy if exists "system_alerts_update_authenticated" on public.system_alerts;
+create policy "system_alerts_update_authenticated" on public.system_alerts
+  for update to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "system_alerts_delete_admin" on public.system_alerts;
+create policy "system_alerts_delete_admin" on public.system_alerts
+  for delete to authenticated
+  using (public.is_admin());
 
 -- ── 3. Remittance trigger (category-gated stacking quota extension) ──
 --
