@@ -26,22 +26,34 @@ class QuotaProvider extends ChangeNotifier {
     return _quotaValidUntil!.isBefore(DateTime.now());
   }
 
+  /// Whole days left before the deadline. Never negative — overdue is 0.
   int get daysRemaining {
-    if (_quotaValidUntil == null) return 0;
+    if (_quotaValidUntil == null || isOverdue) return 0;
     return _quotaValidUntil!.difference(DateTime.now()).inDays;
   }
 
-  /// Hours remaining after subtracting whole days (0–23).
+  /// Hours remaining after subtracting whole days (0–23). Never negative.
   int get remainingHours {
-    if (_quotaValidUntil == null) return 0;
+    if (_quotaValidUntil == null || isOverdue) return 0;
     final diff = _quotaValidUntil!.difference(DateTime.now());
     return diff.inHours - (diff.inDays * 24);
   }
 
-  /// Formatted: "3 days 5 hrs" or "2 hrs".
-  String get daysHoursLabel {
-    final d = daysRemaining;
-    final h = remainingHours;
+  /// Formatted time left: "3 days 5 hrs" or "2 hrs".
+  /// Only meaningful while not overdue — see [overdueLabel] for the
+  /// magnitude of time past the deadline.
+  String get daysHoursLabel => _dayHourLabel(daysRemaining, remainingHours);
+
+  /// Magnitude of time past the deadline: "5 hrs", "2 days 3 hrs".
+  /// Empty string when the quota is not overdue.
+  String get overdueLabel {
+    if (_quotaValidUntil == null || !isOverdue) return '';
+    final diff = DateTime.now().difference(_quotaValidUntil!);
+    final d = diff.inDays;
+    return _dayHourLabel(d, diff.inHours - (d * 24));
+  }
+
+  String _dayHourLabel(int d, int h) {
     if (d <= 0 && h <= 0) return 'less than 1 hr';
     final p = <String>[];
     if (d > 0) p.add('$d day${d == 1 ? '' : 's'}');

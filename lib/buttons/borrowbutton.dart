@@ -169,8 +169,14 @@ class _BorrowDialogState extends State<_BorrowDialog> {
     for (var entry in cart) {
       final q = entry['quantity'] as int? ?? 0;
       if (q <= 0) return false;
+      if (_entryPrice(entry) <= 0) return false;
     }
     return true;
+  }
+
+  /// Unit price typed for a cart entry (0 when empty/invalid).
+  int _entryPrice(Map<String, dynamic> entry) {
+    return int.tryParse((entry['price'] ?? '').toString()) ?? 0;
   }
 
   Future<void> _scanBuyerQr(BuildContext context) async {
@@ -440,6 +446,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                             cart.add({
                               'item': selectedItem,
                               'quantity': quantity,
+                              'price': '',
                               'priceController': TextEditingController(),
                             });
                           });
@@ -482,12 +489,33 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                                             ),
                                       ),
                                       Text(
-                                        'Qty: ${entry['quantity']}',
+                                        _entryPrice(entry) > 0
+                                            ? 'Qty: ${entry['quantity']}  ·  '
+                                                  '₱${_entryPrice(entry) * (entry['quantity'] as int)}'
+                                            : 'Qty: ${entry['quantity']}',
                                         style: theme.textTheme.bodyMedium,
                                       ),
                                     ],
                                   ),
                                 ),
+                                SizedBox(
+                                  width: 160,
+                                  child: TextField(
+                                    controller: entry['priceController'],
+                                    keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                    ],
+                                    decoration: const InputDecoration(
+                                      labelText: 'Price / unit',
+                                      hintText: 'Enter Price',
+                                      prefixText: '₱',
+                                    ),
+                                    onChanged: (val) =>
+                                        setState(() => entry['price'] = val),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
                                 IconButton(
                                   iconSize: 28,
                                   icon: const Icon(
@@ -514,7 +542,8 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                       children: [
                         const Spacer(),
                         Text(
-                          'Total items: $totalQty',
+                          'Total items: $totalQty   ·   '
+                          'Value: ₱${cart.fold<int>(0, (sum, e) => sum + _entryPrice(e) * (e['quantity'] as int? ?? 0))}',
                           style: theme.textTheme.titleLarge?.copyWith(
                             fontWeight: FontWeight.w800,
                           ),
@@ -574,6 +603,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                         (r) => r.name == entry['item'],
                       );
                       final q = entry['quantity'] as int;
+                      final unitPrice = _entryPrice(entry);
 
                       if (dbItem.stock < q) {
                         errorMsg =
@@ -591,6 +621,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                           itemId: dbItem.id!,
                           itemName: dbItem.name,
                           quantity: q,
+                          price: unitPrice,
                           dueDays: dueDays,
                           memberName: _borrowerName,
                         );
@@ -601,6 +632,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                             itemId: dbItem.id!,
                             itemName: dbItem.name,
                             quantity: q,
+                            price: unitPrice,
                             borrowedAt: DateTime.now(),
                             dueDate: DateTime.now().add(
                               Duration(days: dueDays),
@@ -686,6 +718,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                           itemId: dbItem.id!,
                           itemName: dbItem.name,
                           quantity: q,
+                          price: _entryPrice(entry),
                         );
                         submitted++;
                       } catch (e) {

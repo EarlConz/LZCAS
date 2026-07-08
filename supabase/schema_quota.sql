@@ -52,87 +52,100 @@ create index if not exists idx_system_alerts_active
 
 alter table public.system_alerts disable row level security;
 
--- ── 3. Remittance trigger (stacking quota extension) ─────────────
+-- ── 3. Remittance trigger (category-gated stacking quota extension) ──
+--
+-- Fires whenever quantity_remitted increases on a borrows row.
+-- Quota time is granted ONLY when the remitted item belongs to the
+-- 'Box' category (case-insensitive). Remittances of any other
+-- category process normally but leave quota_valid_until untouched.
+--
+-- Note: items stores the category NAME in the text column
+-- items.category (there is no items.category_id FK), so the lookup
+-- resolves the item first, then validates that name against the
+-- categories table.
 
 create or replace function public.handle_reseller_remittance_quota()
-returns trigger as $$
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
   v_member_role text;
+  v_category_name text;
   v_boxes_remitted integer;
   v_extension_weeks integer;
   v_base_date timestamptz;
   v_new_quota timestamptz;
 begin
-  -- Only fire when status transitions TO 'remitted'
-  if new.status <> 'remitted' then
-    return new;
-  end if;
-
-  -- Skip if already processed (guard against re-firing)
-  if old.status = 'remitted' then
-    return new;
-  end if;
-
-  -- Look up the member
-  select role, quota_valid_until, last_remittance_at
-  into v_member_role, v_base_date, v_base_date
-  from public.members
-  where id = new.member_id;
-
-  -- Only track verified resellers
-  if v_member_role <> 'Verified Reseller' then
-    return new;
-  end if;
-
-  -- Count the number of boxes remitted in this transaction.
-  -- A "box" is identified by item_name containing 'box' (case-insensitive).
-  v_boxes_remitted := 0;
-  if lower(new.item_name) like '%box%' then
-    v_boxes_remitted := new.quantity_remitted - coalesce(old.quantity_remitted, 0);
-  end if;
-
+  -- Only act when the remitted count actually increased.
+  v_boxes_remitted := new.quantity_remitted - coalesce(old.quantity_remitted, 0);
   if v_boxes_remitted <= 0 then
     return new;
   end if;
 
-  -- Calculate extension: 1 box = 1 week, 2 = 2 weeks, 3 = 3 weeks, 4+ = 4 weeks
-  v_extension_weeks := least(v_boxes_remitted, 4);
+  -- Look up the member; only Verified Resellers are quota-tracked.
+  select m.role, m.quota_valid_until
+    into v_member_role, v_base_date
+  from public.members m
+  where m.id = new.member_id;
 
-  -- Base date: if quota already expired, start from now
-  if v_base_date is null or v_base_date < now() then
-    v_base_date := now();
+  if v_member_role is distinct from 'Verified Reseller' then
+    return new;
   end if;
 
-  -- Calculate new quota with hard 4-week cap from now
-  v_new_quota := v_base_date + (v_extension_weeks || ' weeks')::interval;
+  -- CATEGORY GATE
+  -- Step 1: use NEW.item_id to find the item's category name (text).
+  -- Step 2: validate that name against the categories table, so only
+  --         a registered category counts (freetext typos don't match).
+  select c.name
+    into v_category_name
+  from public.items i
+  join public.categories c
+    on lower(trim(c.name)) = lower(trim(coalesce(i.category, '')))
+  where i.id = new.item_id;
 
-  -- Hard cap: never more than 4 weeks from now
-  if v_new_quota > (now() + interval '4 weeks') then
-    v_new_quota := now() + interval '4 weeks';
+  if lower(trim(coalesce(v_category_name, ''))) = 'box' then
+    -- Extension: 1 box = 1 week, 2 = 2 weeks, 3 = 3 weeks, 4+ = 4 weeks
+    v_extension_weeks := least(v_boxes_remitted, 4);
+
+    -- Base date: if quota already expired (or unset), start from now
+    if v_base_date is null or v_base_date < now() then
+      v_base_date := now();
+    end if;
+
+    v_new_quota := v_base_date + make_interval(weeks => v_extension_weeks);
+
+    -- Hard cap: never more than 4 weeks out from now
+    if v_new_quota > (now() + interval '4 weeks') then
+      v_new_quota := now() + interval '4 weeks';
+    end if;
+
+    update public.members
+    set quota_valid_until = v_new_quota,
+        last_remittance_at = now()
+    where id = new.member_id;
+
+    -- Remitting boxes cures delinquency: retire active overdue alerts
+    update public.system_alerts
+    set is_active = false
+    where member_id = new.member_id
+      and alert_type = 'quota_overdue'
+      and is_active = true;
   end if;
 
-  -- Update member
-  update public.members
-  set quota_valid_until = v_new_quota,
-      last_remittance_at = now()
-  where id = new.member_id;
-
-  -- Deactivate any existing quota_overdue alerts (remittance cures delinquency)
-  update public.system_alerts
-  set is_active = false
-  where member_id = new.member_id
-    and alert_type = 'quota_overdue'
-    and is_active = true;
-
+  -- Non-'Box' categories fall through: remittance saves, quota untouched.
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
 
--- Attach trigger to borrows table
+-- Attach trigger to borrows table. The WHEN clause skips the function
+-- entirely unless quantity_remitted increased.
 drop trigger if exists trg_reseller_remittance_quota on public.borrows;
 create trigger trg_reseller_remittance_quota
   after update on public.borrows
   for each row
+  when (new.quantity_remitted > coalesce(old.quantity_remitted, 0))
   execute function public.handle_reseller_remittance_quota();
 
 -- ── 4. Nightly quota check function ──────────────────────────────

@@ -71,6 +71,11 @@ create table public.members (
 alter table public.sales add column if not exists buyer_name text;
 alter table public.borrows add column if not exists member_name text;
 
+-- True when the sale row was created by remitting a borrowed item
+-- (POS Terminal shows these as remittances, not direct sales)
+alter table public.sales
+  add column if not exists is_remittance boolean not null default false;
+
 create table public.sales (
   id bigint generated always as identity primary key,
   user_id uuid not null, item_id bigint not null, buyer_id bigint,
@@ -78,7 +83,9 @@ create table public.sales (
   price integer not null default 0, timestamp timestamptz not null default now(),
   -- Set when the sale is a package availment (no FK: history must survive
   -- package deletion). Package sales are excluded from product metrics.
-  package_id bigint
+  package_id bigint,
+  -- Created by remitting a borrowed item rather than a direct POS sale
+  is_remittance boolean not null default false
 );
 
 create table public.member_transactions (
