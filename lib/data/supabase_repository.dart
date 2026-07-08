@@ -103,6 +103,19 @@ class SupabaseRepository {
           },
         )
         .subscribe();
+
+    // withdrawal_requests — no user_id filter (admin must see all)
+    _supabase
+        .channel('public:withdrawal_requests')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'withdrawal_requests',
+          callback: (payload) {
+            _changes.add('withdrawal_requests_changed');
+          },
+        )
+        .subscribe();
   }
 
   void notifyCloudRestored() {
@@ -1436,15 +1449,56 @@ class SupabaseRepository {
     final totalEarnings =
         indirectBonus + groupSales + repeatPurchase + chairmanBonus;
 
+    // Subtract approved withdrawals from the appropriate buckets.
+    final withdrawals = await _fetchApprovedWithdrawalTotals(memberId);
+    final netTotalEarnings =
+        (totalEarnings - (withdrawals['totalEarningsDeduction'] ?? 0)).clamp(
+          0,
+          totalEarnings,
+        );
+    final netBalance = (balance - (withdrawals['balanceDeduction'] ?? 0)).clamp(
+      0,
+      balance,
+    );
+
     return {
-      'totalEarnings': totalEarnings,
-      'balance': balance,
+      'totalEarnings': netTotalEarnings,
+      'balance': netBalance,
       'indirectBonus': indirectBonus,
       'groupSales': groupSales,
       'repeatPurchase': repeatPurchase,
       'chairmanBonus': chairmanBonus,
       'chairmanFridays': chairmanFridays,
     };
+  }
+
+  /// Sum of approved withdrawal amounts per source bucket for a member.
+  Future<Map<String, int>> _fetchApprovedWithdrawalTotals(int memberId) async {
+    try {
+      final data = await _supabase
+          .from('withdrawal_requests')
+          .select('source_bucket, requested_amount')
+          .eq('member_id', memberId)
+          .eq('status', 'approved');
+
+      int earningsDeduction = 0;
+      int balanceDeduction = 0;
+      for (final row in (data as List)) {
+        final bucket = row['source_bucket'] as String? ?? '';
+        final amount = (row['requested_amount'] as num?)?.toInt() ?? 0;
+        if (bucket == 'total_earnings') {
+          earningsDeduction += amount;
+        } else if (bucket == 'balance') {
+          balanceDeduction += amount;
+        }
+      }
+      return {
+        'totalEarningsDeduction': earningsDeduction,
+        'balanceDeduction': balanceDeduction,
+      };
+    } catch (_) {
+      return {'totalEarningsDeduction': 0, 'balanceDeduction': 0};
+    }
   }
 
   /// When the member availed their current package: earliest sale with
@@ -2108,6 +2162,164 @@ class SupabaseRepository {
         .eq('status', 'pending');
 
     _changes.add('pending_request_rejected');
+    return true;
+  }
+
+  // ── Withdrawal Requests ──────────────────────────────────────────────────
+
+  /// Submit a withdrawal request for admin approval.
+  Future<String?> submitWithdrawalRequest({
+    required int memberId,
+    required String sourceBucket,
+    required int amount,
+  }) async {
+    final result = await _supabase
+        .from('withdrawal_requests')
+        .insert({
+          'member_id': memberId,
+          'source_bucket': sourceBucket,
+          'requested_amount': amount,
+          'status': 'pending',
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .select('id');
+
+    _changes.add('withdrawal_request_added');
+    if (result is List && result.isNotEmpty) {
+      return result.first['id'] as String?;
+    }
+    return null;
+  }
+
+  /// Fetch pending withdrawal requests, ordered newest first.
+  Future<List<WithdrawalRequest>> fetchPendingWithdrawals() async {
+    final data = await _supabase
+        .from('withdrawal_requests')
+        .select()
+        .eq('status', 'pending')
+        .order('created_at', ascending: false);
+    return (data as List)
+        .map((j) => WithdrawalRequest.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Fetch withdrawal history (approved + rejected), ordered newest first.
+  Future<List<WithdrawalRequest>> fetchWithdrawalHistory() async {
+    final data = await _supabase
+        .from('withdrawal_requests')
+        .select()
+        .neq('status', 'pending')
+        .order('created_at', ascending: false);
+    return (data as List)
+        .map((j) => WithdrawalRequest.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Fetch withdrawal requests for a specific member.
+  Future<List<WithdrawalRequest>> fetchWithdrawalsForMember(
+    int memberId,
+  ) async {
+    final data = await _supabase
+        .from('withdrawal_requests')
+        .select()
+        .eq('member_id', memberId)
+        .order('created_at', ascending: false);
+    return (data as List)
+        .map((j) => WithdrawalRequest.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Get the count of pending withdrawal requests (for notification badge).
+  Future<int> fetchWithdrawalPendingCount() async {
+    final resp = await _supabase
+        .from('withdrawal_requests')
+        .select('id')
+        .eq('status', 'pending')
+        .count(CountOption.exact);
+    return resp.count;
+  }
+
+  /// Approve a withdrawal request — deducts from the member's earnings/balance
+  /// by recording a negative snapshot entry.
+  Future<String?> approveWithdrawalRequest(String requestId) async {
+    final data = await _supabase
+        .from('withdrawal_requests')
+        .select()
+        .eq('id', requestId)
+        .eq('status', 'pending')
+        .maybeSingle();
+    if (data == null) return 'Withdrawal request not found';
+
+    final req = WithdrawalRequest.fromJson(data as Map<String, dynamic>);
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    try {
+      // Fetch current earnings breakdown to get the value being deducted
+      final breakdown = await fetchMemberEarningsBreakdown(req.memberId);
+      final currentTotalEarnings = breakdown['totalEarnings'] ?? 0;
+      final currentBalance = breakdown['balance'] ?? 0;
+
+      // Deduct the requested amount from the appropriate pool
+      int newTotalEarnings = currentTotalEarnings;
+      int newBalance = currentBalance;
+      if (req.sourceBucket == 'total_earnings') {
+        newTotalEarnings = (currentTotalEarnings - req.requestedAmount).clamp(
+          0,
+          currentTotalEarnings,
+        );
+      } else {
+        newBalance = (currentBalance - req.requestedAmount).clamp(
+          0,
+          currentBalance,
+        );
+      }
+
+      // Record a negative snapshot to reflect the deduction
+      await _supabase.from('earnings_history').insert({
+        'member_id': req.memberId,
+        'total_earnings': newTotalEarnings,
+        'balance': newBalance,
+        'earnings_delta': newTotalEarnings - currentTotalEarnings,
+        'balance_delta': newBalance - currentBalance,
+        'indirect_bonus': breakdown['indirectBonus'] ?? 0,
+        'group_sales': breakdown['groupSales'] ?? 0,
+        'repeat_purchase': breakdown['repeatPurchase'] ?? 0,
+        'chairman_bonus': breakdown['chairmanBonus'] ?? 0,
+      });
+    } catch (e) {
+      debugPrint('[approveWithdrawalRequest] deduction failed: $e');
+      return 'Failed to process deduction: $_friendlyError(e)';
+    }
+
+    // Mark as approved
+    await _supabase
+        .from('withdrawal_requests')
+        .update({'status': 'approved', 'reviewed_by': _uid, 'reviewed_at': now})
+        .eq('id', requestId);
+
+    _changes.add('withdrawal_request_approved');
+    return null; // success
+  }
+
+  /// Reject a withdrawal request — no deduction, just marks status.
+  Future<bool> rejectWithdrawalRequest(
+    String requestId, {
+    required String rejectionReason,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    await _supabase
+        .from('withdrawal_requests')
+        .update({
+          'status': 'rejected',
+          'reviewed_by': _uid,
+          'reviewed_at': now,
+          'rejection_reason': rejectionReason,
+        })
+        .eq('id', requestId)
+        .eq('status', 'pending');
+
+    _changes.add('withdrawal_request_rejected');
     return true;
   }
 

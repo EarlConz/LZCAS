@@ -11,6 +11,7 @@ export '../data/models.dart'
         Borrow,
         StockMovement,
         PendingRequest,
+        WithdrawalRequest,
         Package,
         Category,
         EarningsSnapshot,

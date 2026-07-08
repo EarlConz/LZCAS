@@ -7,6 +7,7 @@ drop table if exists public.stock_movements cascade;
 drop table if exists public.items cascade;
 drop table if exists public.members cascade;
 drop table if exists public.pending_requests cascade;
+drop table if exists public.withdrawal_requests cascade;
 
 -- Profiles: create only if missing — never drop (preserves admin users)
 create table if not exists public.profiles (
@@ -405,6 +406,73 @@ create policy "earnings_history_insert_own" on public.earnings_history
       where pr.id = auth.uid() and pr.member_id = earnings_history.member_id
     )
   );
+
+-- ═══════════════════════════════════════════════════════════════════
+-- ── Withdrawal Requests ────────────────────────────────────────────
+-- ═══════════════════════════════════════════════════════════════════
+-- Members can request to withdraw funds from their Total Earnings or
+-- Balance pools. Admins review, approve, or reject each request.
+
+create table if not exists public.withdrawal_requests (
+  id uuid primary key default gen_random_uuid(),
+  member_id bigint not null,
+  source_bucket text not null check (source_bucket in ('total_earnings', 'balance')),
+  requested_amount integer not null check (requested_amount > 0),
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  rejection_reason text,
+  reviewed_by uuid,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+-- Indexes
+create index if not exists idx_withdrawal_requests_member
+  on public.withdrawal_requests (member_id, created_at desc);
+create index if not exists idx_withdrawal_requests_status
+  on public.withdrawal_requests (status, created_at desc);
+
+alter table public.withdrawal_requests enable row level security;
+
+-- Members can only see and insert their own withdrawal requests.
+-- Ownership uses a SECURITY DEFINER helper to safely map auth.uid() → bigint
+-- member ID without tripping over cross-table RLS on the members table.
+-- Admins have full read/write access via is_admin() bypass.
+
+-- Helper: resolve the authenticated user's numeric member ID.
+-- SECURITY DEFINER so it bypasses any RLS on public.members.
+create or replace function public.get_current_member_id()
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select id from public.members
+  where user_id = auth.uid()
+  limit 1;
+$$;
+
+drop policy if exists "withdrawal_requests_select_own" on public.withdrawal_requests;
+create policy "withdrawal_requests_select_own" on public.withdrawal_requests
+  for select to authenticated
+  using (
+    public.is_admin()
+    or member_id = public.get_current_member_id()
+  );
+
+drop policy if exists "withdrawal_requests_insert_own" on public.withdrawal_requests;
+create policy "withdrawal_requests_insert_own" on public.withdrawal_requests
+  for insert to authenticated
+  with check (
+    public.is_admin()
+    or member_id = public.get_current_member_id()
+  );
+
+drop policy if exists "withdrawal_requests_update_admin" on public.withdrawal_requests;
+create policy "withdrawal_requests_update_admin" on public.withdrawal_requests
+  for update to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
 
 -- ═══════════════════════════════════════════════════════════════════
 -- ── Borrow due-date trigger ────────────────────────────────────────
