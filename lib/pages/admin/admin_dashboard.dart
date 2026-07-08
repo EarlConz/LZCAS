@@ -24,6 +24,7 @@ import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/widgets/quota_compliance_queue.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
+import 'package:lzcas/dialogs/receipt_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/notification_service.dart';
 import 'package:lzcas/services/config_service.dart';
@@ -2606,76 +2607,186 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     final rateCtrl = TextEditingController(
       text: existing != null ? '${existing.commissionRate}' : '0',
     );
+    var addsQuotaTime = existing?.addsQuotaTime ?? false;
     final formKey = GlobalKey<FormState>();
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(existing != null ? 'Edit Category' : 'Add Category'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  border: OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(existing != null ? 'Edit Category' : 'Add Category'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Name',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: rateCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Commission Rate (₱)',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: rateCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Commission Rate (₱)',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 ),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              ),
-            ],
+                const SizedBox(height: 16),
+                SwitchListTile(
+                  value: addsQuotaTime,
+                  onChanged: (v) => setDialogState(() => addsQuotaTime = v),
+                  title: Text(
+                    'Qualifies for Reseller Quotas',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'When enabled, remitting items in this category will '
+                    'extend a verified reseller\'s weekly deadline.',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 12,
+                      color: StockpileColors.mutedText,
+                    ),
+                  ),
+                  activeColor: Colors.white,
+                  activeTrackColor: StockpileColors.primary900,
+                  contentPadding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        actions: [
-          if (existing != null)
+          actions: [
+            if (existing != null)
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: () async {
+                  final deleted = await repository.deleteCategory(existing.id!);
+                  if (!ctx.mounted) return;
+                  if (deleted) {
+                    Navigator.pop(ctx);
+                    _loadCategories();
+                  } else {
+                    _showCategoryInUseDialog(ctx);
+                  }
+                },
+                child: const Text('Delete'),
+              ),
             TextButton(
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
               onPressed: () async {
-                await repository.deleteCategory(existing.id!);
+                if (!formKey.currentState!.validate()) return;
+                if (existing != null) {
+                  await repository.updateCategory(
+                    existing.copyWith(
+                      name: nameCtrl.text.trim(),
+                      commissionRate: int.tryParse(rateCtrl.text) ?? 0,
+                      addsQuotaTime: addsQuotaTime,
+                    ),
+                  );
+                } else {
+                  await repository.addCategory(
+                    name: nameCtrl.text.trim(),
+                    commissionRate: int.tryParse(rateCtrl.text) ?? 0,
+                    addsQuotaTime: addsQuotaTime,
+                  );
+                }
+                if (!ctx.mounted) return;
                 Navigator.pop(ctx);
                 _loadCategories();
               },
-              child: const Text('Delete'),
+              child: Text(existing != null ? 'Save' : 'Create'),
             ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-              if (existing != null) {
-                await repository.updateCategory(
-                  existing.copyWith(
-                    name: nameCtrl.text.trim(),
-                    commissionRate: int.tryParse(rateCtrl.text) ?? 0,
-                  ),
-                );
-              } else {
-                await repository.addCategory(
-                  name: nameCtrl.text.trim(),
-                  commissionRate: int.tryParse(rateCtrl.text) ?? 0,
-                );
-              }
-              if (!ctx.mounted) return;
-              Navigator.pop(ctx);
-              _loadCategories();
-            },
-            child: Text(existing != null ? 'Save' : 'Create'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCategoryInUseDialog(BuildContext ctx) {
+    showDialog(
+      context: ctx,
+      builder: (dCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 32, 24, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: StockpileColors.primary900.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.info_outline_rounded,
+                size: 28,
+                color: StockpileColors.primary900,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Category In Use',
+              style: StockpileFonts.satoshi(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'This category cannot be deleted because items in your '
+              'inventory are still assigned to it. Please reassign or '
+              'delete those items before removing this category.',
+              textAlign: TextAlign.center,
+              style: StockpileFonts.satoshi(
+                fontSize: 14,
+                color: StockpileColors.mutedText,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Center(
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF0037FD),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 12,
+                ),
+              ),
+              onPressed: () => Navigator.pop(dCtx),
+              child: Text(
+                'Got It',
+                style: StockpileFonts.satoshi(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
           ),
         ],
+        actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
       ),
     );
   }
@@ -2727,10 +2838,26 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
               (c) => _ConfigTile(
                 icon: Icons.category_rounded,
                 title: c.name,
-                subtitle: 'Commission: ₱${c.commissionRate} per item',
-                trailing: IconButton(
-                  icon: const Icon(Icons.edit_outlined, size: 20),
-                  onPressed: () => _showCategoryDialog(existing: c),
+                subtitle:
+                    'Commission: ₱${c.commissionRate} per item'
+                    '${c.addsQuotaTime ? ' · Extends Quota' : ''}',
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (c.addsQuotaTime)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Icon(
+                          Icons.verified_rounded,
+                          size: 18,
+                          color: StockpileColors.primary900,
+                        ),
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 20),
+                      onPressed: () => _showCategoryDialog(existing: c),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -7219,6 +7346,36 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                       : StockpileColors.inputBg,
                 ),
               ),
+              const SizedBox(height: 12),
+              // Live amount due: typed qty × stored unit price
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: qtyCtrl,
+                builder: (_, value, _) {
+                  final q = int.tryParse(value.text) ?? 0;
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Amount to receive:  ',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 13,
+                          color: isDark
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText,
+                        ),
+                      ),
+                      Text(
+                        '₱${q * b.price}',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.purple,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
               const SizedBox(height: 20),
               Row(
                 children: [
@@ -7266,6 +7423,23 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
       text: ok ? '${b.itemName}: $result remitted' : 'Failed to remit payment',
     );
     _loadData();
+
+    // Offer the remittance receipt right away
+    if (ok) {
+      await ReceiptDialog(
+        lineItems: [
+          ReceiptLineItem(
+            itemName: b.itemName,
+            quantity: result,
+            unitPrice: b.price,
+          ),
+        ],
+        buyerName: b.memberName,
+        transactionTime: DateTime.now(),
+        title: 'Remittance Receipt',
+        isRemittance: true,
+      ).show(context);
+    }
   }
 
   @override

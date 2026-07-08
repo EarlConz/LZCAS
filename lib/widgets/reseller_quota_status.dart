@@ -51,18 +51,17 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
             return _buildNoQuotaCard();
           }
 
-          final days = quota.daysRemaining;
-          final fraction = quota.quotaFraction;
+          // Overdue check must come first: daysRemaining truncates toward
+          // zero, so a quota a few hours past due still reports 0 days.
+          if (quota.isOverdue) {
+            return _buildOverdueCard(quota);
+          }
 
-          if (days > 7) {
+          if (quota.daysRemaining > 7) {
             return _buildSafeCard(quota);
           }
 
-          if (days >= 0) {
-            return _buildCountdownCard(quota, fraction);
-          }
-
-          return _buildOverdueCard(quota);
+          return _buildCountdownCard(quota, quota.quotaFraction);
         },
       ),
     );
@@ -488,7 +487,27 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
                 _dayBadge(quota, isOverdue: true),
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
+            // Expired-on line
+            Row(
+              children: [
+                Icon(Icons.event_busy_rounded, size: 14, color: color),
+                const SizedBox(width: 6),
+                Text(
+                  quota.quotaValidUntil != null
+                      ? 'Quota expired on ${_formatDate(quota.quotaValidUntil!)}'
+                      : 'Quota expired',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isDark
+                        ? StockpileColors.darkTextMuted
+                        : StockpileColors.bodyText,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
             // Action button
             SizedBox(
               width: double.infinity,
@@ -579,7 +598,7 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
         border: Border.all(color: color.withAlpha(60)),
       ),
       child: Text(
-        isOverdue ? '-${quota.daysHoursLabel}' : quota.daysHoursLabel,
+        isOverdue ? _overdueBadgeText(quota) : quota.daysHoursLabel,
         style: StockpileFonts.satoshi(
           fontSize: 18,
           fontWeight: FontWeight.w800,
@@ -587,6 +606,14 @@ class _ResellerQuotaStatusState extends State<ResellerQuotaStatus> {
         ),
       ),
     );
+  }
+
+  /// Badge text for the overdue state: "-5 hrs", "-2 days 3 hrs".
+  /// The sub-hour label ("less than 1 hr") reads wrong with a minus sign,
+  /// so it is shown without one.
+  String _overdueBadgeText(QuotaProvider quota) {
+    final label = quota.overdueLabel;
+    return label.startsWith('less') ? label : '-$label';
   }
 
   String _formatDate(DateTime dt) {

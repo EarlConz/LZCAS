@@ -28,6 +28,10 @@ class TransactionGroup {
 
   int get itemCount => sales.length;
   int get totalPrice => sales.fold(0, (sum, s) => sum + s.price);
+
+  /// True when this checkout was created by remitting borrowed items
+  /// rather than a direct POS sale.
+  bool get isRemittance => sales.any((s) => s.isRemittance);
 }
 
 // ── Table widget ──────────────────────────────────────────────────────
@@ -42,6 +46,9 @@ class TransactionsTable extends StatefulWidget {
 class _TransactionsTableState extends State<TransactionsTable> {
   String _searchTerm = '';
   late final StreamSubscription<String> _sub;
+
+  // ── Filter state ────────────────────────────────────────────────
+  _TransactionFilter _filter = _TransactionFilter.all;
 
   static const _pageSize = 25;
 
@@ -101,19 +108,33 @@ class _TransactionsTableState extends State<TransactionsTable> {
   }
 
   void _loadData() {
-    _loadPage(1);
+    _loadPage(1, filter: _filter);
+  }
+
+  void _onFilterChanged(_TransactionFilter filter) {
+    if (_filter == filter) return;
+    setState(() {
+      _filter = filter;
+      _currentPage = 0;
+      _hasMore = true;
+    });
+    _loadData();
   }
 
   void _loadMore() {
     if (_isLoadingMore || !_hasMore) return;
     _isLoadingMore = true;
     setState(() {});
-    _loadPage(_currentPage + 1);
+    _loadPage(_currentPage + 1, filter: _filter);
   }
 
-  Future<void> _loadPage(int page) async {
+  Future<void> _loadPage(int page, {required _TransactionFilter filter}) async {
     try {
-      final result = await _fetchPageInternal(page, _searchTerm);
+      final result = await _fetchPageInternal(
+        page,
+        _searchTerm,
+        filter: filter,
+      );
       if (!mounted) return;
 
       setState(() {
@@ -150,7 +171,11 @@ class _TransactionsTableState extends State<TransactionsTable> {
     final neededEnd = serverPage * _pageSize;
     if (_serverPage.length >= neededEnd) return;
     try {
-      final page = await _fetchPageInternal(serverPage, _searchTerm);
+      final page = await _fetchPageInternal(
+        serverPage,
+        _searchTerm,
+        filter: _filter,
+      );
       if (!mounted) return;
       setState(() {
         _serverPage.addAll(page.rows);
@@ -164,14 +189,16 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   Future<PageResult<TransactionGroup>> _fetchPageInternal(
     int page,
-    String? search,
-  ) async {
+    String? search, {
+    required _TransactionFilter filter,
+  }) async {
     final salePage = await repository.fetchSalesPaginated(
       page: page,
       pageSize: _pageSize,
       search: search,
       sortColumn: 'timestamp',
       sortAscending: false,
+      isRemittance: filter.isRemittanceFilter,
     );
 
     final buyerIds = salePage.rows
@@ -306,6 +333,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
       lineItems: lineItems,
       buyerName: group.buyerId != null ? group.buyerName : null,
       transactionTime: group.timestamp,
+      title: group.isRemittance ? 'Remittance Receipt' : 'Sell Receipt',
+      isRemittance: group.isRemittance,
     ).show(localCtx);
   }
 
@@ -338,6 +367,38 @@ class _TransactionsTableState extends State<TransactionsTable> {
                           ),
                         ),
                         const SizedBox(width: 8),
+                        SegmentedButton<_TransactionFilter>(
+                          segments: const [
+                            ButtonSegment(
+                              value: _TransactionFilter.all,
+                              label: Text('All'),
+                              icon: Icon(Icons.list, size: 16),
+                            ),
+                            ButtonSegment(
+                              value: _TransactionFilter.sale,
+                              label: Text('Sales'),
+                              icon: Icon(Icons.shopping_cart_rounded, size: 16),
+                            ),
+                            ButtonSegment(
+                              value: _TransactionFilter.remittance,
+                              label: Text('Remit'),
+                              icon: Icon(
+                                Icons.published_with_changes_rounded,
+                                size: 16,
+                              ),
+                            ),
+                          ],
+                          selected: {_filter},
+                          onSelectionChanged: (sel) =>
+                              _onFilterChanged(sel.first),
+                          style: ButtonStyle(
+                            visualDensity: VisualDensity.compact,
+                            textStyle: WidgetStatePropertyAll(
+                              Theme.of(context).textTheme.labelSmall,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
                         const SellButton(),
                         const SizedBox(width: 8),
                         const BorrowButton(),
@@ -355,6 +416,38 @@ class _TransactionsTableState extends State<TransactionsTable> {
                           contentPadding: const EdgeInsets.symmetric(
                             vertical: 8,
                             horizontal: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SegmentedButton<_TransactionFilter>(
+                          segments: const [
+                            ButtonSegment(
+                              value: _TransactionFilter.all,
+                              label: Text('All'),
+                              icon: Icon(Icons.list, size: 16),
+                            ),
+                            ButtonSegment(
+                              value: _TransactionFilter.sale,
+                              label: Text('Sales'),
+                              icon: Icon(Icons.shopping_cart_rounded, size: 16),
+                            ),
+                            ButtonSegment(
+                              value: _TransactionFilter.remittance,
+                              label: Text('Remit'),
+                              icon: Icon(
+                                Icons.published_with_changes_rounded,
+                                size: 16,
+                              ),
+                            ),
+                          ],
+                          selected: {_filter},
+                          onSelectionChanged: (sel) =>
+                              _onFilterChanged(sel.first),
+                          style: ButtonStyle(
+                            visualDensity: VisualDensity.compact,
+                            textStyle: WidgetStatePropertyAll(
+                              Theme.of(context).textTheme.labelSmall,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -541,6 +634,10 @@ class _TxnListCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 6,
               children: [
+                if (group.isRemittance)
+                  const _RemittanceBadge()
+                else
+                  const _SaleBadge(),
                 _Pill(
                   icon: Icons.inventory_2_outlined,
                   text: '${group.itemCount} $itemWord',
@@ -571,6 +668,93 @@ class _TxnListCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Transaction filter ────────────────────────────────────────────────
+
+enum _TransactionFilter {
+  all,
+  sale,
+  remittance;
+
+  bool? get isRemittanceFilter => switch (this) {
+    _TransactionFilter.all => null,
+    _TransactionFilter.sale => false,
+    _TransactionFilter.remittance => true,
+  };
+}
+
+// ── Sale badge ────────────────────────────────────────────────────────
+
+/// Green chip marking a direct POS sale transaction.
+class _SaleBadge extends StatelessWidget {
+  const _SaleBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final green = Colors.green.shade600;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: green.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: green.withValues(alpha: 0.35)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.shopping_cart_rounded, size: 13, color: green),
+            const SizedBox(width: 4),
+            Text(
+              'Sale',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: green,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Remittance badge ──────────────────────────────────────────────────
+
+/// Purple chip marking a transaction created by remitting borrowed items
+/// (matches the purple Remit action in the borrows table).
+class _RemittanceBadge extends StatelessWidget {
+  const _RemittanceBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final purple = Colors.purple.shade600;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: purple.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: purple.withValues(alpha: 0.35)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.published_with_changes_rounded, size: 13, color: purple),
+            const SizedBox(width: 4),
+            Text(
+              'Remittance',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: purple,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ),
@@ -647,7 +831,23 @@ class _TxnDataSource extends DataTableSource {
         return null;
       }),
       cells: [
-        DataCell(Text(group.buyerName)),
+        DataCell(
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(group.buyerName, overflow: TextOverflow.ellipsis),
+              ),
+              if (group.isRemittance) ...[
+                const SizedBox(width: 8),
+                const _RemittanceBadge(),
+              ] else ...[
+                const SizedBox(width: 8),
+                const _SaleBadge(),
+              ],
+            ],
+          ),
+        ),
         DataCell(Text(formatDisplayDate(group.timestamp))),
         DataCell(Text('${group.itemCount} $itemWord')),
         DataCell(Text('₱${group.totalPrice}')),

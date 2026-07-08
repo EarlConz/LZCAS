@@ -8,6 +8,10 @@ import 'package:path_provider/path_provider.dart';
 import '../db/db.dart' show Sale;
 import '../theme.dart' show appRadius;
 
+/// Accent for remittance receipts — matches the purple Remit action
+/// in the borrows table.
+const Color _remitColor = Colors.purple;
+
 /// Data for a single line item on a receipt.
 class ReceiptLineItem {
   final String itemName;
@@ -30,12 +34,17 @@ class ReceiptDialog extends StatefulWidget {
   final DateTime? transactionTime;
   final String title;
 
+  /// Renders the receipt as a remittance record: purple header,
+  /// RMT reference number, and remittance wording instead of sale wording.
+  final bool isRemittance;
+
   const ReceiptDialog({
     super.key,
     required this.lineItems,
     this.buyerName,
     required this.transactionTime,
     this.title = 'Sell Receipt',
+    this.isRemittance = false,
   });
 
   factory ReceiptDialog.fromSale(Sale sale, {String? buyerName}) {
@@ -65,7 +74,8 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
 
   String get _ref {
     final d = widget.transactionTime ?? DateTime.now();
-    return 'TXN-${d.year}${d.month.toString().padLeft(2, '0')}'
+    final prefix = widget.isRemittance ? 'RMT' : 'TXN';
+    return '$prefix-${d.year}${d.month.toString().padLeft(2, '0')}'
         '${d.day.toString().padLeft(2, '0')}'
         '-${d.hour.toString().padLeft(2, '0')}'
         '${d.minute.toString().padLeft(2, '0')}';
@@ -131,7 +141,11 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _ReceiptHeader(colorScheme: colorScheme, title: widget.title),
+                _ReceiptHeader(
+                  colorScheme: colorScheme,
+                  title: widget.title,
+                  isRemittance: widget.isRemittance,
+                ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                   child: Column(
@@ -151,7 +165,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                           widget.buyerName!.isNotEmpty) ...[
                         const SizedBox(height: 8),
                         _InfoRow(
-                          label: 'Buyer',
+                          label: widget.isRemittance ? 'Remitted by' : 'Buyer',
                           value: widget.buyerName!,
                           colorScheme: colorScheme,
                         ),
@@ -176,7 +190,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'TOTAL',
+                            widget.isRemittance ? 'TOTAL REMITTED' : 'TOTAL',
                             style: theme.textTheme.headlineSmall?.copyWith(
                               fontWeight: FontWeight.w800,
                             ),
@@ -184,7 +198,9 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                           Text(
                             '₱$totalPrice',
                             style: theme.textTheme.headlineMedium?.copyWith(
-                              color: colorScheme.primary,
+                              color: widget.isRemittance
+                                  ? _remitColor
+                                  : colorScheme.primary,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -192,7 +208,9 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        '— Thank you for your purchase! —',
+                        widget.isRemittance
+                            ? '— Remittance recorded. Thank you! —'
+                            : '— Thank you for your purchase! —',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                           fontStyle: FontStyle.italic,
@@ -364,9 +382,11 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
 class _ReceiptHeader extends StatelessWidget {
   final ColorScheme colorScheme;
   final String title;
+  final bool isRemittance;
   const _ReceiptHeader({
     required this.colorScheme,
     this.title = 'Sell Receipt',
+    this.isRemittance = false,
   });
 
   @override
@@ -374,7 +394,7 @@ class _ReceiptHeader extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: colorScheme.primary,
+        color: isRemittance ? _remitColor : colorScheme.primary,
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(appRadius),
         ),
@@ -383,7 +403,9 @@ class _ReceiptHeader extends StatelessWidget {
       child: Column(
         children: [
           Icon(
-            Icons.receipt_long_rounded,
+            isRemittance
+                ? Icons.published_with_changes_rounded
+                : Icons.receipt_long_rounded,
             size: 36,
             color: colorScheme.onPrimary.withValues(alpha: 0.9),
           ),

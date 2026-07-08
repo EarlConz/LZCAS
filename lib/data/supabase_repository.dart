@@ -366,16 +366,22 @@ class SupabaseRepository {
     );
   }
 
-  /// Fetch a page of sales with optional search.
+  /// Fetch a page of sales with optional search and remittance filter.
   Future<PageResult<Sale>> fetchSalesPaginated({
     int page = 1,
     int pageSize = 100,
     String? search,
     String sortColumn = 'timestamp',
     bool sortAscending = false,
+    bool? isRemittance,
   }) async {
     dynamic dataQuery = _supabase.from('sales').select('*');
     dynamic countQuery = _supabase.from('sales').select('id');
+
+    if (isRemittance != null) {
+      countQuery = countQuery.eq('is_remittance', isRemittance);
+      dataQuery = dataQuery.eq('is_remittance', isRemittance);
+    }
 
     if (search != null && search.isNotEmpty) {
       final orFilter = 'buyer_name.ilike.%$search%,item_name.ilike.%$search%';
@@ -831,13 +837,15 @@ class SupabaseRepository {
         })
         .eq('id', borrowId);
 
-    // Create a Sale record for the remitted quantity
+    // Create a Sale record for the remitted quantity, flagged so the
+    // POS Terminal can tell it apart from a direct sale.
     await addSale(
       itemId: borrow.itemId,
       itemName: borrow.itemName,
       quantity: remitQty,
       price: borrow.price,
       buyerId: borrow.memberId,
+      isRemittance: true,
     );
 
     _changes.add('borrow_updated');
@@ -1152,6 +1160,7 @@ class SupabaseRepository {
     int? buyerId,
     String? buyerName,
     int? packageId,
+    bool isRemittance = false,
   }) async {
     final result = await _supabase
         .from('sales')
@@ -1164,6 +1173,7 @@ class SupabaseRepository {
           if (buyerId != null) 'buyer_id': buyerId,
           if (buyerName != null) 'buyer_name': buyerName,
           if (packageId != null) 'package_id': packageId,
+          if (isRemittance) 'is_remittance': true,
           'timestamp': (timestamp ?? DateTime.now()).toUtc().toIso8601String(),
         })
         .select('id');
@@ -1605,10 +1615,15 @@ class SupabaseRepository {
   Future<int> addCategory({
     required String name,
     int commissionRate = 0,
+    bool addsQuotaTime = false,
   }) async {
     final data = await _supabase
         .from('categories')
-        .insert({'name': name, 'commission_rate': commissionRate})
+        .insert({
+          'name': name,
+          'commission_rate': commissionRate,
+          'adds_quota_time': addsQuotaTime,
+        })
         .select('id');
     if (data is List && data.isNotEmpty) {
       return (data.first['id'] as num).toInt();
@@ -1623,8 +1638,17 @@ class SupabaseRepository {
   }
 
   Future<bool> deleteCategory(int id) async {
-    await _supabase.from('categories').delete().eq('id', id);
-    return true;
+    try {
+      await _supabase.from('categories').delete().eq('id', id);
+      return true;
+    } on PostgrestException catch (e) {
+      // P0001 = RAISE EXCEPTION from the prevent_active_category_deletion
+      // trigger — the category is still referenced by inventory items.
+      if (e.code == 'P0001') {
+        return false;
+      }
+      rethrow;
+    }
   }
 
   // ── Delete Methods ───────────────────────────────────────────────────────

@@ -350,24 +350,38 @@ class Category {
   final int? id;
   final String name;
   final int commissionRate;
+  final bool addsQuotaTime;
 
-  const Category({this.id, required this.name, this.commissionRate = 0});
+  const Category({
+    this.id,
+    required this.name,
+    this.commissionRate = 0,
+    this.addsQuotaTime = false,
+  });
 
   factory Category.fromJson(Map<String, dynamic> json) => Category(
     id: json['id'] as int?,
     name: json['name'] as String? ?? '',
     commissionRate: json['commission_rate'] as int? ?? 0,
+    addsQuotaTime: json['adds_quota_time'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => {
     'name': name,
     'commission_rate': commissionRate,
+    'adds_quota_time': addsQuotaTime,
   };
 
-  Category copyWith({int? id, String? name, int? commissionRate}) => Category(
+  Category copyWith({
+    int? id,
+    String? name,
+    int? commissionRate,
+    bool? addsQuotaTime,
+  }) => Category(
     id: id ?? this.id,
     name: name ?? this.name,
     commissionRate: commissionRate ?? this.commissionRate,
+    addsQuotaTime: addsQuotaTime ?? this.addsQuotaTime,
   );
 }
 
@@ -386,6 +400,10 @@ class Sale {
   /// Set when this sale is a package availment, not a product sale.
   final int? packageId;
 
+  /// True when this sale was created by remitting a borrowed item,
+  /// not by a direct POS sale.
+  final bool isRemittance;
+
   const Sale({
     this.id,
     required this.itemId,
@@ -397,6 +415,7 @@ class Sale {
     this.timestamp,
     this.userId,
     this.packageId,
+    this.isRemittance = false,
   });
 
   /// Package availments are not products and are excluded from
@@ -416,6 +435,7 @@ class Sale {
         : null,
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
+    isRemittance: json['is_remittance'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => {
@@ -428,6 +448,7 @@ class Sale {
     if (timestamp != null) 'timestamp': timestamp!.toIso8601String(),
     if (userId != null) 'user_id': userId,
     if (packageId != null) 'package_id': packageId,
+    if (isRemittance) 'is_remittance': true,
   };
 
   Sale copyWith({
@@ -441,6 +462,7 @@ class Sale {
     DateTime? timestamp,
     String? userId,
     int? packageId,
+    bool? isRemittance,
   }) => Sale(
     id: id ?? this.id,
     itemId: itemId ?? this.itemId,
@@ -452,6 +474,7 @@ class Sale {
     timestamp: timestamp ?? this.timestamp,
     userId: userId ?? this.userId,
     packageId: packageId ?? this.packageId,
+    isRemittance: isRemittance ?? this.isRemittance,
   );
 }
 
@@ -603,7 +626,8 @@ class PendingRequest {
       return 'Delete member "$memberName"';
     }
     if (requestType == 'borrow') {
-      return 'Borrow "$itemName" (×${quantity ?? 0}) for "$memberName"';
+      final priceTag = (price ?? 0) > 0 ? ' @ ₱$price/ea' : '';
+      return 'Borrow "$itemName" (×${quantity ?? 0}$priceTag) for "$memberName"';
     }
     return '$requestType: ${itemName ?? memberName ?? ''}';
   }
