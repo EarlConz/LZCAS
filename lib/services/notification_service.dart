@@ -77,6 +77,7 @@ class NotificationService extends ChangeNotifier {
         case 'borrow_updated':
         case 'borrows_changed':
           _refreshOverdue();
+          _refreshQuotaAlerts(); // borrow changes affect quota validity
           break;
         case 'cloud_restored':
           _refreshPending();
@@ -135,7 +136,7 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> _refreshQuotaAlerts() async {
     try {
-      final count = await repository.fetchActiveQuotaAlertCount();
+      final count = await repository.fetchOverdueResellerCount();
       if (_quotaAlertCount != count) {
         _quotaAlertCount = count;
         notifyListeners();

@@ -15,6 +15,7 @@ import '../../services/config_service.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../widgets/member_sidebar.dart';
+import '../../widgets/reseller_alert_banner.dart';
 import '../../widgets/reseller_quota_status.dart';
 import '../../widgets/quota_explanation_card.dart';
 
@@ -309,6 +310,9 @@ class _OverviewTabState extends State<_OverviewTab> {
             isDark: isDark,
           ),
           const SizedBox(height: 20),
+          // Admin alerts — resellers only, shown first for max visibility
+          if (widget.isReseller && widget.member.id != null)
+            ResellerAlertBanner(memberId: widget.member.id!),
           // Quick stats row
           if (_loadingStats)
             const Center(child: CircularProgressIndicator())
@@ -1308,20 +1312,38 @@ class _PurchasesTabState extends State<_PurchasesTab> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.receipt_long_rounded,
-              size: 48,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: StockpileColors.primary900.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.receipt_long_rounded,
+                size: 32,
+                color: StockpileColors.primary900,
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Text(
               'No purchase history',
               style: StockpileFonts.satoshi(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
                 color: isDark
                     ? StockpileColors.darkTextMuted
                     : StockpileColors.mutedText,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your purchases will appear here once you start buying.',
+              textAlign: TextAlign.center,
+              style: StockpileFonts.satoshi(
+                fontSize: 13,
+                color: StockpileColors.mutedText,
+                height: 1.5,
               ),
             ),
           ],
@@ -1330,48 +1352,182 @@ class _PurchasesTabState extends State<_PurchasesTab> {
     }
 
     final currencySymbol = context.watch<ConfigService>().currencySymbol;
+    final now = DateTime.now();
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _sales.length,
-      itemBuilder: (context, i) {
-        final s = _sales[i];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: StockpileColors.primary900.withAlpha(30),
-              child: Icon(
-                Icons.shopping_bag_rounded,
-                color: StockpileColors.primary900,
-                size: 20,
+    return RefreshIndicator(
+      onRefresh: _load,
+      color: StockpileColors.primary900,
+      child: ListView.builder(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        itemCount: _sales.length,
+        itemBuilder: (context, i) {
+          final s = _sales[i];
+          final isRemittance = s.isRemittance;
+          final accent = isRemittance
+              ? Colors.purple.shade600
+              : StockpileColors.primary900;
+          final iconBg = isRemittance
+              ? Colors.purple.shade50
+              : StockpileColors.primary900.withValues(alpha: 0.08);
+          final age = s.timestamp != null
+              ? _relativeTime(s.timestamp!, now)
+              : '';
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark ? StockpileColors.darkSurface : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+                border: Border(left: BorderSide(color: accent, width: 3)),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Row(
+                  children: [
+                    // Icon
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: iconBg,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        isRemittance
+                            ? Icons.published_with_changes_rounded
+                            : Icons.shopping_bag_rounded,
+                        size: 20,
+                        color: accent,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    // Name + meta
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  s.itemName,
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? StockpileColors.darkTextPrimary
+                                        : StockpileColors.darkText,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (isRemittance)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.purple.shade50,
+                                    borderRadius: BorderRadius.circular(5),
+                                  ),
+                                  child: Text(
+                                    'Remit',
+                                    style: StockpileFonts.satoshi(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.purple.shade600,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              if (age.isNotEmpty) ...[
+                                Text(
+                                  age,
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 12,
+                                    color: StockpileColors.mutedText,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? StockpileColors.darkInputBg
+                                      : const Color(0xFFF1F3F5),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  '×${s.quantity}',
+                                  style: StockpileFonts.satoshi(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: StockpileColors.mutedText,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Price
+                    Text(
+                      '$currencySymbol${s.price}',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? StockpileColors.darkTextPrimary
+                            : StockpileColors.darkText,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            title: Text(
-              s.itemName,
-              style: StockpileFonts.satoshi(fontWeight: FontWeight.w600),
-            ),
-            subtitle: Text(
-              '${s.timestamp != null ? _fmt(s.timestamp!) : '—'}  ·  ${s.quantity}×',
-              style: StockpileFonts.satoshi(
-                fontSize: 12,
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
-              ),
-            ),
-            trailing: Text(
-              '$currencySymbol${s.price}',
-              style: StockpileFonts.satoshi(fontWeight: FontWeight.w700),
-            ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
-  String _fmt(DateTime dt) =>
-      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+  String _relativeTime(DateTime dt, DateTime now) {
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) {
+      if (dt.day == now.day) return 'Today';
+      return '${diff.inHours}h ago';
+    }
+    if (diff.inDays == 1) return 'Yesterday';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+  }
 }
 
 // ─── Borrows Tab (Reseller-only) ───────────────────────────────────────────
