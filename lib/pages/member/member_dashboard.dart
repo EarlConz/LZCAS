@@ -1365,10 +1365,10 @@ class _PurchasesTabState extends State<_PurchasesTab> {
           final s = _sales[i];
           final isRemittance = s.isRemittance;
           final accent = isRemittance
-              ? Colors.purple.shade600
+              ? (isDark ? StockpileColors.remitBright : StockpileColors.remit)
               : StockpileColors.primary900;
           final iconBg = isRemittance
-              ? Colors.purple.shade50
+              ? StockpileColors.remit.withValues(alpha: isDark ? 0.22 : 0.10)
               : StockpileColors.primary900.withValues(alpha: 0.08);
           final age = s.timestamp != null
               ? _relativeTime(s.timestamp!, now)
@@ -1442,7 +1442,9 @@ class _PurchasesTabState extends State<_PurchasesTab> {
                                     vertical: 2,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.purple.shade50,
+                                    color: StockpileColors.remit.withValues(
+                                      alpha: isDark ? 0.25 : 0.12,
+                                    ),
                                     borderRadius: BorderRadius.circular(5),
                                   ),
                                   child: Text(
@@ -1450,7 +1452,7 @@ class _PurchasesTabState extends State<_PurchasesTab> {
                                     style: StockpileFonts.satoshi(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
-                                      color: Colors.purple.shade600,
+                                      color: accent,
                                     ),
                                   ),
                                 ),

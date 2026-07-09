@@ -6,11 +6,11 @@ import 'package:flutter/rendering.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import '../db/db.dart' show Sale;
-import '../theme.dart' show appRadius;
+import '../theme.dart' show appRadius, StockpileColors;
 
 /// Accent for remittance receipts — matches the purple Remit action
 /// in the borrows table.
-const Color _remitColor = Colors.purple;
+const Color _remitColor = StockpileColors.remit;
 
 /// Data for a single line item on a receipt.
 class ReceiptLineItem {

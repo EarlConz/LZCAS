@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(flutter analyze lib/pages/dashboardpage.dart)",
+      "PowerShell(flutter analyze lib/theme.dart lib/widgets/metric_card.dart lib/widgets/stockpile_card.dart lib/widgets/monthly_revenue_view.dart lib/pages/dashboardpage.dart lib/buttons/borrowbutton.dart lib/widgets/transactionstable.dart lib/dialogs/receipt_dialog.dart lib/pages/admin/admin_dashboard.dart lib/pages/member/member_dashboard.dart)",
+      "PowerShell(flutter analyze lib/pages/admin/admin_dashboard.dart)",
+      "PowerShell(dart format lib/pages/admin/admin_dashboard.dart)"
+    ]
+  }
+}

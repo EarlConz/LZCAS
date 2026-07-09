@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -7,9 +9,8 @@ import '../theme.dart';
 import '../utils/fonts.dart';
 import '../widgets/metric_card.dart';
 import '../widgets/mini_bar_chart.dart';
-import '../widgets/mini_donut_chart.dart';
-import '../widgets/mini_line_chart.dart';
 import '../widgets/monthly_revenue_view.dart';
+import '../widgets/stockpile_card.dart';
 import '../services/config_service.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -20,6 +21,7 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
+  bool _loading = true;
   int monthlyRevenue = 0;
   int previousMonthRevenue = 0;
   int activeOrders = 0;
@@ -28,10 +30,20 @@ class _DashboardPageState extends State<DashboardPage> {
   int packageRevenue = 0;
   int packagesSold = 0;
   int previousPackagesSold = 0;
+  int remittanceRevenue = 0;
+  int remittanceCount = 0;
+  int openBorrowCount = 0;
+  int outstandingBorrowValue = 0;
   List<Map<String, dynamic>> categoryRevenue = [];
   List<Map<String, dynamic>> topProducts = [];
   List<double> revenueTrend = [];
-  List<double> lowStockTrend = [];
+
+  /// Product sales count per month (oldest→newest, 6 entries) — feeds
+  /// the Sales This Month mini chart.
+  List<double> ordersTrend = [];
+
+  StreamSubscription<String>? _changeSub;
+  Timer? _reloadDebounce;
 
   /// Package series names in fixed display order (top 3 by 6-month
   /// revenue, extras folded into 'Other'). Colors are assigned by this
@@ -50,9 +62,48 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     _loadStats();
+    // Keep metrics fresh: reload (debounced) whenever sales, items,
+    // borrows, or packages change anywhere in the app.
+    _changeSub = repository.changes.listen((e) {
+      const relevant = {
+        'sale_added',
+        'sale_updated',
+        'sale_deleted',
+        'sale_imported',
+        'item_added',
+        'item_updated',
+        'item_deleted',
+        'borrow_added',
+        'borrow_updated',
+        'borrows_changed',
+        'package_updated',
+      };
+      if (!relevant.contains(e)) return;
+      _reloadDebounce?.cancel();
+      _reloadDebounce = Timer(const Duration(milliseconds: 400), _loadStats);
+    });
+  }
+
+  @override
+  void dispose() {
+    _reloadDebounce?.cancel();
+    _changeSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadStats() async {
+    try {
+      await _loadStatsInner();
+    } catch (e) {
+      debugPrint('[Dashboard] load failed: $e');
+    } finally {
+      // Never leave the page stuck on the spinner; a failed refresh
+      // keeps showing the previous numbers.
+      if (mounted && _loading) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadStatsInner() async {
     final now = DateTime.now();
     final thisMonthStart = DateTime(now.year, now.month, 1);
     final nextMonth = DateTime(now.year, now.month + 1, 1);
@@ -77,17 +128,23 @@ class _DashboardPageState extends State<DashboardPage> {
     packageRevenue = stats['packageRevenue'] as int? ?? 0;
     packagesSold = stats['packagesSold'] as int? ?? 0;
     previousPackagesSold = stats['previousPackagesSold'] as int? ?? 0;
+    remittanceRevenue = stats['remittanceRevenue'] as int? ?? 0;
+    remittanceCount = stats['remittanceCount'] as int? ?? 0;
 
-    // ── 2. This month's sales + items (date-scoped, not all-time) ──
-    final results = await Future.wait([
+    // ── 2. This month's sales + items + borrow exposure (parallel) ──
+    final results = await Future.wait<dynamic>([
       repository.fetchSalesBetween(thisMonthStart, nextMonth),
       repository
           .fetchItems(), // items table is small; categories are only on items
+      repository.fetchOutstandingBorrowSummary(),
     ]);
     if (!mounted) return;
 
     final thisMonthSales = results[0] as List<Sale>;
     final items = results[1] as List<Item>;
+    final borrowSummary = results[2] as Map<String, int>;
+    openBorrowCount = borrowSummary['count'] ?? 0;
+    outstandingBorrowValue = borrowSummary['value'] ?? 0;
 
     // ── 3. Category revenue breakdown (products only) ───────────────
     final Map<String, int> catRevenue = {};
@@ -97,7 +154,7 @@ class _DashboardPageState extends State<DashboardPage> {
       final cat = item?.category?.isNotEmpty == true
           ? item!.category!
           : 'Uncategorized';
-      catRevenue[cat] = (catRevenue[cat] ?? 0) + s.price;
+      catRevenue[cat] = (catRevenue[cat] ?? 0) + s.price * s.quantity;
     }
     categoryRevenue =
         catRevenue.entries
@@ -114,7 +171,8 @@ class _DashboardPageState extends State<DashboardPage> {
       productAgg[s.itemId] = {
         'itemId': s.itemId,
         'productName': s.itemName,
-        'revenue': (productAgg[s.itemId]?['revenue'] ?? 0) + s.price,
+        'revenue':
+            (productAgg[s.itemId]?['revenue'] ?? 0) + s.price * s.quantity,
         'unitsSold': (productAgg[s.itemId]?['unitsSold'] ?? 0) + s.quantity,
       };
     }
@@ -131,7 +189,7 @@ class _DashboardPageState extends State<DashboardPage> {
       final name = s.itemName.isNotEmpty ? s.itemName : 'Package';
       final entry = pkgAgg.putIfAbsent(name, () => {'count': 0, 'revenue': 0});
       entry['count'] = entry['count']! + s.quantity;
-      entry['revenue'] = entry['revenue']! + s.price;
+      entry['revenue'] = entry['revenue']! + s.price * s.quantity;
     }
     packageBreakdown =
         pkgAgg.entries
@@ -151,35 +209,50 @@ class _DashboardPageState extends State<DashboardPage> {
     monthlyHistory = await repository.fetchMonthlyRevenueHistory(12);
 
     // ── 6. 6-month trends: product revenue + per-package breakdown ──
-    // One pass per month; product revenue feeds the mini bar chart,
-    // package sales are aggregated per package name for the panel.
+    // Months fetched in parallel (current month reuses step 2's rows);
+    // product revenue/count feed the mini charts, package sales are
+    // aggregated per package name for the panel.
     if (!mounted) return;
+    final monthlySales = await Future.wait([
+      for (int i = 5; i >= 1; i--)
+        repository.fetchSalesBetween(
+          DateTime(now.year, now.month - i, 1),
+          DateTime(now.year, now.month - i + 1, 1),
+        ),
+    ]);
+    if (!mounted) return;
+    monthlySales.add(thisMonthSales);
+
     revenueTrend = [];
+    ordersTrend = [];
     final List<String> monthLabels = [];
     final List<Map<String, int>> monthlyPkgRevenue = [];
     final List<Map<String, int>> monthlyPkgCount = [];
     final Map<String, int> pkgTotals = {};
-    for (int i = 5; i >= 0; i--) {
-      final monthStart = DateTime(now.year, now.month - i, 1);
-      final monthEnd = DateTime(now.year, now.month - i + 1, 1);
-      final monthSales = await repository.fetchSalesBetween(
-        monthStart,
-        monthEnd,
+    for (int m = 0; m < monthlySales.length; m++) {
+      final monthStart = DateTime(
+        now.year,
+        now.month - (monthlySales.length - 1 - m),
+        1,
       );
       double productSum = 0;
+      double productCount = 0;
       final Map<String, int> mRev = {};
       final Map<String, int> mCnt = {};
-      for (final sale in monthSales) {
+      for (final sale in monthlySales[m]) {
+        final lineRevenue = sale.price * sale.quantity;
         if (sale.isPackage) {
           final name = sale.itemName.isNotEmpty ? sale.itemName : 'Package';
-          mRev[name] = (mRev[name] ?? 0) + sale.price;
+          mRev[name] = (mRev[name] ?? 0) + lineRevenue;
           mCnt[name] = (mCnt[name] ?? 0) + sale.quantity;
-          pkgTotals[name] = (pkgTotals[name] ?? 0) + sale.price;
+          pkgTotals[name] = (pkgTotals[name] ?? 0) + lineRevenue;
         } else {
-          productSum += sale.price;
+          productSum += lineRevenue;
+          productCount++;
         }
       }
       revenueTrend.add(productSum);
+      ordersTrend.add(productCount);
       monthLabels.add(DateFormat('MMM').format(monthStart));
       monthlyPkgRevenue.add(mRev);
       monthlyPkgCount.add(mCnt);
@@ -204,10 +277,7 @@ class _DashboardPageState extends State<DashboardPage> {
       return {'label': monthLabels[m], 'revenue': rev, 'count': cnt};
     });
 
-    // ── 7. Low stock trend (snapshot of current state) ──────────────
-    lowStockTrend = List.generate(6, (_) => lowStockItems.toDouble());
-
-    if (mounted) setState(() {});
+    if (mounted) setState(() => _loading = false);
   }
 
   String _fmt(int val) {
@@ -215,8 +285,10 @@ class _DashboardPageState extends State<DashboardPage> {
     return NumberFormat.currency(symbol: symbol, decimalDigits: 0).format(val);
   }
 
+  /// Month-over-month change. A zero previous month has no meaningful
+  /// percentage — report "New" instead of fake growth.
   String _chg(int cur, int prev) {
-    if (prev == 0) return cur > 0 ? '+100%' : '0%';
+    if (prev == 0) return cur > 0 ? 'New' : '0%';
     final c = ((cur - prev) / prev * 100).round();
     return c >= 0 ? '+$c%' : '$c%';
   }
@@ -227,6 +299,11 @@ class _DashboardPageState extends State<DashboardPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final w = MediaQuery.sizeOf(context).width;
     final isMobile = w < 750;
+
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     final revUp = monthlyRevenue >= previousMonthRevenue;
     final ordUp = activeOrders >= previousMonthOrders;
 
@@ -236,10 +313,41 @@ class _DashboardPageState extends State<DashboardPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _sectionLabel('Overview', isDark),
-          const SizedBox(height: 16),
+          // Header: section label + month scope + manual refresh
+          Row(
+            children: [
+              _sectionLabel('Overview', isDark),
+              const Spacer(),
+              Text(
+                DateFormat('MMMM yyyy').format(DateTime.now()),
+                style: StockpileFonts.satoshi(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark
+                      ? StockpileColors.darkTextMuted
+                      : StockpileColors.mutedText,
+                ),
+              ),
+              const SizedBox(width: 2),
+              IconButton(
+                tooltip: 'Refresh',
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                icon: Icon(
+                  Icons.refresh_rounded,
+                  color: isDark
+                      ? StockpileColors.darkTextMuted
+                      : StockpileColors.mutedText,
+                ),
+                onPressed: _loadStats,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           _buildMetricRow(isDark, revUp, ordUp, isMobile),
           const SizedBox(height: 32),
+          _sectionLabel('Sales', isDark),
+          const SizedBox(height: 16),
           if (isMobile) ...[
             _revenueChart(isDark, isMobile),
             const SizedBox(height: 32),
@@ -247,12 +355,15 @@ class _DashboardPageState extends State<DashboardPage> {
           ] else
             _buildChartAndProductsRow(isDark),
           const SizedBox(height: 32),
+          _sectionLabel('Packages', isDark),
+          const SizedBox(height: 16),
           _packageSalesPanel(isDark, isMobile),
           const SizedBox(height: 32),
+          _sectionLabel('History', isDark),
+          const SizedBox(height: 16),
           MonthlyRevenueView(
             data: monthlyHistory,
-            currencySymbol:
-                context.read<ConfigService>().currencySymbol,
+            currencySymbol: context.read<ConfigService>().currencySymbol,
           ),
         ],
       ),
@@ -278,29 +389,52 @@ class _DashboardPageState extends State<DashboardPage> {
       MetricCard(
         title: 'Total Revenue',
         value: _fmt(monthlyRevenue),
-        badgeText: '${_chg(monthlyRevenue, previousMonthRevenue)} This Month',
+        badgeText: remittanceRevenue > 0
+            ? '${_chg(monthlyRevenue, previousMonthRevenue)} · ${_fmt(remittanceRevenue)} remitted'
+            : '${_chg(monthlyRevenue, previousMonthRevenue)} This Month',
         badgeColor: revUp ? StockpileColors.success : StockpileColors.danger,
         trailing: MiniBarChart(
           values: revenueTrend.isEmpty ? [0, 0, 0, 0] : revenueTrend,
         ),
       ),
       MetricCard(
-        title: 'Active Orders',
+        title: 'Sales This Month',
         value: activeOrders.toString(),
-        badgeText: '${_chg(activeOrders, previousMonthOrders)} This Month',
+        badgeText: remittanceCount > 0
+            ? '${_chg(activeOrders, previousMonthOrders)} · $remittanceCount remittance${remittanceCount == 1 ? '' : 's'}'
+            : '${_chg(activeOrders, previousMonthOrders)} This Month',
         badgeColor: ordUp ? StockpileColors.success : StockpileColors.danger,
-        trailing: MiniDonutChart(
-          percentage: activeOrders > 0
-              ? activeOrders /
-                    (activeOrders + previousMonthOrders).clamp(1, 999999)
-              : 0,
+        trailing: MiniBarChart(
+          values: ordersTrend.isEmpty ? [0, 0, 0, 0] : ordersTrend,
+        ),
+      ),
+      MetricCard(
+        title: 'Owed by Resellers',
+        value: _fmt(outstandingBorrowValue),
+        badgeText:
+            '$openBorrowCount open borrow${openBorrowCount == 1 ? '' : 's'}',
+        badgeColor: openBorrowCount > 0
+            ? StockpileColors.primary900
+            : StockpileColors.success,
+        trailing: _iconCapsule(
+          Icons.swap_horiz_rounded,
+          StockpileColors.primary900,
+          d,
         ),
       ),
       MetricCard(
         title: 'Low Stock Items',
         value: lowStockItems.toString(),
-        trailing: MiniLineChart(
-          values: lowStockTrend.isEmpty ? [0, 0, 0, 0] : lowStockTrend,
+        badgeText: lowStockItems > 0 ? 'Needs restocking' : 'All stocked',
+        badgeColor: lowStockItems > 0
+            ? StockpileColors.danger
+            : StockpileColors.success,
+        trailing: _iconCapsule(
+          lowStockItems > 0
+              ? Icons.warning_amber_rounded
+              : Icons.check_circle_outline_rounded,
+          lowStockItems > 0 ? StockpileColors.danger : StockpileColors.success,
+          d,
         ),
       ),
     ];
@@ -315,59 +449,97 @@ class _DashboardPageState extends State<DashboardPage> {
         ],
       );
     }
-    return Row(
-      children: [
-        for (var i = 0; i < metricCards.length; i++) ...[
-          if (i > 0) const SizedBox(width: appSpacing),
-          Expanded(child: metricCards[i]),
-        ],
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 4-across needs real width; fall back to a 2×2 grid.
+        if (constraints.maxWidth >= 1100) {
+          return Row(
+            children: [
+              for (var i = 0; i < metricCards.length; i++) ...[
+                if (i > 0) const SizedBox(width: appSpacing),
+                Expanded(child: metricCards[i]),
+              ],
+            ],
+          );
+        }
+        return Column(
+          children: [
+            for (var r = 0; r < metricCards.length; r += 2) ...[
+              if (r > 0) const SizedBox(height: appSpacing),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: metricCards[r]),
+                  const SizedBox(width: appSpacing),
+                  Expanded(
+                    child: r + 1 < metricCards.length
+                        ? metricCards[r + 1]
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 
-  // ── Chip ───────────────────────────────────────────────────────────
+  // ── Empty State ────────────────────────────────────────────────────
 
-  Widget _chip(String label, bool isDark) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-      color: (isDark ? StockpileColors.darkDivider : StockpileColors.primary50)
-          .withAlpha(180),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Text(
-      label,
-      style: StockpileFonts.satoshi(
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-        color: isDark
-            ? StockpileColors.darkTextBody
-            : StockpileColors.primary900,
+  Widget _emptyState(bool d, IconData icon, String title, String hint) {
+    final muted = d ? StockpileColors.darkTextMuted : StockpileColors.mutedText;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 32, color: muted.withAlpha(140)),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: StockpileFonts.satoshi(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: d
+                  ? StockpileColors.darkTextBody
+                  : StockpileColors.bodyText,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            hint,
+            textAlign: TextAlign.center,
+            style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+          ),
+        ],
       ),
+    );
+  }
+
+  /// Soft tinted capsule around a metric-card icon — same treatment as
+  /// the quota and remit badges, so icon cards read as deliberate.
+  Widget _iconCapsule(IconData icon, Color color, bool d) => Container(
+    padding: const EdgeInsets.all(8),
+    decoration: BoxDecoration(
+      color: color.withAlpha(d ? 36 : 22),
+      shape: BoxShape.circle,
     ),
+    child: Icon(icon, size: 20, color: color),
   );
 
   // ── Card Wrapper ────────────────────────────────────────────────────
 
-  Widget _card(bool d, Widget c) {
-    final mobile = MediaQuery.sizeOf(context).width < 750;
-    return Container(
-      decoration: BoxDecoration(
-        color: d ? StockpileColors.darkSurface : StockpileColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: d ? StockpileColors.darkDivider : StockpileColors.divider,
-        ),
-      ),
-      padding: EdgeInsets.all(mobile ? 14 : 20),
-      child: c,
-    );
-  }
+  Widget _card(bool d, Widget c) => StockpileCard(child: c);
 
   // â”€â”€ Revenue By Category Chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Widget _revenueChart(bool d, bool mobile) {
     final cats = categoryRevenue.take(8).toList();
-    final total = categoryRevenue.fold<int>(0, (s, e) => e['revenue'] as int);
+    final total = categoryRevenue.fold<int>(
+      0,
+      (s, e) => s + (e['revenue'] as int),
+    );
     final barWidth = mobile ? 20.0 : 28.0;
 
     return _card(
@@ -375,36 +547,25 @@ class _DashboardPageState extends State<DashboardPage> {
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                'Revenue By Product Category',
-                style: StockpileFonts.satoshi(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: d
-                      ? StockpileColors.darkTextPrimary
-                      : StockpileColors.darkText,
-                ),
-              ),
-              const Spacer(),
-              _chip('Income', true),
-            ],
+          Text(
+            'Revenue By Product Category',
+            style: StockpileFonts.satoshi(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: d
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
           ),
           const SizedBox(height: 24),
           SizedBox(
             height: 240,
             child: cats.isEmpty
-                ? Center(
-                    child: Text(
-                      'No revenue data yet',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 14,
-                        color: d
-                            ? StockpileColors.darkTextMuted
-                            : StockpileColors.mutedText,
-                      ),
-                    ),
+                ? _emptyState(
+                    d,
+                    Icons.bar_chart_rounded,
+                    'No revenue yet',
+                    'Sales recorded in the POS Terminal will appear here.',
                   )
                 : _buildBarChart(d, cats, total, barWidth),
           ),
@@ -473,47 +634,33 @@ class _DashboardPageState extends State<DashboardPage> {
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 50,
+              reservedSize: 30,
               getTitlesWidget: (v, _) {
                 final idx = v.toInt();
-                if (idx < 0 || idx >= cats.length)
+                if (idx < 0 || idx >= cats.length) {
                   return const SizedBox.shrink();
+                }
                 final name = cats[idx]['category'] as String;
-                final val = cats[idx]['revenue'] as int;
                 final displayName = name.length > 10
                     ? '${name.substring(0, 9)}\u2026'
                     : name;
+                // Name only — the peso value lives in the tooltip.
                 return Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: SizedBox(
                     width: 70,
-                    child: Column(
-                      children: [
-                        Text(
-                          displayName,
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: StockpileFonts.satoshi(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: d
-                                ? StockpileColors.darkTextBody
-                                : StockpileColors.bodyText,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '₱$val',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w400,
-                            color: d
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      displayName,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: d
+                            ? StockpileColors.darkTextBody
+                            : StockpileColors.bodyText,
+                      ),
                     ),
                   ),
                 );
@@ -579,16 +726,11 @@ class _DashboardPageState extends State<DashboardPage> {
         if (topProducts.isEmpty)
           Padding(
             padding: const EdgeInsets.all(24),
-            child: Center(
-              child: Text(
-                'No sales data yet',
-                style: StockpileFonts.satoshi(
-                  fontSize: 14,
-                  color: d
-                      ? StockpileColors.darkTextMuted
-                      : StockpileColors.mutedText,
-                ),
-              ),
+            child: _emptyState(
+              d,
+              Icons.inventory_2_outlined,
+              'No sales yet',
+              'Top sellers show up once products are sold.',
             ),
           )
         else
@@ -602,9 +744,12 @@ class _DashboardPageState extends State<DashboardPage> {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
+                  // Top rank gets the brand gold; the rest stay neutral.
                   color: i == 0
-                      ? Colors.amber.withAlpha(d ? 40 : 30)
-                      : (d ? Colors.white10 : Colors.grey.shade100),
+                      ? StockpileColors.primary500.withAlpha(d ? 50 : 36)
+                      : (d
+                            ? StockpileColors.darkInputBg
+                            : StockpileColors.inputBg),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 alignment: Alignment.center,
@@ -614,8 +759,10 @@ class _DashboardPageState extends State<DashboardPage> {
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                     color: i == 0
-                        ? Colors.amber.shade800
-                        : (d ? Colors.white38 : Colors.grey.shade600),
+                        ? StockpileColors.primary800
+                        : (d
+                              ? StockpileColors.darkTextMuted
+                              : StockpileColors.mutedText),
                   ),
                 ),
               ),
@@ -738,14 +885,11 @@ class _DashboardPageState extends State<DashboardPage> {
           SizedBox(
             height: 200,
             child: !hasData
-                ? Center(
-                    child: Text(
-                      'No package sales in the last 6 months',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 14,
-                        color: mutedColor,
-                      ),
-                    ),
+                ? _emptyState(
+                    d,
+                    Icons.card_giftcard_rounded,
+                    'No package sales yet',
+                    'Packages availed by resellers will chart here.',
                   )
                 : _buildPackageBarChart(d, mobile),
           ),

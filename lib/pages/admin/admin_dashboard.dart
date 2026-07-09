@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
@@ -1781,15 +1782,36 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
   List<Package> _packages = [];
   Map<int, int> _availerCounts = {};
   bool _loading = true;
+  StreamSubscription<String>? _changeSub;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    // Availer counts change when members avail packages elsewhere;
+    // refresh silently on package/member changes.
+    _changeSub = repository.changes.listen((e) {
+      const relevant = {
+        'package_added',
+        'package_updated',
+        'package_deleted',
+        'member_added',
+        'member_updated',
+        'members_changed',
+      };
+      if (relevant.contains(e)) _loadData();
+    });
+  }
+
+  @override
+  void dispose() {
+    _changeSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
-    setState(() => _loading = true);
+    // Only block the view on first load; refreshes are silent.
+    if (_packages.isEmpty) setState(() => _loading = true);
     try {
       final packages = await repository.fetchPackages();
       final counts = await repository.fetchPackageAvailerCounts();
@@ -1918,7 +1940,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     controller: nameCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Package Name',
-                      border: OutlineInputBorder(),
                     ),
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Required' : null,
@@ -1926,19 +1947,22 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: priceCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Price (₱)',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'Price (₱)'),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    validator: (v) {
+                      final n = int.tryParse(v ?? '');
+                      if (n == null || n <= 0) {
+                        return 'Enter a price above 0';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: directCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Direct Referral Bonus',
-                      border: OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -1948,7 +1972,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     controller: indirectCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Indirect Referral Bonus',
-                      border: OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -1958,7 +1981,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     controller: chairmansCtrl,
                     decoration: const InputDecoration(
                       labelText: "Chairman's Bonus",
-                      border: OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -1980,7 +2002,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                           controller: rpPackCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Per Pack',
-                            border: OutlineInputBorder(),
                           ),
                           keyboardType: TextInputType.number,
                           inputFormatters: [
@@ -1994,7 +2015,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                           controller: rpBoxCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Per Box',
-                            border: OutlineInputBorder(),
                           ),
                           keyboardType: TextInputType.number,
                           inputFormatters: [
@@ -2008,7 +2028,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                           controller: rpBottleCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Per Bottle',
-                            border: OutlineInputBorder(),
                           ),
                           keyboardType: TextInputType.number,
                           inputFormatters: [
@@ -2035,7 +2054,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                           controller: groupDirectCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Direct (per item)',
-                            border: OutlineInputBorder(),
                           ),
                           keyboardType: TextInputType.number,
                           inputFormatters: [
@@ -2049,7 +2067,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                           controller: groupIndirectCtrl,
                           decoration: const InputDecoration(
                             labelText: 'Indirect (per item)',
-                            border: OutlineInputBorder(),
                           ),
                           keyboardType: TextInputType.number,
                           inputFormatters: [
@@ -2069,11 +2086,205 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
             TextButton(
               style: TextButton.styleFrom(foregroundColor: Colors.red),
               onPressed: () async {
+                // Members hold a live reference to their package (name,
+                // price, chairman's bonus) — deleting an availed package
+                // would silently break their earnings. Block it.
+                final availers = _availerCounts[existing.id] ?? 0;
+                if (availers > 0) {
+                  final isDark =
+                      Theme.of(ctx).brightness == Brightness.dark;
+                  await showDialog<void>(
+                    context: ctx,
+                    builder: (c) => AlertDialog(
+                      insetPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 40,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      titlePadding: EdgeInsets.zero,
+                      contentPadding: EdgeInsets.zero,
+                      actionsPadding: const EdgeInsets.fromLTRB(
+                        20,
+                        4,
+                        20,
+                        16,
+                      ),
+                      content: SizedBox(
+                        width: 420,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // ── Header ─────────────────────────────
+                            Container(
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                20,
+                                20,
+                                16,
+                              ),
+                              decoration: BoxDecoration(
+                                color: StockpileColors.danger.withAlpha(
+                                  isDark ? 26 : 16,
+                                ),
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(20),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: StockpileColors.danger
+                                          .withAlpha(isDark ? 46 : 28),
+                                      borderRadius: BorderRadius.circular(
+                                        14,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.gpp_bad_rounded,
+                                      color: StockpileColors.danger,
+                                      size: 24,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'Package Deletion Blocked',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                            color: StockpileColors.danger,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          existing.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w700,
+                                            color: isDark
+                                                ? StockpileColors
+                                                      .darkTextPrimary
+                                                : StockpileColors.darkText,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // ── Availer summary bar ────────────────
+                            Container(
+                              margin: const EdgeInsets.fromLTRB(
+                                20,
+                                16,
+                                20,
+                                0,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color: StockpileColors.primary900
+                                    .withAlpha(18),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: StockpileColors.primary900
+                                      .withAlpha(60),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.people_alt_rounded,
+                                    size: 20,
+                                    color: StockpileColors.primary900,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      '$availers member'
+                                      '${availers == 1 ? '' : 's'} '
+                                      'currently hold'
+                                      '${availers == 1 ? 's' : ''} '
+                                      'this package',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: isDark
+                                            ? StockpileColors.darkTextBody
+                                            : StockpileColors.bodyText,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // ── Explanation ────────────────────────
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                14,
+                                20,
+                                8,
+                              ),
+                              child: Text(
+                                "Their chairman's bonus, earnings history, "
+                                'and package benefits are computed from this '
+                                'package. Deleting it would silently break '
+                                'them.\n\nReassign those members to another '
+                                'package first, then delete.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.5,
+                                  color: isDark
+                                      ? StockpileColors.darkTextMuted
+                                      : StockpileColors.bodyText,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(c);
+                            _showAvailersList(existing);
+                          },
+                          child: const Text('View Availers'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(c),
+                          child: const Text('Got It'),
+                        ),
+                      ],
+                    ),
+                  );
+                  return;
+                }
                 final confirmed = await showDialog<bool>(
                   context: ctx,
                   builder: (c) => AlertDialog(
                     title: const Text('Delete Package'),
-                    content: Text('Delete "${existing.name}"?'),
+                    content: Text(
+                      'Delete "${existing.name}"? This cannot be undone.',
+                    ),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(c, false),
@@ -2090,7 +2301,14 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                   ),
                 );
                 if (confirmed == true) {
-                  await repository.deletePackage(existing.id!);
+                  try {
+                    await repository.deletePackage(existing.id!);
+                    BotToast.showText(text: '"${existing.name}" deleted');
+                  } catch (e) {
+                    BotToast.showText(text: 'Failed to delete package: $e');
+                    return;
+                  }
+                  if (!ctx.mounted) return;
                   Navigator.pop(ctx);
                   _loadData();
                 }
@@ -2109,29 +2327,38 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                 'box': int.tryParse(rpBoxCtrl.text) ?? 0,
                 'bottle': int.tryParse(rpBottleCtrl.text) ?? 0,
               });
-              if (existing != null) {
-                final updated = existing.copyWith(
-                  name: nameCtrl.text.trim(),
-                  price: int.tryParse(priceCtrl.text) ?? 0,
-                  directReferralBonus: int.tryParse(directCtrl.text) ?? 0,
-                  indirectReferralBonus: int.tryParse(indirectCtrl.text) ?? 0,
-                  chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
-                  repeatPurchaseJson: repeatJson,
-                  groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
-                  groupSalesIndirect: int.tryParse(groupIndirectCtrl.text) ?? 0,
-                );
-                await repository.updatePackage(updated);
-              } else {
-                await repository.addPackage(
-                  name: nameCtrl.text.trim(),
-                  price: int.tryParse(priceCtrl.text) ?? 0,
-                  directReferralBonus: int.tryParse(directCtrl.text) ?? 0,
-                  indirectReferralBonus: int.tryParse(indirectCtrl.text) ?? 0,
-                  chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
-                  repeatPurchaseJson: repeatJson,
-                  groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
-                  groupSalesIndirect: int.tryParse(groupIndirectCtrl.text) ?? 0,
-                );
+              try {
+                if (existing != null) {
+                  final updated = existing.copyWith(
+                    name: nameCtrl.text.trim(),
+                    price: int.tryParse(priceCtrl.text) ?? 0,
+                    directReferralBonus: int.tryParse(directCtrl.text) ?? 0,
+                    indirectReferralBonus: int.tryParse(indirectCtrl.text) ?? 0,
+                    chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
+                    repeatPurchaseJson: repeatJson,
+                    groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
+                    groupSalesIndirect:
+                        int.tryParse(groupIndirectCtrl.text) ?? 0,
+                  );
+                  await repository.updatePackage(updated);
+                  BotToast.showText(text: '"${updated.name}" saved');
+                } else {
+                  await repository.addPackage(
+                    name: nameCtrl.text.trim(),
+                    price: int.tryParse(priceCtrl.text) ?? 0,
+                    directReferralBonus: int.tryParse(directCtrl.text) ?? 0,
+                    indirectReferralBonus: int.tryParse(indirectCtrl.text) ?? 0,
+                    chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
+                    repeatPurchaseJson: repeatJson,
+                    groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
+                    groupSalesIndirect:
+                        int.tryParse(groupIndirectCtrl.text) ?? 0,
+                  );
+                  BotToast.showText(text: '"${nameCtrl.text.trim()}" created');
+                }
+              } catch (e) {
+                BotToast.showText(text: 'Failed to save package: $e');
+                return;
               }
               if (!ctx.mounted) return;
               Navigator.pop(ctx);
@@ -2232,141 +2459,161 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
               final count = _availerCounts[pkg.id] ?? 0;
               return SizedBox(
                 width: 240,
-                child: GestureDetector(
-                  onTap: count > 0 ? () => _showAvailersList(pkg) : null,
-                  child: Card(
-                    elevation: 1,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                child: Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(
+                      color: isDark
+                          ? StockpileColors.darkDivider
+                          : StockpileColors.divider,
                     ),
-                    color: isDark
-                        ? StockpileColors.darkSurface
-                        : StockpileColors.surface,
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 42,
-                                height: 42,
-                                decoration: BoxDecoration(
-                                  color: StockpileColors.primary900.withAlpha(
-                                    isDark ? 40 : 20,
-                                  ),
-                                  borderRadius: BorderRadius.circular(12),
+                  ),
+                  color: isDark
+                      ? StockpileColors.darkSurface
+                      : StockpileColors.surface,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: StockpileColors.primary900.withAlpha(
+                                  isDark ? 40 : 20,
                                 ),
-                                child: const Icon(
-                                  Icons.card_giftcard_rounded,
-                                  color: StockpileColors.primary900,
-                                  size: 22,
-                                ),
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              const Spacer(),
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined, size: 18),
-                                onPressed: () =>
-                                    _showEditPackageDialog(existing: pkg),
-                                visualDensity: VisualDensity.compact,
+                              child: const Icon(
+                                Icons.card_giftcard_rounded,
+                                color: StockpileColors.primary900,
+                                size: 22,
                               ),
-                            ],
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, size: 18),
+                              onPressed: () =>
+                                  _showEditPackageDialog(existing: pkg),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          pkg.name,
+                          style: StockpileFonts.satoshi(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: isDark
+                                ? StockpileColors.darkTextPrimary
+                                : StockpileColors.darkText,
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            pkg.name,
-                            style: StockpileFonts.satoshi(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: isDark
-                                  ? StockpileColors.darkTextPrimary
-                                  : StockpileColors.darkText,
-                            ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '₱${NumberFormat('#,##0').format(pkg.price)}',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: StockpileColors.primary900,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '₱${pkg.price}',
-                            style: StockpileFonts.satoshi(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
-                              color: StockpileColors.primary900,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color:
-                                  (count > 0
-                                          ? StockpileColors.success
-                                          : theme.colorScheme.onSurfaceVariant)
-                                      .withAlpha(20),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.people_alt_rounded,
-                                  size: 18,
-                                  color: count > 0
+                        ),
+                        const SizedBox(height: 12),
+                        // Availer chip doubles as the "view availers"
+                        // button — InkWell gives it real tap affordance.
+                        Material(
+                          color:
+                              (count > 0
                                       ? StockpileColors.success
-                                      : theme.colorScheme.onSurfaceVariant,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '$count Availer${count == 1 ? '' : 's'}',
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
+                                      : theme.colorScheme.onSurfaceVariant)
+                                  .withAlpha(20),
+                          borderRadius: BorderRadius.circular(10),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: count > 0
+                                ? () => _showAvailersList(pkg)
+                                : null,
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.people_alt_rounded,
+                                    size: 18,
                                     color: count > 0
                                         ? StockpileColors.success
                                         : theme.colorScheme.onSurfaceVariant,
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '$count Availer${count == 1 ? '' : 's'}',
+                                      style: StockpileFonts.satoshi(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: count > 0
+                                            ? StockpileColors.success
+                                            : theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                  if (count > 0)
+                                    const Icon(
+                                      Icons.chevron_right_rounded,
+                                      size: 18,
+                                      color: StockpileColors.success,
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          _BonusRow(
-                            label: 'Direct Bonus',
-                            value: '₱${pkg.directReferralBonus}',
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 4),
-                          _BonusRow(
-                            label: 'Indirect Bonus',
-                            value: '₱${pkg.indirectReferralBonus}',
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 4),
-                          _BonusRow(
-                            label: "Chairman's Bonus",
-                            value: '₱${pkg.chairmansBonus}',
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 8),
-                          _RepeatPurchaseRow(pkg: pkg, isDark: isDark),
-                          const SizedBox(height: 8),
-                          _GroupSalesRow(
-                            icon: Icons.arrow_downward_rounded,
-                            label: 'Group Sales Direct',
-                            value: '${pkg.groupSalesDirect} / item',
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 4),
-                          _GroupSalesRow(
-                            icon: Icons.arrow_downward_rounded,
-                            label: 'Group Sales Indirect',
-                            value: '${pkg.groupSalesIndirect} / item',
-                            isDark: isDark,
-                          ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 12),
+                        _BonusRow(
+                          label: 'Direct Bonus',
+                          value: '₱${pkg.directReferralBonus}',
+                          isDark: isDark,
+                        ),
+                        const SizedBox(height: 4),
+                        _BonusRow(
+                          label: 'Indirect Bonus',
+                          value: '₱${pkg.indirectReferralBonus}',
+                          isDark: isDark,
+                        ),
+                        const SizedBox(height: 4),
+                        _BonusRow(
+                          label: "Chairman's Bonus",
+                          value: '₱${pkg.chairmansBonus}',
+                          isDark: isDark,
+                        ),
+                        const SizedBox(height: 8),
+                        _RepeatPurchaseRow(pkg: pkg, isDark: isDark),
+                        const SizedBox(height: 8),
+                        _GroupSalesRow(
+                          icon: Icons.arrow_downward_rounded,
+                          label: 'Group Sales Direct',
+                          value: '${pkg.groupSalesDirect} / item',
+                          isDark: isDark,
+                        ),
+                        const SizedBox(height: 4),
+                        _GroupSalesRow(
+                          icon: Icons.keyboard_double_arrow_down_rounded,
+                          label: 'Group Sales Indirect',
+                          value: '${pkg.groupSalesIndirect} / item',
+                          isDark: isDark,
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -7517,9 +7764,9 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
       case 'returned':
         return StockpileColors.success;
       case 'remitted':
-        return Colors.purple;
+        return isDark ? StockpileColors.remitBright : StockpileColors.remit;
       case 'partially_settled':
-        return Colors.orange;
+        return StockpileColors.primary900;
       default:
         return isDark ? StockpileColors.darkTextBody : StockpileColors.bodyText;
     }
@@ -7700,12 +7947,12 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: Colors.purple.withAlpha(25),
+                      color: StockpileColors.remit.withAlpha(25),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
                       Icons.payments_rounded,
-                      color: Colors.purple,
+                      color: StockpileColors.remit,
                       size: 22,
                     ),
                   ),
@@ -7760,16 +8007,18 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.purple.withAlpha(15),
+                      color: StockpileColors.remit.withAlpha(15),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.purple.withAlpha(50)),
+                      border: Border.all(
+                        color: StockpileColors.remit.withAlpha(50),
+                      ),
                     ),
                     child: Text(
                       'Total: ₱${b.price * b.outstandingQuantity}',
                       style: StockpileFonts.satoshi(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: Colors.purple,
+                        color: StockpileColors.remit,
                       ),
                     ),
                   ),
@@ -7816,7 +8065,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                         style: StockpileFonts.satoshi(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
-                          color: Colors.purple,
+                          color: StockpileColors.remit,
                         ),
                       ),
                     ],
@@ -7846,7 +8095,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                         Navigator.pop(ctx, q);
                       },
                       style: FilledButton.styleFrom(
-                        backgroundColor: Colors.purple,
+                        backgroundColor: StockpileColors.remit,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -8021,7 +8270,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                   label: 'Remitted',
                   count: _remittedCount,
                   isSelected: _settledFilter == 'remitted',
-                  color: Colors.purple,
+                  color: StockpileColors.remit,
                   onTap: () => setState(() => _settledFilter = 'remitted'),
                 ),
               ],
@@ -8248,7 +8497,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                                                 label: 'Remitted',
                                                 value: b.quantityRemitted,
                                                 isDark: isDark,
-                                                color: Colors.purple,
+                                                color: StockpileColors.remit,
                                               ),
                                               const SizedBox(width: 6),
                                               _QtyBadge(
@@ -8409,7 +8658,7 @@ class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
                                                 label: const Text('Remit'),
                                                 style: FilledButton.styleFrom(
                                                   backgroundColor:
-                                                      Colors.purple,
+                                                      StockpileColors.remit,
                                                   shape: RoundedRectangleBorder(
                                                     borderRadius:
                                                         BorderRadius.circular(
