@@ -71,7 +71,7 @@ class _BorrowButtonState extends State<BorrowButton> {
         label: const Text('Borrow'),
         onPressed: () => _showBorrowDialog(context),
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.orange.shade700,
+          backgroundColor: StockpileColors.primary900,
           foregroundColor: Colors.white,
         ),
       );
@@ -82,7 +82,7 @@ class _BorrowButtonState extends State<BorrowButton> {
       label: const Text('Borrow'),
       onPressed: () => _showBorrowDialog(context),
       style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.orange.shade700,
+        backgroundColor: StockpileColors.primary900,
         foregroundColor: Colors.white,
       ),
     );
@@ -227,7 +227,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
         children: [
           Icon(
             Icons.swap_horiz_rounded,
-            color: Colors.orange.shade700,
+            color: StockpileColors.primary900,
             size: 30,
           ),
           const SizedBox(width: 12),
@@ -255,23 +255,23 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 12),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
+                    color: StockpileColors.primary50,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.orange.shade200),
+                    border: Border.all(color: StockpileColors.primary200),
                   ),
                   child: Row(
                     children: [
                       Icon(
                         Icons.info_outline,
                         size: 20,
-                        color: Colors.orange.shade700,
+                        color: StockpileColors.primary900,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'Items are due for return or payment within 10 days.',
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.orange.shade900,
+                            color: StockpileColors.primary900,
                           ),
                         ),
                       ),
@@ -425,7 +425,7 @@ class _BorrowDialogState extends State<_BorrowDialog> {
                     const SizedBox(width: 12),
                     FilledButton(
                       style: FilledButton.styleFrom(
-                        backgroundColor: Colors.orange.shade700,
+                        backgroundColor: StockpileColors.primary900,
                       ),
                       onPressed: () {
                         if (selectedItem == null) {
@@ -568,14 +568,14 @@ class _BorrowDialogState extends State<_BorrowDialog> {
             child: Text(
               '$totalQty item${totalQty == 1 ? '' : 's'}',
               style: theme.textTheme.titleLarge?.copyWith(
-                color: Colors.orange.shade700,
+                color: StockpileColors.primary900,
                 fontWeight: FontWeight.w800,
               ),
             ),
           ),
         FilledButton(
           style: FilledButton.styleFrom(
-            backgroundColor: Colors.orange.shade700,
+            backgroundColor: StockpileColors.primary900,
           ),
           onPressed: (isCartValid() && selectedBuyerId != null)
               ? () async {

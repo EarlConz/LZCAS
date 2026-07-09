@@ -439,13 +439,13 @@ class SupabaseRepository {
       // This month's sales
       _supabase
           .from('sales')
-          .select('price, quantity, package_id')
+          .select('price, quantity, package_id, is_remittance')
           .gte('timestamp', thisMonthStart.toIso8601String())
           .lt('timestamp', thisMonthEnd.toIso8601String()),
       // Last month's sales
       _supabase
           .from('sales')
-          .select('price, package_id')
+          .select('price, quantity, package_id')
           .gte('timestamp', lastMonthStart.toIso8601String())
           .lt('timestamp', lastMonthEnd.toIso8601String()),
       // Low stock items (id only, lightweight)
@@ -461,20 +461,29 @@ class SupabaseRepository {
     final lowStockRows = results[2] as List;
 
     // Aggregate client-side (rows limited to one month each, not all time).
+    // price is per-unit, so a line's revenue is price × quantity.
     // Package availments (package_id set) are tallied separately — they are
     // not products and must not inflate revenue or order counts.
     int monthlyRevenue = 0;
     int activeOrders = 0;
     int packageRevenue = 0;
     int packagesSold = 0;
+    int remittanceRevenue = 0;
+    int remittanceCount = 0;
     for (final row in thisMonthSales) {
       final price = (row['price'] as int?) ?? 0;
+      final qty = (row['quantity'] as int?) ?? 0;
+      final lineRevenue = price * qty;
       if (row['package_id'] != null) {
-        packageRevenue += price;
-        packagesSold++;
+        packageRevenue += lineRevenue;
+        packagesSold += qty;
       } else {
-        monthlyRevenue += price;
+        monthlyRevenue += lineRevenue;
         activeOrders++;
+        if (row['is_remittance'] == true) {
+          remittanceRevenue += lineRevenue;
+          remittanceCount++;
+        }
       }
     }
 
@@ -484,11 +493,13 @@ class SupabaseRepository {
     int previousPackagesSold = 0;
     for (final row in lastMonthSales) {
       final price = (row['price'] as int?) ?? 0;
+      final qty = (row['quantity'] as int?) ?? 0;
+      final lineRevenue = price * qty;
       if (row['package_id'] != null) {
-        previousPackageRevenue += price;
-        previousPackagesSold++;
+        previousPackageRevenue += lineRevenue;
+        previousPackagesSold += qty;
       } else {
-        previousMonthRevenue += price;
+        previousMonthRevenue += lineRevenue;
         previousMonthOrders++;
       }
     }
@@ -503,7 +514,32 @@ class SupabaseRepository {
       'packagesSold': packagesSold,
       'previousPackageRevenue': previousPackageRevenue,
       'previousPackagesSold': previousPackagesSold,
+      'remittanceRevenue': remittanceRevenue,
+      'remittanceCount': remittanceCount,
     };
+  }
+
+  /// Money currently owed by resellers: open borrows (active, overdue,
+  /// partially settled) valued at outstanding quantity × unit price.
+  Future<Map<String, int>> fetchOutstandingBorrowSummary() async {
+    final data = await _supabase
+        .from('borrows')
+        .select('quantity, quantity_returned, quantity_remitted, price')
+        .inFilter('status', ['active', 'overdue', 'partially_settled']);
+
+    int count = 0;
+    int value = 0;
+    for (final row in (data as List)) {
+      final j = row as Map<String, dynamic>;
+      final outstanding =
+          ((j['quantity'] as int?) ?? 0) -
+          ((j['quantity_returned'] as int?) ?? 0) -
+          ((j['quantity_remitted'] as int?) ?? 0);
+      if (outstanding <= 0) continue;
+      count++;
+      value += outstanding * ((j['price'] as int?) ?? 0);
+    }
+    return {'count': count, 'value': value};
   }
 
   /// Fetch monthly revenue history for the last [months] months.
@@ -519,12 +555,13 @@ class SupabaseRepository {
 
     final data = await _supabase
         .from('sales')
-        .select('price, timestamp, package_id')
+        .select('price, quantity, timestamp, package_id')
         .gte('timestamp', startDate.toIso8601String())
         .lt('timestamp', endDate.toIso8601String());
 
     // Aggregate by YYYY-MM key (products only — package availments are
-    // not part of product revenue)
+    // not part of product revenue). price is per-unit: revenue is
+    // price × quantity.
     final Map<String, Map<String, dynamic>> monthly = {};
     for (final row in (data as List)) {
       final rowMap = row as Map<String, dynamic>;
@@ -536,7 +573,8 @@ class SupabaseRepository {
         () => {'month': key, 'revenue': 0, 'transactions': 0},
       );
       monthly[key]!['revenue'] =
-          (monthly[key]!['revenue'] as int) + ((rowMap['price'] as int?) ?? 0);
+          (monthly[key]!['revenue'] as int) +
+          ((rowMap['price'] as int?) ?? 0) * ((rowMap['quantity'] as int?) ?? 0);
       monthly[key]!['transactions'] =
           (monthly[key]!['transactions'] as int) + 1;
     }

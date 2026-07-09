@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../theme.dart';
 import '../utils/fonts.dart';
+import 'stockpile_card.dart';
 
 /// Full monthly revenue breakdown — bar chart + data table.
 ///
@@ -71,17 +72,7 @@ class MonthlyRevenueView extends StatelessWidget {
       });
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark
-              ? StockpileColors.darkDivider
-              : StockpileColors.divider,
-        ),
-      ),
-      padding: EdgeInsets.all(isMobile ? 14 : 20),
+    return StockpileCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

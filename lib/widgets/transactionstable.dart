@@ -735,7 +735,10 @@ class _RemittanceBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final purple = Colors.purple.shade600;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final purple = isDark
+        ? StockpileColors.remitBright
+        : StockpileColors.remit;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: purple.withValues(alpha: 0.12),
@@ -823,10 +826,10 @@ class _TxnDataSource extends DataTableSource {
     return DataRow(
       color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
         if (states.contains(WidgetState.hovered)) {
-          return Colors.blue.withAlpha(18);
+          return StockpileColors.secondary500.withAlpha(18);
         }
         if (isEven) {
-          return Colors.grey.withAlpha(20);
+          return StockpileColors.mutedText.withAlpha(16);
         }
         return null;
       }),

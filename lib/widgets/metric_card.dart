@@ -27,10 +27,11 @@ class MetricCard extends StatelessWidget {
         ? StockpileColors.darkSurface
         : StockpileColors.surface;
 
+    // Flat bordered card — matches the app's dominant card language
+    // (no elevation/shadow anywhere on the dashboard).
     return Card(
       color: cardColor,
-      elevation: 1,
-      shadowColor: Colors.black.withAlpha((0.05 * 255).round()),
+      elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
