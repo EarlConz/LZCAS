@@ -2,7 +2,6 @@
 import 'package:provider/provider.dart';
 import '../utils/fonts.dart';
 import '../theme.dart';
-import '../data/models.dart';
 import '../db/db.dart';
 import '../services/notification_service.dart';
 import '../services/config_service.dart';
@@ -13,7 +12,7 @@ class StockpileTopBar extends StatelessWidget {
   final bool showMenu;
 
   /// Called when a notification item is tapped, passing the target tab index.
-  /// 2 = Inventory, 6 = Requests, 7 = Borrow Stock.
+  /// 2 = Inventory, 6 = Requests.
   final ValueChanged<int>? onNavigateToTab;
 
   const StockpileTopBar({
@@ -98,7 +97,7 @@ class StockpileTopBar extends StatelessWidget {
             ),
             onPressed: () => _showNotificationPopover(context),
             tooltip: badgeCount > 0
-                ? '${notificationService.pendingCount} pending · ${notificationService.lowStockCount} low stock · ${notificationService.overdueCount} overdue'
+                ? '${notificationService.pendingCount} pending · ${notificationService.lowStockCount} low stock'
                 : 'Notifications',
           ),
         ],
@@ -142,7 +141,6 @@ class _NotificationPopover extends StatefulWidget {
 class _NotificationPopoverState extends State<_NotificationPopover> {
   List<PendingRequest> _requests = [];
   List<Item> _lowStockItems = [];
-  List<Borrow> _overdueBorrows = [];
   bool _loading = true;
 
   @override
@@ -157,13 +155,11 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
       final results = await Future.wait([
         repository.fetchPendingRequests(),
         repository.fetchLowStockItems(threshold),
-        repository.fetchOverdueBorrows(),
       ]);
       if (!mounted) return;
       setState(() {
         _requests = results[0] as List<PendingRequest>;
         _lowStockItems = results[1] as List<Item>;
-        _overdueBorrows = results[2] as List<Borrow>;
         _loading = false;
       });
     } catch (_) {
@@ -452,77 +448,6 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
                               ),
                               child: Text(
                                 '+${_lowStockItems.length - 5} more',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isDark ? Colors.white24 : Colors.grey,
-                                ),
-                              ),
-                            ),
-                          const Divider(height: 1, indent: 16, endIndent: 16),
-                        ],
-
-                        // ── Overdue Borrows ────────────────────
-                        if (_overdueBorrows.isNotEmpty) ...[
-                          _sectionHeader(
-                            'Overdue Borrows',
-                            _overdueBorrows.length,
-                            Icons.warning_amber_rounded,
-                            Colors.orange,
-                            isDark,
-                          ),
-                          ..._overdueBorrows
-                              .take(5)
-                              .map(
-                                (b) => Opacity(
-                                  opacity: _readOpacity(b.borrowedAt),
-                                  child: ListTile(
-                                    dense: true,
-                                    onTap: () => _navigate(7),
-                                    leading: Container(
-                                      width: 32,
-                                      height: 32,
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange.withAlpha(
-                                          isDark ? 25 : 15,
-                                        ),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Icon(
-                                        Icons.swap_horiz_rounded,
-                                        size: 16,
-                                        color: Colors.orange,
-                                      ),
-                                    ),
-                                    title: Text(
-                                      b.itemName,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: isDark
-                                            ? StockpileColors.darkTextPrimary
-                                            : StockpileColors.darkText,
-                                      ),
-                                    ),
-                                    subtitle: Text(
-                                      '${b.outstandingQuantity} outstanding · Due ${b.dueDate.day}/${b.dueDate.month}',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: isDark
-                                            ? Colors.white38
-                                            : Colors.grey.shade600,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          if (_overdueBorrows.length > 5)
-                            Padding(
-                              padding: const EdgeInsets.only(
-                                left: 56,
-                                bottom: 4,
-                              ),
-                              child: Text(
-                                '+${_overdueBorrows.length - 5} more',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: isDark ? Colors.white24 : Colors.grey,

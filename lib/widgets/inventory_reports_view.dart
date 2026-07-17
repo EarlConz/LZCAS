@@ -1,5 +1,5 @@
 // lib/widgets/inventory_reports_view.dart
-// Shared In/Out/Borrow Reports view — used by both the Inventory role
+// Shared In/Out Reports view — used by both the Inventory role
 // and the Admin role (so admin sees the exact same reports page).
 
 import 'package:flutter/material.dart';
@@ -20,8 +20,6 @@ class InventoryReportsView extends StatefulWidget {
 
 class _InventoryReportsViewState extends State<InventoryReportsView> {
   final List<Map<String, dynamic>> _movements = [];
-  int _activeBorrowUnits = 0;
-  int _overdueBorrowCount = 0;
   int _stockInTotal = 0;
   int _stockOutTotal = 0;
   bool _loading = true;
@@ -38,9 +36,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     'Stock In',
     'Stock Out',
     'New Product',
-    'Borrow',
-    'Return',
-    'Remit',
     'Sale',
     'Package',
   ];
@@ -93,9 +88,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           .toIso8601String(); // inclusive end
 
       // Fetch only date-filtered data from Supabase.
-      // Borrows are fetched unfiltered because a borrow may have been
-      // created outside the period but returned/remitted within it.
-      final borrowsRaw = await supabase.from('borrows').select();
       final salesRaw = await supabase
           .from('sales')
           .select()
@@ -111,9 +103,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           .gte('created_at', start)
           .lt('created_at', end);
 
-      final borrows = (borrowsRaw as List)
-          .map((j) => Borrow.fromJson(j as Map<String, dynamic>))
-          .toList();
       final sales = (salesRaw as List)
           .map((j) => Sale.fromJson(j as Map<String, dynamic>))
           .toList();
@@ -133,8 +122,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           .toList();
 
       final now = DateTime.now();
-      int activeCount = 0;
-      int overdueCount = 0;
       int stockIn = 0;
       int stockOut = 0;
 
@@ -174,71 +161,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
         });
       }
 
-      for (final b in borrows) {
-        final outstanding = b.outstandingQuantity;
-        if (outstanding > 0) {
-          activeCount += outstanding;
-          if (b.dueDate.isBefore(now)) overdueCount++;
-        }
-        // Use stored member_name, fall back to member lookup
-        final memName =
-            b.memberName ??
-            ((() {
-              final mem = members.cast<Member?>().firstWhere(
-                (m) => m?.id == b.memberId,
-                orElse: () => null,
-              );
-              return mem != null
-                  ? '${mem.firstName ?? ''} ${mem.lastName ?? ''}'.trim()
-                  : 'Member #${b.memberId}';
-            })());
-
-        // Only show borrow entries if the borrow was created within the period
-        if (b.borrowedAt != null &&
-            b.borrowedAt!.isAfter(range.start) &&
-            b.borrowedAt!.isBefore(range.end)) {
-          movements.add({
-            'type': 'Borrow',
-            'item': b.itemName,
-            'qty': b.quantity,
-            'user': memName,
-            'date': b.borrowedAt!,
-            'isOverdue': b.dueDate.isBefore(now) && outstanding > 0,
-            'remaining': outstanding,
-          });
-        }
-
-        // Return/Remit entries show when the settlement happened within the period
-        if (b.quantityReturned > 0 &&
-            b.settledAt != null &&
-            b.settledAt!.isAfter(range.start) &&
-            b.settledAt!.isBefore(range.end)) {
-          movements.add({
-            'type': 'Return',
-            'item': b.itemName,
-            'qty': b.quantityReturned,
-            'user': memName,
-            'date': b.settledAt!,
-            'isOverdue': false,
-            'remaining': 0,
-          });
-        }
-        if (b.quantityRemitted > 0 &&
-            b.settledAt != null &&
-            b.settledAt!.isAfter(range.start) &&
-            b.settledAt!.isBefore(range.end)) {
-          movements.add({
-            'type': 'Remit',
-            'item': b.itemName,
-            'qty': b.quantityRemitted,
-            'user': memName,
-            'date': b.settledAt ?? now,
-            'isOverdue': false,
-            'remaining': 0,
-          });
-        }
-      }
-
       for (final s in sales) {
         final userName =
             s.buyerName ??
@@ -270,8 +192,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
 
       if (!mounted) return;
       setState(() {
-        _activeBorrowUnits = activeCount;
-        _overdueBorrowCount = overdueCount;
         _stockInTotal = stockIn;
         _stockOutTotal = stockOut;
         _movements.clear();
@@ -525,24 +445,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           color: StockpileColors.error500,
           label: 'Stock Out',
         );
-      case 'Borrow':
-        return (
-          icon: Icons.swap_horiz_rounded,
-          color: StockpileColors.secondary500,
-          label: 'Borrow',
-        );
-      case 'Return':
-        return (
-          icon: Icons.assignment_return_rounded,
-          color: StockpileColors.success,
-          label: 'Return',
-        );
-      case 'Remit':
-        return (
-          icon: Icons.payments_rounded,
-          color: Colors.purple,
-          label: 'Remit',
-        );
       case 'Package':
         return (
           icon: Icons.inventory_2_rounded,
@@ -620,17 +522,6 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                         '${_movements.where((m) => m['type'] == 'Package').length}',
                     color: StockpileColors.success,
                     isDark: isDark,
-                  ),
-                  _ReportStatCard(
-                    icon: Icons.swap_horiz_rounded,
-                    label: 'Borrowed',
-                    value: '$_activeBorrowUnits',
-                    color: StockpileColors.secondary500,
-                    isDark: isDark,
-                    subtitle: _overdueBorrowCount > 0
-                        ? '$_overdueBorrowCount overdue'
-                        : null,
-                    subtitleColor: StockpileColors.error500,
                   ),
                 ];
 
@@ -1179,8 +1070,6 @@ class _ReportStatCard extends StatelessWidget {
   final String value;
   final Color color;
   final bool isDark;
-  final String? subtitle;
-  final Color? subtitleColor;
 
   const _ReportStatCard({
     required this.icon,
@@ -1188,8 +1077,6 @@ class _ReportStatCard extends StatelessWidget {
     required this.value,
     required this.color,
     required this.isDark,
-    this.subtitle,
-    this.subtitleColor,
   });
 
   @override
@@ -1226,17 +1113,6 @@ class _ReportStatCard extends StatelessWidget {
                   : StockpileColors.mutedText,
             ),
           ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle!,
-              style: StockpileFonts.satoshi(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: subtitleColor ?? StockpileColors.error500,
-              ),
-            ),
-          ],
         ],
       ),
     );

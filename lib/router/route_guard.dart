@@ -35,7 +35,6 @@ abstract class AppRoutes {
   static const String cashierTransactions = '/cashier/transactions';
   static const String cashierMembers = '/cashier/members';
   static const String cashierDeleteRequest = '/cashier/delete-request';
-  static const String cashierBorrowRequest = '/cashier/borrow-request';
 
   // Member (reseller & basic members)
   static const String memberDashboard = '/member/dashboard';

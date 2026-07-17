@@ -2,7 +2,6 @@
 -- Business data tables are dropped and recreated. Profiles are NOT dropped.
 drop table if exists public.member_transactions cascade;
 drop table if exists public.sales cascade;
-drop table if exists public.borrows cascade;
 drop table if exists public.stock_movements cascade;
 drop table if exists public.items cascade;
 drop table if exists public.members cascade;
@@ -69,12 +68,6 @@ create table public.members (
 
 -- Buyer / member name stored at transaction time so names survive deletion
 alter table public.sales add column if not exists buyer_name text;
-alter table public.borrows add column if not exists member_name text;
-
--- True when the sale row was created by remitting a borrowed item
--- (POS Terminal shows these as remittances, not direct sales)
-alter table public.sales
-  add column if not exists is_remittance boolean not null default false;
 
 create table public.sales (
   id bigint generated always as identity primary key,
@@ -83,9 +76,7 @@ create table public.sales (
   price integer not null default 0, timestamp timestamptz not null default now(),
   -- Set when the sale is a package availment (no FK: history must survive
   -- package deletion). Package sales are excluded from product metrics.
-  package_id bigint,
-  -- Created by remitting a borrowed item rather than a direct POS sale
-  is_remittance boolean not null default false
+  package_id bigint
 );
 
 create table public.member_transactions (
@@ -93,23 +84,6 @@ create table public.member_transactions (
   user_id uuid not null, member_id bigint not null, sale_id bigint,
   item_id bigint, item_name text, quantity integer default 0,
   price integer default 0, timestamp timestamptz default now()
-);
-
-create table public.borrows (
-  id bigint generated always as identity primary key,
-  user_id uuid not null,
-  member_id bigint not null,
-  item_id bigint not null,
-  item_name text not null,
-  quantity integer not null,
-  quantity_returned integer not null default 0,
-  quantity_remitted integer not null default 0,
-  price integer not null default 0,
-  borrowed_at timestamptz not null default now(),
-  due_date timestamptz not null,
-  status text not null default 'active',
-  notes text,
-  settled_at timestamptz
 );
 
 create table public.stock_movements (
@@ -130,10 +104,10 @@ create table public.pending_requests (
   item_name text,                      -- nullable: NULL for member requests
   member_id bigint,                    -- for delete_member requests
   member_name text,                    -- stored name (survives deletion)
-  request_type text not null,          -- 'delete', 'reduce_stock', 'delete_member', 'borrow'
-  quantity integer,                    -- for reduce_stock / borrow
-  price integer,                       -- for borrow: price per item
-  notes text,                          -- for borrow: optional notes
+  request_type text not null,          -- 'delete', 'reduce_stock', 'delete_member'
+  quantity integer,                    -- for reduce_stock
+  price integer,
+  notes text,
   reason text,                         -- reason for the request
   rejection_reason text,               -- admin's reason when rejecting
   status text not null default 'pending', -- pending, approved, rejected
@@ -152,7 +126,6 @@ alter table public.profiles disable row level security;
 alter table public.items disable row level security;
 alter table public.members disable row level security;
 alter table public.sales disable row level security;
-alter table public.borrows disable row level security;
 alter table public.stock_movements disable row level security;
 alter table public.member_transactions disable row level security;
 alter table public.pending_requests disable row level security;
@@ -165,22 +138,18 @@ alter table public.pending_requests disable row level security;
 create index if not exists idx_items_user_id on public.items (user_id);
 create index if not exists idx_members_user_id on public.members (user_id);
 create index if not exists idx_sales_user_id on public.sales (user_id);
-create index if not exists idx_borrows_user_id on public.borrows (user_id);
 create index if not exists idx_stock_movements_user_id on public.stock_movements (user_id);
 create index if not exists idx_member_transactions_user_id on public.member_transactions (user_id);
 create index if not exists idx_pending_requests_user_id on public.pending_requests (user_id);
 
--- 2. Date-range queries (timestamp on sales, borrows, stock_movements)
+-- 2. Date-range queries (timestamp on sales, stock_movements)
 create index if not exists idx_sales_timestamp on public.sales (timestamp desc);
-create index if not exists idx_borrows_borrowed_at on public.borrows (borrowed_at desc);
 create index if not exists idx_stock_movements_created_at on public.stock_movements (created_at desc);
 create index if not exists idx_pending_requests_created_at on public.pending_requests (created_at desc);
 
 -- 3. Foreign-key / join lookups
 create index if not exists idx_sales_item_id on public.sales (item_id);
 create index if not exists idx_sales_buyer_id on public.sales (buyer_id);
-create index if not exists idx_borrows_item_id on public.borrows (item_id);
-create index if not exists idx_borrows_member_id on public.borrows (member_id);
 create index if not exists idx_stock_movements_item_id on public.stock_movements (item_id);
 create index if not exists idx_member_transactions_item_id on public.member_transactions (item_id);
 create index if not exists idx_member_transactions_member_id on public.member_transactions (member_id);
@@ -190,14 +159,10 @@ create index if not exists idx_pending_requests_item_id on public.pending_reques
 create index if not exists idx_pending_requests_member_id on public.pending_requests (member_id);
 
 -- 4. Status / type partial indexes (low-cardinality columns — smaller & faster)
-create index if not exists idx_borrows_status_active
-  on public.borrows (status) where status in ('active', 'overdue', 'partially_settled');
 create index if not exists idx_pending_requests_pending
   on public.pending_requests (status) where status = 'pending';
 
 -- 5. Composite indexes for frequent multi-column filters
-create index if not exists idx_borrows_due_date_status
-  on public.borrows (due_date, status);
 create index if not exists idx_pending_requests_status_created
   on public.pending_requests (status, created_at desc);
 
@@ -358,7 +323,7 @@ on conflict (name) do update set commission_rate = excluded.commission_rate;
 -- ═══════════════════════════════════════════════════════════════════
 -- ── Earnings history (snapshot ledger) ─────────────────────────────
 -- ═══════════════════════════════════════════════════════════════════
--- Earnings/balance are computed live from the referral tree and borrows,
+-- Earnings/balance are computed live from the referral tree and sales,
 -- so they have no natural event log (and can decrease). The app records
 -- a snapshot whenever the computed values change; deltas are stored so
 -- the history reads as a ledger.
@@ -481,20 +446,3 @@ create policy "withdrawal_requests_update_admin" on public.withdrawal_requests
   using (public.is_admin())
   with check (public.is_admin());
 
--- ═══════════════════════════════════════════════════════════════════
--- ── Borrow due-date trigger ────────────────────────────────────────
--- ═══════════════════════════════════════════════════════════════════
-
-create or replace function public.set_borrow_due_date()
-returns trigger as $$
-begin
-  -- Always enforce exactly 10 days from borrowed_at
-  new.due_date := coalesce(new.borrowed_at, now()) + interval '10 days';
-  return new;
-end;
-$$ language plpgsql;
-
-drop trigger if exists trg_borrow_due_date on public.borrows;
-create trigger trg_borrow_due_date
-  before insert on public.borrows
-  for each row execute function public.set_borrow_due_date();

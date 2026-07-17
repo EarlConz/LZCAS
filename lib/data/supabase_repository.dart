@@ -170,7 +170,7 @@ class SupabaseRepository {
   }
 
   /// Replace package availment names with the current catalog name so
-  /// renamed packages display correctly in purchase/remittance history.
+  /// renamed packages display correctly in purchase history.
   /// Prices are left as recorded (what the member actually paid).
   /// Falls back to the stored snapshot if the catalog is unavailable or
   /// the package was deleted.
@@ -379,22 +379,16 @@ class SupabaseRepository {
     );
   }
 
-  /// Fetch a page of sales with optional search and remittance filter.
+  /// Fetch a page of sales with optional search.
   Future<PageResult<Sale>> fetchSalesPaginated({
     int page = 1,
     int pageSize = 100,
     String? search,
     String sortColumn = 'timestamp',
     bool sortAscending = false,
-    bool? isRemittance,
   }) async {
     dynamic dataQuery = _supabase.from('sales').select('*');
     dynamic countQuery = _supabase.from('sales').select('id');
-
-    if (isRemittance != null) {
-      countQuery = countQuery.eq('is_remittance', isRemittance);
-      dataQuery = dataQuery.eq('is_remittance', isRemittance);
-    }
 
     if (search != null && search.isNotEmpty) {
       final orFilter = 'buyer_name.ilike.%$search%,item_name.ilike.%$search%';
@@ -439,7 +433,7 @@ class SupabaseRepository {
       // This month's sales
       _supabase
           .from('sales')
-          .select('price, quantity, package_id, is_remittance')
+          .select('price, quantity, package_id')
           .gte('timestamp', thisMonthStart.toIso8601String())
           .lt('timestamp', thisMonthEnd.toIso8601String()),
       // Last month's sales
@@ -468,8 +462,6 @@ class SupabaseRepository {
     int activeOrders = 0;
     int packageRevenue = 0;
     int packagesSold = 0;
-    int remittanceRevenue = 0;
-    int remittanceCount = 0;
     for (final row in thisMonthSales) {
       final price = (row['price'] as int?) ?? 0;
       final qty = (row['quantity'] as int?) ?? 0;
@@ -480,10 +472,6 @@ class SupabaseRepository {
       } else {
         monthlyRevenue += lineRevenue;
         activeOrders++;
-        if (row['is_remittance'] == true) {
-          remittanceRevenue += lineRevenue;
-          remittanceCount++;
-        }
       }
     }
 
@@ -514,32 +502,7 @@ class SupabaseRepository {
       'packagesSold': packagesSold,
       'previousPackageRevenue': previousPackageRevenue,
       'previousPackagesSold': previousPackagesSold,
-      'remittanceRevenue': remittanceRevenue,
-      'remittanceCount': remittanceCount,
     };
-  }
-
-  /// Money currently owed by resellers: open borrows (active, overdue,
-  /// partially settled) valued at outstanding quantity × unit price.
-  Future<Map<String, int>> fetchOutstandingBorrowSummary() async {
-    final data = await _supabase
-        .from('borrows')
-        .select('quantity, quantity_returned, quantity_remitted, price')
-        .inFilter('status', ['active', 'overdue', 'partially_settled']);
-
-    int count = 0;
-    int value = 0;
-    for (final row in (data as List)) {
-      final j = row as Map<String, dynamic>;
-      final outstanding =
-          ((j['quantity'] as int?) ?? 0) -
-          ((j['quantity_returned'] as int?) ?? 0) -
-          ((j['quantity_remitted'] as int?) ?? 0);
-      if (outstanding <= 0) continue;
-      count++;
-      value += outstanding * ((j['price'] as int?) ?? 0);
-    }
-    return {'count': count, 'value': value};
   }
 
   /// Fetch monthly revenue history for the last [months] months.
@@ -574,7 +537,8 @@ class SupabaseRepository {
       );
       monthly[key]!['revenue'] =
           (monthly[key]!['revenue'] as int) +
-          ((rowMap['price'] as int?) ?? 0) * ((rowMap['quantity'] as int?) ?? 0);
+          ((rowMap['price'] as int?) ?? 0) *
+              ((rowMap['quantity'] as int?) ?? 0);
       monthly[key]!['transactions'] =
           (monthly[key]!['transactions'] as int) + 1;
     }
@@ -614,601 +578,6 @@ class SupabaseRepository {
       'key': key,
       'value': value,
     }, onConflict: 'key');
-  }
-
-  // ── Borrow Methods ───────────────────────────────────────────────────────
-
-  /// Record a borrow — deducts stock immediately, sets due date.
-  Future<int> addBorrow({
-    required int memberId,
-    required int itemId,
-    required String itemName,
-    required int quantity,
-    int price = 0,
-    int dueDays = 10,
-    String? notes,
-    String? memberName,
-  }) async {
-    final item = await getItemById(itemId);
-    if (item == null) throw Exception('Item not found: $itemId');
-    if (item.stock < quantity) {
-      throw Exception('Insufficient stock for $itemName');
-    }
-
-    // Deduct stock
-    final updated = item.copyWith(stock: item.stock - quantity);
-    await updateItem(updated);
-
-    final now = DateTime.now();
-    final dueDate = now.add(Duration(days: dueDays));
-
-    final result = await _supabase
-        .from('borrows')
-        .insert({
-          'user_id': _uid,
-          'member_id': memberId,
-          if (memberName != null) 'member_name': memberName,
-          'item_id': itemId,
-          'item_name': itemName,
-          'quantity': quantity,
-          'price': price,
-          'borrowed_at': now.toUtc().toIso8601String(),
-          'due_date': dueDate.toUtc().toIso8601String(),
-          'status': 'active',
-          if (notes != null) 'notes': notes,
-        })
-        .select('id');
-
-    _changes.add('borrow_added');
-    if (result is List && result.isNotEmpty) {
-      return (result.first['id'] as num).toInt();
-    }
-    return 0;
-  }
-
-  Future<List<Borrow>> fetchBorrows() async {
-    final data = await _supabase.from('borrows').select();
-    return (data as List).map((j) => Borrow.fromJson(j)).toList();
-  }
-
-  Future<List<Borrow>> fetchBorrowsForMember(int memberId) async {
-    final data = await _supabase
-        .from('borrows')
-        .select()
-        .eq('member_id', memberId);
-    return (data as List).map((j) => Borrow.fromJson(j)).toList();
-  }
-
-  /// Fetch only active (unsettled) borrows for a single member.
-  Future<List<Borrow>> fetchActiveBorrowsForMember(int memberId) async {
-    final data = await _supabase
-        .from('borrows')
-        .select()
-        .eq('member_id', memberId)
-        .inFilter('status', ['active', 'overdue', 'partially_settled']);
-    return (data as List).map((j) => Borrow.fromJson(j)).toList();
-  }
-
-  /// Active borrows — not yet fully settled.
-  Future<List<Borrow>> fetchActiveBorrows() async {
-    final data = await _supabase.from('borrows').select().inFilter('status', [
-      'active',
-      'overdue',
-      'partially_settled',
-    ]);
-    return (data as List).map((j) => Borrow.fromJson(j)).toList();
-  }
-
-  /// Overdue borrows — past due date and not fully settled.
-  /// Also auto-updates status to 'overdue' for qualifying rows.
-  Future<List<Borrow>> fetchOverdueBorrows() async {
-    final now = DateTime.now().toUtc().toIso8601String();
-
-    // Auto-flag overdue rows
-    await _supabase
-        .from('borrows')
-        .update({'status': 'overdue'})
-        .lt('due_date', now)
-        .inFilter('status', ['active', 'partially_settled']);
-
-    final data = await _supabase
-        .from('borrows')
-        .select()
-        .eq('status', 'overdue');
-    return (data as List).map((j) => Borrow.fromJson(j)).toList();
-  }
-
-  // ── Quota Compliance ─────────────────────────────────────────
-
-  /// Count of active quota_overdue alerts (for notification badge).
-  /// Legacy — cron-dependent. Prefer [fetchOverdueResellerCount] for
-  /// real-time accuracy on the sidebar badge.
-  Future<int> fetchActiveQuotaAlertCount() async {
-    try {
-      final result = await _supabase
-          .from('system_alerts')
-          .select('id')
-          .eq('alert_type', 'quota_overdue')
-          .eq('is_active', true)
-          .count(CountOption.exact);
-      return (result as PostgrestResponse).count;
-    } catch (_) {
-      return 0;
-    }
-  }
-
-  /// Real-time count of verified resellers whose quota has expired
-  /// (excludes snoozed members). Used by the sidebar notification badge
-  /// so the count is accurate regardless of nightly cron timing.
-  Future<int> fetchOverdueResellerCount() async {
-    try {
-      final nowUtc = DateTime.now().toUtc().toIso8601String();
-
-      // Get all overdue members
-      final overdueData = await _supabase
-          .from('members')
-          .select('id')
-          .eq('role', 'Verified Reseller')
-          .not('quota_valid_until', 'is', null)
-          .lt('quota_valid_until', nowUtc);
-      final overdueIds = (overdueData as List)
-          .map((m) => (m as Map<String, dynamic>)['id'] as int)
-          .toSet();
-
-      if (overdueIds.isEmpty) return 0;
-
-      // Exclude snoozed members
-      final snoozedData = await _supabase
-          .from('system_alerts')
-          .select('member_id, snoozed_until')
-          .eq('alert_type', 'quota_overdue')
-          .eq('is_active', true)
-          .inFilter('member_id', overdueIds.toList());
-      for (final s in (snoozedData as List)) {
-        final sm = s as Map<String, dynamic>;
-        final snoozedUntil = sm['snoozed_until'] != null
-            ? DateTime.tryParse(sm['snoozed_until'].toString())
-            : null;
-        if (snoozedUntil != null && snoozedUntil.isAfter(DateTime.now())) {
-          overdueIds.remove(sm['member_id'] as int);
-        }
-      }
-
-      return overdueIds.length;
-    } catch (_) {
-      return 0;
-    }
-  }
-
-  /// All active quota overdue alerts (for admin dashboard).
-  Future<List<SystemAlert>> fetchActiveQuotaAlerts() async {
-    try {
-      final data = await _supabase
-          .from('system_alerts')
-          .select()
-          .eq('alert_type', 'quota_overdue')
-          .eq('is_active', true)
-          .order('created_at');
-      return (data as List).map((j) => SystemAlert.fromJson(j)).toList();
-    } catch (_) {
-      return [];
-    }
-  }
-
-  /// Active alerts for a specific member (reseller-facing).
-  Future<List<SystemAlert>> fetchMemberAlerts(int memberId) async {
-    try {
-      final nowUtc = DateTime.now().toUtc().toIso8601String();
-      final data = await _supabase
-          .from('system_alerts')
-          .select()
-          .eq('member_id', memberId)
-          .eq('is_active', true)
-          .or('snoozed_until.is.null, snoozed_until.lte.$nowUtc')
-          .order('created_at', ascending: false);
-      return (data as List).map((j) => SystemAlert.fromJson(j)).toList();
-    } catch (_) {
-      return [];
-    }
-  }
-
-  /// Mark a member's alert as read (dismiss it from their view).
-  Future<void> markAlertRead(int alertId) async {
-    await _supabase
-        .from('system_alerts')
-        .update({
-          'is_read': true,
-          'read_at': DateTime.now().toUtc().toIso8601String(),
-        })
-        .eq('id', alertId);
-    _changes.add('system_alerts_changed');
-  }
-
-  /// KPI summary for the admin Compliance page: total verified resellers,
-  /// overdue count, and compliant count (excludes snoozed members).
-  Future<Map<String, String>> fetchQuotaComplianceSummary() async {
-    try {
-      final nowUtc = DateTime.now().toUtc().toIso8601String();
-
-      // Total verified resellers
-      final totalResult = await _supabase
-          .from('members')
-          .select('id')
-          .eq('role', 'Verified Reseller')
-          .count(CountOption.exact);
-      final total = (totalResult as PostgrestResponse).count;
-
-      // Overdue (quota_valid_until < now, not null)
-      final overdueData = await _supabase
-          .from('members')
-          .select('id')
-          .eq('role', 'Verified Reseller')
-          .not('quota_valid_until', 'is', null)
-          .lt('quota_valid_until', nowUtc);
-      final overdueIds = (overdueData as List)
-          .map((m) => (m as Map<String, dynamic>)['id'] as int)
-          .toSet();
-
-      // Exclude snoozed from overdue
-      if (overdueIds.isNotEmpty) {
-        final snoozedData = await _supabase
-            .from('system_alerts')
-            .select('member_id, snoozed_until')
-            .eq('alert_type', 'quota_overdue')
-            .eq('is_active', true)
-            .inFilter('member_id', overdueIds.toList());
-        for (final s in (snoozedData as List)) {
-          final sm = s as Map<String, dynamic>;
-          final snoozedUntil = sm['snoozed_until'] != null
-              ? DateTime.tryParse(sm['snoozed_until'].toString())
-              : null;
-          if (snoozedUntil != null && snoozedUntil.isAfter(DateTime.now())) {
-            overdueIds.remove(sm['member_id'] as int);
-          }
-        }
-      }
-
-      final overdue = overdueIds.length;
-      final compliant = total - overdue;
-
-      return {
-        'total': '$total',
-        'overdue': '$overdue',
-        'compliant': '$compliant',
-      };
-    } catch (_) {
-      return {'total': '0', 'overdue': '0', 'compliant': '0'};
-    }
-  }
-
-  /// Members with overdue quotas — queried directly from the members table
-  /// (not gated on system_alerts cron), so the compliance page reflects
-  /// real-time quota expiry regardless of whether the nightly job has run.
-  ///
-  /// Returns member rows with an optional `alert_id` key when an active
-  /// quota_overdue alert already exists for that member.
-  Future<List<Map<String, dynamic>>> fetchQuotaDelinquentMembers() async {
-    try {
-      final nowUtc = DateTime.now().toUtc().toIso8601String();
-
-      // Query members directly — catches anyone whose deadline is in the past
-      final memberData = await _supabase
-          .from('members')
-          .select()
-          .eq('role', 'Verified Reseller')
-          .not('quota_valid_until', 'is', null)
-          .lt('quota_valid_until', nowUtc)
-          .order('quota_valid_until');
-      final members = (memberData as List).cast<Map<String, dynamic>>();
-
-      if (members.isEmpty) return [];
-
-      // Fetch any active alerts for these members (for snooze/dismiss actions)
-      final memberIds = members.map((m) => m['id'] as int).toList();
-      final alertData = await _supabase
-          .from('system_alerts')
-          .select('id, member_id, snoozed_until')
-          .eq('alert_type', 'quota_overdue')
-          .eq('is_active', true)
-          .inFilter('member_id', memberIds);
-      final alerts = (alertData as List).cast<Map<String, dynamic>>();
-
-      final alertByMember = <int, int>{};
-      final snoozedMemberIds = <int>{};
-      for (final a in alerts) {
-        final mid = a['member_id'] as int;
-        alertByMember[mid] = a['id'] as int;
-        // Exclude members with an active snooze
-        if (a['snoozed_until'] != null) {
-          final snoozedUntil = DateTime.tryParse(a['snoozed_until'].toString());
-          if (snoozedUntil != null && snoozedUntil.isAfter(DateTime.now())) {
-            snoozedMemberIds.add(mid);
-          }
-        }
-      }
-
-      // Filter out snoozed members
-      members.removeWhere((m) => snoozedMemberIds.contains(m['id'] as int));
-
-      // Attach alert_id to each remaining member row
-      for (final m in members) {
-        m['alert_id'] = alertByMember[m['id'] as int];
-      }
-
-      return members;
-    } catch (_) {
-      return [];
-    }
-  }
-
-  /// Snooze a member's quota alert — creates one if it doesn't exist yet.
-  Future<void> snoozeMemberQuota(int memberId, {int hours = 24}) async {
-    final nowUtc = DateTime.now().toUtc().toIso8601String();
-    final snoozedUntil = DateTime.now()
-        .add(Duration(hours: hours))
-        .toUtc()
-        .toIso8601String();
-
-    // Upsert: try update existing active alert first
-    final existing = await _supabase
-        .from('system_alerts')
-        .select('id')
-        .eq('member_id', memberId)
-        .eq('alert_type', 'quota_overdue')
-        .eq('is_active', true)
-        .maybeSingle();
-
-    if (existing != null) {
-      await _supabase
-          .from('system_alerts')
-          .update({'snoozed_until': snoozedUntil})
-          .eq('id', (existing as Map<String, dynamic>)['id']);
-    } else {
-      // No active alert yet — insert a snoozed one so the member
-      // temporarily drops out of the direct-members query (the next
-      // cron run will recreate it when the snooze expires).
-      final member = await _supabase
-          .from('members')
-          .select('first_name, last_name, quota_valid_until')
-          .eq('id', memberId)
-          .maybeSingle();
-      final m = member as Map<String, dynamic>? ?? {};
-      final displayName = [
-        m['first_name'],
-        m['last_name'],
-      ].where((p) => p != null && (p as String).trim().isNotEmpty).join(' ');
-      final quotaUntil = m['quota_valid_until'] != null
-          ? DateTime.tryParse(m['quota_valid_until'].toString())
-          : null;
-
-      await _supabase.from('system_alerts').insert({
-        'member_id': memberId,
-        'alert_type': 'quota_overdue',
-        'severity': 'warning',
-        'title':
-            'Quota Overdue — ${displayName.isNotEmpty ? displayName : 'Reseller #$memberId'}',
-        'message': quotaUntil != null
-            ? 'Weekly remittance quota expired on '
-                  '${quotaUntil.year}-${quotaUntil.month.toString().padLeft(2, '0')}-${quotaUntil.day.toString().padLeft(2, '0')}.'
-            : 'Weekly remittance quota has expired.',
-        'is_active': true,
-        'is_read': false,
-        'snoozed_until': snoozedUntil,
-        'created_at': nowUtc,
-      });
-    }
-
-    _changes.add('system_alerts_changed');
-  }
-
-  /// Ping a compliance warning to a reseller — creates an active, critical,
-  /// non-snoozed alert that is immediately visible in the notification
-  /// badge and quota compliance views. Unlike snoozeMemberQuota, the
-  /// member stays on the compliance page.
-  Future<void> sendPingWarning(int memberId) async {
-    final nowUtc = DateTime.now().toUtc().toIso8601String();
-
-    // Deactivate any existing active alert so the ping is a new event
-    await _supabase
-        .from('system_alerts')
-        .update({'is_active': false, 'read_at': nowUtc})
-        .eq('member_id', memberId)
-        .eq('alert_type', 'quota_overdue')
-        .eq('is_active', true);
-
-    // Fetch member name for the alert message
-    final member = await _supabase
-        .from('members')
-        .select('first_name, last_name, quota_valid_until')
-        .eq('id', memberId)
-        .maybeSingle();
-    final m = member as Map<String, dynamic>? ?? {};
-    final displayName = [
-      m['first_name'],
-      m['last_name'],
-    ].where((p) => p != null && (p as String).trim().isNotEmpty).join(' ');
-    final quotaUntil = m['quota_valid_until'] != null
-        ? DateTime.tryParse(m['quota_valid_until'].toString())
-        : null;
-
-    // Insert a fresh critical alert — no snooze, immediately active
-    await _supabase.from('system_alerts').insert({
-      'member_id': memberId,
-      'alert_type': 'quota_overdue',
-      'severity': 'critical',
-      'title':
-          '⚠️ Compliance Warning — ${displayName.isNotEmpty ? displayName : 'Reseller #$memberId'}',
-      'message': quotaUntil != null
-          ? 'Your weekly remittance quota expired on '
-                '${quotaUntil.year}-${quotaUntil.month.toString().padLeft(2, '0')}-${quotaUntil.day.toString().padLeft(2, '0')}. '
-                'Please remit immediately to restore your account standing.'
-          : 'Your weekly remittance quota has expired. '
-                'Please remit immediately to restore your account standing.',
-      'is_active': true,
-      'is_read': false,
-      'created_at': nowUtc,
-    });
-
-    _changes.add('system_alerts_changed');
-  }
-
-  /// Dismiss a member's quota alert — creates one if it doesn't exist yet.
-  Future<void> dismissMemberQuota(int memberId) async {
-    final nowUtc = DateTime.now().toUtc().toIso8601String();
-
-    final existing = await _supabase
-        .from('system_alerts')
-        .select('id')
-        .eq('member_id', memberId)
-        .eq('alert_type', 'quota_overdue')
-        .eq('is_active', true)
-        .maybeSingle();
-
-    if (existing != null) {
-      await _supabase
-          .from('system_alerts')
-          .update({'is_active': false, 'read_at': nowUtc})
-          .eq('id', (existing as Map<String, dynamic>)['id']);
-    } else {
-      // Insert a dismissed alert so the nightly cron won't re-flag
-      // this member until the quota situation changes.
-      final member = await _supabase
-          .from('members')
-          .select('first_name, last_name, quota_valid_until')
-          .eq('id', memberId)
-          .maybeSingle();
-      final m = member as Map<String, dynamic>? ?? {};
-      final displayName = [
-        m['first_name'],
-        m['last_name'],
-      ].where((p) => p != null && (p as String).trim().isNotEmpty).join(' ');
-      final quotaUntil = m['quota_valid_until'] != null
-          ? DateTime.tryParse(m['quota_valid_until'].toString())
-          : null;
-
-      await _supabase.from('system_alerts').insert({
-        'member_id': memberId,
-        'alert_type': 'quota_overdue',
-        'severity': 'warning',
-        'title':
-            'Quota Overdue — ${displayName.isNotEmpty ? displayName : 'Reseller #$memberId'}',
-        'message': quotaUntil != null
-            ? 'Weekly remittance quota expired on '
-                  '${quotaUntil.year}-${quotaUntil.month.toString().padLeft(2, '0')}-${quotaUntil.day.toString().padLeft(2, '0')}.'
-            : 'Weekly remittance quota has expired.',
-        'is_active': false,
-        'is_read': true,
-        'read_at': nowUtc,
-        'created_at': nowUtc,
-      });
-    }
-
-    _changes.add('system_alerts_changed');
-  }
-
-  // ── Borrow Return / Remit ────────────────────────────────────
-  Future<bool> returnBorrowedItem(int borrowId, int returnQty) async {
-    final data = await _supabase
-        .from('borrows')
-        .select()
-        .eq('id', borrowId)
-        .maybeSingle();
-    if (data == null) return false;
-
-    final borrow = Borrow.fromJson(data);
-    if (returnQty <= 0 || returnQty > borrow.outstandingQuantity) return false;
-
-    final newReturned = borrow.quantityReturned + returnQty;
-    final newStatus = _computeBorrowStatus(
-      quantity: borrow.quantity,
-      returned: newReturned,
-      remitted: borrow.quantityRemitted,
-      dueDate: borrow.dueDate,
-    );
-
-    await _supabase
-        .from('borrows')
-        .update({
-          'quantity_returned': newReturned,
-          'status': newStatus,
-          if (newStatus == 'returned' || newStatus == 'remitted')
-            'settled_at': DateTime.now().toUtc().toIso8601String(),
-        })
-        .eq('id', borrowId);
-
-    // Restore stock
-    final item = await getItemById(borrow.itemId);
-    if (item != null) {
-      final updated = item.copyWith(stock: item.stock + returnQty);
-      await updateItem(updated);
-    }
-
-    _changes.add('borrow_updated');
-    return true;
-  }
-
-  /// Remit payment for sold borrowed items — creates a Sale record.
-  Future<bool> remitBorrowedItem(int borrowId, int remitQty) async {
-    final data = await _supabase
-        .from('borrows')
-        .select()
-        .eq('id', borrowId)
-        .maybeSingle();
-    if (data == null) return false;
-
-    final borrow = Borrow.fromJson(data);
-    if (remitQty <= 0 || remitQty > borrow.outstandingQuantity) return false;
-
-    final newRemitted = borrow.quantityRemitted + remitQty;
-    final newStatus = _computeBorrowStatus(
-      quantity: borrow.quantity,
-      returned: borrow.quantityReturned,
-      remitted: newRemitted,
-      dueDate: borrow.dueDate,
-    );
-
-    await _supabase
-        .from('borrows')
-        .update({
-          'quantity_remitted': newRemitted,
-          'status': newStatus,
-          if (newStatus == 'returned' || newStatus == 'remitted')
-            'settled_at': DateTime.now().toUtc().toIso8601String(),
-        })
-        .eq('id', borrowId);
-
-    // Create a Sale record for the remitted quantity, flagged so the
-    // POS Terminal can tell it apart from a direct sale.
-    await addSale(
-      itemId: borrow.itemId,
-      itemName: borrow.itemName,
-      quantity: remitQty,
-      price: borrow.price,
-      buyerId: borrow.memberId,
-      isRemittance: true,
-    );
-
-    _changes.add('borrow_updated');
-    return true;
-  }
-
-  /// Compute borrow status from current quantities and due date.
-  String _computeBorrowStatus({
-    required int quantity,
-    required int returned,
-    required int remitted,
-    required DateTime dueDate,
-  }) {
-    final outstanding = quantity - returned - remitted;
-    if (outstanding <= 0) {
-      if (returned >= quantity) return 'returned';
-      if (remitted >= quantity) return 'remitted';
-      return 'returned'; // fully settled by combination
-    }
-    // Outstanding > 0
-    if (dueDate.isBefore(DateTime.now())) return 'overdue';
-    if (returned > 0 || remitted > 0) return 'partially_settled';
-    return 'active';
   }
 
   // ── Stock Movement Methods ──────────────────────────────────────────────
@@ -1500,7 +869,6 @@ class SupabaseRepository {
     int? buyerId,
     String? buyerName,
     int? packageId,
-    bool isRemittance = false,
   }) async {
     final result = await _supabase
         .from('sales')
@@ -1513,7 +881,6 @@ class SupabaseRepository {
           if (buyerId != null) 'buyer_id': buyerId,
           if (buyerName != null) 'buyer_name': buyerName,
           if (packageId != null) 'package_id': packageId,
-          if (isRemittance) 'is_remittance': true,
           'timestamp': (timestamp ?? DateTime.now()).toUtc().toIso8601String(),
         })
         .select('id');
@@ -1670,9 +1037,9 @@ class SupabaseRepository {
         : err;
   }
 
-  /// Compute active (unremitted) earnings for a member from their package.
+  /// Compute live earnings for a member from their package.
   /// Balance = flat one-time signup bonus × count of direct referrals with a package.
-  /// Total Earnings = indirect + chairman's + group sales + repeat purchase (all remitted).
+  /// Total Earnings = indirect + chairman's + group sales + repeat purchase.
   Future<Map<String, int>> fetchMemberEarningsBreakdown(int memberId) async {
     final member = await getMemberById(memberId);
     Package? pkg;
@@ -1708,7 +1075,7 @@ class SupabaseRepository {
     int groupSales = 0;
     int repeatPurchase = 0;
 
-    // Indirect Referral Bonus = flat × count of indirect referrals (not tied to borrows)
+    // Indirect Referral Bonus = flat × count of indirect referrals
     if (pkg != null) {
       final indirectCount = allMembers
           .where(
@@ -1718,36 +1085,35 @@ class SupabaseRepository {
       indirectBonus = indirectCount * pkg.indirectReferralBonus;
     }
 
-    // Group Sales: ₱3 per direct downline outstanding item, ₱2 per indirect
+    // Group Sales: per product item PURCHASED by the downline
+    // (package availments are not products and don't count).
     final allDownlineIds = {...directIds, ...indirectIds};
     if (allDownlineIds.isNotEmpty && pkg != null) {
       final downlineData = await _supabase
-          .from('borrows')
-          .select('member_id, quantity, quantity_returned, quantity_remitted')
-          .inFilter('member_id', allDownlineIds.toList());
+          .from('sales')
+          .select('buyer_id, quantity, package_id')
+          .inFilter('buyer_id', allDownlineIds.toList());
 
       for (final row in (downlineData as List)) {
-        final downlineMemberId = (row['member_id'] as num).toInt();
-        final borrowed = row['quantity'] as int? ?? 0;
-        final returned = row['quantity_returned'] as int? ?? 0;
-        final remitted = row['quantity_remitted'] as int? ?? 0;
-        final outstanding = borrowed - returned - remitted;
-        if (outstanding <= 0) continue;
+        if (row['package_id'] != null) continue;
+        final buyerId = (row['buyer_id'] as num).toInt();
+        final qty = row['quantity'] as int? ?? 0;
+        if (qty <= 0) continue;
 
-        if (directIds.contains(downlineMemberId)) {
-          groupSales += pkg.groupSalesDirect * outstanding;
+        if (directIds.contains(buyerId)) {
+          groupSales += pkg.groupSalesDirect * qty;
         }
-        if (indirectIds.contains(downlineMemberId)) {
-          groupSales += pkg.groupSalesIndirect * outstanding;
+        if (indirectIds.contains(buyerId)) {
+          groupSales += pkg.groupSalesIndirect * qty;
         }
       }
     }
 
-    // Own remitted borrows: repeat purchase commissions
+    // Own product purchases: repeat purchase commissions by category
     final ownData = await _supabase
-        .from('borrows')
-        .select('quantity_remitted, item_name')
-        .eq('member_id', memberId);
+        .from('sales')
+        .select('quantity, item_name, package_id')
+        .eq('buyer_id', memberId);
 
     final categories = await fetchProductCategories();
     final catMap = <String, int>{};
@@ -1755,9 +1121,10 @@ class SupabaseRepository {
       catMap[c.name.toLowerCase()] = c.commissionRate;
     }
 
-    if (ownData != null && pkg != null) {
+    if (pkg != null) {
       for (final row in (ownData as List)) {
-        final qty = row['quantity_remitted'] as int? ?? 0;
+        if (row['package_id'] != null) continue;
+        final qty = row['quantity'] as int? ?? 0;
         if (qty <= 0) continue;
 
         final itemName = (row['item_name'] as String? ?? '').toLowerCase();
@@ -1772,7 +1139,7 @@ class SupabaseRepository {
 
     // ── Chairman's bonus: accrues every Friday since the package was
     // availed (package's chairmansBonus × number of Fridays elapsed).
-    // Replaces the old per-remittance chairman's bonus.
+    // Accrues weekly regardless of sales activity.
     int chairmanBonus = 0;
     int chairmanFridays = 0;
     if (pkg != null) {
@@ -1972,20 +1339,6 @@ class SupabaseRepository {
     }
   }
 
-  /// Sum of quantity_remitted across all borrows for a member.
-  Future<int> getTotalRemittedBoxes(int memberId) async {
-    final data = await _supabase
-        .from('borrows')
-        .select('quantity_remitted')
-        .eq('member_id', memberId);
-    if (data == null || (data as List).isEmpty) return 0;
-    var total = 0;
-    for (final row in data) {
-      total += (row['quantity_remitted'] as int? ?? 0);
-    }
-    return total;
-  }
-
   // ── Category CRUD ──────────────────────────────────────────────────────
 
   Future<List<Category>> fetchProductCategories() async {
@@ -1996,15 +1349,10 @@ class SupabaseRepository {
   Future<int> addCategory({
     required String name,
     int commissionRate = 0,
-    bool addsQuotaTime = false,
   }) async {
     final data = await _supabase
         .from('categories')
-        .insert({
-          'name': name,
-          'commission_rate': commissionRate,
-          'adds_quota_time': addsQuotaTime,
-        })
+        .insert({'name': name, 'commission_rate': commissionRate})
         .select('id');
     if (data is List && data.isNotEmpty) {
       return (data.first['id'] as num).toInt();
@@ -2034,51 +1382,13 @@ class SupabaseRepository {
 
   // ── Delete Methods ───────────────────────────────────────────────────────
 
-  /// Returns true if [itemId] has any unsettled borrows (active, overdue,
-  /// or partially_settled). Deletion should be blocked when this is true.
-  Future<bool> hasActiveBorrows(int itemId) async {
-    final data = await _supabase
-        .from('borrows')
-        .select('id')
-        .eq('item_id', itemId)
-        .inFilter('status', ['active', 'overdue', 'partially_settled']);
-    return (data as List).isNotEmpty;
-  }
-
-  /// Returns true if [memberId] has any unsettled borrows.
-  Future<bool> hasActiveBorrowsForMember(int memberId) async {
-    final data = await _supabase
-        .from('borrows')
-        .select('id')
-        .eq('member_id', memberId)
-        .inFilter('status', ['active', 'overdue', 'partially_settled']);
-    return (data as List).isNotEmpty;
-  }
-
   Future<int> deleteItemById(int id) async {
-    // Guard: block deletion if the item has active borrows
-    final active = await hasActiveBorrows(id);
-    if (active) {
-      throw Exception(
-        'Cannot delete item #$id — it has unsettled borrows. '
-        'Settle or return all borrows first.',
-      );
-    }
     await _supabase.from('items').delete().eq('id', id);
     _changes.add('item_deleted');
     return 1;
   }
 
   Future<bool> deleteMemberById(int id) async {
-    // Guard: block deletion if member has active borrows
-    final active = await hasActiveBorrowsForMember(id);
-    if (active) {
-      throw Exception(
-        'Cannot delete member #$id — they have unsettled borrows. '
-        'Settle or return all borrows first.',
-      );
-    }
-
     // Backfill buyer_name on existing sales so names survive deletion
     final member = await _supabase
         .from('members')
@@ -2096,11 +1406,6 @@ class SupabaseRepository {
             .update({'buyer_name': fullName})
             .eq('buyer_id', id)
             .filter('buyer_name', 'is', null);
-        await _supabase
-            .from('borrows')
-            .update({'member_name': fullName})
-            .eq('member_id', id)
-            .filter('member_name', 'is', null);
       }
     }
 
@@ -2203,41 +1508,6 @@ class SupabaseRepository {
           'request_type': requestType,
           if (quantity != null) 'quantity': quantity,
           if (reason != null) 'reason': reason,
-          'status': 'pending',
-          'created_at': DateTime.now().toUtc().toIso8601String(),
-        })
-        .select('id');
-
-    _changes.add('pending_request_added');
-    if (result is List && result.isNotEmpty) {
-      return (result.first['id'] as num).toInt();
-    }
-    return 0;
-  }
-
-  /// Submit a borrow request for admin approval.
-  /// Cashiers and inventory users route through this instead of direct borrow.
-  Future<int> submitBorrowRequest({
-    required int memberId,
-    required String memberName,
-    required int itemId,
-    required String itemName,
-    required int quantity,
-    int price = 0,
-    String? notes,
-  }) async {
-    final result = await _supabase
-        .from('pending_requests')
-        .insert({
-          'user_id': _uid,
-          'member_id': memberId,
-          'member_name': memberName,
-          'item_id': itemId,
-          'item_name': itemName,
-          'request_type': 'borrow',
-          'quantity': quantity,
-          'price': price,
-          if (notes != null) 'notes': notes,
           'status': 'pending',
           'created_at': DateTime.now().toUtc().toIso8601String(),
         })
@@ -2439,7 +1709,7 @@ class SupabaseRepository {
   }
 
   /// Approve a pending request — executes the actual action.
-  /// Supports: delete, reduce_stock, delete_member, borrow.
+  /// Supports: delete, reduce_stock, delete_member.
   /// Returns null on success, or an error message string on failure.
   Future<String?> approveRequest(int requestId) async {
     final data = await _supabase
@@ -2469,17 +1739,6 @@ class SupabaseRepository {
       } else if (req.requestType == 'delete_member' && req.memberId != null) {
         final ok = await deleteMemberById(req.memberId!);
         if (!ok) return 'Failed to delete member';
-      } else if (req.requestType == 'borrow') {
-        // Create the actual borrow record (addBorrow deducts stock)
-        await addBorrow(
-          memberId: req.memberId!,
-          memberName: req.memberName,
-          itemId: req.itemId!,
-          itemName: req.itemName!,
-          quantity: req.quantity ?? 0,
-          price: req.price ?? 0,
-          notes: req.notes,
-        );
       }
     } catch (e) {
       print('[Stockpile] approveRequest failed: $e');

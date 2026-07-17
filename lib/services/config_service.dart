@@ -14,12 +14,6 @@ class ConfigService extends ChangeNotifier {
   int get lowStockThreshold =>
       int.tryParse(_config['low_stock_threshold'] ?? '') ?? 50;
 
-  int get borrowDurationDays =>
-      int.tryParse(_config['borrow_duration_days'] ?? '') ?? 10;
-
-  int get overdueThresholdDays =>
-      int.tryParse(_config['overdue_threshold_days'] ?? '') ?? 10;
-
   String get currencySymbol => (_config['currency_symbol'] ?? '').isNotEmpty
       ? _config['currency_symbol']!
       : '₱';

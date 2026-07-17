@@ -30,10 +30,6 @@ class _DashboardPageState extends State<DashboardPage> {
   int packageRevenue = 0;
   int packagesSold = 0;
   int previousPackagesSold = 0;
-  int remittanceRevenue = 0;
-  int remittanceCount = 0;
-  int openBorrowCount = 0;
-  int outstandingBorrowValue = 0;
   List<Map<String, dynamic>> categoryRevenue = [];
   List<Map<String, dynamic>> topProducts = [];
   List<double> revenueTrend = [];
@@ -63,7 +59,7 @@ class _DashboardPageState extends State<DashboardPage> {
     super.initState();
     _loadStats();
     // Keep metrics fresh: reload (debounced) whenever sales, items,
-    // borrows, or packages change anywhere in the app.
+    // or packages change anywhere in the app.
     _changeSub = repository.changes.listen((e) {
       const relevant = {
         'sale_added',
@@ -73,9 +69,6 @@ class _DashboardPageState extends State<DashboardPage> {
         'item_added',
         'item_updated',
         'item_deleted',
-        'borrow_added',
-        'borrow_updated',
-        'borrows_changed',
         'package_updated',
       };
       if (!relevant.contains(e)) return;
@@ -128,23 +121,17 @@ class _DashboardPageState extends State<DashboardPage> {
     packageRevenue = stats['packageRevenue'] as int? ?? 0;
     packagesSold = stats['packagesSold'] as int? ?? 0;
     previousPackagesSold = stats['previousPackagesSold'] as int? ?? 0;
-    remittanceRevenue = stats['remittanceRevenue'] as int? ?? 0;
-    remittanceCount = stats['remittanceCount'] as int? ?? 0;
 
-    // ── 2. This month's sales + items + borrow exposure (parallel) ──
+    // ── 2. This month's sales + items (parallel) ────────────────────
     final results = await Future.wait<dynamic>([
       repository.fetchSalesBetween(thisMonthStart, nextMonth),
       repository
           .fetchItems(), // items table is small; categories are only on items
-      repository.fetchOutstandingBorrowSummary(),
     ]);
     if (!mounted) return;
 
     final thisMonthSales = results[0] as List<Sale>;
     final items = results[1] as List<Item>;
-    final borrowSummary = results[2] as Map<String, int>;
-    openBorrowCount = borrowSummary['count'] ?? 0;
-    outstandingBorrowValue = borrowSummary['value'] ?? 0;
 
     // ── 3. Category revenue breakdown (products only) ───────────────
     final Map<String, int> catRevenue = {};
@@ -389,9 +376,7 @@ class _DashboardPageState extends State<DashboardPage> {
       MetricCard(
         title: 'Total Revenue',
         value: _fmt(monthlyRevenue),
-        badgeText: remittanceRevenue > 0
-            ? '${_chg(monthlyRevenue, previousMonthRevenue)} · ${_fmt(remittanceRevenue)} remitted'
-            : '${_chg(monthlyRevenue, previousMonthRevenue)} This Month',
+        badgeText: '${_chg(monthlyRevenue, previousMonthRevenue)} This Month',
         badgeColor: revUp ? StockpileColors.success : StockpileColors.danger,
         trailing: MiniBarChart(
           values: revenueTrend.isEmpty ? [0, 0, 0, 0] : revenueTrend,
@@ -400,26 +385,10 @@ class _DashboardPageState extends State<DashboardPage> {
       MetricCard(
         title: 'Sales This Month',
         value: activeOrders.toString(),
-        badgeText: remittanceCount > 0
-            ? '${_chg(activeOrders, previousMonthOrders)} · $remittanceCount remittance${remittanceCount == 1 ? '' : 's'}'
-            : '${_chg(activeOrders, previousMonthOrders)} This Month',
+        badgeText: '${_chg(activeOrders, previousMonthOrders)} This Month',
         badgeColor: ordUp ? StockpileColors.success : StockpileColors.danger,
         trailing: MiniBarChart(
           values: ordersTrend.isEmpty ? [0, 0, 0, 0] : ordersTrend,
-        ),
-      ),
-      MetricCard(
-        title: 'Owed by Resellers',
-        value: _fmt(outstandingBorrowValue),
-        badgeText:
-            '$openBorrowCount open borrow${openBorrowCount == 1 ? '' : 's'}',
-        badgeColor: openBorrowCount > 0
-            ? StockpileColors.primary900
-            : StockpileColors.success,
-        trailing: _iconCapsule(
-          Icons.swap_horiz_rounded,
-          StockpileColors.primary900,
-          d,
         ),
       ),
       MetricCard(
@@ -517,8 +486,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  /// Soft tinted capsule around a metric-card icon — same treatment as
-  /// the quota and remit badges, so icon cards read as deliberate.
+  /// Soft tinted capsule around a metric-card icon.
   Widget _iconCapsule(IconData icon, Color color, bool d) => Container(
     padding: const EdgeInsets.all(8),
     decoration: BoxDecoration(

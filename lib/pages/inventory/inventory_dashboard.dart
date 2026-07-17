@@ -2,10 +2,10 @@
 // Inventory Dashboard — restricted to Inventory role only.
 // Tabs:
 //   1. Inventory — Full CRUD for items, stock levels, product details.
-//   2. In/Out/Borrow Reports — Read-only logs of inventory activity.
+//   2. In/Out Reports — Read-only logs of inventory activity.
 //   3. My Requests — Track submitted deletion & reduction requests.
 // Inventory role CANNOT see: cashier tabs, admin tabs, member management,
-// POS transactions, or borrow requests.
+// or POS transactions.
 
 import "package:flutter/material.dart";
 import "package:provider/provider.dart";
@@ -134,7 +134,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
                       children: [
                         Icon(Icons.history_rounded, size: 18),
                         SizedBox(width: 6),
-                        Text("In / Out / Borrow Reports"),
+                        Text("In / Out Reports"),
                       ],
                     ),
                   ),
@@ -160,7 +160,7 @@ class _InventoryDashboardState extends State<InventoryDashboard>
                   // Tab 1: Inventory CRUD
                   const _InventoryCrudTab(),
 
-                  // Tab 2: In/Out/Borrow Reports (read-only)
+                  // Tab 2: In/Out Reports (read-only)
                   _InventoryReportsTab(isDark: isDark),
 
                   // Tab 3: My Requests — track deletion & reduction requests
@@ -199,7 +199,7 @@ class _InventoryCrudTab extends StatelessWidget {
   }
 }
 
-// --- Tab 2: In/Out/Borrow Reports (read-only, shared widget) ---------------
+// --- Tab 2: In/Out Reports (read-only, shared widget) ---------------
 
 class _InventoryReportsTab extends StatelessWidget {
   final bool isDark;

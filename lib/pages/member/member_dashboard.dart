@@ -15,9 +15,6 @@ import '../../services/config_service.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../widgets/member_sidebar.dart';
-import '../../widgets/reseller_alert_banner.dart';
-import '../../widgets/reseller_quota_status.dart';
-import '../../widgets/quota_explanation_card.dart';
 
 class MemberDashboard extends StatefulWidget {
   const MemberDashboard({super.key});
@@ -73,7 +70,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
 
   // ── Reseller-only tab indices (offset by shared tab count) ──────
 
-  // For basic members: skip borrows, earnings, rankings
+  // For basic members: skip earnings and rankings
   int get _effectiveIndex {
     if (_isReseller) return _selectedIndex;
     // Map: Overview→0, Purchases→1, Profile→2
@@ -148,7 +145,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
 
   Widget _buildTopBar(bool isDark, bool isDesktop) {
     final titles = _isReseller
-        ? ['Overview', 'My Purchases', 'My Borrows', 'Earnings', 'Profile']
+        ? ['Overview', 'My Purchases', 'Earnings', 'Profile']
         : ['Overview', 'My Purchases', 'Profile'];
     final title = titles[_selectedIndex.clamp(0, titles.length - 1)];
 
@@ -216,10 +213,8 @@ class _MemberDashboardState extends State<MemberDashboard> {
         return _PurchasesTab(member: _member!);
       case 2:
         if (!_isReseller) return _PurchasesTab(member: _member!);
-        return _BorrowsTab(member: _member!);
-      case 3:
         return _EarningsTab(member: _member!);
-      case 4:
+      case 3:
         return _ProfileTab(member: _member!, onUpdated: _loadMemberData);
       default:
         return _OverviewTab(member: _member!, isReseller: _isReseller);
@@ -240,8 +235,7 @@ class _OverviewTab extends StatefulWidget {
 }
 
 class _OverviewTabState extends State<_OverviewTab> {
-  int _totalBoxes = 0;
-  int _activeBorrows = 0;
+  int _totalItemsBought = 0;
   int _purchaseCount = 0;
   List<Sale> _recentSales = [];
   List<Sale> _availedPackages = [];
@@ -256,30 +250,27 @@ class _OverviewTabState extends State<_OverviewTab> {
   Future<void> _loadStats() async {
     final id = widget.member.id!;
     final results = await Future.wait([
-      repository.getTotalRemittedBoxes(id),
-      repository.fetchBorrowsForMember(id),
       repository.fetchMemberPurchaseHistory(id, limit: 5),
       repository.fetchSalesForMember(id),
       repository.fetchPackages(),
     ]);
     if (!mounted) return;
     setState(() {
-      _totalBoxes = results[0] as int;
-      final borrows = results[1] as List<Borrow>;
-      _activeBorrows = borrows
-          .where((b) => b.status != 'returned' && b.status != 'remitted')
-          .length;
-      _recentSales = results[2] as List<Sale>;
+      _recentSales = results[0] as List<Sale>;
       _purchaseCount = _recentSales.length;
+      final allSales = results[1] as List<Sale>;
+      _totalItemsBought = allSales
+          .where((s) => !s.isPackage)
+          .fold(0, (sum, s) => sum + s.quantity);
       // Availed packages display the CURRENT catalog name/price (renames
       // and price changes must reflect immediately); the sale row's
       // snapshot is only a fallback for packages deleted from the catalog.
       final pkgById = {
-        for (final p in results[4] as List<Package>)
+        for (final p in results[2] as List<Package>)
           if (p.id != null) p.id!: p,
       };
       _availedPackages =
-          (results[3] as List<Sale>).where((s) => s.isPackage).map((s) {
+          allSales.where((s) => s.isPackage).map((s) {
             final current = pkgById[s.packageId];
             return current == null
                 ? s
@@ -310,25 +301,12 @@ class _OverviewTabState extends State<_OverviewTab> {
             isDark: isDark,
           ),
           const SizedBox(height: 20),
-          // Admin alerts — resellers only, shown first for max visibility
-          if (widget.isReseller && widget.member.id != null)
-            ResellerAlertBanner(memberId: widget.member.id!),
           // Quick stats row
           if (_loadingStats)
             const Center(child: CircularProgressIndicator())
           else
             _buildStatsRow(isDark, isWide),
           const SizedBox(height: 20),
-          // Quota explanation — resellers only
-          if (widget.isReseller && !_loadingStats) ...[
-            const QuotaExplanationCard(),
-            const SizedBox(height: 16),
-          ],
-          // Quota countdown — resellers only, after stats load
-          if (widget.isReseller && !_loadingStats) ...[
-            ResellerQuotaStatus(memberId: widget.member.id!),
-            const SizedBox(height: 20),
-          ],
           // Availed package — resellers only
           if (widget.isReseller && !_loadingStats) ...[
             _PackageAvailedCard(packages: _availedPackages, isDark: isDark),
@@ -348,40 +326,37 @@ class _OverviewTabState extends State<_OverviewTab> {
   }
 
   Widget _buildStatsRow(bool isDark, bool isWide) {
+    final cards = [
+      _StatCard(
+        icon: Icons.inventory_2_rounded,
+        label: 'Items Bought',
+        value: '$_totalItemsBought',
+        color: StockpileColors.primary900,
+        isDark: isDark,
+      ),
+      _StatCard(
+        icon: Icons.card_giftcard_rounded,
+        label: 'Packages Availed',
+        value: '${_availedPackages.length}',
+        color: StockpileColors.secondary500,
+        isDark: isDark,
+      ),
+      _StatCard(
+        icon: Icons.receipt_long_rounded,
+        label: 'Recent Purchases',
+        value: '$_purchaseCount',
+        color: const Color(0xFF6366F1),
+        isDark: isDark,
+      ),
+    ];
+
     if (isWide) {
       return Row(
         children: [
-          Expanded(
-            child: _StatCard(
-              icon: Icons.inventory_2_rounded,
-              label: 'Boxes Remitted',
-              value: '$_totalBoxes',
-              color: StockpileColors.primary900,
-              isDark: isDark,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _StatCard(
-              icon: Icons.swap_horiz_rounded,
-              label: 'Active Borrows',
-              value: '$_activeBorrows',
-              color: _activeBorrows > 0
-                  ? StockpileColors.danger
-                  : StockpileColors.success,
-              isDark: isDark,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _StatCard(
-              icon: Icons.receipt_long_rounded,
-              label: 'Purchases',
-              value: '$_purchaseCount',
-              color: const Color(0xFF6366F1),
-              isDark: isDark,
-            ),
-          ),
+          for (var i = 0; i < cards.length; i++) ...[
+            if (i > 0) const SizedBox(width: 12),
+            Expanded(child: cards[i]),
+          ],
         ],
       );
     }
@@ -389,37 +364,13 @@ class _OverviewTabState extends State<_OverviewTab> {
       children: [
         Row(
           children: [
-            Expanded(
-              child: _StatCard(
-                icon: Icons.inventory_2_rounded,
-                label: 'Boxes Remitted',
-                value: '$_totalBoxes',
-                color: StockpileColors.primary900,
-                isDark: isDark,
-              ),
-            ),
+            Expanded(child: cards[0]),
             const SizedBox(width: 12),
-            Expanded(
-              child: _StatCard(
-                icon: Icons.swap_horiz_rounded,
-                label: 'Active Borrows',
-                value: '$_activeBorrows',
-                color: _activeBorrows > 0
-                    ? StockpileColors.danger
-                    : StockpileColors.success,
-                isDark: isDark,
-              ),
-            ),
+            Expanded(child: cards[1]),
           ],
         ),
         const SizedBox(height: 12),
-        _StatCard(
-          icon: Icons.receipt_long_rounded,
-          label: 'Recent Purchases',
-          value: '$_purchaseCount',
-          color: const Color(0xFF6366F1),
-          isDark: isDark,
-        ),
+        cards[2],
       ],
     );
   }
@@ -1363,13 +1314,8 @@ class _PurchasesTabState extends State<_PurchasesTab> {
         itemCount: _sales.length,
         itemBuilder: (context, i) {
           final s = _sales[i];
-          final isRemittance = s.isRemittance;
-          final accent = isRemittance
-              ? (isDark ? StockpileColors.remitBright : StockpileColors.remit)
-              : StockpileColors.primary900;
-          final iconBg = isRemittance
-              ? StockpileColors.remit.withValues(alpha: isDark ? 0.22 : 0.10)
-              : StockpileColors.primary900.withValues(alpha: 0.08);
+          const accent = StockpileColors.primary900;
+          final iconBg = StockpileColors.primary900.withValues(alpha: 0.08);
           final age = s.timestamp != null
               ? _relativeTime(s.timestamp!, now)
               : '';
@@ -1405,10 +1351,8 @@ class _PurchasesTabState extends State<_PurchasesTab> {
                         color: iconBg,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(
-                        isRemittance
-                            ? Icons.published_with_changes_rounded
-                            : Icons.shopping_bag_rounded,
+                      child: const Icon(
+                        Icons.shopping_bag_rounded,
                         size: 20,
                         color: accent,
                       ),
@@ -1435,27 +1379,6 @@ class _PurchasesTabState extends State<_PurchasesTab> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              if (isRemittance)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: StockpileColors.remit.withValues(
-                                      alpha: isDark ? 0.25 : 0.12,
-                                    ),
-                                    borderRadius: BorderRadius.circular(5),
-                                  ),
-                                  child: Text(
-                                    'Remit',
-                                    style: StockpileFonts.satoshi(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                      color: accent,
-                                    ),
-                                  ),
-                                ),
                             ],
                           ),
                           const SizedBox(height: 6),
@@ -1532,260 +1455,6 @@ class _PurchasesTabState extends State<_PurchasesTab> {
   }
 }
 
-// ─── Borrows Tab (Reseller-only) ───────────────────────────────────────────
-
-class _BorrowsTab extends StatefulWidget {
-  final Member member;
-  const _BorrowsTab({required this.member});
-
-  @override
-  State<_BorrowsTab> createState() => _BorrowsTabState();
-}
-
-class _BorrowsTabState extends State<_BorrowsTab> {
-  List<Borrow> _borrows = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final borrows = await repository.fetchBorrowsForMember(widget.member.id!);
-    if (!mounted) return;
-    setState(() {
-      _borrows = borrows;
-      _loading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_borrows.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.swap_horiz_rounded,
-              size: 48,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'No borrows yet',
-              style: StockpileFonts.satoshi(
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final active = _borrows
-        .where((b) => b.status != 'returned' && b.status != 'remitted')
-        .length;
-    final overdue = _borrows.where((b) => b.isOverdue).length;
-    final settled = _borrows
-        .where((b) => b.status == 'returned' || b.status == 'remitted')
-        .length;
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _borrows.length + 1, // +1 for summary header
-      itemBuilder: (context, i) {
-        if (i == 0) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.swap_horiz_rounded,
-                    label: 'Active',
-                    value: '$active',
-                    color: StockpileColors.primary900,
-                    isDark: isDark,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.warning_amber_rounded,
-                    label: 'Overdue',
-                    value: '$overdue',
-                    color: overdue > 0
-                        ? StockpileColors.danger
-                        : StockpileColors.success,
-                    isDark: isDark,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.check_circle_rounded,
-                    label: 'Settled',
-                    value: '$settled',
-                    color: StockpileColors.success,
-                    isDark: isDark,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        final b = _borrows[i - 1];
-        final statusColor =
-            b.status == 'active' || b.status == 'partially_settled'
-            ? StockpileColors.primary900
-            : b.isOverdue
-            ? StockpileColors.danger
-            : StockpileColors.success;
-
-        return Card(
-          elevation: 0,
-          color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(
-              color: isDark
-                  ? StockpileColors.darkDivider
-                  : StockpileColors.divider,
-            ),
-          ),
-          margin: const EdgeInsets.only(bottom: 10),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        b.itemName,
-                        style: StockpileFonts.satoshi(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? StockpileColors.darkTextPrimary
-                              : StockpileColors.darkText,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: statusColor.withAlpha(25),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        b.statusLabel,
-                        style: StockpileFonts.satoshi(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: statusColor,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _borrowStat('Borrowed', '${b.quantity}'),
-                    const SizedBox(width: 20),
-                    _borrowStat('Returned', '${b.quantityReturned}'),
-                    const SizedBox(width: 20),
-                    _borrowStat('Remitted', '${b.quantityRemitted}'),
-                    const SizedBox(width: 20),
-                    _borrowStat('Outstanding', '${b.outstandingQuantity}'),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.calendar_today_rounded,
-                      size: 13,
-                      color: isDark
-                          ? StockpileColors.darkTextMuted
-                          : StockpileColors.mutedText,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Due: ${b.dueDate.year}-${b.dueDate.month.toString().padLeft(2, '0')}-${b.dueDate.day.toString().padLeft(2, '0')}',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 12,
-                        color: isDark
-                            ? StockpileColors.darkTextMuted
-                            : StockpileColors.mutedText,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (b.price > 0)
-                      Text(
-                        '₱${b.price}/item',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: isDark
-                              ? StockpileColors.darkTextMuted
-                              : StockpileColors.mutedText,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _borrowStat(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: StockpileFonts.satoshi(
-            fontSize: 10,
-            color: StockpileColors.mutedText,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: StockpileFonts.satoshi(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 // ─── Earnings Tab (Reseller-only) ──────────────────────────────────────────
 
 class _EarningsTab extends StatefulWidget {
@@ -1799,16 +1468,12 @@ class _EarningsTab extends StatefulWidget {
 class _EarningsTabState extends State<_EarningsTab> {
   int _totalEarnings = 0;
   int _balance = 0;
-  int _totalBoxes = 0;
+  int _totalPurchases = 0;
   int _chairmanBonus = 0;
   int _chairmanFridays = 0;
-  List<Sale> _recentRemits = [];
   List<EarningsSnapshot> _history = [];
   bool _loading = true;
   StreamSubscription<String>? _changeSub;
-
-  /// Which list the ledger card shows: 0 = Earnings History, 1 = Remittances.
-  int _ledgerView = 0;
 
   @override
   void initState() {
@@ -1831,10 +1496,9 @@ class _EarningsTabState extends State<_EarningsTab> {
 
   Future<void> _load() async {
     final id = widget.member.id!;
-    final results = await Future.wait([
+    final results = await Future.wait<dynamic>([
       repository.fetchMemberEarningsBreakdown(id),
-      repository.getTotalRemittedBoxes(id),
-      repository.fetchMemberPurchaseHistory(id, limit: 10),
+      repository.fetchSalesForMember(id),
     ]);
     final breakdown = results[0] as Map<String, int>;
     final totalEarnings = breakdown['totalEarnings'] ?? 0;
@@ -1857,10 +1521,11 @@ class _EarningsTabState extends State<_EarningsTab> {
     setState(() {
       _totalEarnings = totalEarnings;
       _balance = balance;
-      _totalBoxes = results[1] as int;
+      _totalPurchases = (results[1] as List<Sale>)
+          .where((s) => !s.isPackage)
+          .fold(0, (sum, s) => sum + s.quantity);
       _chairmanBonus = breakdown['chairmanBonus'] ?? 0;
       _chairmanFridays = breakdown['chairmanFridays'] ?? 0;
-      _recentRemits = results[2] as List<Sale>;
       _history = history;
       _loading = false;
     });
@@ -1988,7 +1653,7 @@ class _EarningsTabState extends State<_EarningsTab> {
                   _BreakdownRow(
                     label: 'Total Earnings',
                     detail:
-                        "Indirect referral bonuses + Group Sales (₱3 per item your referrals remit, ₱2 per item their referrals remit) + Chairman's Bonus + Repeat Purchase commissions",
+                        "Indirect referral bonuses + Group Sales (₱3 per item your referrals purchase, ₱2 per item their referrals purchase) + Chairman's Bonus + Repeat Purchase commissions",
                     isDark: isDark,
                     isCompact: isMobile,
                   ),
@@ -2001,7 +1666,7 @@ class _EarningsTabState extends State<_EarningsTab> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Earnings are Paid-on-Collection: you only earn when items are remitted (paid). Borrowed or past-due items count for nothing until settled.',
+                    'Group Sales and Repeat Purchase commissions accrue as products are purchased by you and your referral network.',
                     style: TextStyle(
                       fontSize: 11,
                       fontStyle: FontStyle.italic,
@@ -2015,12 +1680,9 @@ class _EarningsTabState extends State<_EarningsTab> {
             ),
           ),
           SizedBox(height: isMobile ? 8 : 16),
-          // ── Ledger: Earnings History ⇄ Remittances (toggleable) ──
+          // ── Ledger: Earnings History ─────────────────────
           _EarningsLedgerCard(
             history: _history,
-            remits: _recentRemits,
-            view: _ledgerView,
-            onViewChanged: (v) => setState(() => _ledgerView = v),
             isDark: isDark,
             currencySymbol: currencySymbol,
             isCompact: isMobile,
@@ -2036,8 +1698,8 @@ class _EarningsTabState extends State<_EarningsTab> {
         Expanded(
           child: _StatCard(
             icon: Icons.inventory_2_rounded,
-            label: 'Boxes Remitted',
-            value: '$_totalBoxes',
+            label: 'Items Purchased',
+            value: '$_totalPurchases',
             color: StockpileColors.primary900,
             isDark: isDark,
           ),
@@ -2076,8 +1738,8 @@ class _EarningsTabState extends State<_EarningsTab> {
             Expanded(
               child: _StatCard(
                 icon: Icons.inventory_2_rounded,
-                label: 'Boxes Remitted',
-                value: '$_totalBoxes',
+                label: 'Items Purchased',
+                value: '$_totalPurchases',
                 color: StockpileColors.primary900,
                 isDark: isDark,
               ),
@@ -2113,8 +1775,8 @@ class _EarningsTabState extends State<_EarningsTab> {
       children: [
         _StatCard(
           icon: Icons.inventory_2_rounded,
-          label: 'Boxes Remitted',
-          value: '$_totalBoxes',
+          label: 'Items Purchased',
+          value: '$_totalPurchases',
           color: StockpileColors.primary900,
           isDark: isDark,
         ),
@@ -2143,30 +1805,18 @@ class _EarningsTabState extends State<_EarningsTab> {
 
 /// Ledger-style log of a member's earnings/balance changes over time.
 /// Each row is a snapshot recorded when the computed values changed.
-/// One card, two lists: Earnings History and Recent Remittances, switched
-/// by segmented pills — keeps the page short instead of stacking two
-/// ever-growing tables.
 class _EarningsLedgerCard extends StatelessWidget {
   final List<EarningsSnapshot> history;
-  final List<Sale> remits;
-  final int view; // 0 = history, 1 = remittances
-  final ValueChanged<int> onViewChanged;
   final bool isDark;
   final String currencySymbol;
   final bool isCompact;
 
   const _EarningsLedgerCard({
     required this.history,
-    required this.remits,
-    required this.view,
-    required this.onViewChanged,
     required this.isDark,
     required this.currencySymbol,
     this.isCompact = false,
   });
-
-  static String _fmtDate(DateTime dt) =>
-      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
 
   static String _fmtDateTime(DateTime dt) {
     final local = dt.toLocal();
@@ -2225,283 +1875,99 @@ class _EarningsLedgerCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (isCompact) ...[
-              // Compact: title + toggle stacked
-              Row(
-                children: [
-                  Icon(
-                    view == 0
-                        ? Icons.history_rounded
-                        : Icons.receipt_long_rounded,
-                    size: 20,
-                    color: StockpileColors.primary900,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      view == 0 ? 'Earnings History' : 'Recent Remittances',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: StockpileFonts.satoshi(
-                        fontSize: titleFontSize,
-                        fontWeight: FontWeight.w700,
-                        color: textColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              // Segmented toggle — full width on mobile
-              _segmentedToggle(textColor, mutedColor),
-              const SizedBox(height: 8),
-              Text(
-                view == 0
-                    ? 'Logged whenever your earnings or balance change.'
-                    : 'Your latest remitted (paid) transactions.',
-                style: StockpileFonts.satoshi(fontSize: 11, color: mutedColor),
-              ),
-            ] else ...[
-              Row(
-                children: [
-                  Icon(
-                    view == 0
-                        ? Icons.history_rounded
-                        : Icons.receipt_long_rounded,
-                    size: 20,
-                    color: StockpileColors.primary900,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      view == 0 ? 'Earnings History' : 'Recent Remittances',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: StockpileFonts.satoshi(
-                        fontSize: titleFontSize,
-                        fontWeight: FontWeight.w700,
-                        color: textColor,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Segmented toggle
-                  _segmentedToggle(textColor, mutedColor),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                view == 0
-                    ? 'Logged whenever your earnings or balance change.'
-                    : 'Your latest remitted (paid) transactions.',
-                style: StockpileFonts.satoshi(fontSize: 11, color: mutedColor),
-              ),
-            ],
-            const SizedBox(height: 12),
-            if (view == 1)
-              _remitsBody(textColor, mutedColor)
-            else
-              () {
-                // Hide "ghost" rows (all-zero totals and deltas) — an
-                // artifact of early snapshots recorded with nothing earned.
-                final visible = history
-                    .where(
-                      (h) =>
-                          h.totalEarnings != 0 ||
-                          h.balance != 0 ||
-                          h.earningsDelta != 0 ||
-                          h.balanceDelta != 0,
-                    )
-                    .toList();
-
-                if (visible.isEmpty) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20),
-                    child: Center(
-                      child: Text(
-                        'No history yet — changes will appear here.',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 13,
-                          color: mutedColor,
-                        ),
-                      ),
-                    ),
-                  );
-                }
-
-                final shown = visible.take(15).toList();
-                return Column(
-                  children: [
-                    for (var i = 0; i < shown.length; i++) ...[
-                      if (i > 0)
-                        Divider(
-                          height: 1,
-                          color:
-                              (isDark
-                                      ? StockpileColors.darkDivider
-                                      : StockpileColors.divider)
-                                  .withAlpha(120),
-                        ),
-                      _historyRow(
-                        shown[i],
-                        i + 1 < visible.length ? visible[i + 1] : null,
-                        visible.length < 30,
-                        textColor,
-                        mutedColor,
-                      ),
-                    ],
-                    if (visible.length > 15) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Showing the latest 15 entries',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 11,
-                          color: mutedColor,
-                        ),
-                      ),
-                    ],
-                  ],
-                );
-              }(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Segmented toggle: "History" | "Remittances"
-  Widget _segmentedToggle(Color textColor, Color mutedColor) {
-    return IntrinsicWidth(
-      child: Container(
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          color: isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          mainAxisSize: isCompact ? MainAxisSize.max : MainAxisSize.min,
-          children: [
-            Flexible(
-              fit: isCompact ? FlexFit.tight : FlexFit.loose,
-              child: _pill('History', 0, textColor, mutedColor),
-            ),
-            Flexible(
-              fit: isCompact ? FlexFit.tight : FlexFit.loose,
-              child: _pill('Remittances', 1, textColor, mutedColor),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// One pill of the History ⇄ Remittances segmented toggle.
-  Widget _pill(String label, int index, Color textColor, Color mutedColor) {
-    final selected = view == index;
-    return InkWell(
-      onTap: () => onViewChanged(index),
-      borderRadius: BorderRadius.circular(8),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? (isDark ? StockpileColors.darkSurface : StockpileColors.surface)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(isDark ? 60 : 20),
-                    blurRadius: 4,
-                    offset: const Offset(0, 1),
-                  ),
-                ]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: StockpileFonts.satoshi(
-            fontSize: 12,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? textColor : mutedColor,
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Remittances list body (shown when the toggle is on "Remittances").
-  Widget _remitsBody(Color textColor, Color mutedColor) {
-    if (remits.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(Icons.inbox_rounded, size: 40, color: mutedColor),
-              const SizedBox(height: 8),
-              Text(
-                'No remittances yet',
-                style: StockpileFonts.satoshi(color: mutedColor),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    final itemFontSize = isCompact ? 13.0 : 14.0;
-    final priceFontSize = isCompact ? 13.0 : 14.0;
-    return Column(
-      children: [
-        ...remits
-            .take(8)
-            .map(
-              (s) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: isCompact ? 4 : 8,
-                  ),
-                  leading: CircleAvatar(
-                    radius: isCompact ? 14 : 16,
-                    backgroundColor: StockpileColors.primary900.withAlpha(25),
-                    child: Icon(
-                      Icons.payments_rounded,
-                      size: isCompact ? 14 : 16,
-                      color: StockpileColors.primary900,
-                    ),
-                  ),
-                  title: Text(
-                    s.itemName,
+            Row(
+              children: [
+                const Icon(
+                  Icons.history_rounded,
+                  size: 20,
+                  color: StockpileColors.primary900,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Earnings History',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: StockpileFonts.satoshi(
-                      fontSize: itemFontSize,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  subtitle: Text(
-                    s.timestamp != null
-                        ? '${s.quantity}× — ${_fmtDate(s.timestamp!)}'
-                        : '${s.quantity}×',
-                    style: StockpileFonts.satoshi(
-                      fontSize: isCompact ? 10 : 11,
-                      color: mutedColor,
-                    ),
-                  ),
-                  trailing: Text(
-                    '$currencySymbol${s.price}',
-                    style: StockpileFonts.satoshi(
+                      fontSize: titleFontSize,
                       fontWeight: FontWeight.w700,
-                      fontSize: priceFontSize,
+                      color: textColor,
                     ),
                   ),
                 ),
-              ),
+              ],
             ),
-      ],
+            const SizedBox(height: 4),
+            Text(
+              'Logged whenever your earnings or balance change.',
+              style: StockpileFonts.satoshi(fontSize: 11, color: mutedColor),
+            ),
+            const SizedBox(height: 12),
+            () {
+              // Hide "ghost" rows (all-zero totals and deltas) — an
+              // artifact of early snapshots recorded with nothing earned.
+              final visible = history
+                  .where(
+                    (h) =>
+                        h.totalEarnings != 0 ||
+                        h.balance != 0 ||
+                        h.earningsDelta != 0 ||
+                        h.balanceDelta != 0,
+                  )
+                  .toList();
+
+              if (visible.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: Text(
+                      'No history yet — changes will appear here.',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 13,
+                        color: mutedColor,
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              final shown = visible.take(15).toList();
+              return Column(
+                children: [
+                  for (var i = 0; i < shown.length; i++) ...[
+                    if (i > 0)
+                      Divider(
+                        height: 1,
+                        color:
+                            (isDark
+                                    ? StockpileColors.darkDivider
+                                    : StockpileColors.divider)
+                                .withAlpha(120),
+                      ),
+                    _historyRow(
+                      shown[i],
+                      i + 1 < visible.length ? visible[i + 1] : null,
+                      visible.length < 30,
+                      textColor,
+                      mutedColor,
+                    ),
+                  ],
+                  if (visible.length > 15) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Showing the latest 15 entries',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 11,
+                        color: mutedColor,
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            }(),
+          ],
+        ),
+      ),
     );
   }
 
