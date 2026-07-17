@@ -4,8 +4,7 @@
 //   1. Transaction — POS terminal for processing sales.
 //   2. Members — Read-only member lookup.
 //   3. Request Member Deletion — POST-based deletion request for Admin approval.
-//   4. Request Borrow Stock — POST-based borrow stock request for review.
-//   5. My Requests — Track status of submitted deletion and borrow requests.
+//   4. My Requests — Track status of submitted requests.
 // Cashier role CANNOT see: inventory CRUD, reports, admin panels, or user mgmt.
 
 import 'package:flutter/material.dart';
@@ -35,7 +34,7 @@ class _CashierDashboardState extends State<CashierDashboard>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -157,16 +156,6 @@ class _CashierDashboardState extends State<CashierDashboard>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.add_box_rounded, size: 18),
-                        SizedBox(width: 6),
-                        Text('Borrow Stock'),
-                      ],
-                    ),
-                  ),
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
                         Icon(Icons.history_rounded, size: 18),
                         SizedBox(width: 6),
                         Text('My Requests'),
@@ -191,10 +180,7 @@ class _CashierDashboardState extends State<CashierDashboard>
                   // Tab 3: Request Member Deletion
                   _RequestDeletionTab(isDark: isDark),
 
-                  // Tab 4: Request Borrow Stock
-                  _BorrowStockTab(isDark: isDark),
-
-                  // Tab 5: My Requests
+                  // Tab 4: My Requests
                   _MyRequestsTab(isDark: isDark),
                 ],
               ),
@@ -361,7 +347,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
   final _focusNode = FocusNode();
   List<Member> _members = [];
   Member? _selectedMember;
-  bool _hasActiveBorrows = false;
   bool _loadingMembers = true;
   bool _submitting = false;
   String? _feedback;
@@ -393,17 +378,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
     }
   }
 
-  Future<void> _checkBorrows(Member m) async {
-    if (m.id == null) return;
-    try {
-      final hasBorrows = await repository.hasActiveBorrowsForMember(m.id!);
-      if (!mounted) return;
-      setState(() => _hasActiveBorrows = hasBorrows);
-    } catch (_) {
-      if (mounted) setState(() => _hasActiveBorrows = false);
-    }
-  }
-
   Future<void> _submitDeletionRequest() async {
     final member = _selectedMember;
     final reason = _reasonCtrl.text.trim();
@@ -411,14 +385,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
     if (member == null || reason.isEmpty) {
       setState(
         () => _feedback = 'Please select a member and provide a reason.',
-      );
-      return;
-    }
-
-    if (_hasActiveBorrows) {
-      setState(
-        () => _feedback =
-            'Cannot request deletion. This member has active borrows that must be settled first.',
       );
       return;
     }
@@ -442,7 +408,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
       _reasonCtrl.clear();
       setState(() {
         _selectedMember = null;
-        _hasActiveBorrows = false;
         _feedback = 'Deletion request submitted for Admin approval.';
       });
     } catch (e) {
@@ -535,39 +500,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                 ),
               ),
 
-            // ── Active borrows warning ────────────────────────────
-            if (_selectedMember != null && _hasActiveBorrows)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF3C7),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFF59E0B)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.warning_rounded,
-                      size: 20,
-                      color: Color(0xFFD97706),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'This member has active borrows. All borrows must '
-                        'be settled before requesting deletion.',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 13,
-                          color: const Color(0xFF92400E),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
             // ── Member Search Dropdown (Autocomplete) ──────────────
             if (_selectedMember != null)
               Container(
@@ -621,10 +553,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                       tooltip: 'Change member',
                       onPressed: () {
                         _searchCtrl.clear();
-                        setState(() {
-                          _selectedMember = null;
-                          _hasActiveBorrows = false;
-                        });
+                        setState(() => _selectedMember = null);
                       },
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
@@ -721,7 +650,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                                 onSelected(m);
                                 _searchCtrl.text = name;
                                 setState(() => _selectedMember = m);
-                                _checkBorrows(m);
                               },
                             );
                           },
@@ -735,7 +663,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                       .trim();
                   _searchCtrl.text = name;
                   setState(() => _selectedMember = m);
-                  _checkBorrows(m);
                 },
               ),
 
@@ -797,748 +724,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
           ],
         ),
       ),
-    );
-  }
-}
-
-// ─── Tab 4: Active Borrows (read-only) ─────────────────────────────────────
-
-class _BorrowStockTab extends StatefulWidget {
-  final bool isDark;
-  const _BorrowStockTab({required this.isDark});
-
-  @override
-  State<_BorrowStockTab> createState() => _BorrowStockTabState();
-}
-
-class _BorrowStockTabState extends State<_BorrowStockTab> {
-  List<Borrow> _borrows = [];
-  List<Member> _members = [];
-  bool _loading = true;
-  String _settledFilter = 'all'; // all, returned, remitted
-
-  static const _amber = Color(0xFFF59E0B);
-  static const _emerald = Color(0xFF10B981);
-  static const _rose = Color(0xFFEF4444);
-  static const _slate = Color(0xFF64748B);
-  static const _indigo = Color(0xFF6366F1);
-  static const _purple = Color(0xFF8B5CF6);
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    setState(() => _loading = true);
-    try {
-      final borrows = await repository.fetchBorrows();
-      final members = await repository.fetchMembers();
-      if (!mounted) return;
-      // Sort: unsettled/active first, then latest to oldest within each group
-      borrows.sort((a, b) {
-        final aUnsettled = a.outstandingQuantity > 0 ? 0 : 1;
-        final bUnsettled = b.outstandingQuantity > 0 ? 0 : 1;
-        if (aUnsettled != bUnsettled) return aUnsettled.compareTo(bUnsettled);
-        return (b.borrowedAt ?? DateTime(0)).compareTo(
-          a.borrowedAt ?? DateTime(0),
-        );
-      });
-      setState(() {
-        _borrows = borrows;
-        _members = members;
-        _loading = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  String _memberName(int memberId) {
-    final m = _members.cast<Member?>().firstWhere(
-      (m) => m?.id == memberId,
-      orElse: () => null,
-    );
-    if (m == null) return 'Member #$memberId';
-    return '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
-  }
-
-  // ── Active / overdue ───────────────────────────────────────────
-  List<Borrow> get _activeBorrows =>
-      _borrows.where((b) => b.outstandingQuantity > 0).toList();
-
-  int get _overdueCount => _activeBorrows.where((b) => b.isOverdue).length;
-
-  int get _activeCount => _activeBorrows.length - _overdueCount;
-
-  int get _totalOutstanding =>
-      _activeBorrows.fold(0, (s, b) => s + b.outstandingQuantity);
-
-  // ── Settled ────────────────────────────────────────────────────
-  List<Borrow> get _allSettled =>
-      _borrows.where((b) => b.outstandingQuantity <= 0).toList();
-
-  List<Borrow> get _returnedOnly =>
-      _allSettled.where((b) => b.quantityReturned >= b.quantity).toList();
-
-  List<Borrow> get _remittedOnly =>
-      _allSettled.where((b) => b.quantityRemitted >= b.quantity).toList();
-
-  List<Borrow> get _filteredSettled {
-    switch (_settledFilter) {
-      case 'returned':
-        return _returnedOnly;
-      case 'remitted':
-        return _remittedOnly;
-      default:
-        return _allSettled;
-    }
-  }
-
-  int get _settledCount => _allSettled.length;
-  int get _returnedCount => _returnedOnly.length;
-  int get _remittedCount => _remittedOnly.length;
-
-  String _formatDue(DateTime dt) {
-    final now = DateTime.now();
-    final diff = dt.difference(now);
-    if (diff.isNegative) return 'Overdue';
-    if (diff.inDays == 0) return 'Today';
-    if (diff.inDays == 1) return 'Tomorrow';
-    if (diff.inDays < 7) return '${diff.inDays}d left';
-    return '${dt.day}/${dt.month}/${dt.year}';
-  }
-
-  // ── Stat pill ────────────────────────────────────────────────────
-  Widget _statPill(String label, int count, Color color, IconData icon) {
-    final isDark = widget.isDark;
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: color.withAlpha(isDark ? 25 : 15),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withAlpha(isDark ? 60 : 40)),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 18, color: color),
-            const SizedBox(height: 4),
-            Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: color,
-              ),
-            ),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: color.withAlpha(200),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Card builder ─────────────────────────────────────────────────
-  Widget _buildCard(Borrow b) {
-    final isDark = widget.isDark;
-    final isOverdue = b.isOverdue && b.outstandingQuantity > 0;
-    final accentColor = isOverdue ? _rose : _amber;
-    final memberName = b.memberName ?? _memberName(b.memberId);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: isOverdue
-              ? _rose.withAlpha(isDark ? 50 : 30)
-              : (isDark ? Colors.white10 : Colors.grey.shade200),
-          width: isOverdue ? 1.5 : 1,
-        ),
-      ),
-      color: isOverdue
-          ? _rose.withAlpha(isDark ? 8 : 5)
-          : (isDark ? Colors.grey.shade900 : Colors.white),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Row 1: Avatar + item name + status
-            Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: accentColor.withAlpha(isDark ? 30 : 20),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.swap_horiz_rounded,
-                    size: 22,
-                    color: accentColor,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        b.itemName,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? Colors.white
-                              : const Color(0xFF1E293B),
-                          height: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        memberName,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.white54 : _slate,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isOverdue
-                        ? _rose.withAlpha(isDark ? 25 : 15)
-                        : _emerald.withAlpha(isDark ? 25 : 15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: (isOverdue ? _rose : _emerald).withAlpha(
-                        isDark ? 60 : 40,
-                      ),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        isOverdue
-                            ? Icons.warning_rounded
-                            : Icons.check_circle_rounded,
-                        size: 13,
-                        color: isOverdue ? _rose : _emerald,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        isOverdue ? 'Overdue' : 'Active',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: isOverdue ? _rose : _emerald,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-
-            // Progress / detail row
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                // Borrowed
-                _detailPill(
-                  icon: Icons.arrow_downward_rounded,
-                  label: 'Borrowed',
-                  value: '${b.quantity}',
-                  color: _indigo,
-                ),
-                const SizedBox(width: 8),
-                // Outstanding
-                _detailPill(
-                  icon: isOverdue
-                      ? Icons.warning_rounded
-                      : Icons.hourglass_empty_rounded,
-                  label: 'Outstanding',
-                  value: '${b.outstandingQuantity}',
-                  color: isOverdue ? _rose : _amber,
-                ),
-                const Spacer(),
-                // Due date
-                Icon(
-                  Icons.calendar_today_rounded,
-                  size: 12,
-                  color: isDark ? Colors.white24 : Colors.grey.shade400,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _formatDue(b.dueDate),
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: isOverdue ? FontWeight.w700 : FontWeight.w500,
-                    color: isOverdue
-                        ? _rose
-                        : (isDark ? Colors.white38 : Colors.grey.shade500),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── Settled card builder ──────────────────────────────────────
-  Widget _buildSettledCard(Borrow b) {
-    final isDark = widget.isDark;
-    final isReturned = b.quantityReturned >= b.quantity;
-    final accentColor = isReturned ? _emerald : _purple;
-    final statusIcon = isReturned
-        ? Icons.assignment_return_rounded
-        : Icons.payments_rounded;
-    final statusLabel = isReturned ? 'Returned' : 'Remitted';
-    final settledQty = isReturned ? b.quantityReturned : b.quantityRemitted;
-    final memberName = b.memberName ?? _memberName(b.memberId);
-    final settledDate = b.settledAt;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: accentColor.withAlpha(isDark ? 40 : 25)),
-      ),
-      color: accentColor.withAlpha(isDark ? 6 : 4),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: accentColor.withAlpha(isDark ? 25 : 15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(statusIcon, size: 18, color: accentColor),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    b.itemName,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? Colors.white : const Color(0xFF1E293B),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Text(
-                        memberName,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: isDark ? Colors.white38 : _slate,
-                        ),
-                      ),
-                      if (settledDate != null) ...[
-                        const SizedBox(width: 8),
-                        Icon(
-                          Icons.circle,
-                          size: 4,
-                          color: isDark ? Colors.white24 : Colors.grey,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${settledDate.day}/${settledDate.month}/${settledDate.year}',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: isDark ? Colors.white24 : Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: accentColor.withAlpha(isDark ? 20 : 12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '$settledQty',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: accentColor,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    statusLabel,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: accentColor.withAlpha(200),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _detailPill({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    final isDark = widget.isDark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withAlpha(isDark ? 20 : 12),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-          const SizedBox(width: 3),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: color.withAlpha(180),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Settled filter chip ───────────────────────────────────────
-  Widget _settledFilterChip({
-    required String label,
-    required int count,
-    required String value,
-    required Color color,
-  }) {
-    final isDark = widget.isDark;
-    final selected = _settledFilter == value;
-    return GestureDetector(
-      onTap: () => setState(() => _settledFilter = value),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: selected
-              ? color.withAlpha(isDark ? 30 : 20)
-              : (isDark ? Colors.white.withAlpha(10) : Colors.grey.shade100),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected
-                ? color.withAlpha(isDark ? 80 : 60)
-                : Colors.transparent,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: selected ? color : (isDark ? Colors.white38 : _slate),
-              ),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: selected
-                    ? color.withAlpha(200)
-                    : (isDark ? Colors.white24 : Colors.grey),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = widget.isDark;
-
-    return RefreshIndicator(
-      onRefresh: _loadData,
-      child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : CustomScrollView(
-              slivers: [
-                // ── Header ──────────────────────────────────────
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Borrow Stock',
-                                style: StockpileFonts.satoshi(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w800,
-                                  color: isDark
-                                      ? Colors.white
-                                      : const Color(0xFF1E293B),
-                                ),
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 5,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? Colors.white10
-                                    : Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                '${_borrows.length} total',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: _slate,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        // Stats row
-                        Row(
-                          children: [
-                            _statPill(
-                              'Active',
-                              _activeCount,
-                              _emerald,
-                              Icons.check_circle_rounded,
-                            ),
-                            const SizedBox(width: 8),
-                            _statPill(
-                              'Overdue',
-                              _overdueCount,
-                              _rose,
-                              Icons.warning_rounded,
-                            ),
-                            const SizedBox(width: 8),
-                            _statPill(
-                              'Outstanding',
-                              _totalOutstanding,
-                              _amber,
-                              Icons.hourglass_empty_rounded,
-                            ),
-                            const SizedBox(width: 8),
-                            _statPill(
-                              'Settled',
-                              _settledCount,
-                              _indigo,
-                              Icons.task_alt_rounded,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // ── Content ─────────────────────────────────────
-                if (_borrows.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.white.withAlpha(15)
-                                  : Colors.grey.shade100,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.swap_horiz_rounded,
-                              size: 40,
-                              color: isDark
-                                  ? Colors.white24
-                                  : Colors.grey.shade300,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No Borrows',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: isDark
-                                  ? Colors.white38
-                                  : Colors.grey.shade500,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Borrow stock via the POS Terminal\nusing the Borrow button.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDark
-                                  ? Colors.white.withAlpha(51)
-                                  : Colors.grey.shade400,
-                              height: 1.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else ...[
-                  // ── Active borrows ──────────────────────────
-                  if (_activeBorrows.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                        child: Text(
-                          'Active',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: isDark ? Colors.white54 : _slate,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (_activeBorrows.isNotEmpty)
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (_, i) => _buildCard(_activeBorrows[i]),
-                          childCount: _activeBorrows.length,
-                        ),
-                      ),
-                    ),
-
-                  // ── Settled borrows ─────────────────────────
-                  if (_allSettled.isNotEmpty) ...[
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                        child: Row(
-                          children: [
-                            Text(
-                              'Settled',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: isDark ? Colors.white54 : _slate,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                            const Spacer(),
-                            // Filter chips
-                            _settledFilterChip(
-                              label: 'All',
-                              count: _settledCount,
-                              value: 'all',
-                              color: _indigo,
-                            ),
-                            const SizedBox(width: 6),
-                            _settledFilterChip(
-                              label: 'Returned',
-                              count: _returnedCount,
-                              value: 'returned',
-                              color: _emerald,
-                            ),
-                            const SizedBox(width: 6),
-                            _settledFilterChip(
-                              label: 'Remitted',
-                              count: _remittedCount,
-                              value: 'remitted',
-                              color: _purple,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (_, i) => _buildSettledCard(_filteredSettled[i]),
-                          childCount: _filteredSettled.length,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ],
-            ),
     );
   }
 }
@@ -2305,7 +1490,7 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
                           Text(
                             _statusFilter != 'all' || _typeFilter != 'all'
                                 ? 'Try adjusting the filters above'
-                                : 'Submitted deletion & borrow requests\nwill appear here',
+                                : 'Submitted requests\nwill appear here',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 12,

@@ -5,7 +5,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/theme.dart';
@@ -986,22 +985,20 @@ class _MemberProfileSection extends StatelessWidget {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.icon, required this.title, this.color});
+  const _SectionHeader({required this.icon, required this.title});
 
   final IconData icon;
   final String title;
-  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final effectiveColor = color ?? theme.colorScheme.onSurfaceVariant;
 
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: effectiveColor),
+          Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
           const SizedBox(width: 8),
           Text(
             title,
@@ -1094,11 +1091,8 @@ class _MemberTransactionHistory extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        FutureBuilder<List<Object>>(
-          future: Future.wait([
-            repository.fetchSalesForMember(memberId),
-            repository.fetchBorrowsForMember(memberId),
-          ]),
+        FutureBuilder<List<Sale>>(
+          future: repository.fetchSalesForMember(memberId),
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting) {
               return const SizedBox(
@@ -1107,22 +1101,15 @@ class _MemberTransactionHistory extends StatelessWidget {
               );
             }
 
-            final sales = (snap.data?[0] as List<Sale>?) ?? [];
-            final borrows = (snap.data?[1] as List<Borrow>?) ?? [];
+            final sales = snap.data ?? [];
 
-            // Build unified, sorted timeline (newest first)
+            // Build sorted timeline (newest first)
             final allEntries = <_TimelineEntry>[
               for (final s in sales)
                 _TimelineEntry(
                   type: 'sale',
                   timestamp: s.timestamp ?? DateTime(2000),
                   sale: s,
-                ),
-              for (final b in borrows)
-                _TimelineEntry(
-                  type: 'borrow',
-                  timestamp: b.borrowedAt ?? DateTime(2000),
-                  borrow: b,
                 ),
             ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
@@ -1134,15 +1121,8 @@ class _MemberTransactionHistory extends StatelessWidget {
             );
             final totalSalesPrice = sales.fold<int>(
               0,
-              (s, sale) => s + sale.price,
+              (s, sale) => s + sale.price * sale.quantity,
             );
-            final totalBorrowQty = borrows.fold<int>(
-              0,
-              (s, b) => s + b.quantity,
-            );
-            final activeBorrows = borrows
-                .where((b) => !b.isFullySettled)
-                .length;
             final visibleEntries = allEntries.take(8).toList();
 
             return Column(
@@ -1167,22 +1147,6 @@ class _MemberTransactionHistory extends StatelessWidget {
                       label: 'Total',
                       value: '₱$totalSalesPrice',
                     ),
-                    _InfoPill(
-                      icon: Icons.swap_horiz_rounded,
-                      label: 'Borrows',
-                      value: borrows.length.toString(),
-                    ),
-                    _InfoPill(
-                      icon: Icons.inventory_outlined,
-                      label: 'Borrow Qty',
-                      value: totalBorrowQty.toString(),
-                    ),
-                    if (activeBorrows > 0)
-                      _InfoPill(
-                        icon: Icons.warning_amber_rounded,
-                        label: 'Active',
-                        value: activeBorrows.toString(),
-                      ),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -1214,16 +1178,14 @@ class _MemberTransactionHistory extends StatelessWidget {
 }
 
 class _TimelineEntry {
-  final String type; // 'sale' or 'borrow'
+  final String type; // 'sale'
   final DateTime timestamp;
   final Sale? sale;
-  final Borrow? borrow;
 
   const _TimelineEntry({
     required this.type,
     required this.timestamp,
     this.sale,
-    this.borrow,
   });
 }
 
@@ -1236,22 +1198,15 @@ class _TransactionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isSale = entry.type == 'sale';
-    final sale = entry.sale;
-    final borrow = entry.borrow;
+    final sale = entry.sale!;
 
-    final typeColor = isSale ? Colors.green.shade600 : Colors.orange.shade700;
-    final typeLabel = isSale ? 'Sold' : 'Borrowed';
-    final typeIcon = isSale ? Icons.shopping_cart : Icons.swap_horiz;
-    final itemName = isSale ? sale!.itemName : borrow!.itemName;
-    final quantity = isSale ? sale!.quantity : borrow!.quantity;
-    final timestamp = isSale ? sale!.timestamp : borrow!.borrowedAt;
-    final price = isSale ? sale!.price : borrow!.price;
-
-    final borrowStatus = !isSale ? borrow!.statusLabel : null;
-    final borrowOutstanding = !isSale && !borrow!.isFullySettled
-        ? borrow.outstandingQuantity
-        : null;
+    final typeColor = Colors.green.shade600;
+    const typeLabel = 'Sold';
+    const typeIcon = Icons.shopping_cart;
+    final itemName = sale.itemName;
+    final quantity = sale.quantity;
+    final timestamp = sale.timestamp;
+    final price = sale.price;
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -1336,28 +1291,6 @@ class _TransactionRow extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (!isSale) ...[
-                        if (borrowOutstanding != null) ...[
-                          Text(
-                            '$borrowOutstanding left',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.orange.shade700,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        if (borrowStatus != null)
-                          Text(
-                            borrowStatus,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: borrow!.isOverdue
-                                  ? Colors.red
-                                  : colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                      ],
                     ],
                   ),
                 ],
@@ -1375,7 +1308,7 @@ class _TransactionRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  '${isSale ? 'S' : 'B'}${isSale ? sale!.id : borrow!.id}',
+                  'S${sale.id}',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: colorScheme.onSurfaceVariant,
                   ),
@@ -1442,13 +1375,11 @@ class _DetailLine extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
-    this.italic = false,
   });
 
   final IconData icon;
   final String label;
   final Object? value;
-  final bool italic;
 
   @override
   Widget build(BuildContext context) {
@@ -1484,7 +1415,7 @@ class _DetailLine extends StatelessWidget {
               child: Text(
                 text,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+                  fontStyle: FontStyle.normal,
                 ),
               ),
             ),

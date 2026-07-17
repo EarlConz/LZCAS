@@ -99,10 +99,6 @@ extension UserRolePermissions on UserRole {
   bool get canRequestMemberDeletion =>
       this == UserRole.admin || this == UserRole.cashier;
 
-  /// Returns true if this role can request stock borrowing.
-  bool get canRequestBorrowStock =>
-      this == UserRole.admin || this == UserRole.cashier;
-
   /// Returns true if this is a member-facing role (member or reseller).
   bool get isMemberRole => this == UserRole.member || this == UserRole.reseller;
 

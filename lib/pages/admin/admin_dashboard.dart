@@ -22,10 +22,8 @@ import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
-import 'package:lzcas/widgets/quota_compliance_queue.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
-import 'package:lzcas/dialogs/receipt_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/notification_service.dart';
 import 'package:lzcas/services/config_service.dart';
@@ -55,8 +53,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'POS Terminal',
     'Members',
     'Requests',
-    'Borrow Stock',
-    'Compliance',
     'Package',
     'Settings',
   ];
@@ -68,7 +64,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _UserManagementTab(),
     // 2: Inventory — full CRUD via InventoryTable
     _AdminInventoryTab(),
-    // 3: Reports — In/Out/Borrow read-only
+    // 3: Reports — In/Out read-only
     _AdminReportsTab(),
     // 4: POS Terminal — shared with Cashier via TransactionsTable
     _AdminPosTab(),
@@ -76,13 +72,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _AdminMembersPage(),
     // 6: Deletion Requests
     _AdminDeleteRequestTab(),
-    // 7: Borrow Stock
-    _AdminBorrowStockTab(),
-    // 8: Compliance — quota delinquency queue
-    _AdminComplianceTab(),
-    // 9: Package Management
+    // 7: Package Management
     _AdminPackageTab(),
-    // 10: Settings — Global Config moved here
+    // 8: Settings — Global Config moved here
     _AdminSettingsTab(),
   ];
 
@@ -113,7 +105,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
       selectedIndex: _selectedIndex,
       auth: auth,
       pendingCount: notifService.pendingCount,
-      quotaAlertCount: notifService.quotaAlertCount,
       onItemSelected: (int i) {
         if (!isDesktop) Navigator.pop(context);
         if (i == 6) notifService.markPendingSeen(); // Requests tab
@@ -125,7 +116,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
       selectedIndex: sharedSidebarArgs.selectedIndex,
       auth: sharedSidebarArgs.auth,
       pendingCount: sharedSidebarArgs.pendingCount,
-      quotaAlertCount: sharedSidebarArgs.quotaAlertCount,
       onItemSelected: sharedSidebarArgs.onItemSelected,
       useDrawer: true,
     );
@@ -134,7 +124,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
       selectedIndex: sharedSidebarArgs.selectedIndex,
       auth: sharedSidebarArgs.auth,
       pendingCount: sharedSidebarArgs.pendingCount,
-      quotaAlertCount: sharedSidebarArgs.quotaAlertCount,
       onItemSelected: sharedSidebarArgs.onItemSelected,
       useDrawer: false,
       expanded: _sidebarHovered,
@@ -199,17 +188,6 @@ class _AdminDashboardPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const SingleChildScrollView(child: DashboardPage());
-  }
-}
-
-// ─── Compliance Tab — quota delinquency queue ───────────────────────────────
-
-class _AdminComplianceTab extends StatelessWidget {
-  const _AdminComplianceTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return const QuotaComplianceQueue();
   }
 }
 
@@ -2091,8 +2069,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                 // would silently break their earnings. Block it.
                 final availers = _availerCounts[existing.id] ?? 0;
                 if (availers > 0) {
-                  final isDark =
-                      Theme.of(ctx).brightness == Brightness.dark;
+                  final isDark = Theme.of(ctx).brightness == Brightness.dark;
                   await showDialog<void>(
                     context: ctx,
                     builder: (c) => AlertDialog(
@@ -2105,12 +2082,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                       ),
                       titlePadding: EdgeInsets.zero,
                       contentPadding: EdgeInsets.zero,
-                      actionsPadding: const EdgeInsets.fromLTRB(
-                        20,
-                        4,
-                        20,
-                        16,
-                      ),
+                      actionsPadding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
                       content: SizedBox(
                         width: 420,
                         child: Column(
@@ -2138,11 +2110,10 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                                   Container(
                                     padding: const EdgeInsets.all(10),
                                     decoration: BoxDecoration(
-                                      color: StockpileColors.danger
-                                          .withAlpha(isDark ? 46 : 28),
-                                      borderRadius: BorderRadius.circular(
-                                        14,
+                                      color: StockpileColors.danger.withAlpha(
+                                        isDark ? 46 : 28,
                                       ),
+                                      borderRadius: BorderRadius.circular(14),
                                     ),
                                     child: const Icon(
                                       Icons.gpp_bad_rounded,
@@ -2188,23 +2159,18 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
 
                             // ── Availer summary bar ────────────────
                             Container(
-                              margin: const EdgeInsets.fromLTRB(
-                                20,
-                                16,
-                                20,
-                                0,
-                              ),
+                              margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 16,
                                 vertical: 12,
                               ),
                               decoration: BoxDecoration(
-                                color: StockpileColors.primary900
-                                    .withAlpha(18),
+                                color: StockpileColors.primary900.withAlpha(18),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: StockpileColors.primary900
-                                      .withAlpha(60),
+                                  color: StockpileColors.primary900.withAlpha(
+                                    60,
+                                  ),
                                 ),
                               ),
                               child: Row(
@@ -2237,12 +2203,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
 
                             // ── Explanation ────────────────────────
                             Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                20,
-                                14,
-                                20,
-                                8,
-                              ),
+                              padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
                               child: Text(
                                 "Their chairman's bonus, earnings history, "
                                 'and package benefits are computed from this '
@@ -2789,8 +2750,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   // General config state
   bool _configLoading = true;
   final _lowStockCtrl = TextEditingController();
-  final _borrowDaysCtrl = TextEditingController();
-  final _overdueDaysCtrl = TextEditingController();
   final _currencyCtrl = TextEditingController();
   bool _notificationsOn = true;
 
@@ -2810,8 +2769,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   void dispose() {
     _tabController.dispose();
     _lowStockCtrl.dispose();
-    _borrowDaysCtrl.dispose();
-    _overdueDaysCtrl.dispose();
     _currencyCtrl.dispose();
     super.dispose();
   }
@@ -2821,8 +2778,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     if (!mounted) return;
     setState(() {
       _lowStockCtrl.text = config['low_stock_threshold'] ?? '50';
-      _borrowDaysCtrl.text = config['borrow_duration_days'] ?? '10';
-      _overdueDaysCtrl.text = config['overdue_threshold_days'] ?? '10';
       _currencyCtrl.text = config['currency_symbol'] ?? '₱';
       _notificationsOn = config['notifications_enabled'] != 'false';
       _configLoading = false;
@@ -2831,14 +2786,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
 
   Future<void> _saveConfig() async {
     await repository.updateAppConfig('low_stock_threshold', _lowStockCtrl.text);
-    await repository.updateAppConfig(
-      'borrow_duration_days',
-      _borrowDaysCtrl.text,
-    );
-    await repository.updateAppConfig(
-      'overdue_threshold_days',
-      _overdueDaysCtrl.text,
-    );
     await repository.updateAppConfig('currency_symbol', _currencyCtrl.text);
     await repository.updateAppConfig(
       'notifications_enabled',
@@ -2863,7 +2810,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     final rateCtrl = TextEditingController(
       text: existing != null ? '${existing.commissionRate}' : '0',
     );
-    var addsQuotaTime = existing?.addsQuotaTime ?? false;
     final formKey = GlobalKey<FormState>();
     showDialog(
       context: context,
@@ -2893,32 +2839,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
                   ),
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                ),
-                const SizedBox(height: 16),
-                SwitchListTile(
-                  value: addsQuotaTime,
-                  onChanged: (v) => setDialogState(() => addsQuotaTime = v),
-                  title: Text(
-                    'Qualifies for Reseller Quotas',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  subtitle: Text(
-                    'When enabled, remitting items in this category will '
-                    'extend a verified reseller\'s weekly deadline.',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 12,
-                      color: StockpileColors.mutedText,
-                    ),
-                  ),
-                  activeColor: Colors.white,
-                  activeTrackColor: StockpileColors.primary900,
-                  contentPadding: EdgeInsets.zero,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
                 ),
               ],
             ),
@@ -2951,14 +2871,12 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
                     existing.copyWith(
                       name: nameCtrl.text.trim(),
                       commissionRate: int.tryParse(rateCtrl.text) ?? 0,
-                      addsQuotaTime: addsQuotaTime,
                     ),
                   );
                 } else {
                   await repository.addCategory(
                     name: nameCtrl.text.trim(),
                     commissionRate: int.tryParse(rateCtrl.text) ?? 0,
-                    addsQuotaTime: addsQuotaTime,
                   );
                 }
                 if (!ctx.mounted) return;
@@ -3094,26 +3012,10 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
               (c) => _ConfigTile(
                 icon: Icons.category_rounded,
                 title: c.name,
-                subtitle:
-                    'Commission: ₱${c.commissionRate} per item'
-                    '${c.addsQuotaTime ? ' · Extends Quota' : ''}',
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (c.addsQuotaTime)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 4),
-                        child: Icon(
-                          Icons.verified_rounded,
-                          size: 18,
-                          color: StockpileColors.primary900,
-                        ),
-                      ),
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 20),
-                      onPressed: () => _showCategoryDialog(existing: c),
-                    ),
-                  ],
+                subtitle: 'Commission: ₱${c.commissionRate} per item',
+                trailing: IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 20),
+                  onPressed: () => _showCategoryDialog(existing: c),
                 ),
               ),
             ),
@@ -3235,48 +3137,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
             ),
           ),
           _ConfigTile(
-            icon: Icons.calendar_today_rounded,
-            title: 'Borrow Duration (days)',
-            subtitle: 'Default due date for new borrows',
-            trailing: SizedBox(
-              width: 70,
-              child: TextField(
-                controller: _borrowDaysCtrl,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: const InputDecoration(
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-          _ConfigTile(
-            icon: Icons.warning_amber_rounded,
-            title: 'Overdue Threshold (days)',
-            subtitle: 'Days before a borrow is marked overdue',
-            trailing: SizedBox(
-              width: 70,
-              child: TextField(
-                controller: _overdueDaysCtrl,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: const InputDecoration(
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-          _ConfigTile(
             icon: Icons.attach_money_rounded,
             title: 'Currency Symbol',
             subtitle: 'Symbol used for price display',
@@ -3326,7 +3186,6 @@ class _AdminSidebar extends StatelessWidget {
   final AuthState auth;
   final ValueChanged<int> onItemSelected;
   final int pendingCount;
-  final int quotaAlertCount;
 
   /// When true wraps the content in a [Drawer] (for Scaffold.drawer on mobile).
   /// When false uses a plain Container (for inline desktop sidebar).
@@ -3340,7 +3199,6 @@ class _AdminSidebar extends StatelessWidget {
     required this.auth,
     required this.onItemSelected,
     this.pendingCount = 0,
-    this.quotaAlertCount = 0,
     this.useDrawer = true,
     this.expanded = true,
   });
@@ -3353,8 +3211,6 @@ class _AdminSidebar extends StatelessWidget {
     _NavItem(Icons.point_of_sale_rounded, 'POS Terminal'),
     _NavItem(Icons.people_alt_rounded, 'Members'),
     _NavItem(Icons.person_remove_rounded, 'Requests'),
-    _NavItem(Icons.add_box_rounded, 'Borrow Stock'),
-    _NavItem(Icons.gavel_rounded, 'Compliance'),
     _NavItem(Icons.card_giftcard_rounded, 'Package'),
   ];
 
@@ -3464,36 +3320,6 @@ class _AdminSidebar extends StatelessWidget {
                     ],
                   );
                 }
-                // Show badge on Compliance item (index 8)
-                if (i == 8 && quotaAlertCount > 0) {
-                  return Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      tile,
-                      Positioned(
-                        top: 6,
-                        right: wide ? 6 : 4,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: StockpileColors.danger,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '$quotaAlertCount',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                }
                 return tile;
               }),
               const SizedBox(height: 8),
@@ -3505,13 +3331,13 @@ class _AdminSidebar extends StatelessWidget {
                 endIndent: 12,
               ),
               const SizedBox(height: 8),
-              // Settings → index 10
+              // Settings → index 8
               _AdminSidebarTile(
                 item: _bottomItems[0],
-                isSelected: selectedIndex == 10,
+                isSelected: selectedIndex == 8,
                 activeBg: activeBg,
                 isDark: isDark,
-                onTap: () => onItemSelected(10),
+                onTap: () => onItemSelected(8),
                 expanded: wide,
               ),
             ],
@@ -5072,7 +4898,6 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   int _historyVisibleCount = _pageSize;
   int _historyPage = 0;
   bool _historyHasMore = true;
-  final Map<int, bool> _memberBorrowStatus = {};
   StreamSubscription<String>? _changeSub;
 
   @override
@@ -5127,17 +4952,6 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
       );
       final profiles = await repository.fetchProfilesMap();
 
-      // Pre-check borrow status for member-deletion requests
-      final Map<int, bool> borrowStatus = {};
-      for (final req in page.rows) {
-        if (req.requestType == 'delete_member' && req.memberId != null) {
-          final hasBorrows = await repository.hasActiveBorrowsForMember(
-            req.memberId!,
-          );
-          borrowStatus[req.memberId!] = hasBorrows;
-        }
-      }
-
       if (!mounted) return;
       setState(() {
         _pendingRequests = page.rows;
@@ -5145,9 +4959,6 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         _pendingHasMore = page.hasMore;
         _pendingVisibleCount = _pageSize;
         _profiles = profiles;
-        _memberBorrowStatus
-          ..clear()
-          ..addAll(borrowStatus);
         _loading = false;
       });
       _loadProfiles();
@@ -5617,79 +5428,6 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   Future<void> _approve(PendingRequest req) async {
     if (req.id == null) return;
 
-    // Pre-check: if this is a delete request, verify no active borrows exist
-    if (req.requestType == 'delete') {
-      final hasBorrows = await repository.hasActiveBorrows(req.itemId!);
-      if (!mounted) return;
-      if (hasBorrows) {
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Cannot approve deletion'),
-            content: Text(
-              '"${req.itemName}" has unsettled borrows. '
-              'All borrowed items must be returned or paid for '
-              'before this product can be deleted.',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-        return;
-      }
-    }
-
-    // Pre-check: if this is a member deletion, verify no active borrows
-    if (req.requestType == 'delete_member' && req.memberId != null) {
-      final hasBorrows = await repository.hasActiveBorrowsForMember(
-        req.memberId!,
-      );
-      if (!mounted) return;
-      if (hasBorrows) {
-        final borrows = await repository.fetchActiveBorrowsForMember(
-          req.memberId!,
-        );
-        if (!mounted) return;
-        await _showBorrowsModal(req.memberName ?? 'Member', borrows);
-        return;
-      }
-    }
-
-    // Pre-check: if this is a borrow request, verify stock is sufficient
-    if (req.requestType == 'borrow' && req.itemId != null) {
-      final item = await repository.getItemById(req.itemId!);
-      if (!mounted) return;
-      if (item == null) {
-        BotToast.showText(text: 'Item no longer exists');
-        _loadRequests();
-        return;
-      }
-      final needed = req.quantity ?? 0;
-      if (item.stock < needed) {
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Cannot approve borrow'),
-            content: Text(
-              'Insufficient stock for "${req.itemName}". '
-              'Current stock: ${item.stock}, requested: $needed.',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-        return;
-      }
-    }
-
     final err = await repository.approveRequest(req.id!);
     if (!mounted) return;
     if (err == null) {
@@ -5840,364 +5578,6 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
       BotToast.showText(text: 'Failed to reject withdrawal');
     }
     _loadWithdrawals();
-  }
-
-  /// Shows a modal listing the member's active borrows.
-  Future<void> _showBorrowsModal(
-    String memberName,
-    List<Borrow> borrows,
-  ) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cs = Theme.of(context).colorScheme;
-    final totalOutstanding = borrows.fold<int>(
-      0,
-      (s, b) => s + b.outstandingQuantity,
-    );
-    final overdueCount = borrows.where((b) => b.isOverdue).length;
-
-    await showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: cs.surface,
-        titlePadding: EdgeInsets.zero,
-        contentPadding: EdgeInsets.zero,
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Header ───────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-                decoration: BoxDecoration(
-                  color: Colors.purple.shade50.withAlpha(isDark ? 30 : 200),
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(20),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.purple.shade100,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Icon(
-                            Icons.person_remove_rounded,
-                            color: Colors.purple.shade700,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Member Deletion Blocked',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.purple.shade700,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                memberName,
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: isDark
-                                      ? StockpileColors.darkTextPrimary
-                                      : StockpileColors.darkText,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── Summary Bar ──────────────────────────────────
-              Container(
-                margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color:
-                      (overdueCount > 0
-                              ? StockpileColors.error500
-                              : StockpileColors.success)
-                          .withAlpha(20),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color:
-                        (overdueCount > 0
-                                ? StockpileColors.error500
-                                : StockpileColors.success)
-                            .withAlpha(60),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      overdueCount > 0
-                          ? Icons.warning_amber_rounded
-                          : Icons.inventory_2_outlined,
-                      size: 20,
-                      color: overdueCount > 0
-                          ? StockpileColors.error500
-                          : StockpileColors.success,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      '$totalOutstanding outstanding items across ${borrows.length} borrow${borrows.length == 1 ? '' : 's'}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: isDark
-                            ? StockpileColors.darkTextBody
-                            : StockpileColors.bodyText,
-                      ),
-                    ),
-                    if (overdueCount > 0) ...[
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: StockpileColors.error500.withAlpha(25),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          '$overdueCount overdue',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: StockpileColors.error500,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
-              // ── Borrow List ──────────────────────────────────
-              Flexible(
-                child: borrows.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.all(32),
-                        child: Center(
-                          child: Text(
-                            'No unsettled borrows found.',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: isDark
-                                  ? StockpileColors.darkTextMuted
-                                  : StockpileColors.mutedText,
-                            ),
-                          ),
-                        ),
-                      )
-                    : ListView.builder(
-                        shrinkWrap: true,
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-                        itemCount: borrows.length,
-                        itemBuilder: (_, i) {
-                          final b = borrows[i];
-                          final isOverdue = b.isOverdue;
-                          final statusColor = isOverdue
-                              ? StockpileColors.error500
-                              : b.outstandingQuantity < b.quantity
-                              ? Colors.amber.shade700
-                              : Colors.teal.shade600;
-
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? StockpileColors.darkSurface
-                                  : StockpileColors.tableHead,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: statusColor.withAlpha(50),
-                                width: 1,
-                              ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        isOverdue
-                                            ? Icons.schedule_rounded
-                                            : b.outstandingQuantity < b.quantity
-                                            ? Icons.sync_rounded
-                                            : Icons.check_circle_outline,
-                                        size: 18,
-                                        color: statusColor,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          b.itemName,
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w600,
-                                            color: isDark
-                                                ? StockpileColors
-                                                      .darkTextPrimary
-                                                : StockpileColors.darkText,
-                                          ),
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: statusColor.withAlpha(25),
-                                          borderRadius: BorderRadius.circular(
-                                            20,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          b.statusLabel.toUpperCase(),
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            color: statusColor,
-                                            letterSpacing: 0.6,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Row(
-                                    children: [
-                                      _BorrowStat(
-                                        icon: Icons.inventory_2_outlined,
-                                        label: 'Total',
-                                        value: '${b.quantity}',
-                                      ),
-                                      const SizedBox(width: 16),
-                                      _BorrowStat(
-                                        icon: Icons.assignment_return_outlined,
-                                        label: 'Outstanding',
-                                        value: '${b.outstandingQuantity}',
-                                        valueColor: b.outstandingQuantity > 0
-                                            ? statusColor
-                                            : null,
-                                      ),
-                                      const Spacer(),
-                                      Text(
-                                        'Due ${_formatDate(b.dueDate)}',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500,
-                                          color: isOverdue
-                                              ? StockpileColors.error500
-                                              : isDark
-                                              ? StockpileColors.darkTextMuted
-                                              : StockpileColors.mutedText,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-
-              // ── Footer ───────────────────────────────────────
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: FilledButton.icon(
-                  icon: const Icon(Icons.close, size: 18),
-                  label: const Text('Close'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(44),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onPressed: () => Navigator.pop(ctx),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Tiny stat pill used in borrow details modal.
-  Widget _BorrowStat({
-    required IconData icon,
-    required String label,
-    required String value,
-    Color? valueColor,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: 14,
-          color: isDark
-              ? StockpileColors.darkTextMuted
-              : StockpileColors.mutedText,
-        ),
-        const SizedBox(width: 4),
-        Text(
-          '$label ',
-          style: TextStyle(
-            fontSize: 12,
-            color: isDark
-                ? StockpileColors.darkTextMuted
-                : StockpileColors.mutedText,
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color:
-                valueColor ??
-                (isDark
-                    ? StockpileColors.darkTextBody
-                    : StockpileColors.bodyText),
-          ),
-        ),
-      ],
-    );
   }
 
   @override
@@ -7100,17 +6480,13 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   ) {
     final isMemberDelete = req.requestType == 'delete_member';
     final isDelete = req.requestType == 'delete';
-    final isBorrow = req.requestType == 'borrow';
     final icon = isMemberDelete
         ? Icons.person_remove_rounded
         : isDelete
         ? Icons.delete_forever_rounded
-        : isBorrow
-        ? Icons.swap_horiz_rounded
         : Icons.arrow_downward_rounded;
 
     if (isMemberDelete) {
-      final hasBorrows = _memberBorrowStatus[req.memberId] ?? false;
       final submitter = _profiles[req.userId] ?? 'Unknown';
       final role = _roles[req.userId] ?? '';
       final submitterLabel = role.isNotEmpty ? '$submitter ($role)' : submitter;
@@ -7121,65 +6497,6 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         icon: icon,
         title: 'Delete Member Request',
         body: req.memberName ?? 'Unknown',
-        detail: hasBorrows ? '⚠ This member has unsettled borrows' : null,
-        detailColor: Colors.red,
-        reason: req.reason,
-        submitter: submitterLabel,
-        timeAgo: req.createdAt != null ? _formatDate(req.createdAt!) : '',
-        actions: [
-          if (hasBorrows)
-            _ActionButton(
-              icon: Icons.info_outline_rounded,
-              color: Colors.blue.shade600,
-              tooltip: 'View unsettled borrows',
-              onTap: () async {
-                final borrows = await repository.fetchActiveBorrowsForMember(
-                  req.memberId!,
-                );
-                if (!mounted) return;
-                await _showBorrowsModal(req.memberName ?? 'Member', borrows);
-              },
-            ),
-          _ActionButton(
-            icon: Icons.check_circle_outline,
-            color: hasBorrows ? Colors.grey.shade400 : StockpileColors.success,
-            tooltip: hasBorrows
-                ? 'Cannot approve — unsettled borrows'
-                : 'Approve',
-            onTap: hasBorrows ? null : () => _approve(req),
-          ),
-          _ActionButton(
-            icon: Icons.cancel_outlined,
-            color: StockpileColors.error500,
-            tooltip: 'Reject',
-            onTap: () => _reject(req),
-          ),
-        ],
-      );
-    }
-
-    if (isBorrow) {
-      final submitter = _profiles[req.userId] ?? 'Unknown';
-      final role = _roles[req.userId] ?? '';
-      final submitterLabel = role.isNotEmpty ? '$submitter ($role)' : submitter;
-
-      final detailParts = <String>[
-        'For ${req.memberName ?? 'Unknown'}',
-        '×${req.quantity ?? 0}',
-      ];
-      if (req.price != null && req.price! > 0) {
-        detailParts.add('₱${req.price} each');
-      }
-      final notes = req.notes;
-
-      return _buildModernRequestCard(
-        isDark: isDark,
-        accentColor: Colors.orange.shade600,
-        icon: icon,
-        title: 'Borrow Request',
-        body: req.itemName ?? 'Unknown item',
-        detail: detailParts.join(' · '),
-        notes: notes != null && notes.isNotEmpty ? notes : null,
         reason: req.reason,
         submitter: submitterLabel,
         timeAgo: req.createdAt != null ? _formatDate(req.createdAt!) : '',
@@ -7187,7 +6504,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
           _ActionButton(
             icon: Icons.check_circle_outline,
             color: StockpileColors.success,
-            tooltip: 'Approve borrow',
+            tooltip: 'Approve',
             onTap: () => _approve(req),
           ),
           _ActionButton(
@@ -7643,1258 +6960,6 @@ class _FilterChip extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-// ─── Admin · Borrow Stock Management ────────────────────────────────────────
-
-class _AdminBorrowStockTab extends StatefulWidget {
-  const _AdminBorrowStockTab();
-
-  @override
-  State<_AdminBorrowStockTab> createState() => _AdminBorrowStockTabState();
-}
-
-class _AdminBorrowStockTabState extends State<_AdminBorrowStockTab> {
-  List<Borrow> _borrows = [];
-  List<Member> _members = [];
-  bool _loading = true;
-  String _filter = 'all'; // all, active, overdue, settled
-  String _settledFilter = 'all'; // all, returned, remitted (sub-filter)
-
-  @override
-  void initState() {
-    super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    setState(() => _loading = true);
-    try {
-      final borrows = await repository.fetchBorrows();
-      final members = await repository.fetchMembers();
-      if (!mounted) return;
-      // Sort: unsettled/active first, then latest to oldest within each group
-      borrows.sort((a, b) {
-        final aUnsettled = a.outstandingQuantity > 0 ? 0 : 1;
-        final bUnsettled = b.outstandingQuantity > 0 ? 0 : 1;
-        if (aUnsettled != bUnsettled) return aUnsettled.compareTo(bUnsettled);
-        return (b.borrowedAt ?? DateTime(0)).compareTo(
-          a.borrowedAt ?? DateTime(0),
-        );
-      });
-      setState(() {
-        _borrows = borrows;
-        _members = members;
-        _loading = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  String _memberName(int memberId) {
-    final m = _members.cast<Member?>().firstWhere(
-      (m) => m?.id == memberId,
-      orElse: () => null,
-    );
-    if (m == null) return 'Member #$memberId';
-    return '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
-  }
-
-  List<Borrow> get _filtered {
-    final now = DateTime.now();
-    switch (_filter) {
-      case 'active':
-        return _borrows.where((b) {
-          final isOverdue =
-              b.dueDate.isBefore(now) &&
-              b.status != 'returned' &&
-              b.status != 'remitted';
-          return b.outstandingQuantity > 0 && !isOverdue;
-        }).toList();
-      case 'overdue':
-        return _borrows.where((b) {
-          return b.dueDate.isBefore(now) &&
-              b.status != 'returned' &&
-              b.status != 'remitted' &&
-              b.outstandingQuantity > 0;
-        }).toList();
-      case 'settled':
-        return _filteredSettled;
-      default:
-        return _borrows;
-    }
-  }
-
-  List<Borrow> get _allSettled =>
-      _borrows.where((b) => b.outstandingQuantity <= 0).toList();
-
-  List<Borrow> get _returnedOnly =>
-      _allSettled.where((b) => b.quantityReturned > 0).toList();
-
-  List<Borrow> get _remittedOnly =>
-      _allSettled.where((b) => b.quantityRemitted > 0).toList();
-
-  List<Borrow> get _filteredSettled {
-    switch (_settledFilter) {
-      case 'returned':
-        return _returnedOnly;
-      case 'remitted':
-        return _remittedOnly;
-      default:
-        return _allSettled;
-    }
-  }
-
-  int get _returnedCount => _returnedOnly.length;
-  int get _remittedCount => _remittedOnly.length;
-
-  int get _activeCount =>
-      _borrows.where((b) => b.outstandingQuantity > 0 && !b.isOverdue).length;
-  int get _overdueCount =>
-      _borrows.where((b) => b.isOverdue && b.outstandingQuantity > 0).length;
-  int get _settledCount =>
-      _borrows.where((b) => b.outstandingQuantity <= 0).length;
-
-  Color _statusColor(String status, bool isOverdue, bool isDark) {
-    if (isOverdue) return StockpileColors.error500;
-    switch (status) {
-      case 'returned':
-        return StockpileColors.success;
-      case 'remitted':
-        return isDark ? StockpileColors.remitBright : StockpileColors.remit;
-      case 'partially_settled':
-        return StockpileColors.primary900;
-      default:
-        return isDark ? StockpileColors.darkTextBody : StockpileColors.bodyText;
-    }
-  }
-
-  String _statusLabel(Borrow b) {
-    if (b.outstandingQuantity <= 0) {
-      if (b.quantityReturned >= b.quantity) return 'Returned';
-      if (b.quantityRemitted >= b.quantity) return 'Remitted';
-      return 'Settled';
-    }
-    if (b.isOverdue) return 'Overdue';
-    if (b.quantityReturned > 0 || b.quantityRemitted > 0) return 'Partial';
-    return 'Active';
-  }
-
-  Future<void> _returnItem(Borrow b) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final qtyCtrl = TextEditingController(
-      text: b.outstandingQuantity.toString(),
-    );
-    final result = await showDialog<int>(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: StockpileColors.success.withAlpha(25),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.assignment_return_rounded,
-                      color: StockpileColors.success,
-                      size: 22,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Return Item',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: isDark
-                                ? StockpileColors.darkTextPrimary
-                                : StockpileColors.darkText,
-                          ),
-                        ),
-                        Text(
-                          '${b.itemName}',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 13,
-                            color: isDark
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  _QtyBadge(
-                    label: 'Borrowed',
-                    value: b.quantity,
-                    isDark: isDark,
-                  ),
-                  const SizedBox(width: 8),
-                  _QtyBadge(
-                    label: 'Outstanding',
-                    value: b.outstandingQuantity,
-                    isDark: isDark,
-                    color: StockpileColors.error500,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: qtyCtrl,
-                autofocus: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: InputDecoration(
-                  labelText: 'Quantity to return',
-                  hintText: 'Enter quantity',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: isDark
-                      ? StockpileColors.darkInputBg
-                      : StockpileColors.inputBg,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () {
-                        final q = int.tryParse(qtyCtrl.text) ?? 0;
-                        Navigator.pop(ctx, q);
-                      },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: StockpileColors.success,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text('Return'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (result == null || result <= 0) return;
-    final ok = await repository.returnBorrowedItem(b.id!, result);
-    if (!mounted) return;
-    BotToast.showText(
-      text: ok ? '${b.itemName}: $result returned' : 'Failed to return item',
-    );
-    _loadData();
-  }
-
-  Future<void> _remitItem(Borrow b) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final qtyCtrl = TextEditingController(
-      text: b.outstandingQuantity.toString(),
-    );
-    final result = await showDialog<int>(
-      context: context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: StockpileColors.remit.withAlpha(25),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.payments_rounded,
-                      color: StockpileColors.remit,
-                      size: 22,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Remit Payment',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: isDark
-                                ? StockpileColors.darkTextPrimary
-                                : StockpileColors.darkText,
-                          ),
-                        ),
-                        Text(
-                          '${b.itemName} ·  ₱${b.price} each',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 13,
-                            color: isDark
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  _QtyBadge(
-                    label: 'Borrowed',
-                    value: b.quantity,
-                    isDark: isDark,
-                  ),
-                  const SizedBox(width: 8),
-                  _QtyBadge(
-                    label: 'Outstanding',
-                    value: b.outstandingQuantity,
-                    isDark: isDark,
-                    color: StockpileColors.error500,
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: StockpileColors.remit.withAlpha(15),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: StockpileColors.remit.withAlpha(50),
-                      ),
-                    ),
-                    child: Text(
-                      'Total: ₱${b.price * b.outstandingQuantity}',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: StockpileColors.remit,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: qtyCtrl,
-                autofocus: true,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: InputDecoration(
-                  labelText: 'Quantity to remit',
-                  hintText: 'Enter quantity',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: isDark
-                      ? StockpileColors.darkInputBg
-                      : StockpileColors.inputBg,
-                ),
-              ),
-              const SizedBox(height: 12),
-              // Live amount due: typed qty × stored unit price
-              ValueListenableBuilder<TextEditingValue>(
-                valueListenable: qtyCtrl,
-                builder: (_, value, _) {
-                  final q = int.tryParse(value.text) ?? 0;
-                  return Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Text(
-                        'Amount to receive:  ',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 13,
-                          color: isDark
-                              ? StockpileColors.darkTextMuted
-                              : StockpileColors.mutedText,
-                        ),
-                      ),
-                      Text(
-                        '₱${q * b.price}',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: StockpileColors.remit,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () {
-                        final q = int.tryParse(qtyCtrl.text) ?? 0;
-                        Navigator.pop(ctx, q);
-                      },
-                      style: FilledButton.styleFrom(
-                        backgroundColor: StockpileColors.remit,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text('Remit'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (result == null || result <= 0) return;
-    final ok = await repository.remitBorrowedItem(b.id!, result);
-    if (!mounted) return;
-    BotToast.showText(
-      text: ok ? '${b.itemName}: $result remitted' : 'Failed to remit payment',
-    );
-    _loadData();
-
-    // Offer the remittance receipt right away
-    if (ok) {
-      await ReceiptDialog(
-        lineItems: [
-          ReceiptLineItem(
-            itemName: b.itemName,
-            quantity: result,
-            unitPrice: b.price,
-          ),
-        ],
-        buyerName: b.memberName,
-        transactionTime: DateTime.now(),
-        title: 'Remittance Receipt',
-        isRemittance: true,
-      ).show(context);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    return Column(
-      children: [
-        // Overdue alert banner
-        if (_overdueCount > 0)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            color: isDark
-                ? StockpileColors.error500.withAlpha(30)
-                : StockpileColors.error50,
-            child: Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: StockpileColors.error500.withAlpha(30),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.warning_amber_rounded,
-                    color: StockpileColors.error500,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$_overdueCount Overdue',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: isDark
-                              ? StockpileColors.darkTextPrimary
-                              : StockpileColors.darkText,
-                        ),
-                      ),
-                      Text(
-                        'These borrows have exceeded their due date.',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 12,
-                          color: isDark
-                              ? StockpileColors.darkTextMuted
-                              : StockpileColors.mutedText,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-        // Summary cards row
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-          child: Row(
-            children: [
-              _SummaryChip(
-                label: 'All',
-                count: _borrows.length,
-                isSelected: _filter == 'all',
-                color: isDark
-                    ? StockpileColors.darkTextBody
-                    : StockpileColors.bodyText,
-                onTap: () => setState(() => _filter = 'all'),
-              ),
-              const SizedBox(width: 8),
-              _SummaryChip(
-                label: 'Active',
-                count: _activeCount,
-                isSelected: _filter == 'active',
-                color: Colors.blue,
-                onTap: () => setState(() => _filter = 'active'),
-              ),
-              const SizedBox(width: 8),
-              _SummaryChip(
-                label: 'Overdue',
-                count: _overdueCount,
-                isSelected: _filter == 'overdue',
-                color: StockpileColors.error500,
-                onTap: () => setState(() => _filter = 'overdue'),
-              ),
-              const SizedBox(width: 8),
-              _SummaryChip(
-                label: 'Settled',
-                count: _settledCount,
-                isSelected: _filter == 'settled',
-                color: StockpileColors.success,
-                onTap: () => setState(() => _filter = 'settled'),
-              ),
-            ],
-          ),
-        ),
-
-        // Settled sub-filter chips
-        if (_filter == 'settled')
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: Row(
-              children: [
-                _SettledSubChip(
-                  label: 'All',
-                  count: _settledCount,
-                  isSelected: _settledFilter == 'all',
-                  color: StockpileColors.success,
-                  onTap: () => setState(() => _settledFilter = 'all'),
-                ),
-                const SizedBox(width: 6),
-                _SettledSubChip(
-                  label: 'Returned',
-                  count: _returnedCount,
-                  isSelected: _settledFilter == 'returned',
-                  color: StockpileColors.success,
-                  onTap: () => setState(() => _settledFilter = 'returned'),
-                ),
-                const SizedBox(width: 6),
-                _SettledSubChip(
-                  label: 'Remitted',
-                  count: _remittedCount,
-                  isSelected: _settledFilter == 'remitted',
-                  color: StockpileColors.remit,
-                  onTap: () => setState(() => _settledFilter = 'remitted'),
-                ),
-              ],
-            ),
-          ),
-
-        Expanded(
-          child: _filtered.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.swap_horiz_rounded,
-                        size: 48,
-                        color: isDark
-                            ? StockpileColors.darkTextMuted
-                            : StockpileColors.mutedText,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _filter == 'all'
-                            ? 'No borrow records yet'
-                            : 'No ${_filter} borrows',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? StockpileColors.darkTextPrimary
-                              : StockpileColors.darkText,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Borrow stock via the POS Terminal using the Borrow button.',
-                        textAlign: TextAlign.center,
-                        style: StockpileFonts.satoshi(
-                          fontSize: 13,
-                          color: isDark
-                              ? StockpileColors.darkTextMuted
-                              : StockpileColors.mutedText,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadData,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: _filtered.length,
-                    itemBuilder: (context, index) {
-                      final b = _filtered[index];
-                      final memName = b.memberName ?? _memberName(b.memberId);
-                      final statusLbl = _statusLabel(b);
-                      final overdue = b.isOverdue && b.outstandingQuantity > 0;
-                      final statusCol = _statusColor(b.status, overdue, isDark);
-                      final isSettled = b.outstandingQuantity <= 0;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? StockpileColors.darkSurface
-                                : StockpileColors.surface,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: overdue
-                                  ? StockpileColors.error500.withAlpha(120)
-                                  : isDark
-                                  ? StockpileColors.darkDivider
-                                  : StockpileColors.divider,
-                              width: overdue ? 1.5 : 1,
-                            ),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: IntrinsicHeight(
-                            child: Row(
-                              children: [
-                                // ── Left accent bar ──────────────
-                                Container(
-                                  width: 4,
-                                  decoration: BoxDecoration(
-                                    color: overdue
-                                        ? StockpileColors.error500
-                                        : statusCol,
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(12),
-                                      bottomLeft: Radius.circular(12),
-                                    ),
-                                  ),
-                                ),
-                                // ── Card body ────────────────────
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        // Header: item name + status badge
-                                        Row(
-                                          children: [
-                                            Container(
-                                              width: 36,
-                                              height: 36,
-                                              decoration: BoxDecoration(
-                                                color: statusCol.withAlpha(30),
-                                                borderRadius:
-                                                    BorderRadius.circular(10),
-                                              ),
-                                              child: Icon(
-                                                isSettled
-                                                    ? Icons.check_circle_outline
-                                                    : Icons.swap_horiz_rounded,
-                                                size: 20,
-                                                color: statusCol,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    b.itemName,
-                                                    style: StockpileFonts.satoshi(
-                                                      fontSize: 14,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                      color: isDark
-                                                          ? StockpileColors
-                                                                .darkTextPrimary
-                                                          : StockpileColors
-                                                                .darkText,
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    memName,
-                                                    style: StockpileFonts.satoshi(
-                                                      fontSize: 12,
-                                                      color: isDark
-                                                          ? StockpileColors
-                                                                .darkTextMuted
-                                                          : StockpileColors
-                                                                .mutedText,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            // Status badge
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 4,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: statusCol.withAlpha(25),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                border: Border.all(
-                                                  color: statusCol.withAlpha(
-                                                    60,
-                                                  ),
-                                                ),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    overdue
-                                                        ? Icons
-                                                              .warning_amber_rounded
-                                                        : isSettled
-                                                        ? Icons
-                                                              .check_circle_rounded
-                                                        : Icons
-                                                              .hourglass_bottom_rounded,
-                                                    size: 13,
-                                                    color: statusCol,
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  Text(
-                                                    statusLbl,
-                                                    style:
-                                                        StockpileFonts.satoshi(
-                                                          fontSize: 11,
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                          color: statusCol,
-                                                        ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-
-                                        const SizedBox(height: 10),
-
-                                        // Quantity badges row
-                                        SingleChildScrollView(
-                                          scrollDirection: Axis.horizontal,
-                                          child: Row(
-                                            children: [
-                                              _QtyBadge(
-                                                label: 'Borrowed',
-                                                value: b.quantity,
-                                                isDark: isDark,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              _QtyBadge(
-                                                label: 'Returned',
-                                                value: b.quantityReturned,
-                                                isDark: isDark,
-                                                color: StockpileColors.success,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              _QtyBadge(
-                                                label: 'Remitted',
-                                                value: b.quantityRemitted,
-                                                isDark: isDark,
-                                                color: StockpileColors.remit,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              _QtyBadge(
-                                                label: 'Outstanding',
-                                                value: b.outstandingQuantity,
-                                                isDark: isDark,
-                                                color: b.outstandingQuantity > 0
-                                                    ? StockpileColors.error500
-                                                    : StockpileColors.success,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-
-                                        const SizedBox(height: 8),
-
-                                        // Date row
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.event_rounded,
-                                              size: 13,
-                                              color: isDark
-                                                  ? StockpileColors
-                                                        .darkTextMuted
-                                                  : StockpileColors.mutedText,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'Borrowed ${_formatDateShort(b.borrowedAt ?? DateTime.now())}',
-                                              style: StockpileFonts.satoshi(
-                                                fontSize: 11,
-                                                color: isDark
-                                                    ? StockpileColors
-                                                          .darkTextMuted
-                                                    : StockpileColors.mutedText,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 10),
-                                            Icon(
-                                              Icons.schedule_rounded,
-                                              size: 13,
-                                              color: overdue
-                                                  ? StockpileColors.error500
-                                                  : isDark
-                                                  ? StockpileColors
-                                                        .darkTextMuted
-                                                  : StockpileColors.mutedText,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'Due ${_formatDateShort(b.dueDate)}',
-                                              style: StockpileFonts.satoshi(
-                                                fontSize: 11,
-                                                color: overdue
-                                                    ? StockpileColors.error500
-                                                    : isDark
-                                                    ? StockpileColors
-                                                          .darkTextMuted
-                                                    : StockpileColors.mutedText,
-                                                fontWeight: overdue
-                                                    ? FontWeight.w700
-                                                    : FontWeight.w400,
-                                              ),
-                                            ),
-                                            if (overdue) ...[
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                '(${DateTime.now().difference(b.dueDate).inDays}d late)',
-                                                style: StockpileFonts.satoshi(
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w700,
-                                                  color:
-                                                      StockpileColors.error500,
-                                                ),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-
-                                        // Notes
-                                        if (b.notes != null &&
-                                            b.notes!.isNotEmpty) ...[
-                                          const SizedBox(height: 6),
-                                          Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Icon(
-                                                Icons.notes_rounded,
-                                                size: 13,
-                                                color: isDark
-                                                    ? StockpileColors
-                                                          .darkTextMuted
-                                                    : StockpileColors.mutedText,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Expanded(
-                                                child: Text(
-                                                  b.notes!,
-                                                  style: TextStyle(
-                                                    fontSize: 12,
-                                                    fontStyle: FontStyle.italic,
-                                                    color: isDark
-                                                        ? StockpileColors
-                                                              .darkTextMuted
-                                                        : StockpileColors
-                                                              .mutedText,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-
-                                        // Action buttons
-                                        if (b.outstandingQuantity > 0) ...[
-                                          const SizedBox(height: 10),
-                                          Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.end,
-                                            children: [
-                                              OutlinedButton.icon(
-                                                icon: const Icon(
-                                                  Icons
-                                                      .assignment_return_rounded,
-                                                  size: 18,
-                                                ),
-                                                label: const Text('Return'),
-                                                style: OutlinedButton.styleFrom(
-                                                  foregroundColor:
-                                                      StockpileColors.success,
-                                                  side: BorderSide(
-                                                    color: StockpileColors
-                                                        .success
-                                                        .withAlpha(80),
-                                                  ),
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          10,
-                                                        ),
-                                                  ),
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 14,
-                                                        vertical: 8,
-                                                      ),
-                                                ),
-                                                onPressed: () => _returnItem(b),
-                                              ),
-                                              const SizedBox(width: 8),
-                                              FilledButton.icon(
-                                                icon: const Icon(
-                                                  Icons.payments_rounded,
-                                                  size: 18,
-                                                ),
-                                                label: const Text('Remit'),
-                                                style: FilledButton.styleFrom(
-                                                  backgroundColor:
-                                                      StockpileColors.remit,
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          10,
-                                                        ),
-                                                  ),
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 14,
-                                                        vertical: 8,
-                                                      ),
-                                                ),
-                                                onPressed: () => _remitItem(b),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-        ),
-      ],
-    );
-  }
-
-  String _formatDateShort(DateTime dt) {
-    final now = DateTime.now();
-    final diff = dt.difference(now); // positive = future, negative = past
-    if (diff.inDays > 0) return 'in ${diff.inDays}d';
-    if (diff.inDays == 0) return 'today';
-    final overdue = -diff.inDays;
-    return '${overdue}d overdue';
-  }
-}
-
-class _SummaryChip extends StatelessWidget {
-  final String label;
-  final int count;
-  final bool isSelected;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _SummaryChip({
-    required this.label,
-    required this.count,
-    required this.isSelected,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = isSelected
-        ? color.withAlpha(120)
-        : (isDark ? StockpileColors.darkDivider : StockpileColors.divider);
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? color.withAlpha(25)
-                : (isDark
-                      ? StockpileColors.darkSurface
-                      : StockpileColors.surface),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: borderColor),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: color.withAlpha(30),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            children: [
-              Text(
-                '$count',
-                style: StockpileFonts.satoshi(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: isSelected
-                      ? color
-                      : (isDark
-                            ? StockpileColors.darkTextBody
-                            : StockpileColors.bodyText),
-                ),
-              ),
-              Text(
-                label,
-                style: StockpileFonts.satoshi(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: isSelected
-                      ? color
-                      : (isDark
-                            ? StockpileColors.darkTextMuted
-                            : StockpileColors.mutedText),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SettledSubChip extends StatelessWidget {
-  final String label;
-  final int count;
-  final bool isSelected;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _SettledSubChip({
-    required this.label,
-    required this.count,
-    required this.isSelected,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = isSelected
-        ? color.withAlpha(isDark ? 100 : 80)
-        : (isDark ? StockpileColors.darkDivider : StockpileColors.divider);
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? color.withAlpha(isDark ? 30 : 20)
-                : (isDark
-                      ? StockpileColors.darkSurface
-                      : StockpileColors.surface),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: borderColor),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '$count',
-                style: StockpileFonts.satoshi(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: isSelected
-                      ? color
-                      : (isDark
-                            ? StockpileColors.darkTextBody
-                            : StockpileColors.bodyText),
-                ),
-              ),
-              const SizedBox(width: 5),
-              Text(
-                label,
-                style: StockpileFonts.satoshi(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: isSelected
-                      ? color
-                      : (isDark
-                            ? StockpileColors.darkTextMuted
-                            : StockpileColors.mutedText),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _QtyBadge extends StatelessWidget {
-  final String label;
-  final int value;
-  final bool isDark;
-  final Color? color;
-
-  const _QtyBadge({
-    required this.label,
-    required this.value,
-    required this.isDark,
-    this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c =
-        color ??
-        (isDark ? StockpileColors.darkTextBody : StockpileColors.bodyText);
-    return Column(
-      children: [
-        Text(
-          '$value',
-          style: StockpileFonts.satoshi(
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            color: c,
-          ),
-        ),
-        Text(
-          label,
-          style: StockpileFonts.satoshi(
-            fontSize: 10,
-            fontWeight: FontWeight.w500,
-            color: isDark
-                ? StockpileColors.darkTextMuted
-                : StockpileColors.mutedText,
-          ),
-        ),
-      ],
     );
   }
 }

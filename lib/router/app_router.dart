@@ -45,7 +45,6 @@ Route<dynamic>? appRouter(RouteSettings settings) {
       case AppRoutes.cashierTransactions:
       case AppRoutes.cashierMembers:
       case AppRoutes.cashierDeleteRequest:
-      case AppRoutes.cashierBorrowRequest:
         return const CashierDashboard();
 
       case AppRoutes.memberDashboard:

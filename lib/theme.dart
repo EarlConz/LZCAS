@@ -52,11 +52,6 @@ class StockpileColors {
   static const success = Color(0xFF22C55E);
   static const successBg = Color(0xFFDCFCE7);
 
-  // Remittance — Purple (borrow repayments: badges, receipts, actions).
-  // Use [remitBright] for text/icons sitting on dark surfaces.
-  static const remit = Color(0xFF8E24AA);
-  static const remitBright = Color(0xFFBA68C8);
-
   // Danger — Red (for badges)
   static const danger = Color(0xFFEF4444);
   static const dangerBg = Color(0xFFFEE2E2);

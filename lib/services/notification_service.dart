@@ -1,13 +1,10 @@
 // lib/services/notification_service.dart
 // In-app notification service for admins.
-// Listens to repository change events and Supabase Realtime to track
-/// pending requests, low stock, overdue borrows, quota overdue alerts,
-/// and new members in real time.
+// Listens to repository change events to track pending requests,
+// low stock, and new members in real time.
 
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import '../data/supabase_repository.dart';
-import '../data/models.dart';
 import '../db/db.dart';
 import 'config_service.dart';
 
@@ -17,8 +14,6 @@ class NotificationService extends ChangeNotifier {
 
   int _pendingCount = 0;
   int _lowStockCount = 0;
-  int _overdueCount = 0;
-  int _quotaAlertCount = 0;
   DateTime? _lastSeenAt;
   bool _initialized = false;
 
@@ -26,13 +21,9 @@ class NotificationService extends ChangeNotifier {
       _config?.notificationsEnabled == false ? 0 : _pendingCount;
   int get lowStockCount =>
       _config?.notificationsEnabled == false ? 0 : _lowStockCount;
-  int get overdueCount =>
-      _config?.notificationsEnabled == false ? 0 : _overdueCount;
-  int get quotaAlertCount =>
-      _config?.notificationsEnabled == false ? 0 : _quotaAlertCount;
   int get totalCount => _config?.notificationsEnabled == false
       ? 0
-      : _pendingCount + _lowStockCount + _overdueCount + _quotaAlertCount;
+      : _pendingCount + _lowStockCount;
   bool get hasNotifications => totalCount > 0;
 
   /// Timestamp of last "mark all seen" — used by UI to dim read items.
@@ -47,12 +38,7 @@ class NotificationService extends ChangeNotifier {
     // Re-compute all counts when settings change
     _config?.addListener(_onConfigChanged);
 
-    await Future.wait([
-      _refreshPending(),
-      _refreshLowStock(),
-      _refreshOverdue(),
-      _refreshQuotaAlerts(),
-    ]);
+    await Future.wait([_refreshPending(), _refreshLowStock()]);
 
     _changeSub = repository.changes.listen((event) {
       if (_config?.notificationsEnabled == false) return;
@@ -73,32 +59,16 @@ class NotificationService extends ChangeNotifier {
         case 'stock_movement_added':
           _refreshLowStock();
           break;
-        case 'borrow_added':
-        case 'borrow_updated':
-        case 'borrows_changed':
-          _refreshOverdue();
-          _refreshQuotaAlerts(); // borrow changes affect quota validity
-          break;
         case 'cloud_restored':
           _refreshPending();
           _refreshLowStock();
-          _refreshOverdue();
-          _refreshQuotaAlerts();
-          break;
-        case 'system_alerts_changed':
-          _refreshQuotaAlerts();
           break;
       }
     });
   }
 
   void _onConfigChanged() {
-    Future.wait([
-      _refreshPending(),
-      _refreshLowStock(),
-      _refreshOverdue(),
-      _refreshQuotaAlerts(),
-    ]);
+    Future.wait([_refreshPending(), _refreshLowStock()]);
   }
 
   Future<void> _refreshPending() async {
@@ -119,26 +89,6 @@ class NotificationService extends ChangeNotifier {
       final count = await repository.fetchLowStockCount(threshold);
       if (_lowStockCount != count) {
         _lowStockCount = count;
-        notifyListeners();
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _refreshOverdue() async {
-    try {
-      final borrows = await repository.fetchOverdueBorrows();
-      if (_overdueCount != borrows.length) {
-        _overdueCount = borrows.length;
-        notifyListeners();
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _refreshQuotaAlerts() async {
-    try {
-      final count = await repository.fetchOverdueResellerCount();
-      if (_quotaAlertCount != count) {
-        _quotaAlertCount = count;
         notifyListeners();
       }
     } catch (_) {}

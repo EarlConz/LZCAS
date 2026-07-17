@@ -82,8 +82,6 @@ class Member {
   final String? userId;
   final int? packageId;
   final String? packageName; // joined via Supabase FK -> packages(name)
-  final DateTime? quotaValidUntil;
-  final DateTime? lastRemittanceAt;
 
   const Member({
     this.id,
@@ -104,8 +102,6 @@ class Member {
     this.userId,
     this.packageId,
     this.packageName,
-    this.quotaValidUntil,
-    this.lastRemittanceAt,
   });
 
   factory Member.fromJson(Map<String, dynamic> json) => Member(
@@ -127,12 +123,6 @@ class Member {
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
     packageName: _extractPackageName(json['packages']),
-    quotaValidUntil: json['quota_valid_until'] != null
-        ? DateTime.tryParse(json['quota_valid_until'].toString())
-        : null,
-    lastRemittanceAt: json['last_remittance_at'] != null
-        ? DateTime.tryParse(json['last_remittance_at'].toString())
-        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -173,8 +163,6 @@ class Member {
     String? userId,
     int? packageId,
     String? packageName,
-    DateTime? quotaValidUntil,
-    DateTime? lastRemittanceAt,
   }) => Member(
     id: id ?? this.id,
     lastName: lastName ?? this.lastName,
@@ -194,8 +182,6 @@ class Member {
     userId: userId ?? this.userId,
     packageId: packageId ?? this.packageId,
     packageName: packageName ?? this.packageName,
-    quotaValidUntil: quotaValidUntil ?? this.quotaValidUntil,
-    lastRemittanceAt: lastRemittanceAt ?? this.lastRemittanceAt,
   );
 }
 
@@ -355,38 +341,24 @@ class Category {
   final int? id;
   final String name;
   final int commissionRate;
-  final bool addsQuotaTime;
 
-  const Category({
-    this.id,
-    required this.name,
-    this.commissionRate = 0,
-    this.addsQuotaTime = false,
-  });
+  const Category({this.id, required this.name, this.commissionRate = 0});
 
   factory Category.fromJson(Map<String, dynamic> json) => Category(
     id: json['id'] as int?,
     name: json['name'] as String? ?? '',
     commissionRate: json['commission_rate'] as int? ?? 0,
-    addsQuotaTime: json['adds_quota_time'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => {
     'name': name,
     'commission_rate': commissionRate,
-    'adds_quota_time': addsQuotaTime,
   };
 
-  Category copyWith({
-    int? id,
-    String? name,
-    int? commissionRate,
-    bool? addsQuotaTime,
-  }) => Category(
+  Category copyWith({int? id, String? name, int? commissionRate}) => Category(
     id: id ?? this.id,
     name: name ?? this.name,
     commissionRate: commissionRate ?? this.commissionRate,
-    addsQuotaTime: addsQuotaTime ?? this.addsQuotaTime,
   );
 }
 
@@ -405,10 +377,6 @@ class Sale {
   /// Set when this sale is a package availment, not a product sale.
   final int? packageId;
 
-  /// True when this sale was created by remitting a borrowed item,
-  /// not by a direct POS sale.
-  final bool isRemittance;
-
   const Sale({
     this.id,
     required this.itemId,
@@ -420,7 +388,6 @@ class Sale {
     this.timestamp,
     this.userId,
     this.packageId,
-    this.isRemittance = false,
   });
 
   /// Package availments are not products and are excluded from
@@ -440,7 +407,6 @@ class Sale {
         : null,
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
-    isRemittance: json['is_remittance'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => {
@@ -453,7 +419,6 @@ class Sale {
     if (timestamp != null) 'timestamp': timestamp!.toIso8601String(),
     if (userId != null) 'user_id': userId,
     if (packageId != null) 'package_id': packageId,
-    if (isRemittance) 'is_remittance': true,
   };
 
   Sale copyWith({
@@ -467,7 +432,6 @@ class Sale {
     DateTime? timestamp,
     String? userId,
     int? packageId,
-    bool? isRemittance,
   }) => Sale(
     id: id ?? this.id,
     itemId: itemId ?? this.itemId,
@@ -479,7 +443,6 @@ class Sale {
     timestamp: timestamp ?? this.timestamp,
     userId: userId ?? this.userId,
     packageId: packageId ?? this.packageId,
-    isRemittance: isRemittance ?? this.isRemittance,
   );
 }
 
@@ -588,11 +551,10 @@ class PendingRequest {
   final String? itemName;
   final int? memberId;
   final String? memberName;
-  final String
-  requestType; // 'delete', 'reduce_stock', 'delete_member', 'borrow'
+  final String requestType; // 'delete', 'reduce_stock', 'delete_member'
   final int? quantity;
-  final int? price; // for borrow: price per item
-  final String? notes; // for borrow: optional notes
+  final int? price;
+  final String? notes;
   final String? reason;
   final String? rejectionReason; // admin's reason when rejecting
   final String status;
@@ -620,7 +582,6 @@ class PendingRequest {
   });
 
   bool get isPending => status == 'pending';
-  bool get isBorrowRequest => requestType == 'borrow';
 
   String get summary {
     if (requestType == 'delete') return 'Delete "$itemName"';
@@ -630,9 +591,10 @@ class PendingRequest {
     if (requestType == 'delete_member') {
       return 'Delete member "$memberName"';
     }
+    // Legacy: historical rows from the retired borrow mechanic still
+    // exist in pending_requests and must render in request history.
     if (requestType == 'borrow') {
-      final priceTag = (price ?? 0) > 0 ? ' @ ₱$price/ea' : '';
-      return 'Borrow "$itemName" (×${quantity ?? 0}$priceTag) for "$memberName"';
+      return 'Borrow "$itemName" (×${quantity ?? 0}) for "$memberName" (legacy)';
     }
     return '$requestType: ${itemName ?? memberName ?? ''}';
   }
@@ -853,140 +815,6 @@ class MemberTransactionEntry {
   });
 }
 
-/// A borrow record — items loaned to a reseller with a settlement deadline.
-class Borrow {
-  final int? id;
-  final String? userId;
-  final int memberId;
-  final String? memberName;
-  final int itemId;
-  final String itemName;
-  final int quantity;
-  final int quantityReturned;
-  final int quantityRemitted;
-  final int price;
-  final DateTime? borrowedAt;
-  final DateTime dueDate;
-  final String status;
-  final String? notes;
-  final DateTime? settledAt;
-
-  const Borrow({
-    this.id,
-    this.userId,
-    required this.memberId,
-    this.memberName,
-    required this.itemId,
-    required this.itemName,
-    required this.quantity,
-    this.quantityReturned = 0,
-    this.quantityRemitted = 0,
-    this.price = 0,
-    this.borrowedAt,
-    required this.dueDate,
-    this.status = 'active',
-    this.notes,
-    this.settledAt,
-  });
-
-  /// Remaining items not yet returned or paid for.
-  int get outstandingQuantity => quantity - quantityReturned - quantityRemitted;
-
-  /// Whether the due date has passed and the borrow is not fully settled.
-  bool get isOverdue =>
-      dueDate.isBefore(DateTime.now()) &&
-      status != 'returned' &&
-      status != 'remitted';
-
-  /// Whether the borrow is fully settled (all items returned or remitted).
-  bool get isFullySettled => outstandingQuantity <= 0;
-
-  /// Human-readable status badge label.
-  String get statusLabel {
-    if (status == 'overdue' || isOverdue) return 'Overdue';
-    if (isFullySettled) {
-      if (quantityReturned >= quantity) return 'Returned';
-      if (quantityRemitted >= quantity) return 'Remitted';
-      return 'Settled';
-    }
-    if (quantityReturned > 0 || quantityRemitted > 0) return 'Partial';
-    return 'Active';
-  }
-
-  factory Borrow.fromJson(Map<String, dynamic> json) => Borrow(
-    id: json['id'] as int?,
-    userId: json['user_id'] as String?,
-    memberId: json['member_id'] as int? ?? 0,
-    memberName: json['member_name'] as String?,
-    itemId: json['item_id'] as int? ?? 0,
-    itemName: json['item_name'] as String? ?? '',
-    quantity: json['quantity'] as int? ?? 0,
-    quantityReturned: json['quantity_returned'] as int? ?? 0,
-    quantityRemitted: json['quantity_remitted'] as int? ?? 0,
-    price: json['price'] as int? ?? 0,
-    borrowedAt: json['borrowed_at'] != null
-        ? DateTime.tryParse(json['borrowed_at'].toString())
-        : null,
-    dueDate: json['due_date'] != null
-        ? DateTime.parse(json['due_date'].toString())
-        : DateTime.now().add(const Duration(days: 10)),
-    status: json['status'] as String? ?? 'active',
-    notes: json['notes'] as String?,
-    settledAt: json['settled_at'] != null
-        ? DateTime.tryParse(json['settled_at'].toString())
-        : null,
-  );
-
-  Map<String, dynamic> toJson() => {
-    if (userId != null) 'user_id': userId,
-    'member_id': memberId,
-    if (memberName != null) 'member_name': memberName,
-    'item_id': itemId,
-    'item_name': itemName,
-    'quantity': quantity,
-    'quantity_returned': quantityReturned,
-    'quantity_remitted': quantityRemitted,
-    'price': price,
-    if (borrowedAt != null) 'borrowed_at': borrowedAt!.toIso8601String(),
-    'due_date': dueDate.toIso8601String(),
-    'status': status,
-    if (notes != null) 'notes': notes,
-    if (settledAt != null) 'settled_at': settledAt!.toIso8601String(),
-  };
-
-  Borrow copyWith({
-    int? id,
-    String? userId,
-    int? memberId,
-    int? itemId,
-    String? itemName,
-    int? quantity,
-    int? quantityReturned,
-    int? quantityRemitted,
-    int? price,
-    DateTime? borrowedAt,
-    DateTime? dueDate,
-    String? status,
-    String? notes,
-    DateTime? settledAt,
-  }) => Borrow(
-    id: id ?? this.id,
-    userId: userId ?? this.userId,
-    memberId: memberId ?? this.memberId,
-    itemId: itemId ?? this.itemId,
-    itemName: itemName ?? this.itemName,
-    quantity: quantity ?? this.quantity,
-    quantityReturned: quantityReturned ?? this.quantityReturned,
-    quantityRemitted: quantityRemitted ?? this.quantityRemitted,
-    price: price ?? this.price,
-    borrowedAt: borrowedAt ?? this.borrowedAt,
-    dueDate: dueDate ?? this.dueDate,
-    status: status ?? this.status,
-    notes: notes ?? this.notes,
-    settledAt: settledAt ?? this.settledAt,
-  );
-}
-
 // ── Helper Functions ──────────────────────────────────────────────────────
 
 /// Convert a list of [Item]s to a list of maps for UI consumption.
@@ -1057,10 +885,7 @@ String? _extractPackageName(dynamic packages) {
 /// Default configuration values used when no app_config row exists.
 class AppConfigDefaults {
   static const lowStockThreshold = 50;
-  static const borrowDurationDays = 10;
-  static const overdueThresholdDays = 10;
   static const currencySymbol = '₱';
-  static const borrowAutoApprove = false;
   static const notificationsEnabled = true;
   static const sessionTimeoutMinutes = 30;
 }
@@ -1078,70 +903,4 @@ class AppConfigEntry {
   );
 
   Map<String, dynamic> toJson() => {'key': key, 'value': value};
-}
-
-// ── System Alert (Quota Compliance) ──────────────────────────────
-
-class SystemAlert {
-  final int? id;
-  final int memberId;
-  final String alertType;
-  final String severity;
-  final String title;
-  final String? message;
-  final bool isActive;
-  final bool isRead;
-  final DateTime? snoozedUntil;
-  final DateTime? createdAt;
-  final DateTime? readAt;
-
-  const SystemAlert({
-    this.id,
-    required this.memberId,
-    required this.alertType,
-    this.severity = 'warning',
-    required this.title,
-    this.message,
-    this.isActive = true,
-    this.isRead = false,
-    this.snoozedUntil,
-    this.createdAt,
-    this.readAt,
-  });
-
-  factory SystemAlert.fromJson(Map<String, dynamic> json) => SystemAlert(
-    id: json['id'] as int?,
-    memberId: json['member_id'] as int? ?? 0,
-    alertType: json['alert_type'] as String? ?? '',
-    severity: json['severity'] as String? ?? 'warning',
-    title: json['title'] as String? ?? '',
-    message: json['message'] as String?,
-    isActive: json['is_active'] as bool? ?? true,
-    isRead: json['is_read'] as bool? ?? false,
-    snoozedUntil: json['snoozed_until'] != null
-        ? DateTime.tryParse(json['snoozed_until'].toString())
-        : null,
-    createdAt: json['created_at'] != null
-        ? DateTime.tryParse(json['created_at'].toString())
-        : null,
-    readAt: json['read_at'] != null
-        ? DateTime.tryParse(json['read_at'].toString())
-        : null,
-  );
-
-  Map<String, dynamic> toJson() => {
-    'member_id': memberId,
-    'alert_type': alertType,
-    'severity': severity,
-    'title': title,
-    if (message != null) 'message': message,
-    'is_active': isActive,
-    'is_read': isRead,
-    if (snoozedUntil != null) 'snoozed_until': snoozedUntil!.toIso8601String(),
-  };
-
-  int get daysOverdue {
-    if (createdAt == null) return 0;
-    return DateTime.now().difference(createdAt!).inDays;
-  }
 }

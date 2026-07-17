@@ -529,29 +529,6 @@ class _InventoryTableState extends State<InventoryTable> {
     if (confirm != true) return;
 
     if (needsApproval) {
-      final hasBorrows = await repository.hasActiveBorrows(id);
-      if (!context.mounted) return;
-      if (hasBorrows) {
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Cannot request deletion'),
-            content: const Text(
-              'This product has unsettled borrows. '
-              'All borrowed items must be returned or paid for '
-              'before a deletion request can be submitted.',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-        return;
-      }
-
       await repository.submitPendingRequest(
         itemId: id,
         itemName: item['name']?.toString() ?? '',
@@ -561,29 +538,6 @@ class _InventoryTableState extends State<InventoryTable> {
       if (!context.mounted) return;
       BotToast.showText(text: 'Deletion request sent to admin for approval');
     } else {
-      final hasBorrows = await repository.hasActiveBorrows(id);
-      if (!context.mounted) return;
-      if (hasBorrows) {
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Cannot delete'),
-            content: const Text(
-              'This product has unsettled borrows. '
-              'All borrowed items must be returned or paid for '
-              'before this product can be deleted.',
-            ),
-            actions: [
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-        return;
-      }
-
       await repository.deleteItemById(id);
       await repository.fetchItems();
       _onUpdate(item);
