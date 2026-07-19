@@ -198,11 +198,15 @@ create table if not exists public.packages (
   direct_referral_bonus integer not null default 0,
   indirect_referral_bonus integer not null default 0,
   chairmans_bonus integer not null default 0,
+  upgrade_referral_bonus integer not null default 0,
   repeat_purchase_json text not null default '{}',
   group_sales_direct integer not null default 0,
   group_sales_indirect integer not null default 0,
   created_at timestamptz not null default now()
 );
+
+-- Add upgrade_referral_bonus to existing packages (safe to re-run)
+alter table public.packages add column if not exists upgrade_referral_bonus integer not null default 0;
 
 -- ── Packages RLS: everyone logged in can read, only admins can write ──
 -- Helper: check whether the current auth user is an admin.

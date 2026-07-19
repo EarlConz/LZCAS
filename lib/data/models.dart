@@ -193,6 +193,11 @@ class Package {
   final int directReferralBonus;
   final int indirectReferralBonus;
   final int chairmansBonus;
+
+  /// Bonus paid to the referrer when a direct downline upgrades their package.
+  /// Looked up from the *referrer's* current package at upgrade time.
+  final int upgradeReferralBonus;
+
   final String repeatPurchaseJson;
   final int groupSalesDirect;
   final int groupSalesIndirect;
@@ -205,6 +210,7 @@ class Package {
     this.directReferralBonus = 0,
     this.indirectReferralBonus = 0,
     this.chairmansBonus = 0,
+    this.upgradeReferralBonus = 0,
     this.repeatPurchaseJson = '{}',
     this.groupSalesDirect = 0,
     this.groupSalesIndirect = 0,
@@ -218,6 +224,7 @@ class Package {
     directReferralBonus: json['direct_referral_bonus'] as int? ?? 0,
     indirectReferralBonus: json['indirect_referral_bonus'] as int? ?? 0,
     chairmansBonus: json['chairmans_bonus'] as int? ?? 0,
+    upgradeReferralBonus: json['upgrade_referral_bonus'] as int? ?? 0,
     repeatPurchaseJson: json['repeat_purchase_json'] as String? ?? '{}',
     groupSalesDirect: json['group_sales_direct'] as int? ?? 0,
     groupSalesIndirect: json['group_sales_indirect'] as int? ?? 0,
@@ -232,6 +239,7 @@ class Package {
     'direct_referral_bonus': directReferralBonus,
     'indirect_referral_bonus': indirectReferralBonus,
     'chairmans_bonus': chairmansBonus,
+    'upgrade_referral_bonus': upgradeReferralBonus,
     'repeat_purchase_json': repeatPurchaseJson,
     'group_sales_direct': groupSalesDirect,
     'group_sales_indirect': groupSalesIndirect,
@@ -244,6 +252,7 @@ class Package {
     int? directReferralBonus,
     int? indirectReferralBonus,
     int? chairmansBonus,
+    int? upgradeReferralBonus,
     String? repeatPurchaseJson,
     int? groupSalesDirect,
     int? groupSalesIndirect,
@@ -254,6 +263,7 @@ class Package {
     directReferralBonus: directReferralBonus ?? this.directReferralBonus,
     indirectReferralBonus: indirectReferralBonus ?? this.indirectReferralBonus,
     chairmansBonus: chairmansBonus ?? this.chairmansBonus,
+    upgradeReferralBonus: upgradeReferralBonus ?? this.upgradeReferralBonus,
     repeatPurchaseJson: repeatPurchaseJson ?? this.repeatPurchaseJson,
     groupSalesDirect: groupSalesDirect ?? this.groupSalesDirect,
     groupSalesIndirect: groupSalesIndirect ?? this.groupSalesIndirect,
@@ -276,7 +286,8 @@ class EarningsSnapshot {
   // consecutive snapshots attributes a change to its source(s).
   // (balance's only source is the direct referral bonus)
   final int indirectBonus;
-  final int groupSales;
+  final int groupSales; // deprecated — replaced by passiveIncome
+  final int passiveIncome; // 5/item direct + 3/item indirect
   final int repeatPurchase;
   final int chairmanBonus;
 
@@ -291,6 +302,7 @@ class EarningsSnapshot {
     this.balanceDelta = 0,
     this.indirectBonus = 0,
     this.groupSales = 0,
+    this.passiveIncome = 0,
     this.repeatPurchase = 0,
     this.chairmanBonus = 0,
     this.recordedAt,
@@ -303,6 +315,7 @@ class EarningsSnapshot {
       totalEarnings != 0 &&
       indirectBonus == 0 &&
       groupSales == 0 &&
+      passiveIncome == 0 &&
       repeatPurchase == 0 &&
       chairmanBonus == 0;
 
@@ -316,6 +329,7 @@ class EarningsSnapshot {
         balanceDelta: json['balance_delta'] as int? ?? 0,
         indirectBonus: json['indirect_bonus'] as int? ?? 0,
         groupSales: json['group_sales'] as int? ?? 0,
+        passiveIncome: json['passive_income'] as int? ?? 0,
         repeatPurchase: json['repeat_purchase'] as int? ?? 0,
         chairmanBonus: json['chairman_bonus'] as int? ?? 0,
         recordedAt: json['recorded_at'] != null
@@ -331,6 +345,7 @@ class EarningsSnapshot {
     'balance_delta': balanceDelta,
     'indirect_bonus': indirectBonus,
     'group_sales': groupSales,
+    'passive_income': passiveIncome,
     'repeat_purchase': repeatPurchase,
     'chairman_bonus': chairmanBonus,
   };

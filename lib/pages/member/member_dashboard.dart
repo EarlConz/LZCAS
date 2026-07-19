@@ -785,15 +785,22 @@ class _PackageDetailsSheet extends StatelessWidget {
                         ),
                         _benefitRow(
                           Icons.groups_rounded,
-                          'Group Sales (Direct)',
-                          '${pkg.groupSalesDirect} / item',
+                          'Passive Income (Direct)',
+                          '₱5 / item purchased',
                           textColor,
                           mutedColor,
                         ),
                         _benefitRow(
                           Icons.groups_outlined,
-                          'Group Sales (Indirect)',
-                          '${pkg.groupSalesIndirect} / item',
+                          'Passive Income (Indirect)',
+                          '₱3 / item purchased',
+                          textColor,
+                          mutedColor,
+                        ),
+                        _benefitRow(
+                          Icons.upgrade,
+                          'Upgrade Referral Bonus',
+                          '₱${pkg.upgradeReferralBonus}',
                           textColor,
                           mutedColor,
                         ),
@@ -1512,6 +1519,7 @@ class _EarningsTabState extends State<_EarningsTab> {
       balance: balance,
       indirectBonus: breakdown['indirectBonus'] ?? 0,
       groupSales: breakdown['groupSales'] ?? 0,
+      passiveIncome: breakdown['passiveIncome'] ?? 0,
       repeatPurchase: breakdown['repeatPurchase'] ?? 0,
       chairmanBonus: breakdown['chairmanBonus'] ?? 0,
     );
@@ -1995,7 +2003,7 @@ class _EarningsLedgerCard extends StatelessWidget {
           h.indirectBonus - (prev?.indirectBonus ?? 0),
           'Indirect Referral',
         ),
-        ?_deltaChip(h.groupSales - (prev?.groupSales ?? 0), 'Group Sales'),
+        ?_deltaChip(h.passiveIncome - (prev?.passiveIncome ?? 0), 'Passive Income'),
         ?_deltaChip(
           h.repeatPurchase - (prev?.repeatPurchase ?? 0),
           'Repeat Purchase',
