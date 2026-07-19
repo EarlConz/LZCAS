@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member, Package;
 import 'package:lzcas/utils/phone_formatter.dart';
+import 'package:lzcas/utils/toast_utils.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -539,21 +540,21 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                   value: _packages.any((p) => p.id == _selectedPackageId)
                       ? _selectedPackageId
                       : null,
+                  isExpanded: true,
                   decoration: InputDecoration(
                     labelText: 'Select Package',
-                    hintText: 'Choose a package for this reseller',
+                    hintText: 'Required for resellers',
                     prefixIcon: const Icon(Icons.card_giftcard_outlined),
                     border: inputBorder,
                   ),
                   items: [
-                    const DropdownMenuItem<int?>(
-                      value: null,
-                      child: Text('None (Standard Member)'),
-                    ),
                     ..._packages.map(
                       (p) => DropdownMenuItem<int?>(
                         value: p.id,
-                        child: Text('${p.name} — ₱${p.price}'),
+                        child: Text(
+                          '${p.name} — ₱${p.price}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   ],
@@ -603,6 +604,17 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
 
   void _submit() {
     if (!_validateAll()) return;
+
+    // Uploading an ID photo converts this member into a Verified
+    // Reseller, and verified resellers must avail a package — block the
+    // save instead of letting the member keep (or skip) one silently.
+    if (_hasIdFields && _selectedPackageId == null) {
+      showErrorToast(
+        'Please select a package — uploading an ID verifies this member '
+        'as a reseller, and resellers must avail a package.',
+      );
+      return;
+    }
 
     final updatedMember = {
       'firstName': firstNameController.text.trim(),

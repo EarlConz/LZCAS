@@ -89,6 +89,10 @@ class _MemberDashboardState extends State<MemberDashboard> {
     }
 
     if (_error != null || _member == null) {
+      // _error is set only on a fetch failure (network etc.) — Retry can
+      // help there. A null member with no error means the account was
+      // deleted/deactivated: retrying is pointless, offer the way out.
+      final accountGone = _error == null;
       return Scaffold(
         body: Center(
           child: Column(
@@ -96,17 +100,33 @@ class _MemberDashboardState extends State<MemberDashboard> {
             children: [
               const Icon(Icons.error_outline, size: 48, color: Colors.red),
               const SizedBox(height: 16),
-              Text(_error ?? 'Account not found.'),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  accountGone
+                      ? 'This account has been deactivated or no longer '
+                            'exists. Please contact the administrator.'
+                      : _error!,
+                  textAlign: TextAlign.center,
+                ),
+              ),
               const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _loading = true;
-                    _error = null;
-                  });
-                  _loadMemberData();
-                },
-                child: const Text('Retry'),
+              if (!accountGone) ...[
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _loading = true;
+                      _error = null;
+                    });
+                    _loadMemberData();
+                  },
+                  child: const Text('Retry'),
+                ),
+                const SizedBox(height: 8),
+              ],
+              TextButton(
+                onPressed: _handleLogout,
+                child: const Text('Back to Login'),
               ),
             ],
           ),
