@@ -16,7 +16,11 @@
       "PowerShell(flutter analyze lib/pages/member/member_dashboard.dart lib/pages/cashier/cashier_dashboard.dart)",
       "PowerShell(Remove-Item supabase/schema_quota.sql -Confirm:$false)",
       "PowerShell(flutter analyze)",
-      "PowerShell(dart format lib/data/supabase_repository.dart lib/data/models.dart lib/pages/admin/admin_dashboard.dart lib/pages/member/member_dashboard.dart lib/pages/cashier/cashier_dashboard.dart lib/widgets/transactionstable.dart lib/widgets/memberdetails.dart lib/widgets/inventory_reports_view.dart lib/widgets/stockpile_topbar.dart lib/widgets/inventorytable.dart lib/widgets/member_sidebar.dart lib/dialogs/receipt_dialog.dart lib/pages/dashboardpage.dart lib/services/notification_service.dart lib/services/config_service.dart lib/theme.dart)"
+      "PowerShell(dart format lib/data/supabase_repository.dart lib/data/models.dart lib/pages/admin/admin_dashboard.dart lib/pages/member/member_dashboard.dart lib/pages/cashier/cashier_dashboard.dart lib/widgets/transactionstable.dart lib/widgets/memberdetails.dart lib/widgets/inventory_reports_view.dart lib/widgets/stockpile_topbar.dart lib/widgets/inventorytable.dart lib/widgets/member_sidebar.dart lib/dialogs/receipt_dialog.dart lib/pages/dashboardpage.dart lib/services/notification_service.dart lib/services/config_service.dart lib/theme.dart)",
+      "PowerShell(flutter analyze 2>$null)",
+      "PowerShell(flutter analyze 2>$null | Out-String -Stream | Where-Object { $_ -match 'error -|issues found' })",
+      "PowerShell(flutter analyze > \"$env:TEMP\\\\analyze_out.txt\" 2>$null; Select-String -Path \"$env:TEMP\\\\analyze_out.txt\" -Pattern 'error -', 'issues found' | ForEach-Object { $_.Line })",
+      "PowerShell(dart format lib/data/models.dart lib/data/supabase_repository.dart lib/pages/member/member_dashboard.dart lib/widgets/memberstable.dart)"
     ]
   }
 }

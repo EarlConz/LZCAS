@@ -83,6 +83,10 @@ class Member {
   final int? packageId;
   final String? packageName; // joined via Supabase FK -> packages(name)
 
+  /// Soft-delete flag: deleted members are hidden from lists but stay in
+  /// the referral tree so previously earned bonuses are never deducted.
+  final bool isDeleted;
+
   const Member({
     this.id,
     this.lastName,
@@ -102,6 +106,7 @@ class Member {
     this.userId,
     this.packageId,
     this.packageName,
+    this.isDeleted = false,
   });
 
   factory Member.fromJson(Map<String, dynamic> json) => Member(
@@ -123,6 +128,7 @@ class Member {
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
     packageName: _extractPackageName(json['packages']),
+    isDeleted: json['is_deleted'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => {
@@ -163,6 +169,7 @@ class Member {
     String? userId,
     int? packageId,
     String? packageName,
+    bool? isDeleted,
   }) => Member(
     id: id ?? this.id,
     lastName: lastName ?? this.lastName,
@@ -182,6 +189,7 @@ class Member {
     userId: userId ?? this.userId,
     packageId: packageId ?? this.packageId,
     packageName: packageName ?? this.packageName,
+    isDeleted: isDeleted ?? this.isDeleted,
   );
 }
 

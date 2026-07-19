@@ -1,3 +1,4 @@
+import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
@@ -258,6 +259,11 @@ class MembersTableState extends State<MembersTable> {
                 final updated = created.copyWith(idImagePath: url);
                 await repository.updateMember(updated);
               }
+            } else if (mounted) {
+              showErrorToast(
+                'ID photo upload failed — the member was saved without it. '
+                'Edit the member to re-upload.',
+              );
             }
             await srcFile.delete();
           }
@@ -265,6 +271,12 @@ class MembersTableState extends State<MembersTable> {
           debugPrint(
             '[MembersTable] Image upload failed, keeping local path: $e',
           );
+          if (mounted) {
+            showErrorToast(
+              'ID photo upload failed — the member was saved without it. '
+              'Edit the member to re-upload.',
+            );
+          }
         }
       }
     }
@@ -341,6 +353,7 @@ class MembersTableState extends State<MembersTable> {
           rawImagePath.startsWith('data:')) {
         finalImagePath = rawImagePath;
       } else if (!kIsWeb) {
+        final cancelLoading = BotToast.showLoading();
         try {
           final srcFile = File(rawImagePath);
           if (await srcFile.exists()) {
@@ -348,21 +361,31 @@ class MembersTableState extends State<MembersTable> {
             final ext = p.extension(rawImagePath).isNotEmpty
                 ? p.extension(rawImagePath).substring(1)
                 : 'jpg';
-            final url = await repository.uploadMemberImage(id, bytes, ext);
-            if (url != null) {
-              finalImagePath = url;
-              try {
-                await srcFile.delete();
-              } catch (_) {}
-            } else {
-              finalImagePath = row.idImagePath;
-            }
+            // Upload + promote to Verified Reseller in one chained call.
+            // Throws if either step fails so the admin sees the error
+            // instead of the member silently staying unverified.
+            finalImagePath = await repository.uploadIdPhotoAndVerifyMember(
+              memberId: id,
+              bytes: bytes,
+              ext: ext,
+            );
+            try {
+              await srcFile.delete();
+            } catch (_) {}
           } else {
             finalImagePath = row.idImagePath;
           }
         } catch (e) {
-          debugPrint('[MembersTable] Image upload failed: $e');
+          debugPrint('[MembersTable] ID photo upload failed: $e');
+          if (mounted) {
+            showErrorToast(
+              'ID photo upload failed — member was NOT verified. '
+              'Please try again.',
+            );
+          }
           finalImagePath = row.idImagePath;
+        } finally {
+          cancelLoading();
         }
       } else {
         finalImagePath = rawImagePath;
