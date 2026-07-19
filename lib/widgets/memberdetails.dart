@@ -541,18 +541,10 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     if (selected == null || !mounted) return;
 
     try {
-      // Update the member's package_id
-      final current = await repository.getMemberById(memberId);
-      if (current == null) {
-        showErrorToast('Member not found.');
-        return;
-      }
-      await repository.updateMember(current.copyWith(packageId: selected.id));
-
-      // Trigger upgrade bonus computation
-      await repository.processPackageUpgrade(
+      // RPC handles: rank validation, member update, AND referrer bonus
+      await repository.submitUpgrade(
         memberId: memberId,
-        upgradedPackageId: selected.id!,
+        targetPackageId: selected.id!,
       );
 
       // ── POS: create a sale record for this upgrade ──

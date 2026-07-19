@@ -603,7 +603,6 @@ class AdminMembersPageState extends State<AdminMembersPage> {
     if (selected == null || !mounted) return;
     try {
       await repository.submitUpgrade(memberId: memberId, targetPackageId: selected.id!);
-      await repository.processPackageUpgrade(memberId: memberId, upgradedPackageId: selected.id!);
       await repository.addSale(itemId: 0, itemName: 'Package Upgrade: ${selected.name}',
           quantity: 1, price: selected.price, buyerId: memberId,
           buyerName: member['firstName']?.toString(), packageId: selected.id, timestamp: DateTime.now());

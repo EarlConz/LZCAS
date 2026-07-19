@@ -4309,16 +4309,12 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     if (selected == null || !mounted) return;
 
     try {
-      // Use the RPC for validated upgrade
+      // RPC handles: rank validation, member update, AND referrer bonus
       await repository.submitUpgrade(
         memberId: memberId,
         targetPackageId: selected.id!,
       );
-      // Still trigger bonus engine + POS sale
-      await repository.processPackageUpgrade(
-        memberId: memberId,
-        upgradedPackageId: selected.id!,
-      );
+      // POS sale record (client-side)
       await repository.addSale(
         itemId: 0,
         itemName: 'Package Upgrade: ${selected.name}',
