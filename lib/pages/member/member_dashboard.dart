@@ -1522,6 +1522,7 @@ class _EarningsTabState extends State<_EarningsTab> {
       passiveIncome: breakdown['passiveIncome'] ?? 0,
       repeatPurchase: breakdown['repeatPurchase'] ?? 0,
       chairmanBonus: breakdown['chairmanBonus'] ?? 0,
+      upgradeBonus: breakdown['upgradeBonus'] ?? 0,
     );
     final history = await repository.fetchEarningsHistory(id);
 

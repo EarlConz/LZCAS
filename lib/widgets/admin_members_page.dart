@@ -595,23 +595,43 @@ class AdminMembersPageState extends State<AdminMembersPage> {
       currentRank = currentPkg?.hierarchyRank ?? 0;
     }
     final selected = await showModalBottomSheet<Package>(
-      context: ctx, isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (c) => _PkgUpgradeSheet(currentRank: currentRank, currentPkgId: currentPkgId,
-          memberName: member['firstName']?.toString() ?? 'Member'),
+      context: ctx,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (c) => _PkgUpgradeSheet(
+        currentRank: currentRank,
+        currentPkgId: currentPkgId,
+        memberName: member['firstName']?.toString() ?? 'Member',
+      ),
     );
     if (selected == null || !mounted) return;
     try {
-      await repository.submitUpgrade(memberId: memberId, targetPackageId: selected.id!);
-      await repository.processPackageUpgrade(memberId: memberId, upgradedPackageId: selected.id!);
-      await repository.addSale(itemId: 0, itemName: 'Package Upgrade: ${selected.name}',
-          quantity: 1, price: selected.price, buyerId: memberId,
-          buyerName: member['firstName']?.toString(), packageId: selected.id, timestamp: DateTime.now());
-      BotToast.showText(text: '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}');
+      await repository.submitUpgrade(
+        memberId: memberId,
+        targetPackageId: selected.id!,
+      );
+      await repository.addSale(
+        itemId: 0,
+        itemName: 'Package Upgrade: ${selected.name}',
+        quantity: 1,
+        price: selected.price,
+        buyerId: memberId,
+        buyerName: member['firstName']?.toString(),
+        packageId: selected.id,
+        timestamp: DateTime.now(),
+      );
+      BotToast.showText(
+        text: '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
+      );
     } catch (e) {
       final msg = e.toString();
-      BotToast.showText(text: msg.contains('Invalid upgrade') || msg.contains('downgrade')
-          ? 'Cannot downgrade or side-grade packages.' : 'Failed: $e');
+      BotToast.showText(
+        text: msg.contains('Invalid upgrade') || msg.contains('downgrade')
+            ? 'Cannot downgrade or side-grade packages.'
+            : 'Failed: $e',
+      );
     }
   }
 }
@@ -619,48 +639,168 @@ class AdminMembersPageState extends State<AdminMembersPage> {
 // ── Package Upgrade Bottom Sheet ──────────────────────────────────────────
 
 class _PkgUpgradeSheet extends StatelessWidget {
-  final int currentRank; final int? currentPkgId; final String memberName;
-  const _PkgUpgradeSheet({required this.currentRank, required this.currentPkgId, required this.memberName});
+  final int currentRank;
+  final int? currentPkgId;
+  final String memberName;
+  const _PkgUpgradeSheet({
+    required this.currentRank,
+    required this.currentPkgId,
+    required this.memberName,
+  });
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return DraggableScrollableSheet(initialChildSize: 0.5, minChildSize: 0.3, maxChildSize: 0.8, expand: false,
-      builder: (_, scrollCtrl) => Padding(padding: const EdgeInsets.all(24), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)))),
-        const SizedBox(height: 20),
-        Text('Upgrade Package', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: isDark ? Colors.white : const Color(0xFF1E293B))),
-        const SizedBox(height: 4),
-        Text('Available upgrades for $memberName', style: TextStyle(fontSize: 13, color: isDark ? Colors.white54 : const Color(0xFF64748B))),
-        const SizedBox(height: 20),
-        Expanded(child: FutureBuilder<List<Package>>(future: repository.fetchAvailableUpgrades(currentRank), builder: (_, snap) {
-          if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-          final upgrades = snap.data ?? [];
-          if (upgrades.isEmpty) return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.verified, size: 56, color: const Color(0xFF0037FD).withAlpha(100)),
-            const SizedBox(height: 16),
-            Text('You are currently on the highest tier!', textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: isDark ? Colors.white70 : const Color(0xFF334155))),
-          ]));
-          return ListView.builder(controller: scrollCtrl, itemCount: upgrades.length, itemBuilder: (_, i) {
-            final pkg = upgrades[i];
-            return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade200)),
-              child: Padding(padding: const EdgeInsets.all(20), child: Row(children: [
-                Container(width: 48, height: 48, decoration: BoxDecoration(color: const Color(0xFF0037FD).withAlpha(25), borderRadius: BorderRadius.circular(14)),
-                    child: Center(child: Text(pkg.name.isNotEmpty ? pkg.name[0].toUpperCase() : '?',
-                        style: const TextStyle(color: Color(0xFF0037FD), fontSize: 20, fontWeight: FontWeight.w700)))),
-                const SizedBox(width: 16),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(pkg.name, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: isDark ? Colors.white : const Color(0xFF1E293B))),
-                  const SizedBox(height: 4),
-                  Text('₱${pkg.price}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF0037FD))),
-                ])),
-                _PkgUpgradeBtn(package: pkg),
-              ])));
-          });
-        })),
-      ])));
+    return DraggableScrollableSheet(
+      initialChildSize: 0.5,
+      minChildSize: 0.3,
+      maxChildSize: 0.8,
+      expand: false,
+      builder: (_, scrollCtrl) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Upgrade Package',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: isDark ? Colors.white : const Color(0xFF1E293B),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Available upgrades for $memberName',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? Colors.white54 : const Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Expanded(
+              child: FutureBuilder<List<Package>>(
+                future: repository.fetchAvailableUpgrades(currentRank),
+                builder: (_, snap) {
+                  if (snap.connectionState == ConnectionState.waiting)
+                    return const Center(child: CircularProgressIndicator());
+                  final upgrades = snap.data ?? [];
+                  if (upgrades.isEmpty)
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.verified,
+                            size: 56,
+                            color: const Color(0xFF0037FD).withAlpha(100),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'You are currently on the highest tier!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: isDark
+                                  ? Colors.white70
+                                  : const Color(0xFF334155),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  return ListView.builder(
+                    controller: scrollCtrl,
+                    itemCount: upgrades.length,
+                    itemBuilder: (_, i) {
+                      final pkg = upgrades[i];
+                      return Card(
+                        elevation: 0,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: isDark
+                                ? Colors.white12
+                                : Colors.grey.shade200,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0037FD).withAlpha(25),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    pkg.name.isNotEmpty
+                                        ? pkg.name[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                      color: Color(0xFF0037FD),
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      pkg.name,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: isDark
+                                            ? Colors.white
+                                            : const Color(0xFF1E293B),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '₱${pkg.price}',
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF0037FD),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              _PkgUpgradeBtn(package: pkg),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -670,15 +810,35 @@ class _PkgUpgradeBtn extends StatefulWidget {
   @override
   State<_PkgUpgradeBtn> createState() => _PkgUpgradeBtnState();
 }
+
 class _PkgUpgradeBtnState extends State<_PkgUpgradeBtn> {
   bool _loading = false;
   @override
   Widget build(BuildContext c) => FilledButton(
-    onPressed: _loading ? null : () { setState(() => _loading = true); Navigator.pop(c, widget.package); },
-    style: FilledButton.styleFrom(backgroundColor: const Color(0xFF0037FD), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-    child: _loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-        : const Text('Upgrade', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+    onPressed: _loading
+        ? null
+        : () {
+            setState(() => _loading = true);
+            Navigator.pop(c, widget.package);
+          },
+    style: FilledButton.styleFrom(
+      backgroundColor: const Color(0xFF0037FD),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    child: _loading
+        ? const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Colors.white,
+            ),
+          )
+        : const Text(
+            'Upgrade',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
   );
 }
 

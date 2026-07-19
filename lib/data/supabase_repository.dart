@@ -1130,7 +1130,8 @@ class SupabaseRepository {
         await _supabase.from('member_transactions').insert({
           'user_id': _uid,
           'member_id': b.recipientMemberId,
-          'item_name': 'Passive Income (${b.reason == 'passive_direct' ? 'Direct' : 'Indirect'})',
+          'item_name':
+              'Passive Income (${b.reason == 'passive_direct' ? 'Direct' : 'Indirect'})',
           'quantity': itemCount,
           'price': b.amount,
           'timestamp': DateTime.now().toUtc().toIso8601String(),
@@ -1160,10 +1161,10 @@ class SupabaseRepository {
     required int memberId,
     required int targetPackageId,
   }) async {
-    await _supabase.rpc('process_package_upgrade', params: {
-      'p_member_id': memberId,
-      'p_target_package_id': targetPackageId,
-    });
+    await _supabase.rpc(
+      'process_package_upgrade',
+      params: {'p_member_id': memberId, 'p_target_package_id': targetPackageId},
+    );
     _changes.add('member_updated');
   }
 
@@ -1295,8 +1296,25 @@ class SupabaseRepository {
       }
     }
 
+    // ── Upgrade Referral Bonus: earned when direct downlines upgrade ──
+    int upgradeBonus = 0;
+    try {
+      final txData = await _supabase
+          .from('member_transactions')
+          .select('price')
+          .eq('member_id', memberId)
+          .ilike('item_name', 'Upgrade Bonus%');
+      for (final row in (txData as List)) {
+        upgradeBonus += (row['price'] as int? ?? 0);
+      }
+    } catch (_) {}
+
     final totalEarnings =
-        indirectBonus + passiveIncome + repeatPurchase + chairmanBonus;
+        indirectBonus +
+        passiveIncome +
+        repeatPurchase +
+        chairmanBonus +
+        upgradeBonus;
 
     // Subtract approved withdrawals from the appropriate buckets.
     final withdrawals = await _fetchApprovedWithdrawalTotals(memberId);
@@ -1317,7 +1335,9 @@ class SupabaseRepository {
       'passiveIncome': passiveIncome,
       'repeatPurchase': repeatPurchase,
       'chairmanBonus': chairmanBonus,
-      'chairmanFridays': 0, // deprecated — chairman bonus is now per-registration
+      'upgradeBonus': upgradeBonus,
+      'chairmanFridays':
+          0, // deprecated — chairman bonus is now per-registration
     };
   }
 
@@ -1365,6 +1385,7 @@ class SupabaseRepository {
     int passiveIncome = 0,
     int repeatPurchase = 0,
     int chairmanBonus = 0,
+    int upgradeBonus = 0, // included in totalEarnings, tracked for audit
   }) async {
     try {
       // Nothing earned yet and nothing to compare against — don't write
@@ -1376,13 +1397,14 @@ class SupabaseRepository {
           groupSales == 0 &&
           passiveIncome == 0 &&
           repeatPurchase == 0 &&
-          chairmanBonus == 0;
+          chairmanBonus == 0 &&
+          upgradeBonus == 0;
 
       final last = await _supabase
           .from('earnings_history')
           .select(
             'total_earnings, balance, indirect_bonus, group_sales, '
-            'passive_income, repeat_purchase, chairman_bonus',
+            'passive_income, repeat_purchase, chairman_bonus, upgrade_bonus',
           )
           .eq('member_id', memberId)
           .order('recorded_at', ascending: false)
@@ -1401,7 +1423,8 @@ class SupabaseRepository {
           (last['group_sales'] as int? ?? 0) == groupSales &&
           (last['passive_income'] as int? ?? 0) == passiveIncome &&
           (last['repeat_purchase'] as int? ?? 0) == repeatPurchase &&
-          (last['chairman_bonus'] as int? ?? 0) == chairmanBonus;
+          (last['chairman_bonus'] as int? ?? 0) == chairmanBonus &&
+          (last['upgrade_bonus'] as int? ?? 0) == upgradeBonus;
       if (unchanged) return false; // nothing changed — no log entry
 
       await _supabase.from('earnings_history').insert({
@@ -1415,6 +1438,7 @@ class SupabaseRepository {
         'passive_income': passiveIncome,
         'repeat_purchase': repeatPurchase,
         'chairman_bonus': chairmanBonus,
+        'upgrade_bonus': upgradeBonus,
       });
       return true;
     } catch (e) {
@@ -2001,6 +2025,7 @@ class SupabaseRepository {
         'passive_income': breakdown['passiveIncome'] ?? 0,
         'repeat_purchase': breakdown['repeatPurchase'] ?? 0,
         'chairman_bonus': breakdown['chairmanBonus'] ?? 0,
+        'upgrade_bonus': breakdown['upgradeBonus'] ?? 0,
       });
     } catch (e) {
       debugPrint('[approveWithdrawalRequest] deduction failed: $e');
