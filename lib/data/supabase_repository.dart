@@ -761,41 +761,15 @@ class SupabaseRepository {
   }
 
   /// Upload a member ID image to Supabase Storage so it's accessible
-  /// from any device. Returns the public URL on success, null on failure.
-  Future<String?> uploadMemberImage(
+  /// from any device. Returns the public URL. Throws on failure so
+  /// callers can fall back to the local file and show the real reason —
+  /// a swallowed error here is what used to leave members unverified
+  /// with no explanation.
+  Future<String> uploadMemberImage(
     int memberId,
     Uint8List bytes,
     String ext,
   ) async {
-    try {
-      final path = '$memberId.$ext';
-      await _supabase.storage
-          .from('member-ids')
-          .uploadBinary(
-            path,
-            bytes,
-            fileOptions: const FileOptions(upsert: true),
-          );
-      return _supabase.storage.from('member-ids').getPublicUrl(path);
-    } catch (e) {
-      print('[Stockpile] uploadMemberImage failed: $e');
-      return null;
-    }
-  }
-
-  /// Upload a member's ID photo and immediately promote them to
-  /// Verified Reseller in one chained operation, so a successful upload
-  /// can never leave the member unverified. Throws on any failure
-  /// (storage or database) so callers can surface the error instead of
-  /// silently keeping the old state. Returns the photo's public URL.
-  ///
-  /// Note: members has no separate status column — role IS the status.
-  Future<String> uploadIdPhotoAndVerifyMember({
-    required int memberId,
-    required Uint8List bytes,
-    required String ext,
-  }) async {
-    // 1. Upload to Storage — uploadBinary throws on failure (no silent null).
     final path = '$memberId.$ext';
     await _supabase.storage
         .from('member-ids')
@@ -804,16 +778,7 @@ class SupabaseRepository {
           bytes,
           fileOptions: const FileOptions(upsert: true),
         );
-    final url = _supabase.storage.from('member-ids').getPublicUrl(path);
-
-    // 2. Chain the members update: photo path + Verified Reseller role.
-    await _supabase
-        .from('members')
-        .update({'id_image_path': url, 'role': 'Verified Reseller'})
-        .eq('id', memberId);
-
-    _changes.add('member_updated');
-    return url;
+    return _supabase.storage.from('member-ids').getPublicUrl(path);
   }
 
   // ── Package CRUD ───────────────────────────────────────────────────────
