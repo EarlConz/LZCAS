@@ -248,35 +248,35 @@ class MembersTableState extends State<MembersTable> {
             final ext = p.extension(finalImagePath).isNotEmpty
                 ? p.extension(finalImagePath).substring(1)
                 : 'jpg';
-            final url = await repository.uploadMemberImage(
-              memberId,
-              bytes,
-              ext,
-            );
-            if (url != null) {
-              final created = await repository.getMemberById(memberId);
-              if (created != null) {
-                final updated = created.copyWith(idImagePath: url);
-                await repository.updateMember(updated);
-              }
-            } else if (mounted) {
-              showErrorToast(
-                'ID photo upload failed — the member was saved without it. '
-                'Edit the member to re-upload.',
+            String storedPath;
+            try {
+              storedPath = await repository.uploadMemberImage(
+                memberId,
+                bytes,
+                ext,
               );
+              await srcFile.delete();
+            } catch (e) {
+              // Cloud upload failed — keep the local copy so the photo
+              // still shows on this device. The member's role was
+              // already set at insert time and is unaffected.
+              debugPrint('[MembersTable] ID photo cloud upload failed: $e');
+              storedPath = finalImagePath;
+              if (mounted) {
+                showErrorToast(
+                  'Photo saved on this device only — cloud upload failed: '
+                  '${_shortError(e)}',
+                );
+              }
             }
-            await srcFile.delete();
+            final created = await repository.getMemberById(memberId);
+            if (created != null) {
+              final updated = created.copyWith(idImagePath: storedPath);
+              await repository.updateMember(updated);
+            }
           }
         } catch (e) {
-          debugPrint(
-            '[MembersTable] Image upload failed, keeping local path: $e',
-          );
-          if (mounted) {
-            showErrorToast(
-              'ID photo upload failed — the member was saved without it. '
-              'Edit the member to re-upload.',
-            );
-          }
+          debugPrint('[MembersTable] Saving ID photo failed: $e');
         }
       }
     }
@@ -334,6 +334,13 @@ class MembersTableState extends State<MembersTable> {
     return memberId;
   }
 
+  /// Compress an exception into a toast-sized message so the admin can
+  /// see (and report) the actual failure reason.
+  String _shortError(Object e) {
+    final s = e.toString();
+    return s.length > 110 ? '${s.substring(0, 110)}…' : s;
+  }
+
   Future<void> updateMember(
     Map<String, dynamic> oldMember,
     Map<String, dynamic> updatedMember,
@@ -361,27 +368,37 @@ class MembersTableState extends State<MembersTable> {
             final ext = p.extension(rawImagePath).isNotEmpty
                 ? p.extension(rawImagePath).substring(1)
                 : 'jpg';
-            // Upload + promote to Verified Reseller in one chained call.
-            // Throws if either step fails so the admin sees the error
-            // instead of the member silently staying unverified.
-            finalImagePath = await repository.uploadIdPhotoAndVerifyMember(
-              memberId: id,
-              bytes: bytes,
-              ext: ext,
-            );
             try {
-              await srcFile.delete();
-            } catch (_) {}
+              finalImagePath = await repository.uploadMemberImage(
+                id,
+                bytes,
+                ext,
+              );
+              try {
+                await srcFile.delete();
+              } catch (_) {}
+            } catch (e) {
+              // Cloud upload failed — keep the local copy so the photo
+              // still shows on this device and, crucially, the Verified
+              // Reseller promotion below still proceeds. An attached ID
+              // photo verifies the member regardless of where the file
+              // ended up being stored.
+              debugPrint('[MembersTable] ID photo cloud upload failed: $e');
+              finalImagePath = rawImagePath;
+              if (mounted) {
+                showErrorToast(
+                  'Photo saved on this device only — cloud upload failed: '
+                  '${_shortError(e)}',
+                );
+              }
+            }
           } else {
             finalImagePath = row.idImagePath;
           }
         } catch (e) {
-          debugPrint('[MembersTable] ID photo upload failed: $e');
+          debugPrint('[MembersTable] Could not read the ID photo: $e');
           if (mounted) {
-            showErrorToast(
-              'ID photo upload failed — member was NOT verified. '
-              'Please try again.',
-            );
+            showErrorToast('Could not read the selected photo.');
           }
           finalImagePath = row.idImagePath;
         } finally {
