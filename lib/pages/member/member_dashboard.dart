@@ -2003,7 +2003,10 @@ class _EarningsLedgerCard extends StatelessWidget {
           h.indirectBonus - (prev?.indirectBonus ?? 0),
           'Indirect Referral',
         ),
-        ?_deltaChip(h.passiveIncome - (prev?.passiveIncome ?? 0), 'Passive Income'),
+        ?_deltaChip(
+          h.passiveIncome - (prev?.passiveIncome ?? 0),
+          'Passive Income',
+        ),
         ?_deltaChip(
           h.repeatPurchase - (prev?.repeatPurchase ?? 0),
           'Repeat Purchase',

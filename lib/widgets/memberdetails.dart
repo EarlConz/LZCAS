@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/theme.dart';
@@ -13,6 +14,8 @@ import 'package:lzcas/utils/fonts.dart';
 import 'interactive_member_avatar.dart';
 import '../utils/formatters.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/auth/auth_state.dart';
+import 'package:lzcas/auth/role_visibility.dart';
 
 /// Build an image widget from a file path, data URL, or network URL.
 Widget buildIdImage(
@@ -475,6 +478,115 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     );
   }
 
+  /// Show a package selection dialog and upgrade the member's package.
+  /// Restricted to Admin and Cashier roles via [RoleVisibility] in the UI.
+  Future<void> _showUpgradePackageDialog() async {
+    final memberId = member['id'] as int?;
+    if (memberId == null) return;
+
+    final packages = await repository.fetchPackages();
+    if (!mounted) return;
+
+    // Filter out the member's current package (no-op upgrade)
+    final rawPkgId = member['packageId'];
+    final currentPkgId =
+        rawPkgId is int ? rawPkgId : int.tryParse('$rawPkgId');
+    final available =
+        packages.where((p) => p.id != currentPkgId).toList();
+
+    if (available.isEmpty) {
+      BotToast.showText(text: 'No other packages available.');
+      return;
+    }
+
+    final selected = await showDialog<Package>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Upgrade Package'),
+          content: SizedBox(
+            width: 360,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: available.length,
+              itemBuilder: (_, i) {
+                final pkg = available[i];
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: StockpileColors.primary900,
+                    child: Text(
+                      pkg.name.isNotEmpty
+                          ? pkg.name[0].toUpperCase()
+                          : '?',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  title: Text(pkg.name),
+                  subtitle: Text('₱${pkg.price}'),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  onTap: () => Navigator.pop(ctx, pkg),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (selected == null || !mounted) return;
+
+    try {
+      // Update the member's package_id
+      final current = await repository.getMemberById(memberId);
+      if (current == null) {
+        showErrorToast('Member not found.');
+        return;
+      }
+      await repository.updateMember(
+        current.copyWith(packageId: selected.id),
+      );
+
+      // Trigger upgrade bonus computation
+      await repository.processPackageUpgrade(
+        memberId: memberId,
+        upgradedPackageId: selected.id!,
+      );
+
+      showSuccessToast(
+        '${_memberDisplayName()} upgraded to ${selected.name}',
+      );
+
+      // Refresh local state
+      _loadAvailedPackages();
+      if (mounted) setState(() {
+        final selId = selected.id;
+        if (selId != null) {
+          member['packageId'] = selId;
+          _currentPackageName = selected.name;
+        }
+      });
+    } catch (e) {
+      showErrorToast('Failed to upgrade package: $e');
+    }
+  }
+
+  String _memberDisplayName() {
+    final name = [
+      member['firstName'],
+      member['lastName'],
+    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+    return name.isNotEmpty ? name : 'Member #${member['id']}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -503,6 +615,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
               }
             },
             onCreateAccount: _showCreateAccountDialog,
+            onUpgradePackage: _showUpgradePackageDialog,
           );
         },
       );
@@ -545,6 +658,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
               }
             },
             onCreateAccount: _showCreateAccountDialog,
+            onUpgradePackage: _showUpgradePackageDialog,
           );
         },
       ),
@@ -567,6 +681,7 @@ class _MemberProfileSection extends StatelessWidget {
     this.showHeader = true,
     this.onIdImageTap,
     this.onCreateAccount,
+    this.onUpgradePackage,
   });
 
   final Map<String, dynamic> member;
@@ -582,6 +697,7 @@ class _MemberProfileSection extends StatelessWidget {
   final bool showHeader;
   final VoidCallback? onIdImageTap;
   final VoidCallback? onCreateAccount;
+  final VoidCallback? onUpgradePackage;
 
   @override
   Widget build(BuildContext context) {
@@ -844,6 +960,29 @@ class _MemberProfileSection extends StatelessWidget {
             );
           },
         ),
+        // ── Upgrade Package (Admin / Cashier only) ─────
+        if (onUpgradePackage != null) ...[
+          const SizedBox(height: 10),
+          RoleVisibility(
+            allowedRoles: {UserRole.admin, UserRole.cashier},
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onUpgradePackage,
+                icon: const Icon(Icons.upgrade, size: 18),
+                label: const Text('Upgrade Package'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: StockpileColors.primary900,
+                  side: const BorderSide(color: StockpileColors.primary900),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

@@ -1878,24 +1878,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
     final upgradeReferralCtrl = TextEditingController(
       text: existing != null ? '${existing.upgradeReferralBonus}' : '0',
     );
-
-    // Repeat purchase rates parsed from JSON
-    Map<String, dynamic> existingRates = {};
-    if (existing != null) {
-      try {
-        existingRates =
-            jsonDecode(existing.repeatPurchaseJson) as Map<String, dynamic>;
-      } catch (_) {}
-    }
-    final rpPackCtrl = TextEditingController(
-      text: '${existingRates['pack'] ?? 5}',
-    );
-    final rpBoxCtrl = TextEditingController(
-      text: '${existingRates['box'] ?? 5}',
-    );
-    final rpBottleCtrl = TextEditingController(
-      text: '${existingRates['bottle'] ?? 20}',
-    );
     final groupDirectCtrl = TextEditingController(
       text: existing != null ? '${existing.groupSalesDirect}' : '3',
     );
@@ -1976,58 +1958,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     ),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Repeat Purchase Rates',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: rpPackCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Per Pack',
-                          ),
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextFormField(
-                          controller: rpBoxCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Per Box',
-                          ),
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextFormField(
-                          controller: rpBottleCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Per Bottle',
-                          ),
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                        ),
-                      ),
-                    ],
                   ),
                   const SizedBox(height: 20),
                   Text(
@@ -2297,11 +2227,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
           FilledButton(
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
-              final repeatJson = jsonEncode({
-                'pack': int.tryParse(rpPackCtrl.text) ?? 0,
-                'box': int.tryParse(rpBoxCtrl.text) ?? 0,
-                'bottle': int.tryParse(rpBottleCtrl.text) ?? 0,
-              });
               try {
                 if (existing != null) {
                   final updated = existing.copyWith(
@@ -2312,7 +2237,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
-                    repeatPurchaseJson: repeatJson,
+                    repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
                         int.tryParse(groupIndirectCtrl.text) ?? 0,
@@ -2328,7 +2253,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
-                    repeatPurchaseJson: repeatJson,
+                    repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
                         int.tryParse(groupIndirectCtrl.text) ?? 0,
