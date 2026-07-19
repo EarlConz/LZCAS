@@ -182,12 +182,206 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
 // ─── Dashboard — recovered from original DashboardPage ─────────────────────
 
-class _AdminDashboardPage extends StatelessWidget {
+class _AdminDashboardPage extends StatefulWidget {
   const _AdminDashboardPage();
 
   @override
+  State<_AdminDashboardPage> createState() => _AdminDashboardPageState();
+}
+
+class _AdminDashboardPageState extends State<_AdminDashboardPage> {
+  @override
   Widget build(BuildContext context) {
-    return const SingleChildScrollView(child: DashboardPage());
+    return Stack(
+      children: [
+        const SingleChildScrollView(child: DashboardPage()),
+        // ── Quick Action: Upgrade Member Package ──────
+        Positioned(
+          bottom: 24,
+          right: 24,
+          child: FloatingActionButton.extended(
+            heroTag: 'upgrade-member',
+            onPressed: () => _showQuickUpgradeDialog(context),
+            icon: const Icon(Icons.upgrade),
+            label: const Text('Upgrade Member'),
+            backgroundColor: StockpileColors.primary900,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showQuickUpgradeDialog(BuildContext context) async {
+    // Fetch all members and packages for lookup
+    final allMembers = await repository.fetchMembers();
+    final packages = await repository.fetchPackages();
+    if (!mounted) return;
+
+    // Only Verified Resellers can upgrade
+    final members =
+        allMembers.where((m) => (m.role ?? '') == 'Verified Reseller').toList();
+
+    if (members.isEmpty) {
+      BotToast.showText(text: 'No Verified Resellers found.');
+      return;
+    }
+
+    // Show a member + package selector in one dialog
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (ctx) {
+        int? selectedMemberId;
+        int? selectedPackageId;
+
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final member = members.firstWhere(
+              (m) => m.id == selectedMemberId,
+              orElse: () => Member(
+                id: 0,
+                lastName: null,
+                firstName: null,
+                middleName: null,
+                role: null,
+                contactNo: null,
+                birthday: null,
+                address: null,
+                referrer: null,
+                qr: null,
+              ),
+            );
+            final currentPkgId = member.packageId;
+            final availablePackages = packages
+                .where((p) => p.id != currentPkgId)
+                .toList();
+
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.upgrade, size: 22),
+                  SizedBox(width: 10),
+                  Text('Quick Upgrade'),
+                ],
+              ),
+              content: SizedBox(
+                width: 440,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ── Member selector ────────────────
+                    DropdownButtonFormField<int>(
+                      value: selectedMemberId,
+                      decoration: const InputDecoration(
+                        labelText: 'Member',
+                        prefixIcon: Icon(Icons.person_outline),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: members
+                          .map(
+                            (m) => DropdownMenuItem(
+                              value: m.id,
+                              child: Text(
+                                [m.firstName, m.lastName]
+                                    .where((p) => p != null && p.isNotEmpty)
+                                    .join(' '),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) {
+                        setDialogState(() {
+                          selectedMemberId = v;
+                          selectedPackageId = null;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    // ── Package selector ───────────────
+                    DropdownButtonFormField<int>(
+                      value: selectedPackageId,
+                      decoration: const InputDecoration(
+                        labelText: 'New Package',
+                        prefixIcon: Icon(Icons.card_giftcard_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: availablePackages
+                          .map(
+                            (p) => DropdownMenuItem(
+                              value: p.id,
+                              child: Text('${p.name} — ₱${p.price}'),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: selectedMemberId != null
+                          ? (v) => setDialogState(() => selectedPackageId = v)
+                          : null,
+                      disabledHint: const Text(
+                        'Select a member first',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  icon: const Icon(Icons.upgrade, size: 18),
+                  label: const Text('Upgrade'),
+                  onPressed:
+                      selectedMemberId != null && selectedPackageId != null
+                      ? () => Navigator.pop(ctx, {
+                          'memberId': selectedMemberId,
+                          'packageId': selectedPackageId,
+                        })
+                      : null,
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == null || !mounted) return;
+
+    final mid = result['memberId'] as int;
+    final pid = result['packageId'] as int;
+
+    try {
+      final member = await repository.getMemberById(mid);
+      final pkg = packages.firstWhere((p) => p.id == pid);
+      if (member == null) return;
+
+      await repository.updateMember(member.copyWith(packageId: pid));
+      await repository.processPackageUpgrade(
+        memberId: mid,
+        upgradedPackageId: pid,
+      );
+
+      // ── POS: create a sale record for this upgrade ──
+      await repository.addSale(
+        itemId: 0,
+        itemName: 'Package Upgrade: ${pkg.name}',
+        quantity: 1,
+        price: pkg.price,
+        buyerId: mid,
+        buyerName: member.firstName,
+        packageId: pid,
+        timestamp: DateTime.now(),
+      );
+
+      BotToast.showText(
+        text: '${member.firstName ?? 'Member'} upgraded to ${pkg.name}',
+      );
+    } catch (e) {
+      BotToast.showText(text: 'Failed: $e');
+    }
   }
 }
 
@@ -3963,7 +4157,31 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
+                        // ── Upgrade Package ──────────────────
+                        // Only Verified Resellers can upgrade their package.
+                        if (isReseller) ...[
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  _showUpgradePackageDialog(ctx, member),
+                              icon: const Icon(Icons.upgrade, size: 18),
+                              label: const Text('Upgrade Package'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: StockpileColors.primary900,
+                                side: const BorderSide(
+                                  color: StockpileColors.primary900,
+                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         SizedBox(
                           width: double.infinity,
                           child: TextButton.icon(
@@ -4235,6 +4453,98 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
   void _deleteMember(Map<String, dynamic> member) {
     _tableKey.currentState?.removeMember(member);
     showSuccessToast('Member deleted.');
+  }
+
+  Future<void> _showUpgradePackageDialog(
+    BuildContext ctx,
+    Map<String, dynamic> member,
+  ) async {
+    final memberId = member['id'] as int?;
+    if (memberId == null) return;
+
+    final packages = await repository.fetchPackages();
+    if (!mounted) return;
+
+    final rawPkgId = member['packageId'];
+    final currentPkgId = rawPkgId is int ? rawPkgId : int.tryParse('$rawPkgId');
+    final available = packages.where((p) => p.id != currentPkgId).toList();
+
+    if (available.isEmpty) {
+      BotToast.showText(text: 'No other packages available.');
+      return;
+    }
+
+    final selected = await showDialog<Package>(
+      context: ctx,
+      builder: (c) => AlertDialog(
+        title: const Text('Upgrade Package'),
+        content: SizedBox(
+          width: 360,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: available.length,
+            itemBuilder: (_, i) {
+              final pkg = available[i];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: StockpileColors.primary900,
+                  child: Text(
+                    pkg.name.isNotEmpty ? pkg.name[0].toUpperCase() : '?',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+                title: Text(pkg.name),
+                subtitle: Text('₱${pkg.price}'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                onTap: () => Navigator.pop(c, pkg),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected == null || !mounted) return;
+
+    try {
+      final current = await repository.getMemberById(memberId);
+      if (current == null) {
+        BotToast.showText(text: 'Member not found.');
+        return;
+      }
+      await repository.updateMember(current.copyWith(packageId: selected.id));
+      await repository.processPackageUpgrade(
+        memberId: memberId,
+        upgradedPackageId: selected.id!,
+      );
+
+      // ── POS: create a sale record for this upgrade ──
+      await repository.addSale(
+        itemId: 0, // package-only transaction
+        itemName: 'Package Upgrade: ${selected.name}',
+        quantity: 1,
+        price: selected.price,
+        buyerId: memberId,
+        buyerName: member['firstName']?.toString(),
+        packageId: selected.id,
+        timestamp: DateTime.now(),
+      );
+
+      BotToast.showText(
+        text: '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
+      );
+    } catch (e) {
+      BotToast.showText(text: 'Failed to upgrade package: $e');
+    }
   }
 
   void _showCreateAccountDialog(BuildContext ctx, Map<String, dynamic> member) {

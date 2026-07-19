@@ -489,10 +489,8 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
 
     // Filter out the member's current package (no-op upgrade)
     final rawPkgId = member['packageId'];
-    final currentPkgId =
-        rawPkgId is int ? rawPkgId : int.tryParse('$rawPkgId');
-    final available =
-        packages.where((p) => p.id != currentPkgId).toList();
+    final currentPkgId = rawPkgId is int ? rawPkgId : int.tryParse('$rawPkgId');
+    final available = packages.where((p) => p.id != currentPkgId).toList();
 
     if (available.isEmpty) {
       BotToast.showText(text: 'No other packages available.');
@@ -515,9 +513,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
                   leading: CircleAvatar(
                     backgroundColor: StockpileColors.primary900,
                     child: Text(
-                      pkg.name.isNotEmpty
-                          ? pkg.name[0].toUpperCase()
-                          : '?',
+                      pkg.name.isNotEmpty ? pkg.name[0].toUpperCase() : '?',
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
@@ -551,9 +547,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
         showErrorToast('Member not found.');
         return;
       }
-      await repository.updateMember(
-        current.copyWith(packageId: selected.id),
-      );
+      await repository.updateMember(current.copyWith(packageId: selected.id));
 
       // Trigger upgrade bonus computation
       await repository.processPackageUpgrade(
@@ -561,19 +555,30 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
         upgradedPackageId: selected.id!,
       );
 
-      showSuccessToast(
-        '${_memberDisplayName()} upgraded to ${selected.name}',
+      // ── POS: create a sale record for this upgrade ──
+      await repository.addSale(
+        itemId: 0,
+        itemName: 'Package Upgrade: ${selected.name}',
+        quantity: 1,
+        price: selected.price,
+        buyerId: memberId,
+        buyerName: member['firstName']?.toString(),
+        packageId: selected.id,
+        timestamp: DateTime.now(),
       );
+
+      showSuccessToast('${_memberDisplayName()} upgraded to ${selected.name}');
 
       // Refresh local state
       _loadAvailedPackages();
-      if (mounted) setState(() {
-        final selId = selected.id;
-        if (selId != null) {
-          member['packageId'] = selId;
-          _currentPackageName = selected.name;
-        }
-      });
+      if (mounted)
+        setState(() {
+          final selId = selected.id;
+          if (selId != null) {
+            member['packageId'] = selId;
+            _currentPackageName = selected.name;
+          }
+        });
     } catch (e) {
       showErrorToast('Failed to upgrade package: $e');
     }
@@ -960,9 +965,12 @@ class _MemberProfileSection extends StatelessWidget {
             );
           },
         ),
-        // ── Upgrade Package (Admin / Cashier only) ─────
-        if (onUpgradePackage != null) ...[
-          const SizedBox(height: 10),
+        // ── Upgrade Package (Admin/Cashier + Verified Reseller only) ─
+        if (onUpgradePackage != null &&
+            (member['role']?.toString() ?? '') == 'Verified Reseller') ...[
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
           RoleVisibility(
             allowedRoles: {UserRole.admin, UserRole.cashier},
             child: SizedBox(
@@ -973,8 +981,11 @@ class _MemberProfileSection extends StatelessWidget {
                 label: const Text('Upgrade Package'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: StockpileColors.primary900,
-                  side: const BorderSide(color: StockpileColors.primary900),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  side: const BorderSide(
+                    color: StockpileColors.primary900,
+                    width: 1.5,
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -982,6 +993,7 @@ class _MemberProfileSection extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 4),
         ],
       ],
     );
