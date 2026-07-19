@@ -344,6 +344,7 @@ create table if not exists public.earnings_history (
   -- (balance's only source is the direct referral bonus)
   indirect_bonus integer not null default 0,
   group_sales integer not null default 0,
+  passive_income integer not null default 0,
   repeat_purchase integer not null default 0,
   chairman_bonus integer not null default 0,
   recorded_at timestamptz not null default now()
@@ -352,6 +353,7 @@ create table if not exists public.earnings_history (
 -- Component columns for pre-existing installs (safe to re-run)
 alter table public.earnings_history add column if not exists indirect_bonus integer not null default 0;
 alter table public.earnings_history add column if not exists group_sales integer not null default 0;
+alter table public.earnings_history add column if not exists passive_income integer not null default 0;
 alter table public.earnings_history add column if not exists repeat_purchase integer not null default 0;
 alter table public.earnings_history add column if not exists chairman_bonus integer not null default 0;
 
