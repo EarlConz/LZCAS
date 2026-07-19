@@ -188,12 +188,10 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     setState(() => _packages = pkgs);
   }
 
-  /// True when any ID verification field has content — triggers reseller
-  /// conversion and reveals the package selector.
+  /// Package selector only appears when an ID photo is uploaded — this is
+  /// the trigger for converting a member into a Verified Reseller.
   bool get _hasIdFields =>
-      _selectedIdType != null ||
-      idNumberController.text.trim().isNotEmpty ||
-      (_selectedIdImagePath != null && _selectedIdImagePath!.isNotEmpty);
+      _selectedIdImagePath != null && _selectedIdImagePath!.isNotEmpty;
 
   @override
   void dispose() {

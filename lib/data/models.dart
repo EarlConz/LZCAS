@@ -301,6 +301,9 @@ class EarningsSnapshot {
   final int repeatPurchase;
   final int chairmanBonus;
 
+  /// Upgrade referral bonus earned when direct downlines upgrade.
+  final int upgradeBonus;
+
   final DateTime? recordedAt;
 
   const EarningsSnapshot({
@@ -315,6 +318,7 @@ class EarningsSnapshot {
     this.passiveIncome = 0,
     this.repeatPurchase = 0,
     this.chairmanBonus = 0,
+    this.upgradeBonus = 0,
     this.recordedAt,
   });
 
@@ -327,7 +331,8 @@ class EarningsSnapshot {
       groupSales == 0 &&
       passiveIncome == 0 &&
       repeatPurchase == 0 &&
-      chairmanBonus == 0;
+      chairmanBonus == 0 &&
+      upgradeBonus == 0;
 
   factory EarningsSnapshot.fromJson(Map<String, dynamic> json) =>
       EarningsSnapshot(
@@ -342,6 +347,7 @@ class EarningsSnapshot {
         passiveIncome: json['passive_income'] as int? ?? 0,
         repeatPurchase: json['repeat_purchase'] as int? ?? 0,
         chairmanBonus: json['chairman_bonus'] as int? ?? 0,
+        upgradeBonus: json['upgrade_bonus'] as int? ?? 0,
         recordedAt: json['recorded_at'] != null
             ? DateTime.tryParse(json['recorded_at'].toString())
             : null,
@@ -358,6 +364,7 @@ class EarningsSnapshot {
     'passive_income': passiveIncome,
     'repeat_purchase': repeatPurchase,
     'chairman_bonus': chairmanBonus,
+    'upgrade_bonus': upgradeBonus,
   };
 }
 

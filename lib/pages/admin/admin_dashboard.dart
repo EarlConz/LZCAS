@@ -2251,8 +2251,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
-                    hierarchyRank:
-                        int.tryParse(hierarchyRankCtrl.text) ?? 0,
+                    hierarchyRank: int.tryParse(hierarchyRankCtrl.text) ?? 0,
                     repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
@@ -2269,8 +2268,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
-                    hierarchyRank:
-                        int.tryParse(hierarchyRankCtrl.text) ?? 0,
+                    hierarchyRank: int.tryParse(hierarchyRankCtrl.text) ?? 0,
                     repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
@@ -4326,8 +4324,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
         timestamp: DateTime.now(),
       );
       BotToast.showText(
-        text:
-            '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
+        text: '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
       );
     } catch (e) {
       final msg = e.toString();
@@ -4604,7 +4601,8 @@ class _PackageUpgradeSheet extends StatelessWidget {
           children: [
             Center(
               child: Container(
-                width: 40, height: 4,
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
                   color: Colors.grey.shade400,
                   borderRadius: BorderRadius.circular(2),
@@ -4612,13 +4610,22 @@ class _PackageUpgradeSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            Text('Upgrade Package',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
-                  color: isDark ? Colors.white : const Color(0xFF1E293B))),
+            Text(
+              'Upgrade Package',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: isDark ? Colors.white : const Color(0xFF1E293B),
+              ),
+            ),
             const SizedBox(height: 4),
-            Text('Available upgrades for $memberName',
-              style: TextStyle(fontSize: 13,
-                  color: isDark ? Colors.white54 : const Color(0xFF64748B))),
+            Text(
+              'Available upgrades for $memberName',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? Colors.white54 : const Color(0xFF64748B),
+              ),
+            ),
             const SizedBox(height: 20),
             Expanded(
               child: FutureBuilder<List<Package>>(
@@ -4633,14 +4640,23 @@ class _PackageUpgradeSheet extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.verified, size: 56,
-                              color: const Color(0xFF0037FD).withAlpha(100)),
+                          Icon(
+                            Icons.verified,
+                            size: 56,
+                            color: const Color(0xFF0037FD).withAlpha(100),
+                          ),
                           const SizedBox(height: 16),
-                          Text('You are currently on the highest tier!',
+                          Text(
+                            'You are currently on the highest tier!',
                             textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white70 : const Color(0xFF334155))),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: isDark
+                                  ? Colors.white70
+                                  : const Color(0xFF334155),
+                            ),
+                          ),
                         ],
                       ),
                     );
@@ -4656,7 +4672,9 @@ class _PackageUpgradeSheet extends StatelessWidget {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                           side: BorderSide(
-                            color: isDark ? Colors.white12 : Colors.grey.shade200,
+                            color: isDark
+                                ? Colors.white12
+                                : Colors.grey.shade200,
                           ),
                         ),
                         child: Padding(
@@ -4664,16 +4682,23 @@ class _PackageUpgradeSheet extends StatelessWidget {
                           child: Row(
                             children: [
                               Container(
-                                width: 48, height: 48,
+                                width: 48,
+                                height: 48,
                                 decoration: BoxDecoration(
                                   color: const Color(0xFF0037FD).withAlpha(25),
                                   borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: Center(
-                                  child: Text(pkg.name.isNotEmpty ? pkg.name[0].toUpperCase() : '?',
+                                  child: Text(
+                                    pkg.name.isNotEmpty
+                                        ? pkg.name[0].toUpperCase()
+                                        : '?',
                                     style: const TextStyle(
                                       color: Color(0xFF0037FD),
-                                      fontSize: 20, fontWeight: FontWeight.w700)),
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 16),
@@ -4681,13 +4706,25 @@ class _PackageUpgradeSheet extends StatelessWidget {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(pkg.name,
-                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700,
-                                          color: isDark ? Colors.white : const Color(0xFF1E293B))),
+                                    Text(
+                                      pkg.name,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: isDark
+                                            ? Colors.white
+                                            : const Color(0xFF1E293B),
+                                      ),
+                                    ),
                                     const SizedBox(height: 4),
-                                    Text('₱${pkg.price}',
-                                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
-                                          color: Color(0xFF0037FD))),
+                                    Text(
+                                      '₱${pkg.price}',
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF0037FD),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -4732,8 +4769,18 @@ class _UpgradeButtonState extends State<_UpgradeButton> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       child: _loading
-          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-          : const Text('Upgrade', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            )
+          : const Text(
+              'Upgrade',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            ),
     );
   }
 

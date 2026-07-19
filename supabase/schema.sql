@@ -432,6 +432,7 @@ create table if not exists public.earnings_history (
   passive_income integer not null default 0,
   repeat_purchase integer not null default 0,
   chairman_bonus integer not null default 0,
+  upgrade_bonus integer not null default 0,
   recorded_at timestamptz not null default now()
 );
 
@@ -441,6 +442,7 @@ alter table public.earnings_history add column if not exists group_sales integer
 alter table public.earnings_history add column if not exists passive_income integer not null default 0;
 alter table public.earnings_history add column if not exists repeat_purchase integer not null default 0;
 alter table public.earnings_history add column if not exists chairman_bonus integer not null default 0;
+alter table public.earnings_history add column if not exists upgrade_bonus integer not null default 0;
 
 create index if not exists idx_earnings_history_member
   on public.earnings_history (member_id, recorded_at desc);
