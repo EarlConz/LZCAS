@@ -464,7 +464,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
                 isExpanded: true,
-                initialValue:
+                value:
                     _selectedIdType != null &&
                         _selectedIdType!.isNotEmpty &&
                         _idTypes.contains(_selectedIdType)
@@ -538,7 +538,9 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                 _sectionLabel('Package', theme, colorScheme),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<int?>(
-                  initialValue: _selectedPackageId,
+                  value: _packages.any((p) => p.id == _selectedPackageId)
+                      ? _selectedPackageId
+                      : null,
                   decoration: InputDecoration(
                     labelText: 'Select Package',
                     hintText: 'Choose a package for this reseller',
@@ -640,7 +642,9 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
           ? null
           : idNumberController.text.trim(),
       'idImagePath': _selectedIdImagePath,
-      'packageId': _hasIdFields ? _selectedPackageId : widget.member['packageId'],
+      'packageId': _hasIdFields
+          ? _selectedPackageId
+          : widget.member['packageId'],
     };
 
     widget.onMemberUpdated(updatedMember);

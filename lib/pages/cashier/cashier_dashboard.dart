@@ -15,7 +15,7 @@ import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/memberstable.dart';
-import 'package:lzcas/widgets/memberdetails.dart';
+import 'package:lzcas/widgets/admin_members_page.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
@@ -218,114 +218,14 @@ class TransactionPageBody extends StatelessWidget {
   }
 }
 
-// ─── Tab 2: Members Lookup ─────────────────────────────────────────────────
+// ─── Tab 2: Members Lookup — SAME as Admin's members page ─────────────
 
-class _MembersLookupTab extends StatefulWidget {
+class _MembersLookupTab extends StatelessWidget {
   const _MembersLookupTab();
 
   @override
-  State<_MembersLookupTab> createState() => _MembersLookupTabState();
-}
-
-class _MembersLookupTabState extends State<_MembersLookupTab> {
-  final _tableKey = GlobalKey<MembersTableState>();
-
-  void _showMemberDetail(Map<String, dynamic> member) {
-    final fullName = [
-      member['firstName'],
-      member['middleName'],
-      member['lastName'],
-    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
-
-    showAnimatedDialog(
-      context,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(28),
-          side: BorderSide(color: StockpileColors.primary900, width: 4),
-        ),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: 700,
-            maxHeight: MediaQuery.of(context).size.height * 0.85,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        fullName.isEmpty ? 'Member Details' : fullName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Edit member',
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _openEditDialog(member);
-                      },
-                      icon: CircleAvatar(
-                        radius: 16,
-                        backgroundColor: StockpileColors.primary900,
-                        child: const Icon(
-                          Icons.edit_outlined,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Close',
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Flexible(
-                  child: SingleChildScrollView(
-                    child: MemberDetailsCard(
-                      member: member,
-                      showHeader: false,
-                      showCardStyling: false,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _openEditDialog(Map<String, dynamic> member) async {
-    await showAnimatedDialog(
-      context,
-      builder: (_) => EditMemberDialog(
-        member: Map<String, dynamic>.from(member),
-        onMemberUpdated: (updated) {
-          _tableKey.currentState?.updateMember(member, updated);
-        },
-      ),
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: MembersTable(key: _tableKey, onRowSelected: _showMemberDetail),
-    );
+    return const AdminMembersPage();
   }
 }
 

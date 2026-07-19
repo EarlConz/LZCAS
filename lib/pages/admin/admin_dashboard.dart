@@ -182,206 +182,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
 // ─── Dashboard — recovered from original DashboardPage ─────────────────────
 
-class _AdminDashboardPage extends StatefulWidget {
+class _AdminDashboardPage extends StatelessWidget {
   const _AdminDashboardPage();
 
   @override
-  State<_AdminDashboardPage> createState() => _AdminDashboardPageState();
-}
-
-class _AdminDashboardPageState extends State<_AdminDashboardPage> {
-  @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        const SingleChildScrollView(child: DashboardPage()),
-        // ── Quick Action: Upgrade Member Package ──────
-        Positioned(
-          bottom: 24,
-          right: 24,
-          child: FloatingActionButton.extended(
-            heroTag: 'upgrade-member',
-            onPressed: () => _showQuickUpgradeDialog(context),
-            icon: const Icon(Icons.upgrade),
-            label: const Text('Upgrade Member'),
-            backgroundColor: StockpileColors.primary900,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _showQuickUpgradeDialog(BuildContext context) async {
-    // Fetch all members and packages for lookup
-    final allMembers = await repository.fetchMembers();
-    final packages = await repository.fetchPackages();
-    if (!mounted) return;
-
-    // Only Verified Resellers can upgrade
-    final members =
-        allMembers.where((m) => (m.role ?? '') == 'Verified Reseller').toList();
-
-    if (members.isEmpty) {
-      BotToast.showText(text: 'No Verified Resellers found.');
-      return;
-    }
-
-    // Show a member + package selector in one dialog
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) {
-        int? selectedMemberId;
-        int? selectedPackageId;
-
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            final member = members.firstWhere(
-              (m) => m.id == selectedMemberId,
-              orElse: () => Member(
-                id: 0,
-                lastName: null,
-                firstName: null,
-                middleName: null,
-                role: null,
-                contactNo: null,
-                birthday: null,
-                address: null,
-                referrer: null,
-                qr: null,
-              ),
-            );
-            final currentPkgId = member.packageId;
-            final availablePackages = packages
-                .where((p) => p.id != currentPkgId)
-                .toList();
-
-            return AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.upgrade, size: 22),
-                  SizedBox(width: 10),
-                  Text('Quick Upgrade'),
-                ],
-              ),
-              content: SizedBox(
-                width: 440,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // ── Member selector ────────────────
-                    DropdownButtonFormField<int>(
-                      value: selectedMemberId,
-                      decoration: const InputDecoration(
-                        labelText: 'Member',
-                        prefixIcon: Icon(Icons.person_outline),
-                        border: OutlineInputBorder(),
-                      ),
-                      items: members
-                          .map(
-                            (m) => DropdownMenuItem(
-                              value: m.id,
-                              child: Text(
-                                [m.firstName, m.lastName]
-                                    .where((p) => p != null && p.isNotEmpty)
-                                    .join(' '),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) {
-                        setDialogState(() {
-                          selectedMemberId = v;
-                          selectedPackageId = null;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    // ── Package selector ───────────────
-                    DropdownButtonFormField<int>(
-                      value: selectedPackageId,
-                      decoration: const InputDecoration(
-                        labelText: 'New Package',
-                        prefixIcon: Icon(Icons.card_giftcard_outlined),
-                        border: OutlineInputBorder(),
-                      ),
-                      items: availablePackages
-                          .map(
-                            (p) => DropdownMenuItem(
-                              value: p.id,
-                              child: Text('${p.name} — ₱${p.price}'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: selectedMemberId != null
-                          ? (v) => setDialogState(() => selectedPackageId = v)
-                          : null,
-                      disabledHint: const Text(
-                        'Select a member first',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton.icon(
-                  icon: const Icon(Icons.upgrade, size: 18),
-                  label: const Text('Upgrade'),
-                  onPressed:
-                      selectedMemberId != null && selectedPackageId != null
-                      ? () => Navigator.pop(ctx, {
-                          'memberId': selectedMemberId,
-                          'packageId': selectedPackageId,
-                        })
-                      : null,
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (result == null || !mounted) return;
-
-    final mid = result['memberId'] as int;
-    final pid = result['packageId'] as int;
-
-    try {
-      final member = await repository.getMemberById(mid);
-      final pkg = packages.firstWhere((p) => p.id == pid);
-      if (member == null) return;
-
-      await repository.updateMember(member.copyWith(packageId: pid));
-      await repository.processPackageUpgrade(
-        memberId: mid,
-        upgradedPackageId: pid,
-      );
-
-      // ── POS: create a sale record for this upgrade ──
-      await repository.addSale(
-        itemId: 0,
-        itemName: 'Package Upgrade: ${pkg.name}',
-        quantity: 1,
-        price: pkg.price,
-        buyerId: mid,
-        buyerName: member.firstName,
-        packageId: pid,
-        timestamp: DateTime.now(),
-      );
-
-      BotToast.showText(
-        text: '${member.firstName ?? 'Member'} upgraded to ${pkg.name}',
-      );
-    } catch (e) {
-      BotToast.showText(text: 'Failed: $e');
-    }
+    return const SingleChildScrollView(child: DashboardPage());
   }
 }
 
@@ -2072,6 +1878,9 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
     final upgradeReferralCtrl = TextEditingController(
       text: existing != null ? '${existing.upgradeReferralBonus}' : '0',
     );
+    final hierarchyRankCtrl = TextEditingController(
+      text: existing != null ? '${existing.hierarchyRank}' : '0',
+    );
     final groupDirectCtrl = TextEditingController(
       text: existing != null ? '${existing.groupSalesDirect}' : '3',
     );
@@ -2149,6 +1958,17 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                       labelText: 'Upgrade Referral Bonus',
                       helperText:
                           'Paid to referrer when a direct downline upgrades',
+                    ),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: hierarchyRankCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Hierarchy Rank',
+                      helperText:
+                          'Higher = better tier. E.g. Starter=10, Ambassador=20',
                     ),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -2431,6 +2251,8 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
+                    hierarchyRank:
+                        int.tryParse(hierarchyRankCtrl.text) ?? 0,
                     repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
@@ -2447,6 +2269,8 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
+                    hierarchyRank:
+                        int.tryParse(hierarchyRankCtrl.text) ?? 0,
                     repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
@@ -4061,7 +3885,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                         // Create account button (only if no account)
                         if (!hasAccount)
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.only(bottom: 12),
                             child: SizedBox(
                               width: double.infinity,
                               child: OutlinedButton.icon(
@@ -4087,7 +3911,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                         // View Password button (only if member HAS an account)
                         if (hasAccount)
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.only(bottom: 12),
                             child: SizedBox(
                               width: double.infinity,
                               child: OutlinedButton.icon(
@@ -4157,30 +3981,28 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                             ),
                           ],
                         ),
-                        // ── Upgrade Package ──────────────────
-                        // Only Verified Resellers can upgrade their package.
+                        // ── Upgrade Package (Verified Resellers only) ─
                         if (isReseller) ...[
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
                           SizedBox(
                             width: double.infinity,
-                            child: OutlinedButton.icon(
+                            child: FilledButton.icon(
                               onPressed: () =>
                                   _showUpgradePackageDialog(ctx, member),
                               icon: const Icon(Icons.upgrade, size: 18),
                               label: const Text('Upgrade Package'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: StockpileColors.primary900,
-                                side: const BorderSide(
-                                  color: StockpileColors.primary900,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: StockpileColors.primary900,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
                                 ),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
                         ],
                         SizedBox(
                           width: double.infinity,
@@ -4462,74 +4284,43 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     final memberId = member['id'] as int?;
     if (memberId == null) return;
 
-    final packages = await repository.fetchPackages();
-    if (!mounted) return;
-
+    // Get current package rank
     final rawPkgId = member['packageId'];
     final currentPkgId = rawPkgId is int ? rawPkgId : int.tryParse('$rawPkgId');
-    final available = packages.where((p) => p.id != currentPkgId).toList();
-
-    if (available.isEmpty) {
-      BotToast.showText(text: 'No other packages available.');
-      return;
+    int currentRank = 0;
+    if (currentPkgId != null) {
+      final currentPkg = await repository.getPackageById(currentPkgId);
+      currentRank = currentPkg?.hierarchyRank ?? 0;
     }
 
-    final selected = await showDialog<Package>(
+    final selected = await showModalBottomSheet<Package>(
       context: ctx,
-      builder: (c) => AlertDialog(
-        title: const Text('Upgrade Package'),
-        content: SizedBox(
-          width: 360,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: available.length,
-            itemBuilder: (_, i) {
-              final pkg = available[i];
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: StockpileColors.primary900,
-                  child: Text(
-                    pkg.name.isNotEmpty ? pkg.name[0].toUpperCase() : '?',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-                title: Text(pkg.name),
-                subtitle: Text('₱${pkg.price}'),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                onTap: () => Navigator.pop(c, pkg),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('Cancel'),
-          ),
-        ],
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (c) => _PackageUpgradeSheet(
+        currentRank: currentRank,
+        currentPkgId: currentPkgId,
+        memberName: member['firstName']?.toString() ?? 'Member',
       ),
     );
 
     if (selected == null || !mounted) return;
 
     try {
-      final current = await repository.getMemberById(memberId);
-      if (current == null) {
-        BotToast.showText(text: 'Member not found.');
-        return;
-      }
-      await repository.updateMember(current.copyWith(packageId: selected.id));
+      // Use the RPC for validated upgrade
+      await repository.submitUpgrade(
+        memberId: memberId,
+        targetPackageId: selected.id!,
+      );
+      // Still trigger bonus engine + POS sale
       await repository.processPackageUpgrade(
         memberId: memberId,
         upgradedPackageId: selected.id!,
       );
-
-      // ── POS: create a sale record for this upgrade ──
       await repository.addSale(
-        itemId: 0, // package-only transaction
+        itemId: 0,
         itemName: 'Package Upgrade: ${selected.name}',
         quantity: 1,
         price: selected.price,
@@ -4538,12 +4329,17 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
         packageId: selected.id,
         timestamp: DateTime.now(),
       );
-
       BotToast.showText(
-        text: '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
+        text:
+            '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
       );
     } catch (e) {
-      BotToast.showText(text: 'Failed to upgrade package: $e');
+      final msg = e.toString();
+      if (msg.contains('Invalid upgrade') || msg.contains('downgrade')) {
+        BotToast.showText(text: 'Cannot downgrade or side-grade packages.');
+      } else {
+        BotToast.showText(text: 'Failed: $e');
+      }
     }
   }
 
@@ -4780,6 +4576,180 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
         ),
       ),
     );
+  }
+}
+
+// ─── Package Upgrade Bottom Sheet ──────────────────────────────────────────
+
+class _PackageUpgradeSheet extends StatelessWidget {
+  final int currentRank;
+  final int? currentPkgId;
+  final String memberName;
+
+  const _PackageUpgradeSheet({
+    required this.currentRank,
+    required this.currentPkgId,
+    required this.memberName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.5,
+      minChildSize: 0.3,
+      maxChildSize: 0.8,
+      expand: false,
+      builder: (_, scrollController) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text('Upgrade Package',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : const Color(0xFF1E293B))),
+            const SizedBox(height: 4),
+            Text('Available upgrades for $memberName',
+              style: TextStyle(fontSize: 13,
+                  color: isDark ? Colors.white54 : const Color(0xFF64748B))),
+            const SizedBox(height: 20),
+            Expanded(
+              child: FutureBuilder<List<Package>>(
+                future: repository.fetchAvailableUpgrades(currentRank),
+                builder: (_, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final upgrades = snap.data ?? [];
+                  if (upgrades.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.verified, size: 56,
+                              color: const Color(0xFF0037FD).withAlpha(100)),
+                          const SizedBox(height: 16),
+                          Text('You are currently on the highest tier!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white70 : const Color(0xFF334155))),
+                        ],
+                      ),
+                    );
+                  }
+                  return ListView.builder(
+                    controller: scrollController,
+                    itemCount: upgrades.length,
+                    itemBuilder: (_, i) {
+                      final pkg = upgrades[i];
+                      return Card(
+                        elevation: 0,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: isDark ? Colors.white12 : Colors.grey.shade200,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 48, height: 48,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0037FD).withAlpha(25),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Center(
+                                  child: Text(pkg.name.isNotEmpty ? pkg.name[0].toUpperCase() : '?',
+                                    style: const TextStyle(
+                                      color: Color(0xFF0037FD),
+                                      fontSize: 20, fontWeight: FontWeight.w700)),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(pkg.name,
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700,
+                                          color: isDark ? Colors.white : const Color(0xFF1E293B))),
+                                    const SizedBox(height: 4),
+                                    Text('₱${pkg.price}',
+                                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
+                                          color: Color(0xFF0037FD))),
+                                  ],
+                                ),
+                              ),
+                              _UpgradeButton(
+                                package: pkg,
+                                memberName: memberName,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UpgradeButton extends StatefulWidget {
+  final Package package;
+  final String memberName;
+  const _UpgradeButton({required this.package, required this.memberName});
+  @override
+  State<_UpgradeButton> createState() => _UpgradeButtonState();
+}
+
+class _UpgradeButtonState extends State<_UpgradeButton> {
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      onPressed: _loading ? null : _onTap,
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFF0037FD),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      child: _loading
+          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+          : const Text('Upgrade', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+    );
+  }
+
+  Future<void> _onTap() async {
+    setState(() => _loading = true);
+    try {
+      await Future.delayed(const Duration(milliseconds: 400)); // brief feedback
+      if (!mounted) return;
+      Navigator.pop(context, widget.package);
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 }
 

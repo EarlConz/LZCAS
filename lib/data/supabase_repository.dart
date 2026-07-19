@@ -797,6 +797,7 @@ class SupabaseRepository {
     String repeatPurchaseJson = '{}',
     int groupSalesDirect = 0,
     int groupSalesIndirect = 0,
+    int hierarchyRank = 0,
   }) async {
     final data = await _supabase
         .from('packages')
@@ -810,6 +811,7 @@ class SupabaseRepository {
           'repeat_purchase_json': repeatPurchaseJson,
           'group_sales_direct': groupSalesDirect,
           'group_sales_indirect': groupSalesIndirect,
+          'hierarchy_rank': hierarchyRank,
         })
         .select('id');
     _changes.add('package_added');
@@ -1139,6 +1141,30 @@ class SupabaseRepository {
     }
 
     _changes.add('bonus_processed');
+  }
+
+  /// Fetch packages with a higher [hierarchyRank] than [currentRank],
+  /// ordered from lowest to highest rank.
+  Future<List<Package>> fetchAvailableUpgrades(int currentRank) async {
+    final data = await _supabase
+        .from('packages')
+        .select()
+        .gt('hierarchy_rank', currentRank)
+        .order('hierarchy_rank', ascending: true);
+    return (data as List).map((j) => Package.fromJson(j)).toList();
+  }
+
+  /// Execute a validated upgrade via the Supabase RPC.
+  /// Throws on downgrade/side-grade or if RPC fails.
+  Future<void> submitUpgrade({
+    required int memberId,
+    required int targetPackageId,
+  }) async {
+    await _supabase.rpc('process_package_upgrade', params: {
+      'p_member_id': memberId,
+      'p_target_package_id': targetPackageId,
+    });
+    _changes.add('member_updated');
   }
 
   /// Compute live earnings for a member from their package.

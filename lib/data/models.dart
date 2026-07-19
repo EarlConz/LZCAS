@@ -201,6 +201,11 @@ class Package {
   final String repeatPurchaseJson;
   final int groupSalesDirect;
   final int groupSalesIndirect;
+
+  /// Numeric tier rank for upgrade validation. Higher = better tier.
+  /// E.g.: Starter=10, Pro=15, Ambassador=20.
+  final int hierarchyRank;
+
   final DateTime? createdAt;
 
   const Package({
@@ -214,6 +219,7 @@ class Package {
     this.repeatPurchaseJson = '{}',
     this.groupSalesDirect = 0,
     this.groupSalesIndirect = 0,
+    this.hierarchyRank = 0,
     this.createdAt,
   });
 
@@ -228,6 +234,7 @@ class Package {
     repeatPurchaseJson: json['repeat_purchase_json'] as String? ?? '{}',
     groupSalesDirect: json['group_sales_direct'] as int? ?? 0,
     groupSalesIndirect: json['group_sales_indirect'] as int? ?? 0,
+    hierarchyRank: json['hierarchy_rank'] as int? ?? 0,
     createdAt: json['created_at'] != null
         ? DateTime.tryParse(json['created_at'].toString())
         : null,
@@ -243,6 +250,7 @@ class Package {
     'repeat_purchase_json': repeatPurchaseJson,
     'group_sales_direct': groupSalesDirect,
     'group_sales_indirect': groupSalesIndirect,
+    'hierarchy_rank': hierarchyRank,
   };
 
   Package copyWith({
@@ -256,6 +264,7 @@ class Package {
     String? repeatPurchaseJson,
     int? groupSalesDirect,
     int? groupSalesIndirect,
+    int? hierarchyRank,
   }) => Package(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -267,6 +276,7 @@ class Package {
     repeatPurchaseJson: repeatPurchaseJson ?? this.repeatPurchaseJson,
     groupSalesDirect: groupSalesDirect ?? this.groupSalesDirect,
     groupSalesIndirect: groupSalesIndirect ?? this.groupSalesIndirect,
+    hierarchyRank: hierarchyRank ?? this.hierarchyRank,
     createdAt: createdAt,
   );
 }
