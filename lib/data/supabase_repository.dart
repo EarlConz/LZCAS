@@ -9,6 +9,7 @@ import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'models.dart';
+import '../services/bonus_engine.dart';
 
 /// Describes a page of results with metadata.
 class PageResult<T> {
@@ -792,6 +793,7 @@ class SupabaseRepository {
     int directReferralBonus = 0,
     int indirectReferralBonus = 0,
     int chairmansBonus = 0,
+    int upgradeReferralBonus = 0,
     String repeatPurchaseJson = '{}',
     int groupSalesDirect = 0,
     int groupSalesIndirect = 0,
@@ -804,6 +806,7 @@ class SupabaseRepository {
           'direct_referral_bonus': directReferralBonus,
           'indirect_referral_bonus': indirectReferralBonus,
           'chairmans_bonus': chairmansBonus,
+          'upgrade_referral_bonus': upgradeReferralBonus,
           'repeat_purchase_json': repeatPurchaseJson,
           'group_sales_direct': groupSalesDirect,
           'group_sales_indirect': groupSalesIndirect,
@@ -1037,9 +1040,110 @@ class SupabaseRepository {
         : err;
   }
 
+  // ── Bonus / Commission Engine ────────────────────────────────────────────
+
+  /// Resolve a member by ID (used as callback for [BonusEngine]).
+  Member? _resolveMember(int id) => _memberCache[id];
+
+  /// Resolve a package by ID (used as callback for [BonusEngine]).
+  Package? _resolvePackage(int id) => _packageCache[id];
+
+  final Map<int, Member> _memberCache = {};
+  final Map<int, Package> _packageCache = {};
+
+  /// Refresh in-memory caches from Supabase. Called before bonus computations.
+  Future<void> _refreshCaches() async {
+    final members = await fetchMembers();
+    final packages = await fetchPackages();
+    _memberCache.clear();
+    _packageCache.clear();
+    for (final m in members) {
+      if (m.id != null) _memberCache[m.id!] = m;
+    }
+    for (final p in packages) {
+      if (p.id != null) _packageCache[p.id!] = p;
+    }
+  }
+
+  /// Process a package upgrade: if the direct upline's package has a non-zero
+  /// [Package.upgradeReferralBonus], record a member_transaction for them.
+  ///
+  /// Call AFTER the member's package_id has been updated in the DB.
+  Future<void> processPackageUpgrade({
+    required int memberId,
+    required int upgradedPackageId,
+  }) async {
+    await _refreshCaches();
+
+    final upgradedPkg = _resolvePackage(upgradedPackageId);
+    if (upgradedPkg == null) return;
+
+    final engine = const BonusEngine();
+    final bonuses = engine.computeUpgradeBonus(
+      memberId: memberId,
+      upgradedPackage: upgradedPkg,
+      resolveMember: _resolveMember,
+      resolvePackage: _resolvePackage,
+    );
+
+    for (final b in bonuses) {
+      if (b.amount <= 0) continue;
+      try {
+        await _supabase.from('member_transactions').insert({
+          'user_id': _uid,
+          'member_id': b.recipientMemberId,
+          'item_name': 'Upgrade Bonus — ${upgradedPkg.name}',
+          'quantity': 1,
+          'price': b.amount,
+          'timestamp': DateTime.now().toUtc().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('[Repo] processPackageUpgrade insert failed: $e');
+      }
+    }
+
+    _changes.add('bonus_processed');
+  }
+
+  /// Process passive income when [buyerId] purchases [itemCount] product items.
+  ///
+  /// Call AFTER the sale has been recorded.
+  Future<void> processItemPurchase({
+    required int buyerId,
+    required int itemCount,
+  }) async {
+    if (itemCount <= 0) return;
+    await _refreshCaches();
+
+    final engine = const BonusEngine();
+    final bonuses = engine.computePassiveIncome(
+      buyerId: buyerId,
+      itemCount: itemCount,
+      resolveMember: _resolveMember,
+    );
+
+    for (final b in bonuses) {
+      if (b.amount <= 0) continue;
+      try {
+        await _supabase.from('member_transactions').insert({
+          'user_id': _uid,
+          'member_id': b.recipientMemberId,
+          'item_name': 'Passive Income (${b.reason == 'passive_direct' ? 'Direct' : 'Indirect'})',
+          'quantity': itemCount,
+          'price': b.amount,
+          'timestamp': DateTime.now().toUtc().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('[Repo] processItemPurchase insert failed: $e');
+      }
+    }
+
+    _changes.add('bonus_processed');
+  }
+
   /// Compute live earnings for a member from their package.
   /// Balance = flat one-time signup bonus × count of direct referrals with a package.
-  /// Total Earnings = indirect + chairman's + group sales + repeat purchase.
+  /// Total Earnings = indirect + chairman's (per registration) + passive income (per item) + repeat purchase.
   Future<Map<String, int>> fetchMemberEarningsBreakdown(int memberId) async {
     final member = await getMemberById(memberId);
     Package? pkg;
@@ -1070,9 +1174,9 @@ class SupabaseRepository {
     }
 
     // Component totals — kept separate so history entries can attribute
-    // changes to their source (indirect referral, group sales, etc.)
+    // changes to their source (indirect referral, passive income, etc.)
     int indirectBonus = 0;
-    int groupSales = 0;
+    int passiveIncome = 0;
     int repeatPurchase = 0;
 
     // Indirect Referral Bonus = flat × count of indirect referrals
@@ -1085,26 +1189,26 @@ class SupabaseRepository {
       indirectBonus = indirectCount * pkg.indirectReferralBonus;
     }
 
-    // Group Sales: per product item PURCHASED by the downline
-    // (package availments are not products and don't count).
-    final allDownlineIds = {...directIds, ...indirectIds};
-    if (allDownlineIds.isNotEmpty && pkg != null) {
+    // ── Passive Income: per-item purchases by the downline ────────────
+    // Direct referrals → 5/item, Indirect referrals → 3/item
+    // (package availments are excluded — only product purchases count)
+    if (directIds.isNotEmpty || indirectIds.isNotEmpty) {
+      final allDownlineIds = {...directIds, ...indirectIds};
       final downlineData = await _supabase
           .from('sales')
           .select('buyer_id, quantity, package_id')
           .inFilter('buyer_id', allDownlineIds.toList());
 
       for (final row in (downlineData as List)) {
-        if (row['package_id'] != null) continue;
+        if (row['package_id'] != null) continue; // skip package availments
         final buyerId = (row['buyer_id'] as num).toInt();
         final qty = row['quantity'] as int? ?? 0;
         if (qty <= 0) continue;
 
         if (directIds.contains(buyerId)) {
-          groupSales += pkg.groupSalesDirect * qty;
-        }
-        if (indirectIds.contains(buyerId)) {
-          groupSales += pkg.groupSalesIndirect * qty;
+          passiveIncome += 5 * qty; // 5 pesos per item from direct
+        } else if (indirectIds.contains(buyerId)) {
+          passiveIncome += 3 * qty; // 3 pesos per item from indirect
         }
       }
     }
@@ -1137,21 +1241,36 @@ class SupabaseRepository {
       }
     }
 
-    // ── Chairman's bonus: accrues every Friday since the package was
-    // availed (package's chairmansBonus × number of Fridays elapsed).
-    // Accrues weekly regardless of sales activity.
+    // ── Chairman's bonus: earned per new registration in the network ──
+    // 50 per Starter Pack (1500), 100 per Ambassador Pack (3000).
+    // Counts total registrations across the downline tree.
     int chairmanBonus = 0;
-    int chairmanFridays = 0;
-    if (pkg != null) {
-      final availedAt = await _packageAvailedAt(memberId, member!.packageId!);
-      if (availedAt != null) {
-        chairmanFridays = _fridaysSince(availedAt);
-        chairmanBonus = chairmanFridays * pkg.chairmansBonus;
+
+    // All downline members (direct + indirect) who have a package
+    final allDownlineIds = {...directIds, ...indirectIds};
+    if (allDownlineIds.isNotEmpty) {
+      final packages = await fetchPackages();
+      final pkgPriceMap = <int, int>{
+        for (final p in packages)
+          if (p.id != null) p.id!: p.price,
+      };
+
+      for (final downlineMember in allMembers) {
+        if (downlineMember.id == null) continue;
+        if (!allDownlineIds.contains(downlineMember.id)) continue;
+        if (downlineMember.packageId == null) continue;
+
+        final price = pkgPriceMap[downlineMember.packageId] ?? 0;
+        if (price >= 3000) {
+          chairmanBonus += 100;
+        } else if (price >= 1500) {
+          chairmanBonus += 50;
+        }
       }
     }
 
     final totalEarnings =
-        indirectBonus + groupSales + repeatPurchase + chairmanBonus;
+        indirectBonus + passiveIncome + repeatPurchase + chairmanBonus;
 
     // Subtract approved withdrawals from the appropriate buckets.
     final withdrawals = await _fetchApprovedWithdrawalTotals(memberId);
@@ -1169,10 +1288,10 @@ class SupabaseRepository {
       'totalEarnings': netTotalEarnings,
       'balance': netBalance,
       'indirectBonus': indirectBonus,
-      'groupSales': groupSales,
+      'passiveIncome': passiveIncome,
       'repeatPurchase': repeatPurchase,
       'chairmanBonus': chairmanBonus,
-      'chairmanFridays': chairmanFridays,
+      'chairmanFridays': 0, // deprecated — chairman bonus is now per-registration
     };
   }
 
@@ -1205,50 +1324,6 @@ class SupabaseRepository {
     }
   }
 
-  /// When the member availed their current package: earliest sale with
-  /// that package_id, falling back to their earliest package sale of any
-  /// kind (covers availments recorded before package_id existed only if
-  /// backfilled). Null when no package availment sale exists.
-  Future<DateTime?> _packageAvailedAt(int memberId, int packageId) async {
-    try {
-      final rows = await _supabase
-          .from('sales')
-          .select('timestamp, package_id')
-          .eq('buyer_id', memberId)
-          .not('package_id', 'is', null)
-          .order('timestamp', ascending: true);
-      DateTime? anyPackage;
-      for (final row in (rows as List)) {
-        final ts = DateTime.tryParse(row['timestamp']?.toString() ?? '');
-        if (ts == null) continue;
-        anyPackage ??= ts;
-        if ((row['package_id'] as num?)?.toInt() == packageId) return ts;
-      }
-      return anyPackage;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// Number of Fridays whose date has passed since [from] (exclusive of
-  /// the availment day itself — availing on a Friday starts accruing the
-  /// following Friday).
-  int _fridaysSince(DateTime from) {
-    final start = DateTime(
-      from.year,
-      from.month,
-      from.day,
-    ).add(const Duration(days: 1));
-    var firstFriday = start;
-    while (firstFriday.weekday != DateTime.friday) {
-      firstFriday = firstFriday.add(const Duration(days: 1));
-    }
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    if (firstFriday.isAfter(today)) return 0;
-    return today.difference(firstFriday).inDays ~/ 7 + 1;
-  }
-
   // ── Earnings history (snapshot ledger) ────────────────────────────
 
   /// Record a snapshot of the member's computed earnings/balance — but
@@ -1261,6 +1336,7 @@ class SupabaseRepository {
     required int balance,
     int indirectBonus = 0,
     int groupSales = 0,
+    int passiveIncome = 0,
     int repeatPurchase = 0,
     int chairmanBonus = 0,
   }) async {
@@ -1272,6 +1348,7 @@ class SupabaseRepository {
           balance == 0 &&
           indirectBonus == 0 &&
           groupSales == 0 &&
+          passiveIncome == 0 &&
           repeatPurchase == 0 &&
           chairmanBonus == 0;
 
@@ -1279,7 +1356,7 @@ class SupabaseRepository {
           .from('earnings_history')
           .select(
             'total_earnings, balance, indirect_bonus, group_sales, '
-            'repeat_purchase, chairman_bonus',
+            'passive_income, repeat_purchase, chairman_bonus',
           )
           .eq('member_id', memberId)
           .order('recorded_at', ascending: false)
@@ -1296,6 +1373,7 @@ class SupabaseRepository {
           lastBalance == balance &&
           (last['indirect_bonus'] as int? ?? 0) == indirectBonus &&
           (last['group_sales'] as int? ?? 0) == groupSales &&
+          (last['passive_income'] as int? ?? 0) == passiveIncome &&
           (last['repeat_purchase'] as int? ?? 0) == repeatPurchase &&
           (last['chairman_bonus'] as int? ?? 0) == chairmanBonus;
       if (unchanged) return false; // nothing changed — no log entry
@@ -1308,6 +1386,7 @@ class SupabaseRepository {
         'balance_delta': balance - lastBalance,
         'indirect_bonus': indirectBonus,
         'group_sales': groupSales,
+        'passive_income': passiveIncome,
         'repeat_purchase': repeatPurchase,
         'chairman_bonus': chairmanBonus,
       });
@@ -1893,6 +1972,7 @@ class SupabaseRepository {
         'balance_delta': newBalance - currentBalance,
         'indirect_bonus': breakdown['indirectBonus'] ?? 0,
         'group_sales': breakdown['groupSales'] ?? 0,
+        'passive_income': breakdown['passiveIncome'] ?? 0,
         'repeat_purchase': breakdown['repeatPurchase'] ?? 0,
         'chairman_bonus': breakdown['chairmanBonus'] ?? 0,
       });

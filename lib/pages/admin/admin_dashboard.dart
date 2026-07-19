@@ -1875,6 +1875,9 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
     final chairmansCtrl = TextEditingController(
       text: existing != null ? '${existing.chairmansBonus}' : '0',
     );
+    final upgradeReferralCtrl = TextEditingController(
+      text: existing != null ? '${existing.upgradeReferralBonus}' : '0',
+    );
 
     // Repeat purchase rates parsed from JSON
     Map<String, dynamic> existingRates = {};
@@ -1959,6 +1962,17 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     controller: chairmansCtrl,
                     decoration: const InputDecoration(
                       labelText: "Chairman's Bonus",
+                    ),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: upgradeReferralCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Upgrade Referral Bonus',
+                      helperText:
+                          'Paid to referrer when a direct downline upgrades',
                     ),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -2296,6 +2310,8 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     directReferralBonus: int.tryParse(directCtrl.text) ?? 0,
                     indirectReferralBonus: int.tryParse(indirectCtrl.text) ?? 0,
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
+                    upgradeReferralBonus:
+                        int.tryParse(upgradeReferralCtrl.text) ?? 0,
                     repeatPurchaseJson: repeatJson,
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
@@ -2310,6 +2326,8 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     directReferralBonus: int.tryParse(directCtrl.text) ?? 0,
                     indirectReferralBonus: int.tryParse(indirectCtrl.text) ?? 0,
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
+                    upgradeReferralBonus:
+                        int.tryParse(upgradeReferralCtrl.text) ?? 0,
                     repeatPurchaseJson: repeatJson,
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
