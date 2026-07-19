@@ -6,7 +6,7 @@ import 'package:file_selector/file_selector.dart' as fs;
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
-import 'package:lzcas/db/db.dart' show repository, Member;
+import 'package:lzcas/db/db.dart' show repository, Member, Package;
 import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -40,6 +40,10 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   List<Member> _members = [];
   Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
+
+  // ── Package state (shown when ID fields are filled) ──
+  int? _selectedPackageId;
+  List<Package> _packages = [];
 
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
@@ -99,10 +103,12 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     idNumberController = TextEditingController(
       text: widget.member['idNumber']?.toString() ?? '',
     );
+    _selectedPackageId = widget.member['packageId'] as int?;
     referrerSearchController = TextEditingController(
       text: widget.member['referrer']?.toString() ?? '',
     );
     _loadMembers();
+    _loadPackages();
   }
 
   Future<void> _pickIdImage() async {
@@ -175,6 +181,19 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
       }
     });
   }
+
+  Future<void> _loadPackages() async {
+    final pkgs = await repository.fetchPackages();
+    if (!mounted) return;
+    setState(() => _packages = pkgs);
+  }
+
+  /// True when any ID verification field has content — triggers reseller
+  /// conversion and reveals the package selector.
+  bool get _hasIdFields =>
+      _selectedIdType != null ||
+      idNumberController.text.trim().isNotEmpty ||
+      (_selectedIdImagePath != null && _selectedIdImagePath!.isNotEmpty);
 
   @override
   void dispose() {
@@ -445,7 +464,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               const SizedBox(height: 10),
               DropdownButtonFormField<String>(
                 isExpanded: true,
-                initialValue:
+                value:
                     _selectedIdType != null &&
                         _selectedIdType!.isNotEmpty &&
                         _idTypes.contains(_selectedIdType)
@@ -512,6 +531,48 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                         ),
                 ),
               ),
+
+              // ── Package section (auto-shown when ID fields filled) ──
+              if (_hasIdFields) ...[
+                const SizedBox(height: 20),
+                _sectionLabel('Package', theme, colorScheme),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<int?>(
+                  value: _packages.any((p) => p.id == _selectedPackageId)
+                      ? _selectedPackageId
+                      : null,
+                  decoration: InputDecoration(
+                    labelText: 'Select Package',
+                    hintText: 'Choose a package for this reseller',
+                    prefixIcon: const Icon(Icons.card_giftcard_outlined),
+                    border: inputBorder,
+                  ),
+                  items: [
+                    const DropdownMenuItem<int?>(
+                      value: null,
+                      child: Text('None (Standard Member)'),
+                    ),
+                    ..._packages.map(
+                      (p) => DropdownMenuItem<int?>(
+                        value: p.id,
+                        child: Text('${p.name} — ₱${p.price}'),
+                      ),
+                    ),
+                  ],
+                  onChanged: (v) => setState(() => _selectedPackageId = v),
+                ),
+                if (_selectedPackageId != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '⚠ Selecting a package will verify this member as a '
+                    'Verified Reseller and create a POS transaction record.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.primary,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ],
             ],
           ),
         ),
@@ -581,6 +642,9 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
           ? null
           : idNumberController.text.trim(),
       'idImagePath': _selectedIdImagePath,
+      'packageId': _hasIdFields
+          ? _selectedPackageId
+          : widget.member['packageId'],
     };
 
     widget.onMemberUpdated(updatedMember);

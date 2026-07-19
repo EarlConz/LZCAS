@@ -1878,6 +1878,9 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
     final upgradeReferralCtrl = TextEditingController(
       text: existing != null ? '${existing.upgradeReferralBonus}' : '0',
     );
+    final hierarchyRankCtrl = TextEditingController(
+      text: existing != null ? '${existing.hierarchyRank}' : '0',
+    );
     final groupDirectCtrl = TextEditingController(
       text: existing != null ? '${existing.groupSalesDirect}' : '3',
     );
@@ -1955,6 +1958,17 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                       labelText: 'Upgrade Referral Bonus',
                       helperText:
                           'Paid to referrer when a direct downline upgrades',
+                    ),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: hierarchyRankCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Hierarchy Rank',
+                      helperText:
+                          'Higher = better tier. E.g. Starter=10, Ambassador=20',
                     ),
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly],
@@ -2237,6 +2251,8 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
+                    hierarchyRank:
+                        int.tryParse(hierarchyRankCtrl.text) ?? 0,
                     repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
@@ -2253,6 +2269,8 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     chairmansBonus: int.tryParse(chairmansCtrl.text) ?? 0,
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
+                    hierarchyRank:
+                        int.tryParse(hierarchyRankCtrl.text) ?? 0,
                     repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
@@ -3867,7 +3885,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                         // Create account button (only if no account)
                         if (!hasAccount)
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.only(bottom: 12),
                             child: SizedBox(
                               width: double.infinity,
                               child: OutlinedButton.icon(
@@ -3893,7 +3911,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                         // View Password button (only if member HAS an account)
                         if (hasAccount)
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.only(bottom: 12),
                             child: SizedBox(
                               width: double.infinity,
                               child: OutlinedButton.icon(
@@ -3963,7 +3981,29 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
+                        // ── Upgrade Package (Verified Resellers only) ─
+                        if (isReseller) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.icon(
+                              onPressed: () =>
+                                  _showUpgradePackageDialog(ctx, member),
+                              icon: const Icon(Icons.upgrade, size: 18),
+                              label: const Text('Upgrade Package'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: StockpileColors.primary900,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         SizedBox(
                           width: double.infinity,
                           child: TextButton.icon(
@@ -4237,6 +4277,72 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     showSuccessToast('Member deleted.');
   }
 
+  Future<void> _showUpgradePackageDialog(
+    BuildContext ctx,
+    Map<String, dynamic> member,
+  ) async {
+    final memberId = member['id'] as int?;
+    if (memberId == null) return;
+
+    // Get current package rank
+    final rawPkgId = member['packageId'];
+    final currentPkgId = rawPkgId is int ? rawPkgId : int.tryParse('$rawPkgId');
+    int currentRank = 0;
+    if (currentPkgId != null) {
+      final currentPkg = await repository.getPackageById(currentPkgId);
+      currentRank = currentPkg?.hierarchyRank ?? 0;
+    }
+
+    final selected = await showModalBottomSheet<Package>(
+      context: ctx,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (c) => _PackageUpgradeSheet(
+        currentRank: currentRank,
+        currentPkgId: currentPkgId,
+        memberName: member['firstName']?.toString() ?? 'Member',
+      ),
+    );
+
+    if (selected == null || !mounted) return;
+
+    try {
+      // Use the RPC for validated upgrade
+      await repository.submitUpgrade(
+        memberId: memberId,
+        targetPackageId: selected.id!,
+      );
+      // Still trigger bonus engine + POS sale
+      await repository.processPackageUpgrade(
+        memberId: memberId,
+        upgradedPackageId: selected.id!,
+      );
+      await repository.addSale(
+        itemId: 0,
+        itemName: 'Package Upgrade: ${selected.name}',
+        quantity: 1,
+        price: selected.price,
+        buyerId: memberId,
+        buyerName: member['firstName']?.toString(),
+        packageId: selected.id,
+        timestamp: DateTime.now(),
+      );
+      BotToast.showText(
+        text:
+            '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
+      );
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('Invalid upgrade') || msg.contains('downgrade')) {
+        BotToast.showText(text: 'Cannot downgrade or side-grade packages.');
+      } else {
+        BotToast.showText(text: 'Failed: $e');
+      }
+    }
+  }
+
   void _showCreateAccountDialog(BuildContext ctx, Map<String, dynamic> member) {
     final memberId = (member['id'] ?? 0) as int;
     final name = [
@@ -4470,6 +4576,180 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
         ),
       ),
     );
+  }
+}
+
+// ─── Package Upgrade Bottom Sheet ──────────────────────────────────────────
+
+class _PackageUpgradeSheet extends StatelessWidget {
+  final int currentRank;
+  final int? currentPkgId;
+  final String memberName;
+
+  const _PackageUpgradeSheet({
+    required this.currentRank,
+    required this.currentPkgId,
+    required this.memberName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.5,
+      minChildSize: 0.3,
+      maxChildSize: 0.8,
+      expand: false,
+      builder: (_, scrollController) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text('Upgrade Package',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800,
+                  color: isDark ? Colors.white : const Color(0xFF1E293B))),
+            const SizedBox(height: 4),
+            Text('Available upgrades for $memberName',
+              style: TextStyle(fontSize: 13,
+                  color: isDark ? Colors.white54 : const Color(0xFF64748B))),
+            const SizedBox(height: 20),
+            Expanded(
+              child: FutureBuilder<List<Package>>(
+                future: repository.fetchAvailableUpgrades(currentRank),
+                builder: (_, snap) {
+                  if (snap.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final upgrades = snap.data ?? [];
+                  if (upgrades.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.verified, size: 56,
+                              color: const Color(0xFF0037FD).withAlpha(100)),
+                          const SizedBox(height: 16),
+                          Text('You are currently on the highest tier!',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white70 : const Color(0xFF334155))),
+                        ],
+                      ),
+                    );
+                  }
+                  return ListView.builder(
+                    controller: scrollController,
+                    itemCount: upgrades.length,
+                    itemBuilder: (_, i) {
+                      final pkg = upgrades[i];
+                      return Card(
+                        elevation: 0,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: isDark ? Colors.white12 : Colors.grey.shade200,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 48, height: 48,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0037FD).withAlpha(25),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Center(
+                                  child: Text(pkg.name.isNotEmpty ? pkg.name[0].toUpperCase() : '?',
+                                    style: const TextStyle(
+                                      color: Color(0xFF0037FD),
+                                      fontSize: 20, fontWeight: FontWeight.w700)),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(pkg.name,
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700,
+                                          color: isDark ? Colors.white : const Color(0xFF1E293B))),
+                                    const SizedBox(height: 4),
+                                    Text('₱${pkg.price}',
+                                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600,
+                                          color: Color(0xFF0037FD))),
+                                  ],
+                                ),
+                              ),
+                              _UpgradeButton(
+                                package: pkg,
+                                memberName: memberName,
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UpgradeButton extends StatefulWidget {
+  final Package package;
+  final String memberName;
+  const _UpgradeButton({required this.package, required this.memberName});
+  @override
+  State<_UpgradeButton> createState() => _UpgradeButtonState();
+}
+
+class _UpgradeButtonState extends State<_UpgradeButton> {
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton(
+      onPressed: _loading ? null : _onTap,
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFF0037FD),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+      child: _loading
+          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+          : const Text('Upgrade', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+    );
+  }
+
+  Future<void> _onTap() async {
+    setState(() => _loading = true);
+    try {
+      await Future.delayed(const Duration(milliseconds: 400)); // brief feedback
+      if (!mounted) return;
+      Navigator.pop(context, widget.package);
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 }
 

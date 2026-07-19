@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/search.dart';
@@ -323,58 +322,6 @@ class MembersTableState extends State<MembersTable> {
     return memberId;
   }
 
-  Future<void> _showMemberQrDialog(Member member) async {
-    final fullName =
-        '${member.firstName ?? ''} ${member.middleName ?? ''} ${member.lastName ?? ''}'
-            .trim();
-    showAnimatedDialog(
-      context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: StockpileColors.primary900, width: 4),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.qr_code, color: Theme.of(ctx).colorScheme.primary),
-            const SizedBox(width: 10),
-            const Text('Member QR Code'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              fullName,
-              style: Theme.of(
-                ctx,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            MemberQr(
-              lastName: member.lastName ?? '',
-              firstName: member.firstName ?? '',
-              middleName: member.middleName ?? '',
-              contactNo: member.contactNo ?? '',
-              birthday: member.birthday ?? '',
-              address: member.address ?? '',
-              referrer: member.referrer ?? '',
-              qrToken: member.qr,
-              size: 240,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> updateMember(
     Map<String, dynamic> oldMember,
     Map<String, dynamic> updatedMember,
@@ -440,8 +387,40 @@ class MembersTableState extends State<MembersTable> {
       idType: updatedMember['idType']?.toString(),
       idNumber: updatedMember['idNumber']?.toString(),
       idImagePath: finalImagePath,
+      packageId: updatedMember['packageId'] is int
+          ? updatedMember['packageId'] as int
+          : null,
     );
     await repository.updateMember(updated);
+
+    // ── POS: create a sale when a package is newly assigned ──
+    final newPkgId = updated.packageId;
+    final oldPkgId = row.packageId;
+    if (newPkgId != null && newPkgId != oldPkgId) {
+      try {
+        final packages = await repository.fetchPackages();
+        final pkg = packages.firstWhere(
+          (p) => p.id == newPkgId,
+          orElse: () => Package(name: 'Unknown', price: 0),
+        );
+        final label = oldPkgId == null
+            ? 'New Reseller Entry: ${pkg.name}'
+            : 'Package Upgrade: ${pkg.name}';
+        await repository.addSale(
+          itemId: 0,
+          itemName: label,
+          quantity: 1,
+          price: pkg.price,
+          buyerId: id,
+          buyerName: updated.firstName,
+          packageId: newPkgId,
+          timestamp: DateTime.now(),
+        );
+      } catch (_) {
+        // non-critical — don't fail the save if POS insert fails
+      }
+    }
+
     _loadMembers();
   }
 

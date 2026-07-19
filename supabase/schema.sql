@@ -208,6 +208,58 @@ create table if not exists public.packages (
 -- Add upgrade_referral_bonus to existing packages (safe to re-run)
 alter table public.packages add column if not exists upgrade_referral_bonus integer not null default 0;
 
+-- Add hierarchy_rank for tier-based upgrade validation (safe to re-run)
+-- Higher rank = higher tier. E.g.: Starter=10, Ambassador=20, future: Pro=15.
+alter table public.packages add column if not exists hierarchy_rank integer not null default 0;
+
+-- ── Upgrade RPC: validate and execute a package upgrade ──────────────
+-- Throws if downgrade/side-grade detected. Updates member's package_id.
+create or replace function public.process_package_upgrade(
+  p_member_id bigint,
+  p_target_package_id bigint
+) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_current_rank integer;
+  v_target_rank  integer;
+begin
+  -- Get the member's current package rank (0 if no package)
+  select coalesce(pkgs.hierarchy_rank, 0)
+    into v_current_rank
+    from public.members m
+    left join public.packages pkgs on pkgs.id = m.package_id
+    where m.id = p_member_id;
+
+  if not found then
+    raise exception 'Member not found (id=%)', p_member_id;
+  end if;
+
+  -- Get the target package's rank
+  select hierarchy_rank
+    into v_target_rank
+    from public.packages
+    where id = p_target_package_id;
+
+  if not found then
+    raise exception 'Target package not found (id=%)', p_target_package_id;
+  end if;
+
+  -- Enforce upgrade-only: target must be strictly higher tier
+  if v_target_rank <= v_current_rank then
+    raise exception 'Invalid upgrade: target rank (%) must be greater than current rank (%)',
+      v_target_rank, v_current_rank;
+  end if;
+
+  -- Apply the upgrade
+  update public.members
+    set package_id = p_target_package_id
+    where id = p_member_id;
+end;
+$$;
+
 -- ── Packages RLS: everyone logged in can read, only admins can write ──
 -- Helper: check whether the current auth user is an admin.
 -- SECURITY DEFINER so it works even if profiles gets RLS later.
