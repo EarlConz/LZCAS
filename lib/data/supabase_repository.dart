@@ -138,9 +138,16 @@ class SupabaseRepository {
     return (data as List).map((j) => Item.fromJson(j)).toList();
   }
 
-  Future<List<Member>> fetchMembers() async {
+  /// Fetch members. Soft-deleted members are hidden by default; pass
+  /// [includeDeleted] for referral-tree/earnings computations, where
+  /// historical earnings must survive member deletion.
+  /// (Filtered client-side so the app keeps working even before the
+  /// is_deleted migration has been applied.)
+  Future<List<Member>> fetchMembers({bool includeDeleted = false}) async {
     final data = await _supabase.from('members').select();
-    return (data as List).map((j) => Member.fromJson(j)).toList();
+    final members = (data as List).map((j) => Member.fromJson(j)).toList();
+    if (includeDeleted) return members;
+    return members.where((m) => !m.isDeleted).toList();
   }
 
   /// Fetch the member record linked to an auth user via profiles.member_id.
@@ -153,7 +160,10 @@ class SupabaseRepository {
     if (profile == null) return null;
     final memberId = profile['member_id'] as int?;
     if (memberId == null) return null;
-    return getMemberById(memberId);
+    final member = await getMemberById(memberId);
+    // Soft-deleted members must not be able to log in to a dashboard.
+    if (member != null && member.isDeleted) return null;
+    return member;
   }
 
   Future<List<Sale>> fetchSales() async {
@@ -344,8 +354,16 @@ class SupabaseRepository {
     String sortColumn = 'last_name',
     bool sortAscending = true,
   }) async {
-    dynamic dataQuery = _supabase.from('members').select('*');
-    dynamic countQuery = _supabase.from('members').select('id');
+    // Hide soft-deleted members from paginated lists (server-side so the
+    // total count stays accurate). Requires the is_deleted migration.
+    dynamic dataQuery = _supabase
+        .from('members')
+        .select('*')
+        .neq('is_deleted', true);
+    dynamic countQuery = _supabase
+        .from('members')
+        .select('id')
+        .neq('is_deleted', true);
 
     if (search != null && search.isNotEmpty) {
       final orFilter =
@@ -765,6 +783,39 @@ class SupabaseRepository {
     }
   }
 
+  /// Upload a member's ID photo and immediately promote them to
+  /// Verified Reseller in one chained operation, so a successful upload
+  /// can never leave the member unverified. Throws on any failure
+  /// (storage or database) so callers can surface the error instead of
+  /// silently keeping the old state. Returns the photo's public URL.
+  ///
+  /// Note: members has no separate status column — role IS the status.
+  Future<String> uploadIdPhotoAndVerifyMember({
+    required int memberId,
+    required Uint8List bytes,
+    required String ext,
+  }) async {
+    // 1. Upload to Storage — uploadBinary throws on failure (no silent null).
+    final path = '$memberId.$ext';
+    await _supabase.storage
+        .from('member-ids')
+        .uploadBinary(
+          path,
+          bytes,
+          fileOptions: const FileOptions(upsert: true),
+        );
+    final url = _supabase.storage.from('member-ids').getPublicUrl(path);
+
+    // 2. Chain the members update: photo path + Verified Reseller role.
+    await _supabase
+        .from('members')
+        .update({'id_image_path': url, 'role': 'Verified Reseller'})
+        .eq('id', memberId);
+
+    _changes.add('member_updated');
+    return url;
+  }
+
   // ── Package CRUD ───────────────────────────────────────────────────────
 
   Future<List<Package>> fetchPackages() async {
@@ -1054,8 +1105,9 @@ class SupabaseRepository {
   final Map<int, Package> _packageCache = {};
 
   /// Refresh in-memory caches from Supabase. Called before bonus computations.
+  /// Includes soft-deleted members so referral chains stay walkable.
   Future<void> _refreshCaches() async {
-    final members = await fetchMembers();
+    final members = await fetchMembers(includeDeleted: true);
     final packages = await fetchPackages();
     _memberCache.clear();
     _packageCache.clear();
@@ -1178,8 +1230,10 @@ class SupabaseRepository {
       pkg = await getPackageById(member!.packageId!);
     }
 
-    // Fetch all members for referral tree
-    final allMembers = await fetchMembers();
+    // Fetch all members for referral tree — including soft-deleted ones:
+    // historical earnings are permanent, so a deleted referral must keep
+    // counting toward the bonuses it already produced.
+    final allMembers = await fetchMembers(includeDeleted: true);
 
     // Direct referrals: members whose referrer_id == this member's id
     final directReferrals = allMembers
@@ -1270,12 +1324,41 @@ class SupabaseRepository {
 
     // ── Chairman's bonus: earned per new registration in the network ──
     // 50 per Starter Pack (1500), 100 per Ambassador Pack (3000).
-    // Counts total registrations across the downline tree.
+    // Priced from the REGISTRATION sale snapshot — never from the
+    // member's current package — so a later upgrade can never
+    // retroactively change it. Each registration's bonus matures on the
+    // first Friday on/after the registration date: the Chairman's Bonus
+    // is only ever earned on Fridays, never instantly.
     int chairmanBonus = 0;
 
-    // All downline members (direct + indirect) who have a package
+    // All downline members (direct + indirect)
     final allDownlineIds = {...directIds, ...indirectIds};
     if (allDownlineIds.isNotEmpty) {
+      final now = DateTime.now();
+
+      // Earliest package availment per downline member = registration.
+      // Later package sales are upgrades and are excluded on purpose.
+      final regSales = await _supabase
+          .from('sales')
+          .select('buyer_id, price, timestamp, item_name')
+          .inFilter('buyer_id', allDownlineIds.toList())
+          .not('package_id', 'is', null)
+          .order('timestamp', ascending: true);
+
+      final registrationByBuyer = <int, Map<String, dynamic>>{};
+      for (final row in (regSales as List)) {
+        final buyerId = (row['buyer_id'] as num?)?.toInt();
+        if (buyerId == null) continue;
+        final name = row['item_name'] as String? ?? '';
+        if (name.startsWith('Package Upgrade')) continue;
+        registrationByBuyer.putIfAbsent(
+          buyerId,
+          () => row as Map<String, dynamic>,
+        );
+      }
+
+      // Fallback pricing for legacy downline members who registered
+      // before availment sales were recorded.
       final packages = await fetchPackages();
       final pkgPriceMap = <int, int>{
         for (final p in packages)
@@ -1283,11 +1366,25 @@ class SupabaseRepository {
       };
 
       for (final downlineMember in allMembers) {
-        if (downlineMember.id == null) continue;
-        if (!allDownlineIds.contains(downlineMember.id)) continue;
-        if (downlineMember.packageId == null) continue;
+        final dId = downlineMember.id;
+        if (dId == null || !allDownlineIds.contains(dId)) continue;
 
-        final price = pkgPriceMap[downlineMember.packageId] ?? 0;
+        int price;
+        final reg = registrationByBuyer[dId];
+        if (reg != null) {
+          price = (reg['price'] as num?)?.toInt() ?? 0;
+          // Friday gate: skip registrations whose first Friday hasn't
+          // arrived yet — they count starting that Friday.
+          final ts = DateTime.tryParse(reg['timestamp']?.toString() ?? '');
+          if (ts != null && now.isBefore(_firstFridayOnOrAfter(ts.toLocal()))) {
+            continue;
+          }
+        } else if (downlineMember.packageId != null) {
+          price = pkgPriceMap[downlineMember.packageId] ?? 0;
+        } else {
+          continue;
+        }
+
         if (price >= 3000) {
           chairmanBonus += 100;
         } else if (price >= 1500) {
@@ -1339,6 +1436,14 @@ class SupabaseRepository {
       'chairmanFridays':
           0, // deprecated — chairman bonus is now per-registration
     };
+  }
+
+  /// Midnight (local) of the first Friday on or after [d]. Used to gate
+  /// Chairman's Bonus maturation: a registration earns its bonus starting
+  /// that Friday, never on the day of the transaction itself.
+  static DateTime _firstFridayOnOrAfter(DateTime d) {
+    final day = DateTime(d.year, d.month, d.day);
+    return day.add(Duration(days: (DateTime.friday - day.weekday) % 7));
   }
 
   /// Sum of approved withdrawal amounts per source bucket for a member.
@@ -1517,6 +1622,10 @@ class SupabaseRepository {
     return 1;
   }
 
+  /// Soft-delete: the member disappears from lists and can no longer log
+  /// in, but the row stays so the referral tree — and every bonus their
+  /// upline already earned from them — remains intact. Historical
+  /// earnings are permanent; deletion must never deduct them.
   Future<bool> deleteMemberById(int id) async {
     // Backfill buyer_name on existing sales so names survive deletion
     final member = await _supabase
@@ -1538,7 +1647,7 @@ class SupabaseRepository {
       }
     }
 
-    await _supabase.from('members').delete().eq('id', id);
+    await _supabase.from('members').update({'is_deleted': true}).eq('id', id);
     _changes.add('member_deleted');
     return true;
   }

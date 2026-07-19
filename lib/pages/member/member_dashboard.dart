@@ -1662,14 +1662,14 @@ class _EarningsTabState extends State<_EarningsTab> {
                   _BreakdownRow(
                     label: 'Total Earnings',
                     detail:
-                        "Indirect referral bonuses + Group Sales (₱3 per item your referrals purchase, ₱2 per item their referrals purchase) + Chairman's Bonus + Repeat Purchase commissions",
+                        "Indirect referral bonuses + Passive Income (₱5 per item your direct referrals purchase, ₱3 per item from indirect) + Chairman's Bonus + Repeat Purchase commissions + Upgrade Referral Bonuses",
                     isDark: isDark,
                     isCompact: isMobile,
                   ),
                   _BreakdownRow(
                     label: "Chairman's Bonus",
                     detail:
-                        "Earned every Friday since you availed your package — your package's Chairman's Bonus amount per week, added to Total Earnings automatically",
+                        '₱50 per Starter Pack and ₱100 per Ambassador Pack registration in your network — credited on the Friday after each registration, based on the package availed at sign-up',
                     isDark: isDark,
                     isCompact: isMobile,
                   ),
@@ -2015,6 +2015,10 @@ class _EarningsLedgerCard extends StatelessWidget {
         ?_deltaChip(
           h.chairmanBonus - (prev?.chairmanBonus ?? 0),
           "Chairman's Bonus",
+        ),
+        ?_deltaChip(
+          h.upgradeBonus - (prev?.upgradeBonus ?? 0),
+          'Upgrade Bonus',
         ),
       ];
     } else {

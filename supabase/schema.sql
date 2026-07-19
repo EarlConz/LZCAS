@@ -230,7 +230,7 @@ declare
   v_target_price     integer;
   v_upgrade_bonus    integer;
   v_referrer_id      bigint;
-  v_referrer_name    text;
+  v_last             record;
 begin
   -- 1. Get the member's current package rank (0 if no package)
   select coalesce(pkgs.hierarchy_rank, 0)
@@ -270,15 +270,10 @@ begin
     from public.members m
     where m.id = p_member_id;
 
-  -- 6. Pay the referrer if they exist AND the target package has a bonus > 0
+  -- 6. Pay the upgrade referral bonus (and nothing else — the
+  --    Chairman's Bonus is never touched by upgrades)
   if v_referrer_id is not null and v_upgrade_bonus > 0 then
-    -- Get referrer's first name for the transaction label
-    select m.first_name
-      into v_referrer_name
-      from public.members m
-      where m.id = v_referrer_id;
-
-    -- Insert a member_transaction for the referrer
+    -- 6a. Wallet ledger entry (drives the live earnings computation)
     insert into public.member_transactions (
       user_id, member_id, item_name, quantity, price, timestamp
     ) values (
@@ -288,6 +283,38 @@ begin
       1,
       v_upgrade_bonus,
       now()
+    );
+
+    -- 6b. Earnings History entry written at upgrade time so the
+    --     referrer sees the transaction immediately. Totals carry
+    --     forward from the latest snapshot; only the upgrade
+    --     component and the total move.
+    select total_earnings, balance,
+           indirect_bonus, group_sales, passive_income,
+           repeat_purchase, chairman_bonus, upgrade_bonus
+      into v_last
+      from public.earnings_history
+      where member_id = v_referrer_id
+      order by recorded_at desc
+      limit 1;
+
+    insert into public.earnings_history (
+      member_id, total_earnings, balance,
+      earnings_delta, balance_delta,
+      indirect_bonus, group_sales, passive_income,
+      repeat_purchase, chairman_bonus, upgrade_bonus
+    ) values (
+      v_referrer_id,
+      coalesce(v_last.total_earnings, 0) + v_upgrade_bonus,
+      coalesce(v_last.balance, 0),
+      v_upgrade_bonus,
+      0,
+      coalesce(v_last.indirect_bonus, 0),
+      coalesce(v_last.group_sales, 0),
+      coalesce(v_last.passive_income, 0),
+      coalesce(v_last.repeat_purchase, 0),
+      coalesce(v_last.chairman_bonus, 0),
+      coalesce(v_last.upgrade_bonus, 0) + v_upgrade_bonus
     );
   end if;
 end;
