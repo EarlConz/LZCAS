@@ -405,8 +405,12 @@ class _PackageAvailedCard extends StatelessWidget {
 
   const _PackageAvailedCard({required this.packages, required this.isDark});
 
-  static String _fmtDate(DateTime dt) =>
-      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+  static String _fmtDate(DateTime dt) {
+    // Convert the UTC timestamp to device-local time before formatting,
+    // otherwise the date can read a day behind (PH is UTC+8).
+    final d = dt.toLocal();
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -669,8 +673,12 @@ class _PackageDetailsSheet extends StatelessWidget {
 
   const _PackageDetailsSheet({required this.sale, required this.isDark});
 
-  static String _fmtDate(DateTime dt) =>
-      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+  static String _fmtDate(DateTime dt) {
+    // Convert the UTC timestamp to device-local time before formatting,
+    // otherwise the date can read a day behind (PH is UTC+8).
+    final d = dt.toLocal();
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1243,8 +1251,10 @@ class _RecentActivityCard extends StatelessWidget {
     );
   }
 
-  String _fmtDate(DateTime dt) =>
-      '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+  String _fmtDate(DateTime dt) {
+    final d = dt.toLocal();
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
 }
 
 // ─── Purchases Tab ─────────────────────────────────────────────────────────

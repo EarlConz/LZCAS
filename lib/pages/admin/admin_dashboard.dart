@@ -1301,7 +1301,8 @@ class _UserManagementTabState extends State<_UserManagementTab>
       if (diff.inDays == 0) return 'Today';
       if (diff.inDays == 1) return 'Yesterday';
       if (diff.inDays < 7) return '${diff.inDays}d ago';
-      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      final d = dt.toLocal();
+      return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
     } catch (_) {
       return iso;
     }
@@ -4140,7 +4141,7 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                               const SizedBox(height: 6),
                           itemBuilder: (context, index) {
                             final s = sales[index];
-                            final time = s.timestamp;
+                            final time = s.timestamp?.toLocal();
                             final timeStr = time != null
                                 ? '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}'
                                 : '—';
