@@ -25,17 +25,7 @@ Widget buildIdImage(
   double? height,
   double? width,
 }) {
-  // Supabase Storage URL (cross-device)
-  if (source.startsWith('http://') || source.startsWith('https://')) {
-    return Image.network(
-      source,
-      fit: fit,
-      height: height,
-      width: width,
-      errorBuilder: (_, __, ___) => _missingImage(context),
-    );
-  }
-  // Web: base64 data URL
+  // Web: base64 data URL (never uploaded to storage)
   if (source.startsWith('data:')) {
     final commaIdx = source.indexOf(',');
     if (commaIdx < 0) {
@@ -50,6 +40,51 @@ Widget buildIdImage(
       errorBuilder: (_, __, ___) => _missingImage(context),
     );
   }
+
+  // Private member-ids bucket: resolve a short-lived signed URL from the
+  // object key (bare "5.jpg", or extracted from a legacy public URL).
+  final key = _storageKey(source);
+  if (key != null) {
+    return FutureBuilder<String?>(
+      future: repository.signedMemberImageUrl(key),
+      builder: (ctx, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return SizedBox(
+            height: height ?? 60,
+            width: width,
+            child: const Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+        final url = snap.data;
+        if (url == null) return _missingImage(context);
+        return Image.network(
+          url,
+          fit: fit,
+          height: height,
+          width: width,
+          errorBuilder: (_, __, ___) => _missingImage(context),
+        );
+      },
+    );
+  }
+
+  // Any other http(s) URL (non-member-ids): show directly.
+  if (source.startsWith('http://') || source.startsWith('https://')) {
+    return Image.network(
+      source,
+      fit: fit,
+      height: height,
+      width: width,
+      errorBuilder: (_, __, ___) => _missingImage(context),
+    );
+  }
+
   // Legacy: local file path — validate it exists before displaying
   final file = File(source);
   if (!file.existsSync()) {
@@ -62,6 +97,29 @@ Widget buildIdImage(
     width: width,
     errorBuilder: (_, __, ___) => _missingImage(context),
   );
+}
+
+/// Extract a private member-ids object key from [source], or null if
+/// [source] is not a storage reference (local file, other URL, empty).
+/// Handles both a bare key ("5.jpg") and a legacy public URL that still
+/// embeds ".../member-ids/5.jpg".
+String? _storageKey(String source) {
+  const marker = '/member-ids/';
+  final idx = source.indexOf(marker);
+  if (idx >= 0) {
+    var k = source.substring(idx + marker.length);
+    final q = k.indexOf('?');
+    if (q >= 0) k = k.substring(0, q);
+    return k.isEmpty ? null : k;
+  }
+  // Bare object key: no path separators and not a URL.
+  if (source.isNotEmpty &&
+      !source.startsWith('http') &&
+      !source.contains('/') &&
+      !source.contains('\\')) {
+    return source;
+  }
+  return null;
 }
 
 Widget _missingImage(BuildContext context) => Container(
