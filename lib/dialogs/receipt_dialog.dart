@@ -64,7 +64,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
   final _receiptKey = GlobalKey();
 
   String get _ref {
-    final d = widget.transactionTime ?? DateTime.now();
+    final d = (widget.transactionTime ?? DateTime.now()).toLocal();
     return 'TXN-${d.year}${d.month.toString().padLeft(2, '0')}'
         '${d.day.toString().padLeft(2, '0')}'
         '-${d.hour.toString().padLeft(2, '0')}'
@@ -113,7 +113,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
     );
     final fmtDate = DateFormat(
       'MMMM dd, yyyy  hh:mm a',
-    ).format(widget.transactionTime ?? DateTime.now());
+    ).format((widget.transactionTime ?? DateTime.now()).toLocal());
 
     return AlertDialog(
       shape: RoundedRectangleBorder(
