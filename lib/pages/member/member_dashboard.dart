@@ -4,6 +4,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:bot_toast/bot_toast.dart';
@@ -2011,7 +2012,14 @@ class _EarningsLedgerCard extends StatelessWidget {
     final firstEver = prev == null && prevIsComplete;
 
     List<Widget> chips;
-    if (h.isLegacy || (prev?.isLegacy ?? false)) {
+    final netDelta = h.earningsDelta + h.balanceDelta;
+    if (netDelta < 0) {
+      // A negative change can only come from an approved withdrawal —
+      // earnings otherwise only ever increase. Label it explicitly as a
+      // "Withdrawal" instead of attributing it to an earning source or
+      // falling through to the generic "Adjustment" text.
+      chips = <Widget>[?_deltaChip(netDelta, 'Withdrawal')];
+    } else if (h.isLegacy || (prev?.isLegacy ?? false)) {
       // Rows from before component tracking — sources unknown.
       chips = <Widget>[
         ?_deltaChip(h.earningsDelta, 'earnings'),
@@ -2972,7 +2980,11 @@ class _WithdrawalButtons extends StatelessWidget {
     required this.onWithdrew,
   });
 
-  bool get _isFriday => DateTime.now().weekday == DateTime.friday;
+  // Withdrawals are restricted to Fridays in release builds. In debug
+  // builds the gate is bypassed so the withdrawal flow can be tested any
+  // day — kDebugMode is compile-time false in release, so the shipped
+  // APK/exe still enforces the Friday-only rule.
+  bool get _isFriday => kDebugMode || DateTime.now().weekday == DateTime.friday;
 
   @override
   Widget build(BuildContext context) {

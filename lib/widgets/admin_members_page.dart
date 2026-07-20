@@ -11,6 +11,8 @@ import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/auth/auth_state.dart';
+import 'package:lzcas/auth/role_visibility.dart';
 import 'package:flutter/services.dart';
 
 /// Members page with full detail dialog, shared by Admin and Cashier.
@@ -251,30 +253,37 @@ class AdminMembersPageState extends State<AdminMembersPage> {
                               ),
                             ),
                           ),
+                        // View Password is admin-only — hidden for cashier.
                         if (hasAccount)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () =>
-                                    _viewMemberPassword(ctx, member, fullName),
-                                icon: const Icon(
-                                  Icons.vpn_key_rounded,
-                                  size: 18,
-                                  color: Colors.amber,
-                                ),
-                                label: const Text('View Password'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.amber.shade800,
-                                  side: BorderSide(
-                                    color: Colors.amber.shade300,
+                          RoleVisibility(
+                            allowedRoles: const {UserRole.admin},
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _viewMemberPassword(
+                                    ctx,
+                                    member,
+                                    fullName,
                                   ),
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
+                                  icon: const Icon(
+                                    Icons.vpn_key_rounded,
+                                    size: 18,
+                                    color: Colors.amber,
                                   ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                                  label: const Text('View Password'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.amber.shade800,
+                                    side: BorderSide(
+                                      color: Colors.amber.shade300,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
                                   ),
                                 ),
                               ),
@@ -343,21 +352,34 @@ class AdminMembersPageState extends State<AdminMembersPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: TextButton.icon(
-                            onPressed: () =>
-                                _confirmDeleteMemberDialog(ctx, member),
-                            icon: const Icon(Icons.delete_outline, size: 18),
-                            label: const Text('Delete Member'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: StockpileColors.danger,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                        // Delete Member is admin-only — hidden for cashier.
+                        RoleVisibility(
+                          allowedRoles: const {UserRole.admin},
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: TextButton.icon(
+                                  onPressed: () =>
+                                      _confirmDeleteMemberDialog(ctx, member),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Delete Member'),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: StockpileColors.danger,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
                       ],

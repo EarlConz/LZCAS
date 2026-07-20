@@ -1,13 +1,13 @@
 // Supabase Edge Function: create-member-user
 // Called by SupabaseRepository.createMemberAuthAccount() in the Flutter app.
-// Only an authenticated admin can invoke this function.
+// Only authenticated staff (admin or cashier) can invoke this function.
 // Creates a Supabase Auth user with role 'member' (or 'reseller') linked to a members table record.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 serve(async (req: Request) => {
-  // ── 1. Auth check: caller must be a logged-in admin ──────────────
+  // ── 1. Auth check: caller must be logged-in staff (admin or cashier) ──
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
     return new Response(
@@ -38,9 +38,9 @@ serve(async (req: Request) => {
     .eq("id", caller.id)
     .single();
 
-  if (profile?.role !== "admin") {
+  if (profile?.role !== "admin" && profile?.role !== "cashier") {
     return new Response(
-      JSON.stringify({ error: "Forbidden: admin role required" }),
+      JSON.stringify({ error: "Forbidden: staff role required" }),
       { status: 403, headers: { "Content-Type": "application/json" } },
     );
   }

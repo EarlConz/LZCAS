@@ -1,14 +1,12 @@
 // lib/widgets/member_detail_dialog.dart
 // Shared member detail dialog used by both Admin and Cashier dashboards.
 // Shows full member info with action buttons (View History, Edit, Delete).
-import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/widgets/memberdetails.dart' show buildIdImage;
 
 /// Opens the shared member detail dialog.
 /// [onViewHistory] — called when "View History" is tapped.
@@ -197,7 +195,8 @@ Future<void> showMemberDetailDialog({
                               },
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(10),
-                                child: _buildIdImage(
+                                child: buildIdImage(
+                                  ctx,
                                   member['idImagePath'].toString(),
                                 ),
                               ),
@@ -361,7 +360,7 @@ void _showIdImagePreview(BuildContext context, String path) {
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
-            child: _buildIdImage(path),
+            child: buildIdImage(ctx, path),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -370,33 +369,6 @@ void _showIdImagePreview(BuildContext context, String path) {
         ],
       ),
     ),
-  );
-}
-
-Widget _buildIdImage(String source) {
-  if (source.startsWith('http://') || source.startsWith('https://')) {
-    return Image.network(
-      source,
-      fit: BoxFit.contain,
-      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 48),
-    );
-  }
-  if (source.startsWith('data:')) {
-    final commaIdx = source.indexOf(',');
-    if (commaIdx < 0) return const Icon(Icons.broken_image, size: 48);
-    final bytes = base64Decode(source.substring(commaIdx + 1));
-    return Image.memory(
-      Uint8List.fromList(bytes),
-      fit: BoxFit.contain,
-      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 48),
-    );
-  }
-  final file = File(source);
-  if (!file.existsSync()) return const Icon(Icons.broken_image, size: 48);
-  return Image.file(
-    file,
-    fit: BoxFit.contain,
-    errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 48),
   );
 }
 

@@ -5149,6 +5149,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   List<PendingRequest> _pendingRequests = [];
   List<PendingRequest> _historyRequests = [];
   List<WithdrawalRequest> _withdrawalRequests = [];
+  List<WithdrawalRequest> _withdrawalHistory = []; // approved/rejected
   Map<String, String> _profiles = {};
   Map<String, String> _roles = {};
   Map<int, String> _memberNames = {}; // memberId → "First Last"
@@ -5292,10 +5293,25 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         pageSize: _pageSize,
         statusFilter: 'history',
       );
+      // Processed withdrawals live in a separate table — load them so the
+      // admin's history includes the money-movement audit trail.
+      final withdrawalHistory = await repository.fetchWithdrawalHistory();
       final profiles = await repository.fetchProfilesMap();
+      if (!mounted) return;
+      // Resolve member names for withdrawal cards.
+      for (final w in withdrawalHistory) {
+        if (!_memberNames.containsKey(w.memberId)) {
+          final m = await repository.getMemberById(w.memberId);
+          if (m != null) {
+            _memberNames[w.memberId] =
+                '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
+          }
+        }
+      }
       if (!mounted) return;
       setState(() {
         _historyRequests = page.rows;
+        _withdrawalHistory = withdrawalHistory;
         _historyPage = 1;
         _historyHasMore = page.hasMore;
         _historyVisibleCount = _pageSize;
@@ -5857,7 +5873,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
 
     // Show history view
     if (_showHistory) {
-      if (_historyRequests.isEmpty) {
+      if (_historyRequests.isEmpty && _withdrawalHistory.isEmpty) {
         return Column(
           children: [
             Padding(
@@ -5946,16 +5962,32 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: _loadHistory,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      itemCount: _filteredHistory
-                          .take(_historyVisibleCount)
-                          .length,
-                      itemBuilder: (context, index) => _buildHistoryCard(
-                        _filteredHistory[index],
-                        isDark,
-                        theme,
-                      ),
+                    child: Builder(
+                      builder: (context) {
+                        final wh = _filteredWithdrawalHistory;
+                        final ph = _filteredHistory
+                            .take(_historyVisibleCount)
+                            .toList();
+                        return ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          itemCount: wh.length + ph.length,
+                          itemBuilder: (context, index) {
+                            if (index < wh.length) {
+                              return _buildWithdrawalCard(
+                                wh[index],
+                                isDark,
+                                theme,
+                                isHistory: true,
+                              );
+                            }
+                            return _buildHistoryCard(
+                              ph[index - wh.length],
+                              isDark,
+                              theme,
+                            );
+                          },
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -6145,6 +6177,18 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     }).toList();
   }
 
+  /// Processed withdrawals for the history view. Withdrawals only match the
+  /// 'all' or 'withdrawal' type filter (they aren't delete/stock requests).
+  List<WithdrawalRequest> get _filteredWithdrawalHistory {
+    if (_historyTypeFilter != 'all' && _historyTypeFilter != 'withdrawal') {
+      return const [];
+    }
+    return _withdrawalHistory.where((w) {
+      if (_historyFilter != 'all' && w.status != _historyFilter) return false;
+      return true;
+    }).toList();
+  }
+
   Widget _buildHistoryFilterRow() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final mutedColor = isDark
@@ -6168,7 +6212,10 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
 
     // "All" per dimension reflects the OTHER dimension's filter
     final statusAllCount = typeFiltered.length;
-    final actionAllCount = statusFiltered.length;
+    final withdrawalCount = _withdrawalHistory
+        .where((w) => _historyFilter == 'all' || w.status == _historyFilter)
+        .length;
+    final actionAllCount = statusFiltered.length + withdrawalCount;
     final approvedCount = typeFiltered
         .where((r) => r.status == 'approved')
         .length;
@@ -6313,6 +6360,14 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                           isSelected: _historyTypeFilter == 'borrow',
                           onTap: () =>
                               setState(() => _historyTypeFilter = 'borrow'),
+                        ),
+                        const SizedBox(width: 6),
+                        _FilterChip(
+                          label: 'Withdrawal',
+                          count: withdrawalCount,
+                          isSelected: _historyTypeFilter == 'withdrawal',
+                          onTap: () =>
+                              setState(() => _historyTypeFilter = 'withdrawal'),
                         ),
                       ],
                     ),
@@ -6841,11 +6896,42 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     }
   }
 
+  /// Read-only status pill for processed withdrawals in the history view.
+  Widget _withdrawalStatusBadge(WithdrawalRequest req, bool isDark) {
+    final approved = req.status == 'approved';
+    final color = approved ? StockpileColors.success : StockpileColors.error500;
+    final label = approved ? 'Approved' : 'Rejected';
+    final icon = approved ? Icons.check_circle : Icons.cancel;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withAlpha(isDark ? 30 : 20),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildWithdrawalCard(
     WithdrawalRequest req,
     bool isDark,
-    ThemeData theme,
-  ) {
+    ThemeData theme, {
+    bool isHistory = false,
+  }) {
     final memberName = _memberNames[req.memberId] ?? 'Member #${req.memberId}';
     final cs = context.read<ConfigService>().currencySymbol;
 
@@ -6970,59 +7056,75 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                             ],
                           ),
                         ),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(left: 6),
-                              child: Material(
-                                color: StockpileColors.success.withAlpha(
-                                  isDark ? 25 : 15,
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                                child: InkWell(
-                                  onTap: () => _approveWithdrawal(req),
+                        if (isHistory)
+                          _withdrawalStatusBadge(req, isDark)
+                        else
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(left: 6),
+                                child: Material(
+                                  color: StockpileColors.success.withAlpha(
+                                    isDark ? 25 : 15,
+                                  ),
                                   borderRadius: BorderRadius.circular(10),
-                                  child: Container(
-                                    width: 36,
-                                    height: 36,
-                                    alignment: Alignment.center,
-                                    child: const Icon(
-                                      Icons.check_circle_outline,
-                                      size: 20,
-                                      color: StockpileColors.success,
+                                  child: InkWell(
+                                    onTap: () => _approveWithdrawal(req),
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      width: 36,
+                                      height: 36,
+                                      alignment: Alignment.center,
+                                      child: const Icon(
+                                        Icons.check_circle_outline,
+                                        size: 20,
+                                        color: StockpileColors.success,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.only(left: 6),
-                              child: Material(
-                                color: StockpileColors.error500.withAlpha(
-                                  isDark ? 25 : 15,
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                                child: InkWell(
-                                  onTap: () => _rejectWithdrawal(req),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 6),
+                                child: Material(
+                                  color: StockpileColors.error500.withAlpha(
+                                    isDark ? 25 : 15,
+                                  ),
                                   borderRadius: BorderRadius.circular(10),
-                                  child: Container(
-                                    width: 36,
-                                    height: 36,
-                                    alignment: Alignment.center,
-                                    child: const Icon(
-                                      Icons.cancel_outlined,
-                                      size: 20,
-                                      color: StockpileColors.error500,
+                                  child: InkWell(
+                                    onTap: () => _rejectWithdrawal(req),
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Container(
+                                      width: 36,
+                                      height: 36,
+                                      alignment: Alignment.center,
+                                      child: const Icon(
+                                        Icons.cancel_outlined,
+                                        size: 20,
+                                        color: StockpileColors.error500,
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
+                            ],
+                          ),
                       ],
                     ),
+                    if (isHistory &&
+                        req.status == 'rejected' &&
+                        (req.rejectionReason ?? '').trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Reason: ${req.rejectionReason}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                          color: isDark ? Colors.white54 : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

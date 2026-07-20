@@ -778,7 +778,28 @@ class SupabaseRepository {
           bytes,
           fileOptions: const FileOptions(upsert: true),
         );
-    return _supabase.storage.from('member-ids').getPublicUrl(path);
+    // Store the object KEY (not a public URL): the bucket is private, so
+    // the image is displayed via a short-lived signed URL resolved at
+    // render time (see signedMemberImageUrl / buildIdImage).
+    return path;
+  }
+
+  /// Resolve a short-lived signed URL for a member ID photo stored in the
+  /// private member-ids bucket. [key] is the stored object key (e.g.
+  /// "5.jpg"). Returns null on failure. Only staff can sign (RLS), which
+  /// is why ID photos are visible only in staff-facing member views.
+  Future<String?> signedMemberImageUrl(
+    String key, {
+    int expiresIn = 3600,
+  }) async {
+    try {
+      return await _supabase.storage
+          .from('member-ids')
+          .createSignedUrl(key, expiresIn);
+    } catch (e) {
+      debugPrint('[Stockpile] signedMemberImageUrl failed: $e');
+      return null;
+    }
   }
 
   // ── Package CRUD ───────────────────────────────────────────────────────
@@ -1186,258 +1207,33 @@ class SupabaseRepository {
   }
 
   /// Compute live earnings for a member from their package.
-  /// Balance = flat one-time signup bonus × count of direct referrals with a package.
-  /// Total Earnings = indirect + chairman's (per registration) + passive income (per item) + repeat purchase.
+  ///
+  /// Delegates to the SECURITY DEFINER RPC `get_member_earnings`, which
+  /// walks the referral tree server-side and returns only this member's
+  /// totals. This is what keeps one reseller from reading another's
+  /// financial data — the client never reads the whole members/sales
+  /// tree anymore. The RPC enforces that the caller is either staff or
+  /// the member themselves.
+  ///
+  /// Returns component keys: totalEarnings, balance, indirectBonus,
+  /// passiveIncome, repeatPurchase, chairmanBonus, upgradeBonus.
   Future<Map<String, int>> fetchMemberEarningsBreakdown(int memberId) async {
-    final member = await getMemberById(memberId);
-    Package? pkg;
-    if (member?.packageId != null) {
-      pkg = await getPackageById(member!.packageId!);
-    }
-
-    // Fetch all members for referral tree — including soft-deleted ones:
-    // historical earnings are permanent, so a deleted referral must keep
-    // counting toward the bonuses it already produced.
-    final allMembers = await fetchMembers(includeDeleted: true);
-
-    // Direct referrals: members whose referrer_id == this member's id
-    final directReferrals = allMembers
-        .where((m) => m.referrerId == memberId)
-        .toList();
-
-    // Indirect referrals: members whose referrer_id is in the direct set
-    final directIds = directReferrals.map((m) => m.id).whereType<int>().toSet();
-    final indirectIds = allMembers
-        .where((m) => m.referrerId != null && directIds.contains(m.referrerId))
-        .map((m) => m.id)
-        .whereType<int>()
-        .toSet();
-
-    // Balance = flat one-time signup bonus × ALL direct referrals
-    int balance = 0;
-    if (pkg != null) {
-      balance = directReferrals.length * pkg.directReferralBonus;
-    }
-
-    // Component totals — kept separate so history entries can attribute
-    // changes to their source (indirect referral, passive income, etc.)
-    int indirectBonus = 0;
-    int passiveIncome = 0;
-    int repeatPurchase = 0;
-
-    // Indirect Referral Bonus = flat × count of indirect referrals
-    if (pkg != null) {
-      final indirectCount = allMembers
-          .where(
-            (m) => m.referrerId != null && directIds.contains(m.referrerId),
-          )
-          .length;
-      indirectBonus = indirectCount * pkg.indirectReferralBonus;
-    }
-
-    // ── Passive Income: per-item purchases by the downline ────────────
-    // Direct referrals → 5/item, Indirect referrals → 3/item
-    // (package availments are excluded — only product purchases count)
-    if (directIds.isNotEmpty || indirectIds.isNotEmpty) {
-      final allDownlineIds = {...directIds, ...indirectIds};
-      final downlineData = await _supabase
-          .from('sales')
-          .select('buyer_id, quantity, package_id')
-          .inFilter('buyer_id', allDownlineIds.toList());
-
-      for (final row in (downlineData as List)) {
-        if (row['package_id'] != null) continue; // skip package availments
-        final buyerId = (row['buyer_id'] as num).toInt();
-        final qty = row['quantity'] as int? ?? 0;
-        if (qty <= 0) continue;
-
-        if (directIds.contains(buyerId)) {
-          passiveIncome += 5 * qty; // 5 pesos per item from direct
-        } else if (indirectIds.contains(buyerId)) {
-          passiveIncome += 3 * qty; // 3 pesos per item from indirect
-        }
-      }
-    }
-
-    // Own product purchases: repeat purchase commissions by category
-    final ownData = await _supabase
-        .from('sales')
-        .select('quantity, item_name, package_id')
-        .eq('buyer_id', memberId);
-
-    final categories = await fetchProductCategories();
-    final catMap = <String, int>{};
-    for (final c in categories) {
-      catMap[c.name.toLowerCase()] = c.commissionRate;
-    }
-
-    if (pkg != null) {
-      for (final row in (ownData as List)) {
-        if (row['package_id'] != null) continue;
-        final qty = row['quantity'] as int? ?? 0;
-        if (qty <= 0) continue;
-
-        final itemName = (row['item_name'] as String? ?? '').toLowerCase();
-        for (final entry in catMap.entries) {
-          if (itemName.contains(entry.key)) {
-            repeatPurchase += entry.value * qty;
-            break;
-          }
-        }
-      }
-    }
-
-    // ── Chairman's bonus: earned per new registration in the network ──
-    // 50 per Starter Pack (1500), 100 per Ambassador Pack (3000).
-    // Priced from the REGISTRATION sale snapshot — never from the
-    // member's current package — so a later upgrade can never
-    // retroactively change it. Each registration's bonus matures on the
-    // first Friday on/after the registration date: the Chairman's Bonus
-    // is only ever earned on Fridays, never instantly.
-    int chairmanBonus = 0;
-
-    // All downline members (direct + indirect)
-    final allDownlineIds = {...directIds, ...indirectIds};
-    if (allDownlineIds.isNotEmpty) {
-      final now = DateTime.now();
-
-      // Earliest package availment per downline member = registration.
-      // Later package sales are upgrades and are excluded on purpose.
-      final regSales = await _supabase
-          .from('sales')
-          .select('buyer_id, price, timestamp, item_name')
-          .inFilter('buyer_id', allDownlineIds.toList())
-          .not('package_id', 'is', null)
-          .order('timestamp', ascending: true);
-
-      final registrationByBuyer = <int, Map<String, dynamic>>{};
-      for (final row in (regSales as List)) {
-        final buyerId = (row['buyer_id'] as num?)?.toInt();
-        if (buyerId == null) continue;
-        final name = row['item_name'] as String? ?? '';
-        if (name.startsWith('Package Upgrade')) continue;
-        registrationByBuyer.putIfAbsent(
-          buyerId,
-          () => row as Map<String, dynamic>,
-        );
-      }
-
-      // Fallback pricing for legacy downline members who registered
-      // before availment sales were recorded.
-      final packages = await fetchPackages();
-      final pkgPriceMap = <int, int>{
-        for (final p in packages)
-          if (p.id != null) p.id!: p.price,
-      };
-
-      for (final downlineMember in allMembers) {
-        final dId = downlineMember.id;
-        if (dId == null || !allDownlineIds.contains(dId)) continue;
-
-        int price;
-        final reg = registrationByBuyer[dId];
-        if (reg != null) {
-          price = (reg['price'] as num?)?.toInt() ?? 0;
-          // Friday gate: skip registrations whose first Friday hasn't
-          // arrived yet — they count starting that Friday.
-          final ts = DateTime.tryParse(reg['timestamp']?.toString() ?? '');
-          if (ts != null && now.isBefore(_firstFridayOnOrAfter(ts.toLocal()))) {
-            continue;
-          }
-        } else if (downlineMember.packageId != null) {
-          price = pkgPriceMap[downlineMember.packageId] ?? 0;
-        } else {
-          continue;
-        }
-
-        if (price >= 3000) {
-          chairmanBonus += 100;
-        } else if (price >= 1500) {
-          chairmanBonus += 50;
-        }
-      }
-    }
-
-    // ── Upgrade Referral Bonus: earned when direct downlines upgrade ──
-    int upgradeBonus = 0;
-    try {
-      final txData = await _supabase
-          .from('member_transactions')
-          .select('price')
-          .eq('member_id', memberId)
-          .ilike('item_name', 'Upgrade Bonus%');
-      for (final row in (txData as List)) {
-        upgradeBonus += (row['price'] as int? ?? 0);
-      }
-    } catch (_) {}
-
-    final totalEarnings =
-        indirectBonus +
-        passiveIncome +
-        repeatPurchase +
-        chairmanBonus +
-        upgradeBonus;
-
-    // Subtract approved withdrawals from the appropriate buckets.
-    final withdrawals = await _fetchApprovedWithdrawalTotals(memberId);
-    final netTotalEarnings =
-        (totalEarnings - (withdrawals['totalEarningsDeduction'] ?? 0)).clamp(
-          0,
-          totalEarnings,
-        );
-    final netBalance = (balance - (withdrawals['balanceDeduction'] ?? 0)).clamp(
-      0,
-      balance,
+    final data = await _supabase.rpc(
+      'get_member_earnings',
+      params: {'p_member_id': memberId},
     );
-
+    final map = (data as Map).cast<String, dynamic>();
+    int asInt(String k) => (map[k] as num?)?.toInt() ?? 0;
     return {
-      'totalEarnings': netTotalEarnings,
-      'balance': netBalance,
-      'indirectBonus': indirectBonus,
-      'passiveIncome': passiveIncome,
-      'repeatPurchase': repeatPurchase,
-      'chairmanBonus': chairmanBonus,
-      'upgradeBonus': upgradeBonus,
-      'chairmanFridays':
-          0, // deprecated — chairman bonus is now per-registration
+      'totalEarnings': asInt('totalEarnings'),
+      'balance': asInt('balance'),
+      'indirectBonus': asInt('indirectBonus'),
+      'passiveIncome': asInt('passiveIncome'),
+      'repeatPurchase': asInt('repeatPurchase'),
+      'chairmanBonus': asInt('chairmanBonus'),
+      'upgradeBonus': asInt('upgradeBonus'),
+      'chairmanFridays': 0, // deprecated — bonus is now per-registration
     };
-  }
-
-  /// Midnight (local) of the first Friday on or after [d]. Used to gate
-  /// Chairman's Bonus maturation: a registration earns its bonus starting
-  /// that Friday, never on the day of the transaction itself.
-  static DateTime _firstFridayOnOrAfter(DateTime d) {
-    final day = DateTime(d.year, d.month, d.day);
-    return day.add(Duration(days: (DateTime.friday - day.weekday) % 7));
-  }
-
-  /// Sum of approved withdrawal amounts per source bucket for a member.
-  Future<Map<String, int>> _fetchApprovedWithdrawalTotals(int memberId) async {
-    try {
-      final data = await _supabase
-          .from('withdrawal_requests')
-          .select('source_bucket, requested_amount')
-          .eq('member_id', memberId)
-          .eq('status', 'approved');
-
-      int earningsDeduction = 0;
-      int balanceDeduction = 0;
-      for (final row in (data as List)) {
-        final bucket = row['source_bucket'] as String? ?? '';
-        final amount = (row['requested_amount'] as num?)?.toInt() ?? 0;
-        if (bucket == 'total_earnings') {
-          earningsDeduction += amount;
-        } else if (bucket == 'balance') {
-          balanceDeduction += amount;
-        }
-      }
-      return {
-        'totalEarningsDeduction': earningsDeduction,
-        'balanceDeduction': balanceDeduction,
-      };
-    } catch (_) {
-      return {'totalEarningsDeduction': 0, 'balanceDeduction': 0};
-    }
   }
 
   // ── Earnings history (snapshot ledger) ────────────────────────────
