@@ -94,10 +94,13 @@ class NotificationService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  /// Mark all notifications as seen (called when user opens the panel or views all).
+  /// Mark all notifications as read — dims already-seen items via
+  /// [lastSeenAt] but does NOT clear the badge. The count keeps
+  /// reflecting UNRESOLVED items and only drops when a request is
+  /// actually approved/rejected (or stock is replenished), driven by
+  /// the change events that call [_refreshPending]/[_refreshLowStock].
   void markAllSeen() {
     _lastSeenAt = DateTime.now();
-    _pendingCount = 0;
     notifyListeners();
   }
 

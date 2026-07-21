@@ -42,25 +42,24 @@ class _EditProductDialogState extends State<EditProductDialog> {
 
   Future<void> _loadCategories() async {
     try {
-      final rows = await repository.fetchItems();
-      final set = <String>{};
-      for (final r in rows) {
-        final c = r.category;
-        if (c != null && c.trim().isNotEmpty) set.add(c.trim());
-      }
+      // Categories come from the Settings-managed category list, not from
+      // whatever categories existing products happen to use.
+      final cats = await repository.fetchProductCategories();
+      final set = <String>{
+        for (final c in cats)
+          if (c.name.trim().isNotEmpty) c.name.trim(),
+      };
+      final existing = (widget.item['category'] as String?)?.trim();
+      // Keep the product's current category selectable even if it was
+      // later removed from Settings, so editing never silently drops it.
+      if (existing != null && existing.isNotEmpty) set.add(existing);
       final list = set.toList()..sort();
       if (!mounted) return;
-      // Normalize the existing category (trim) and ensure it exists in the loaded list.
-      final existing = (widget.item['category'] as String?)?.trim();
       setState(() {
         categories = list;
-        if (existing != null &&
-            existing.isNotEmpty &&
-            list.contains(existing)) {
-          selectedCategory = existing;
-        } else {
-          selectedCategory = list.isNotEmpty ? list.first : null;
-        }
+        selectedCategory = (existing != null && existing.isNotEmpty)
+            ? existing
+            : null;
       });
     } catch (e) {
       // ignore: avoid_print
@@ -248,91 +247,22 @@ class _EditProductDialogState extends State<EditProductDialog> {
                 decoration: const InputDecoration(labelText: 'Product name'),
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: categories.contains(selectedCategory)
-                          ? selectedCategory
-                          : null,
-                      decoration: const InputDecoration(labelText: 'Category'),
-                      items: categories
-                          .map(
-                            (c) => DropdownMenuItem(value: c, child: Text(c)),
-                          )
-                          .toList(),
-                      onChanged: (v) => setState(() => selectedCategory = v),
-                      hint: const Text('Select category'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    iconSize: 28,
-                    icon: const Icon(Icons.add_circle_outline),
-                    tooltip: 'Add new category',
-                    onPressed: () async {
-                      final result = await showDialog<String>(
-                        context: context,
-                        builder: (ctx) {
-                          final tc = TextEditingController();
-                          return AlertDialog(
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            titlePadding: const EdgeInsets.fromLTRB(
-                              24,
-                              22,
-                              24,
-                              0,
-                            ),
-                            contentPadding: const EdgeInsets.fromLTRB(
-                              24,
-                              16,
-                              24,
-                              8,
-                            ),
-                            title: const Text('Add category'),
-                            content: TextField(
-                              controller: tc,
-                              decoration: const InputDecoration(
-                                labelText: 'Category name',
-                              ),
-                            ),
-                            actionsPadding: const EdgeInsets.fromLTRB(
-                              24,
-                              8,
-                              24,
-                              20,
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                child: const Text('Cancel'),
-                              ),
-                              const SizedBox(width: 12),
-                              FilledButton(
-                                onPressed: () =>
-                                    Navigator.pop(ctx, tc.text.trim()),
-                                child: const Text('Add'),
-                              ),
-                            ],
-                          );
-                        },
-                      );
-                      if (result != null && result.isNotEmpty) {
-                        if (!categories.contains(result)) {
-                          setState(() {
-                            categories = List.from(categories)..add(result);
-                            categories.sort();
-                            selectedCategory = result;
-                          });
-                        } else {
-                          setState(() => selectedCategory = result);
-                        }
-                      }
-                    },
-                  ),
-                ],
+              DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: categories.contains(selectedCategory)
+                    ? selectedCategory
+                    : null,
+                decoration: const InputDecoration(labelText: 'Category'),
+                items: categories
+                    .map(
+                      (c) => DropdownMenuItem(
+                        value: c,
+                        child: Text(c, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => setState(() => selectedCategory = v),
+                hint: const Text('Select category'),
               ),
               const SizedBox(height: 20),
 

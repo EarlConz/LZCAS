@@ -2,7 +2,7 @@
 // Route guard that checks authentication and role-based access before
 // allowing navigation to any protected page.
 // Unauthenticated users → login. Wrong-role deep links → 403 Forbidden page.
-// Non-admin users on mobile → redirected to login.
+// Cashier and inventory users on mobile → redirected to login.
 
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
@@ -99,12 +99,13 @@ class RouteGuard {
       );
     }
 
-    // Guard 2: Mobile platform — only Admin accounts allowed on phones/tablets.
+    // Guard 2: Mobile platform — cashier and inventory accounts are
+    // desktop-only. Admin, member, and reseller may use phones/tablets.
     final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
-    if (isMobile && role != UserRole.admin) {
+    if (isMobile && (role == UserRole.cashier || role == UserRole.inventory)) {
       return RouteRedirect(
         AppRoutes.login,
-        reason: 'Mobile access is restricted to Admin accounts only.',
+        reason: 'Cashier and inventory accounts must use a desktop.',
       );
     }
 

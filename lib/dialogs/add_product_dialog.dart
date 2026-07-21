@@ -141,15 +141,25 @@ class _AddProductDialogState extends State<AddProductDialog> {
       ),
       actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
       actions: [
-        OutlinedButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        const SizedBox(width: 12),
-        FilledButton.icon(
-          onPressed: _submit,
-          icon: const Icon(Icons.add, size: 20),
-          label: const Text('Add Product'),
+        // OverflowBar spaces the buttons horizontally when they fit and
+        // stacks them with a gap when they don't (narrow/mobile) — a bare
+        // SizedBox spacer left them overlapping once stacked.
+        OverflowBar(
+          spacing: 12,
+          overflowSpacing: 8,
+          alignment: MainAxisAlignment.end,
+          overflowAlignment: OverflowBarAlignment.end,
+          children: [
+            OutlinedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: _submit,
+              icon: const Icon(Icons.add, size: 20),
+              label: const Text('Add Product'),
+            ),
+          ],
         ),
       ],
     );

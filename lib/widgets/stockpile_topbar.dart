@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../utils/fonts.dart';
 import '../theme.dart';
@@ -140,6 +140,7 @@ class _NotificationPopover extends StatefulWidget {
 
 class _NotificationPopoverState extends State<_NotificationPopover> {
   List<PendingRequest> _requests = [];
+  List<WithdrawalRequest> _withdrawals = [];
   List<Item> _lowStockItems = [];
   bool _loading = true;
 
@@ -155,11 +156,13 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
       final results = await Future.wait([
         repository.fetchPendingRequests(),
         repository.fetchLowStockItems(threshold),
+        repository.fetchPendingWithdrawals(),
       ]);
       if (!mounted) return;
       setState(() {
         _requests = results[0] as List<PendingRequest>;
         _lowStockItems = results[1] as List<Item>;
+        _withdrawals = results[2] as List<WithdrawalRequest>;
         _loading = false;
       });
     } catch (_) {
@@ -265,8 +268,11 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
   @override
   Widget build(BuildContext context) {
     final isDark = widget.isDark;
-    final notif = widget.notificationService;
-    final total = notif.totalCount;
+    // Reflect the actually-loaded (unresolved) items rather than the
+    // badge's cached count — the panel keeps showing requests until they
+    // are resolved, not merely until they're read.
+    final total =
+        _requests.length + _lowStockItems.length + _withdrawals.length;
 
     final isMobile = MediaQuery.of(context).size.width < 750;
 
@@ -500,6 +506,64 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
                                 ),
                                 subtitle: Text(
                                   _timeAgo(req.createdAt),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? Colors.white38
+                                        : Colors.grey.shade500,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
+
+                        // ── Withdrawal Requests ───────────────
+                        if (_withdrawals.isNotEmpty) ...[
+                          if (_lowStockItems.isNotEmpty || _requests.isNotEmpty)
+                            const Divider(height: 1, indent: 16, endIndent: 16),
+                          _sectionHeader(
+                            'Withdrawal Requests',
+                            _withdrawals.length,
+                            Icons.account_balance_wallet_rounded,
+                            const Color(0xFF6366F1),
+                            isDark,
+                          ),
+                          ..._withdrawals.take(10).map((w) {
+                            const color = Color(0xFF6366F1);
+                            return Opacity(
+                              opacity: _readOpacity(w.createdAt),
+                              child: ListTile(
+                                dense: true,
+                                onTap: () => _navigate(6),
+                                leading: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: color.withAlpha(isDark ? 25 : 15),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.account_balance_wallet_outlined,
+                                    size: 16,
+                                    color: color,
+                                  ),
+                                ),
+                                title: Text(
+                                  'Withdrawal: ₱${w.requestedAmount} '
+                                  '(${w.sourceLabel})',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? StockpileColors.darkTextPrimary
+                                        : StockpileColors.darkText,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  _timeAgo(w.createdAt),
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: isDark
