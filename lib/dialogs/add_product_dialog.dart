@@ -177,7 +177,8 @@ class _AddProductDialogState extends State<AddProductDialog> {
       'lastUpdated': DateTime.now(),
       'status': stock <= 0
           ? 'Out of Stock'
-          : (stock < context.read<ConfigService>().lowStockThreshold
+          : (stock <
+                    context.read<ConfigService>().thresholdForCategory(category)
                 ? 'Low Stock'
                 : 'Good'),
     });

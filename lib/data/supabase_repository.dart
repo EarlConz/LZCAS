@@ -276,15 +276,17 @@ class SupabaseRepository {
     return Item.fromJson(data);
   }
 
-  /// Fetch only items whose stock is below [threshold] but above 0.
-  /// Used by the notification popover — avoids loading all items.
-  Future<List<Item>> fetchLowStockItems(int threshold) async {
+  /// Fetch Low Stock items (per-category threshold aware, via the
+  /// items_with_status view). Used by the notification popover.
+  Future<List<Item>> fetchLowStockItems() async {
     final data = await _supabase
-        .from('items')
+        .from('items_with_status')
         .select()
-        .lt('stock', threshold)
-        .gt('stock', 0);
-    return (data as List).map((j) => Item.fromJson(j)).toList();
+        .eq('stock_status', 'Low Stock');
+    return (data as List).map((j) {
+      final map = j as Map<String, dynamic>;
+      return Item.fromJson(map).copyWith(status: map['stock_status'] as String?);
+    }).toList();
   }
 
   // ── Paginated Fetch Methods ──────────────────────────────────────────────
@@ -295,12 +297,16 @@ class SupabaseRepository {
     int pageSize = 100,
     String? search,
     String? categoryFilter,
+    String? statusFilter,
     String sortColumn = 'name',
     bool sortAscending = true,
   }) async {
-    // Build data query — filters first, then order/range
-    dynamic dataQuery = _supabase.from('items').select('*');
-    dynamic countQuery = _supabase.from('items').select('id');
+    // Read from the items_with_status view so the per-category status
+    // (Low / Out / Good) is computed server-side and stays consistent with
+    // pagination and the total count. `stock_status` is the authoritative
+    // status carried back into each Item.
+    dynamic dataQuery = _supabase.from('items_with_status').select('*');
+    dynamic countQuery = _supabase.from('items_with_status').select('id');
 
     if (search != null && search.isNotEmpty) {
       dataQuery = dataQuery.ilike('name', '%$search%');
@@ -309,6 +315,16 @@ class SupabaseRepository {
     if (categoryFilter != null && categoryFilter.isNotEmpty) {
       dataQuery = dataQuery.eq('category', categoryFilter);
       countQuery = countQuery.eq('category', categoryFilter);
+    }
+    if (statusFilter != null && statusFilter.isNotEmpty) {
+      if (statusFilter == 'Needs Restocking') {
+        // Low Stock + Out of Stock combined = anything not 'Good'.
+        dataQuery = dataQuery.neq('stock_status', 'Good');
+        countQuery = countQuery.neq('stock_status', 'Good');
+      } else {
+        dataQuery = dataQuery.eq('stock_status', statusFilter);
+        countQuery = countQuery.eq('stock_status', statusFilter);
+      }
     }
 
     // Apply order and range AFTER filters
@@ -322,9 +338,11 @@ class SupabaseRepository {
     ]);
 
     final totalCount = (results[0] as PostgrestResponse).count;
-    final rows = (results[1] as List)
-        .map((j) => Item.fromJson(j as Map<String, dynamic>))
-        .toList();
+    final rows = (results[1] as List).map((j) {
+      final map = j as Map<String, dynamic>;
+      // The view's computed status overrides the stored `status` column.
+      return Item.fromJson(map).copyWith(status: map['stock_status'] as String?);
+    }).toList();
 
     return PageResult(
       rows: rows,
@@ -446,7 +464,6 @@ class SupabaseRepository {
     required DateTime thisMonthEnd,
     required DateTime lastMonthStart,
     required DateTime lastMonthEnd,
-    required int lowStockThreshold,
   }) async {
     final results = await Future.wait<dynamic>([
       // This month's sales
@@ -461,12 +478,12 @@ class SupabaseRepository {
           .select('price, quantity, package_id')
           .gte('timestamp', lastMonthStart.toIso8601String())
           .lt('timestamp', lastMonthEnd.toIso8601String()),
-      // Low stock items (id only, lightweight)
+      // Low stock items (id only, lightweight) — per-category threshold
+      // aware via the items_with_status view.
       _supabase
-          .from('items')
+          .from('items_with_status')
           .select('id')
-          .lt('stock', lowStockThreshold)
-          .gt('stock', 0),
+          .eq('stock_status', 'Low Stock'),
     ]);
 
     final thisMonthSales = results[0] as List;
@@ -1344,10 +1361,16 @@ class SupabaseRepository {
   Future<int> addCategory({
     required String name,
     int commissionRate = 0,
+    int? lowStockThreshold,
   }) async {
     final data = await _supabase
         .from('categories')
-        .insert({'name': name, 'commission_rate': commissionRate})
+        .insert({
+          'name': name,
+          'commission_rate': commissionRate,
+          if (lowStockThreshold != null)
+            'low_stock_threshold': lowStockThreshold,
+        })
         .select('id');
     if (data is List && data.isNotEmpty) {
       return (data.first['id'] as num).toInt();
@@ -1577,15 +1600,60 @@ class SupabaseRepository {
     return resp.count;
   }
 
-  /// Get the count of low-stock items (stock > 0 and stock < threshold).
-  Future<int> fetchLowStockCount(int threshold) async {
+  /// Get the count of Low Stock items (per-category threshold aware, via
+  /// the items_with_status view).
+  Future<int> fetchLowStockCount() async {
     final resp = await _supabase
-        .from('items')
+        .from('items_with_status')
         .select('id')
-        .lt('stock', threshold)
-        .gt('stock', 0)
+        .eq('stock_status', 'Low Stock')
         .count(CountOption.exact);
     return resp.count;
+  }
+
+  /// Aggregate inventory figures for the summary strip: total SKUs, low
+  /// stock count, out-of-stock count, and total units on hand. Runs the
+  /// three counts and the units scan in parallel. `needsRestock` (Low +
+  /// Out) is simply low + out.
+  Future<Map<String, int>> fetchInventorySummary() async {
+    // Low / Out counts come from the items_with_status view so they honour
+    // each category's own threshold; Products and Units are plain item scans.
+    final results = await Future.wait<dynamic>([
+      _supabase.from('items').select('id').count(CountOption.exact),
+      _supabase
+          .from('items_with_status')
+          .select('id')
+          .eq('stock_status', 'Low Stock')
+          .count(CountOption.exact),
+      _supabase
+          .from('items_with_status')
+          .select('id')
+          .eq('stock_status', 'Out of Stock')
+          .count(CountOption.exact),
+      // Units total — items table is small, so a client-side sum is cheap.
+      _supabase.from('items').select('stock'),
+    ]);
+
+    final skuCount = (results[0] as PostgrestResponse).count;
+    final lowCount = (results[1] as PostgrestResponse).count;
+    final outCount = (results[2] as PostgrestResponse).count;
+
+    int totalUnits = 0;
+    for (final row in (results[3] as List)) {
+      final s = (row as Map<String, dynamic>)['stock'];
+      totalUnits += s is int
+          ? s
+          : s is num
+          ? s.toInt()
+          : int.tryParse(s?.toString() ?? '0') ?? 0;
+    }
+
+    return {
+      'skuCount': skuCount,
+      'lowCount': lowCount,
+      'outCount': outCount,
+      'totalUnits': totalUnits,
+    };
   }
 
   /// Fetch all non-pending requests (approved and rejected) for history view.
@@ -2316,6 +2384,50 @@ class SupabaseRepository {
   }
 
   Future<String> exportItemsCsv() => exportItemsCsvString();
+
+  /// Export the CURRENT filtered/sorted inventory view as a CSV string.
+  /// Reads the items_with_status view so filters and the exported Status
+  /// column honour each category's own threshold, and returns every
+  /// matching row (no pagination).
+  Future<String> exportItemsCsvFiltered({
+    String? search,
+    String? categoryFilter,
+    String? statusFilter,
+    String sortColumn = 'name',
+    bool sortAscending = true,
+  }) async {
+    dynamic query = _supabase.from('items_with_status').select('*');
+
+    if (search != null && search.isNotEmpty) {
+      query = query.ilike('name', '%$search%');
+    }
+    if (categoryFilter != null && categoryFilter.isNotEmpty) {
+      query = query.eq('category', categoryFilter);
+    }
+    if (statusFilter != null && statusFilter.isNotEmpty) {
+      if (statusFilter == 'Needs Restocking') {
+        query = query.neq('stock_status', 'Good');
+      } else {
+        query = query.eq('stock_status', statusFilter);
+      }
+    }
+
+    final data = await query.order(sortColumn, ascending: sortAscending);
+    final list = (data as List).cast<Map<String, dynamic>>();
+
+    final rows = <List<String>>[
+      ['Name', 'Category', 'Stock', 'Status', 'Last Updated'],
+      for (final j in list)
+        [
+          (j['name'] ?? '').toString(),
+          (j['category'] ?? '').toString(),
+          (j['stock'] ?? 0).toString(),
+          (j['stock_status'] ?? '').toString(),
+          (j['last_updated'] ?? '').toString(),
+        ],
+    ];
+    return const ListToCsvConverter().convert(rows);
+  }
 
   Future<String> exportMembersCsvString() async {
     final members = await fetchMembers();

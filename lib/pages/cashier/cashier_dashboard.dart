@@ -688,7 +688,6 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
   bool _loading = true;
   bool _loadingMore = false;
   String _statusFilter = 'all';
-  String _typeFilter = 'all';
   bool _newestFirst = true;
 
   static const _pageSize = 25;
@@ -756,7 +755,6 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
   List<PendingRequest> get _filteredRequests {
     return _requests.where((r) {
       if (_statusFilter != 'all' && r.status != _statusFilter) return false;
-      if (_typeFilter != 'all' && r.requestType != _typeFilter) return false;
       return true;
     }).toList()..sort((a, b) {
       final aTime = a.createdAt ?? DateTime(2000);
@@ -838,59 +836,6 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
           ],
         ),
       ),
-    );
-  }
-
-  // ── Type filter row ──────────────────────────────────────────────
-  Widget _typeFilterRow() {
-    final isDark = widget.isDark;
-    final items = [
-      _FilterSegment('All', 'all', Icons.layers_rounded, _requests.length),
-      _FilterSegment('Delete', 'delete_member', Icons.person_remove_rounded, 0),
-      _FilterSegment('Borrow', 'borrow', Icons.swap_horiz_rounded, 0),
-    ];
-
-    return Row(
-      children: items.map((item) {
-        final selected = _typeFilter == item.value;
-        return Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: GestureDetector(
-            onTap: () => setState(() => _typeFilter = item.value),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: selected
-                    ? (isDark ? _indigo.withAlpha(40) : _indigo.withAlpha(20))
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: selected
-                      ? _indigo
-                      : (isDark ? Colors.white12 : Colors.grey.shade200),
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(item.icon, size: 15, color: selected ? _indigo : _slate),
-                  const SizedBox(width: 5),
-                  Text(
-                    item.label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                      color: selected ? _indigo : _slate,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }).toList(),
     );
   }
 
@@ -1029,17 +974,10 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
         ? _orange.withAlpha(20)
         : (isApproved ? _emerald.withAlpha(20) : _rose.withAlpha(20));
 
-    final isBorrow = req.requestType == 'borrow';
-    final typeColor = isBorrow ? _orange : _rose;
-    final typeIcon = isBorrow
-        ? Icons.swap_horiz_rounded
-        : Icons.person_remove_rounded;
-    final title = isBorrow
-        ? (req.itemName ?? 'Unknown')
-        : (req.memberName ?? 'Unknown');
-    final subtitle = isBorrow
-        ? 'For ${req.memberName ?? 'Unknown'}  ·  ×${req.quantity ?? 0}${req.price != null && req.price! > 0 ? '  ·  ₱${req.price} each' : ''}'
-        : 'Requested deletion';
+    const typeColor = _rose;
+    const typeIcon = Icons.person_remove_rounded;
+    final title = req.memberName ?? 'Unknown';
+    const subtitle = 'Requested deletion';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1330,9 +1268,6 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        // Type filter
-                        _typeFilterRow(),
-                        const SizedBox(height: 8),
                         // Result count
                         Text(
                           'Showing ${filtered.length} of ${_requests.length} request${_requests.length == 1 ? '' : 's'}',
@@ -1365,7 +1300,7 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
-                              _statusFilter != 'all' || _typeFilter != 'all'
+                              _statusFilter != 'all'
                                   ? Icons.filter_list_off_rounded
                                   : Icons.inbox_rounded,
                               size: 40,
@@ -1376,7 +1311,7 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            _statusFilter != 'all' || _typeFilter != 'all'
+                            _statusFilter != 'all'
                                 ? 'No matching requests'
                                 : 'No requests yet',
                             style: TextStyle(
@@ -1389,7 +1324,7 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            _statusFilter != 'all' || _typeFilter != 'all'
+                            _statusFilter != 'all'
                                 ? 'Try adjusting the filters above'
                                 : 'Submitted requests\nwill appear here',
                             textAlign: TextAlign.center,
@@ -1460,10 +1395,3 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
   }
 }
 
-class _FilterSegment {
-  final String label;
-  final String value;
-  final IconData icon;
-  final int count;
-  const _FilterSegment(this.label, this.value, this.icon, this.count);
-}

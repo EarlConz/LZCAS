@@ -3,7 +3,6 @@
 // Feature visibility is gated by the member's role field in the members table.
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -833,13 +832,6 @@ class _PackageDetailsSheet extends StatelessWidget {
                           textColor,
                           mutedColor,
                         ),
-                        const SizedBox(height: 14),
-                        _sectionLabel(
-                          'REPEAT PURCHASE COMMISSIONS',
-                          mutedColor,
-                        ),
-                        const SizedBox(height: 10),
-                        _repeatPurchaseChips(pkg, textColor, mutedColor),
                       ],
                     ),
             ),
@@ -909,44 +901,6 @@ class _PackageDetailsSheet extends StatelessWidget {
     ),
   );
 
-  /// Per-unit repeat-purchase commission chips, e.g. "₱5 / pack".
-  Widget _repeatPurchaseChips(Package pkg, Color textColor, Color mutedColor) {
-    Map<String, dynamic> rates;
-    try {
-      rates = jsonDecode(pkg.repeatPurchaseJson) as Map<String, dynamic>;
-    } catch (_) {
-      rates = {};
-    }
-    if (rates.isEmpty) {
-      return Text(
-        'None',
-        style: StockpileFonts.satoshi(fontSize: 13, color: mutedColor),
-      );
-    }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: rates.entries
-          .map(
-            (e) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF6366F1).withAlpha(isDark ? 45 : 25),
-                borderRadius: BorderRadius.circular(100),
-              ),
-              child: Text(
-                '₱${e.value} / ${e.key}',
-                style: StockpileFonts.satoshi(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: textColor,
-                ),
-              ),
-            ),
-          )
-          .toList(),
-    );
-  }
 }
 
 class _OverviewHero extends StatelessWidget {
@@ -1693,7 +1647,7 @@ class _EarningsTabState extends State<_EarningsTab> {
                   _BreakdownRow(
                     label: 'Total Earnings',
                     detail:
-                        "Indirect referral bonuses + Passive Income (₱5 per item your direct referrals purchase, ₱3 per item from indirect) + Chairman's Bonus + Repeat Purchase commissions + Upgrade Referral Bonuses",
+                        "Indirect referral bonuses + Passive Income (₱5 per item your direct referrals purchase, ₱3 per item from indirect) + Chairman's Bonus + Upgrade Referral Bonuses",
                     isDark: isDark,
                     isCompact: isMobile,
                   ),
@@ -1706,7 +1660,7 @@ class _EarningsTabState extends State<_EarningsTab> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Group Sales and Repeat Purchase commissions accrue as products are purchased by you and your referral network.',
+                    'Group Sales commissions accrue as products are purchased by you and your referral network.',
                     style: TextStyle(
                       fontSize: 11,
                       fontStyle: FontStyle.italic,
@@ -2045,10 +1999,6 @@ class _EarningsLedgerCard extends StatelessWidget {
         ?_deltaChip(
           h.passiveIncome - (prev?.passiveIncome ?? 0),
           'Passive Income',
-        ),
-        ?_deltaChip(
-          h.repeatPurchase - (prev?.repeatPurchase ?? 0),
-          'Repeat Purchase',
         ),
         ?_deltaChip(
           h.chairmanBonus - (prev?.chairmanBonus ?? 0),

@@ -4,7 +4,6 @@ import '../utils/fonts.dart';
 import '../theme.dart';
 import '../db/db.dart';
 import '../services/notification_service.dart';
-import '../services/config_service.dart';
 
 class StockpileTopBar extends StatelessWidget {
   final String pageTitle;
@@ -152,10 +151,11 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
 
   Future<void> _load() async {
     try {
-      final threshold = context.read<ConfigService>().lowStockThreshold;
+      // Low-stock is per-category now (computed server-side by the view),
+      // so no global threshold is passed here.
       final results = await Future.wait([
         repository.fetchPendingRequests(),
-        repository.fetchLowStockItems(threshold),
+        repository.fetchLowStockItems(),
         repository.fetchPendingWithdrawals(),
       ]);
       if (!mounted) return;

@@ -4,7 +4,6 @@
 // from every dashboard (admin, inventory, and cashier).
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/services.dart';
@@ -2591,8 +2590,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                           isDark: isDark,
                         ),
                         const SizedBox(height: 8),
-                        _RepeatPurchaseRow(pkg: pkg, isDark: isDark),
-                        const SizedBox(height: 8),
                         _GroupSalesRow(
                           icon: Icons.arrow_downward_rounded,
                           label: 'Group Sales Direct',
@@ -2653,64 +2650,6 @@ class _BonusRow extends StatelessWidget {
             color: isDark
                 ? StockpileColors.darkTextPrimary
                 : StockpileColors.darkText,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RepeatPurchaseRow extends StatelessWidget {
-  final Package pkg;
-  final bool isDark;
-
-  const _RepeatPurchaseRow({required this.pkg, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    Map<String, dynamic> rates;
-    try {
-      rates = jsonDecode(pkg.repeatPurchaseJson) as Map<String, dynamic>;
-    } catch (_) {
-      rates = {};
-    }
-    if (rates.isEmpty) return const SizedBox.shrink();
-
-    final entries = rates.entries.map((e) => '${e.value}/${e.key}').join(', ');
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          Icons.repeat_rounded,
-          size: 14,
-          color: isDark
-              ? StockpileColors.darkTextMuted
-              : StockpileColors.mutedText,
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            'Repeat Purchase',
-            style: StockpileFonts.satoshi(
-              fontSize: 12,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-          ),
-        ),
-        Flexible(
-          child: Text(
-            entries,
-            textAlign: TextAlign.end,
-            style: StockpileFonts.satoshi(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
-            ),
           ),
         ),
       ],
@@ -2781,7 +2720,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   late final TabController _tabController;
   // General config state
   bool _configLoading = true;
-  final _lowStockCtrl = TextEditingController();
   final _currencyCtrl = TextEditingController();
   bool _notificationsOn = true;
 
@@ -2800,7 +2738,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   @override
   void dispose() {
     _tabController.dispose();
-    _lowStockCtrl.dispose();
     _currencyCtrl.dispose();
     super.dispose();
   }
@@ -2809,7 +2746,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     final config = await repository.fetchAppConfig();
     if (!mounted) return;
     setState(() {
-      _lowStockCtrl.text = config['low_stock_threshold'] ?? '50';
       _currencyCtrl.text = config['currency_symbol'] ?? '₱';
       _notificationsOn = config['notifications_enabled'] != 'false';
       _configLoading = false;
@@ -2817,7 +2753,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
   }
 
   Future<void> _saveConfig() async {
-    await repository.updateAppConfig('low_stock_threshold', _lowStockCtrl.text);
     await repository.updateAppConfig('currency_symbol', _currencyCtrl.text);
     await repository.updateAppConfig(
       'notifications_enabled',
@@ -2841,6 +2776,9 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
     final rateCtrl = TextEditingController(
       text: existing != null ? '${existing.commissionRate}' : '0',
+    );
+    final thresholdCtrl = TextEditingController(
+      text: existing?.lowStockThreshold?.toString() ?? '',
     );
     final formKey = GlobalKey<FormState>();
     showDialog(
@@ -2872,6 +2810,24 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: thresholdCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Low Stock Threshold',
+                    helperText: 'Stock below this is flagged Low Stock',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  validator: (v) {
+                    final n = int.tryParse((v ?? '').trim());
+                    if (n == null || n <= 0) {
+                      return 'Enter a threshold greater than 0';
+                    }
+                    return null;
+                  },
+                ),
               ],
             ),
           ),
@@ -2898,20 +2854,25 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
             FilledButton(
               onPressed: () async {
                 if (!formKey.currentState!.validate()) return;
+                final threshold = int.tryParse(thresholdCtrl.text.trim());
                 if (existing != null) {
                   await repository.updateCategory(
                     existing.copyWith(
                       name: nameCtrl.text.trim(),
                       commissionRate: int.tryParse(rateCtrl.text) ?? 0,
+                      lowStockThreshold: threshold,
                     ),
                   );
                 } else {
                   await repository.addCategory(
                     name: nameCtrl.text.trim(),
                     commissionRate: int.tryParse(rateCtrl.text) ?? 0,
+                    lowStockThreshold: threshold,
                   );
                 }
                 if (!ctx.mounted) return;
+                // Refresh cached category thresholds so status recomputes.
+                context.read<ConfigService>().refresh();
                 Navigator.pop(ctx);
                 _loadCategories();
               },
@@ -3161,27 +3122,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
             ),
           ),
           const SizedBox(height: 16),
-          _ConfigTile(
-            icon: Icons.inventory_2_rounded,
-            title: 'Low Stock Threshold',
-            subtitle: 'Alert when stock falls below this number',
-            trailing: SizedBox(
-              width: 70,
-              child: TextField(
-                controller: _lowStockCtrl,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: const InputDecoration(
-                  isDense: true,
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
           _ConfigTile(
             icon: Icons.attach_money_rounded,
             title: 'Currency Symbol',
