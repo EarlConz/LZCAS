@@ -2591,8 +2591,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                           isDark: isDark,
                         ),
                         const SizedBox(height: 8),
-                        _RepeatPurchaseRow(pkg: pkg, isDark: isDark),
-                        const SizedBox(height: 8),
                         _GroupSalesRow(
                           icon: Icons.arrow_downward_rounded,
                           label: 'Group Sales Direct',
@@ -2653,64 +2651,6 @@ class _BonusRow extends StatelessWidget {
             color: isDark
                 ? StockpileColors.darkTextPrimary
                 : StockpileColors.darkText,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RepeatPurchaseRow extends StatelessWidget {
-  final Package pkg;
-  final bool isDark;
-
-  const _RepeatPurchaseRow({required this.pkg, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    Map<String, dynamic> rates;
-    try {
-      rates = jsonDecode(pkg.repeatPurchaseJson) as Map<String, dynamic>;
-    } catch (_) {
-      rates = {};
-    }
-    if (rates.isEmpty) return const SizedBox.shrink();
-
-    final entries = rates.entries.map((e) => '${e.value}/${e.key}').join(', ');
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          Icons.repeat_rounded,
-          size: 14,
-          color: isDark
-              ? StockpileColors.darkTextMuted
-              : StockpileColors.mutedText,
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            'Repeat Purchase',
-            style: StockpileFonts.satoshi(
-              fontSize: 12,
-              color: isDark
-                  ? StockpileColors.darkTextMuted
-                  : StockpileColors.mutedText,
-            ),
-          ),
-        ),
-        Flexible(
-          child: Text(
-            entries,
-            textAlign: TextAlign.end,
-            style: StockpileFonts.satoshi(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isDark
-                  ? StockpileColors.darkTextPrimary
-                  : StockpileColors.darkText,
-            ),
           ),
         ),
       ],
