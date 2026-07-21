@@ -1413,6 +1413,44 @@ class SupabaseRepository {
     return true;
   }
 
+  /// Restore a soft-deleted member (clears is_deleted so they reappear in
+  /// lists and can log in again). Returns true on success.
+  Future<bool> restoreMemberById(int id) async {
+    try {
+      await _supabase
+          .from('members')
+          .update({'is_deleted': false})
+          .eq('id', id);
+      _changes.add('member_updated');
+      return true;
+    } catch (e) {
+      debugPrint('[Repo] restoreMemberById failed: $e');
+      return false;
+    }
+  }
+
+  /// Find a soft-deleted member whose login account uses [username]
+  /// (email '{username}@lzcas.local'). Used to detect when a "taken"
+  /// username actually belongs to a deleted member — the admin can then
+  /// restore that member instead of being blocked. Returns null if none.
+  Future<Member?> findDeletedMemberByUsername(String username) async {
+    final email = '$username@lzcas.local'.toLowerCase();
+    try {
+      final data = await _supabase
+          .from('members')
+          .select()
+          .ilike('email', email)
+          .eq('is_deleted', true)
+          .limit(1);
+      final list = data as List;
+      if (list.isEmpty) return null;
+      return Member.fromJson(list.first as Map<String, dynamic>);
+    } catch (e) {
+      debugPrint('[Repo] findDeletedMemberByUsername failed: $e');
+      return null;
+    }
+  }
+
   Future<int> deleteSaleById(int id) async {
     // Restore item stock before deleting
     try {

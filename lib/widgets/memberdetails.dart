@@ -856,54 +856,75 @@ class _MemberProfileSection extends StatelessWidget {
         // ── Referral section ──────────────────────────────
         _SectionHeader(icon: Icons.group_outlined, title: 'Referral'),
         const SizedBox(height: 8),
-        // Row 1: Referred by | Direct Referral
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _ReferralDetailLine(
-                icon: Icons.person_add_outlined,
-                label: 'Referred by',
-                value: referrerName.isEmpty ? 'None' : referrerName,
-                isLoading: referralsLoading,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ReferralDropdown(
-                icon: Icons.arrow_forward_rounded,
-                label: 'Direct Referral',
-                members: directReferrals,
-                emptyText: 'No direct referrals',
-                isLoading: referralsLoading,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        // Row 2: Referral Count | Indirect Referral
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _ReferralDetailLine(
-                icon: Icons.people_outline,
-                label: 'Referral Count',
-                value: referralsLoading ? '...' : '$referralCount',
-                isLoading: referralsLoading,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ReferralDropdown(
-                icon: Icons.arrow_forward_rounded,
-                label: 'Indirect Referral',
-                members: indirectReferrals,
-                emptyText: 'No indirect referrals',
-                isLoading: referralsLoading,
-              ),
-            ),
-          ],
+        // Referral details — a 2×2 grid when there's room, but a single
+        // full-width column on narrow (mobile) layouts. In the grid each
+        // cell is only half-width, which squeezes the "Referred by" name
+        // until it wraps vertically; stacking gives every item full width.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final referredBy = _ReferralDetailLine(
+              icon: Icons.person_add_outlined,
+              label: 'Referred by',
+              value: referrerName.isEmpty ? 'None' : referrerName,
+              isLoading: referralsLoading,
+            );
+            final directRef = _ReferralDropdown(
+              icon: Icons.arrow_forward_rounded,
+              label: 'Direct Referral',
+              members: directReferrals,
+              emptyText: 'No direct referrals',
+              isLoading: referralsLoading,
+            );
+            final referralCountLine = _ReferralDetailLine(
+              icon: Icons.people_outline,
+              label: 'Referral Count',
+              value: referralsLoading ? '...' : '$referralCount',
+              isLoading: referralsLoading,
+            );
+            final indirectRef = _ReferralDropdown(
+              icon: Icons.arrow_forward_rounded,
+              label: 'Indirect Referral',
+              members: indirectReferrals,
+              emptyText: 'No indirect referrals',
+              isLoading: referralsLoading,
+            );
+
+            if (constraints.maxWidth < 380) {
+              return Column(
+                children: [
+                  referredBy,
+                  const SizedBox(height: 8),
+                  referralCountLine,
+                  const SizedBox(height: 8),
+                  directRef,
+                  const SizedBox(height: 8),
+                  indirectRef,
+                ],
+              );
+            }
+
+            return Column(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: referredBy),
+                    const SizedBox(width: 10),
+                    Expanded(child: directRef),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: referralCountLine),
+                    const SizedBox(width: 10),
+                    Expanded(child: indirectRef),
+                  ],
+                ),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 8),
 

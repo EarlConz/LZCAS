@@ -77,9 +77,12 @@ class AuthState extends ChangeNotifier {
     return Platform.isAndroid || Platform.isIOS;
   }
 
-  /// If the current platform is mobile and the loaded role is not admin,
-  /// force-sign-out and block access.
-  bool get _mobileBlocked => _isMobilePlatform && _userRole != UserRole.admin;
+  /// Cashier and inventory accounts are desktop-only; on mobile they are
+  /// force-signed-out and blocked. Admin, member, and reseller may use
+  /// the app on mobile.
+  bool get _mobileBlocked =>
+      _isMobilePlatform &&
+      (_userRole == UserRole.cashier || _userRole == UserRole.inventory);
 
   // ── Session Sync ─────────────────────────────────────────────────────────
 
@@ -210,10 +213,10 @@ class AuthState extends ChangeNotifier {
           return false;
         }
 
-        // ── Mobile gate: only Admin accounts allowed on phones/tablets ──
+        // ── Mobile gate: cashier & inventory are desktop-only ──
         if (_mobileBlocked) {
           await _sb.auth.signOut();
-          _error = 'Mobile Access is for Admin Only';
+          _error = 'Cashier and inventory accounts must use a desktop.';
           _status = AuthStatus.authError;
           notifyListeners();
           return false;
@@ -279,7 +282,7 @@ class AuthState extends ChangeNotifier {
       _status = AuthStatus.authenticated;
       notifyListeners();
 
-      // ── Mobile gate: only Admin accounts allowed on phones/tablets ──
+      // ── Mobile gate: cashier & inventory are desktop-only ──
       if (_mobileBlocked) {
         await _sb.auth.signOut();
         return false;

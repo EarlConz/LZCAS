@@ -193,6 +193,40 @@ class MembersTableState extends State<MembersTable> {
       if (username.isNotEmpty) {
         final available = await repository.isUsernameAvailable(username);
         if (!available) {
+          // The username might be held by a soft-deleted member rather than
+          // an active one — in that case offer to restore them instead of a
+          // confusing "already taken" dead-end.
+          final deleted = await repository.findDeletedMemberByUsername(
+            username,
+          );
+          if (deleted != null && deleted.id != null) {
+            if (!mounted) return 0;
+            final doRestore = await _confirmRestoreDeletedMember(deleted);
+            if (doRestore == true) {
+              final ok = await repository.restoreMemberById(deleted.id!);
+              if (ok) {
+                if (mounted) {
+                  showSuccessToast(
+                    'Restored "${_memberDisplayName(deleted)}".',
+                  );
+                }
+                _loadMembers();
+                // Return the restored id so the add dialog closes; no new
+                // member is created (we stop here).
+                return deleted.id!;
+              }
+              if (mounted) showErrorToast('Failed to restore member.');
+              return 0;
+            }
+            // Admin declined — they must pick a different username.
+            if (mounted) {
+              showErrorToast(
+                'Username "$username" belongs to a deleted member. '
+                'Choose a different username.',
+              );
+            }
+            return 0;
+          }
           if (mounted) showErrorToast('Username already taken');
           return 0; // Dialog stays open, nothing was created
         }
@@ -339,6 +373,51 @@ class MembersTableState extends State<MembersTable> {
   String _shortError(Object e) {
     final s = e.toString();
     return s.length > 110 ? '${s.substring(0, 110)}…' : s;
+  }
+
+  String _memberDisplayName(Member m) {
+    final n = [
+      m.firstName,
+      m.lastName,
+    ].where((p) => p != null && p.trim().isNotEmpty).join(' ');
+    return n.isEmpty ? 'Member #${m.id}' : n;
+  }
+
+  /// Ask the admin whether to restore a soft-deleted member whose username
+  /// collided with a new-member entry. Returns true to restore.
+  Future<bool?> _confirmRestoreDeletedMember(Member m) {
+    final name = _memberDisplayName(m);
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Username belongs to a deleted member'),
+        content: Text(
+          'That username belongs to "$name", a member who was deleted. '
+          'You can restore that member instead of creating a new one — '
+          'all of their records come back.\n\nRestore "$name"?',
+        ),
+        actions: [
+          OverflowBar(
+            spacing: 12,
+            overflowSpacing: 8,
+            alignment: MainAxisAlignment.end,
+            overflowAlignment: OverflowBarAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Use a different username'),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(ctx, true),
+                icon: const Icon(Icons.restore, size: 18),
+                label: const Text('Restore Member'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> updateMember(

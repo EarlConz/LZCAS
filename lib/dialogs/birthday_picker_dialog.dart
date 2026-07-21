@@ -168,6 +168,7 @@ class _BirthdayPickerDialogState extends State<BirthdayPickerDialog> {
                         ),
                         Expanded(
                           child: DropdownButtonFormField<int>(
+                            isExpanded: true,
                             initialValue: _selectedYear,
                             decoration: const InputDecoration(
                               labelText: 'Year',
@@ -189,6 +190,7 @@ class _BirthdayPickerDialogState extends State<BirthdayPickerDialog> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: DropdownButtonFormField<int>(
+                            isExpanded: true,
                             initialValue: _visibleMonth.month,
                             decoration: const InputDecoration(
                               labelText: 'Month',

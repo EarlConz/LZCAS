@@ -1061,6 +1061,7 @@ class _UserManagementTabState extends State<_UserManagementTab>
     List<Map<String, dynamic>> users,
   ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
 
     return List.generate(users.length, (i) {
       final u = users[i];
@@ -1109,6 +1110,8 @@ class _UserManagementTabState extends State<_UserManagementTab>
                     children: [
                       Text(
                         username,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: StockpileFonts.satoshi(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
@@ -1118,9 +1121,11 @@ class _UserManagementTabState extends State<_UserManagementTab>
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          if (email.isNotEmpty) ...[
+                      // Email + join date stacked so they never overflow on
+                      // narrow screens — each line ellipsizes within the card.
+                      if (email.isNotEmpty)
+                        Row(
+                          children: [
                             Icon(
                               Icons.email_outlined,
                               size: 12,
@@ -1129,7 +1134,7 @@ class _UserManagementTabState extends State<_UserManagementTab>
                                   : StockpileColors.mutedText,
                             ),
                             const SizedBox(width: 4),
-                            Flexible(
+                            Expanded(
                               child: Text(
                                 email,
                                 maxLines: 1,
@@ -1142,31 +1147,40 @@ class _UserManagementTabState extends State<_UserManagementTab>
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 12),
                           ],
-                          if (createdAt.isNotEmpty) ...[
-                            Icon(
-                              Icons.calendar_today_outlined,
-                              size: 11,
-                              color: isDark
-                                  ? StockpileColors.darkTextMuted.withAlpha(150)
-                                  : StockpileColors.mutedText,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              _formatDate(createdAt),
-                              style: TextStyle(
-                                fontSize: 11,
+                        ),
+                      if (createdAt.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.calendar_today_outlined,
+                                size: 11,
                                 color: isDark
                                     ? StockpileColors.darkTextMuted.withAlpha(
                                         150,
                                       )
                                     : StockpileColors.mutedText,
                               ),
-                            ),
-                          ],
-                        ],
-                      ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  _formatDate(createdAt),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isDark
+                                        ? StockpileColors.darkTextMuted
+                                              .withAlpha(150)
+                                        : StockpileColors.mutedText,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -1195,87 +1209,141 @@ class _UserManagementTabState extends State<_UserManagementTab>
                 ),
                 const SizedBox(width: 4),
 
-                const SizedBox(width: 4),
-
-                // ── View Password ───────────────────────────
-                ScaleTap(
-                  child: IconButton(
-                    tooltip: 'View password',
-                    onPressed: () =>
-                        _viewUserPassword(u['id']?.toString() ?? '', username),
-                    icon: CircleAvatar(
-                      radius: 16,
-                      backgroundColor: Colors.grey.shade600,
-                      child: const Icon(
-                        Icons.visibility_outlined,
-                        color: Colors.white,
-                        size: 18,
+                // Actions: a compact overflow menu on mobile (the three
+                // inline buttons otherwise squeeze the username off-screen);
+                // inline icon buttons on desktop.
+                if (isMobile)
+                  PopupMenuButton<String>(
+                    tooltip: 'Actions',
+                    icon: Icon(
+                      Icons.more_vert,
+                      color: isDark
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                    ),
+                    onSelected: (v) {
+                      final id = u['id']?.toString() ?? '';
+                      switch (v) {
+                        case 'password':
+                          _viewUserPassword(id, username);
+                          break;
+                        case 'edit':
+                          _editUser(id, username, role, email);
+                          break;
+                        case 'delete':
+                          _deleteUser(id, username);
+                          break;
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'password',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.visibility_outlined),
+                          title: Text('View Password'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.edit_outlined),
+                          title: Text('Edit'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            Icons.delete_outline,
+                            color: StockpileColors.danger,
+                          ),
+                          title: Text('Delete'),
+                        ),
+                      ),
+                    ],
+                  )
+                else ...[
+                  // ── View Password ───────────────────────────
+                  ScaleTap(
+                    child: IconButton(
+                      tooltip: 'View password',
+                      onPressed: () => _viewUserPassword(
+                        u['id']?.toString() ?? '',
+                        username,
+                      ),
+                      icon: CircleAvatar(
+                        radius: 16,
+                        backgroundColor: Colors.grey.shade600,
+                        child: const Icon(
+                          Icons.visibility_outlined,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
                       ),
                     ),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 36,
-                      minHeight: 36,
-                    ),
                   ),
-                ),
-
-                const SizedBox(width: 4),
-
-                // ── Edit ──────────────────────────────────────
-                ScaleTap(
-                  child: IconButton(
-                    tooltip: 'Edit user',
-                    onPressed: () => _editUser(
-                      u['id']?.toString() ?? '',
-                      username,
-                      role,
-                      email,
-                    ),
-                    icon: const CircleAvatar(
-                      radius: 16,
-                      backgroundColor: StockpileColors.primary900,
-                      child: Icon(
-                        Icons.edit_outlined,
-                        color: Colors.white,
-                        size: 18,
+                  const SizedBox(width: 4),
+                  // ── Edit ──────────────────────────────────────
+                  ScaleTap(
+                    child: IconButton(
+                      tooltip: 'Edit user',
+                      onPressed: () => _editUser(
+                        u['id']?.toString() ?? '',
+                        username,
+                        role,
+                        email,
+                      ),
+                      icon: const CircleAvatar(
+                        radius: 16,
+                        backgroundColor: StockpileColors.primary900,
+                        child: Icon(
+                          Icons.edit_outlined,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
                       ),
                     ),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 36,
-                      minHeight: 36,
-                    ),
                   ),
-                ),
-
-                const SizedBox(width: 4),
-
-                // ── Delete ────────────────────────────────────
-                ScaleTap(
-                  child: IconButton(
-                    tooltip: 'Delete user',
-                    onPressed: () =>
-                        _deleteUser(u['id']?.toString() ?? '', username),
-                    icon: const CircleAvatar(
-                      radius: 16,
-                      backgroundColor: StockpileColors.danger,
-                      child: Icon(
-                        Icons.delete_outline,
-                        color: Colors.white,
-                        size: 18,
+                  const SizedBox(width: 4),
+                  // ── Delete ────────────────────────────────────
+                  ScaleTap(
+                    child: IconButton(
+                      tooltip: 'Delete user',
+                      onPressed: () =>
+                          _deleteUser(u['id']?.toString() ?? '', username),
+                      icon: const CircleAvatar(
+                        radius: 16,
+                        backgroundColor: StockpileColors.danger,
+                        child: Icon(
+                          Icons.delete_outline,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
                       ),
                     ),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 36,
-                      minHeight: 36,
-                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -2378,8 +2446,12 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
             runSpacing: 12,
             children: _packages.map((pkg) {
               final count = _availerCounts[pkg.id] ?? 0;
+              // Full-width cards on mobile (one per row, filling the row);
+              // fixed 240px on wider screens so several fit per row.
               return SizedBox(
-                width: 240,
+                width: MediaQuery.sizeOf(context).width < 600
+                    ? double.infinity
+                    : 240,
                 child: Card(
                   elevation: 0,
                   shape: RoundedRectangleBorder(
@@ -2932,9 +3004,9 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final title = Text(
                 'Categories & Commission Rates',
                 style: StockpileFonts.satoshi(
                   fontSize: 16,
@@ -2943,14 +3015,28 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
                       ? StockpileColors.darkTextPrimary
                       : StockpileColors.darkText,
                 ),
-              ),
-              const Spacer(),
-              FilledButton.icon(
+              );
+              final addBtn = FilledButton.icon(
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Category'),
                 onPressed: () => _showCategoryDialog(),
-              ),
-            ],
+              );
+              // Narrow: stack the button under the title (full-width);
+              // wide: title left, button right on one row.
+              if (constraints.maxWidth < 420) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [title, const SizedBox(height: 12), addBtn],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: title),
+                  const SizedBox(width: 12),
+                  addBtn,
+                ],
+              );
+            },
           ),
           const SizedBox(height: 16),
           if (_categories.isEmpty)
@@ -7449,60 +7535,81 @@ class _ReferralModalCardState extends State<_ReferralModalCard> {
       title: 'Referral',
       icon: Icons.group_outlined,
       children: [
-        // Row 1: Referred by | Direct Referral
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _ModalInfoRow(
-                icon: Icons.person_add_outlined,
-                label: 'Referred by',
-                value: _loading
-                    ? '...'
-                    : (_referrerName.isEmpty ? 'None' : _referrerName),
-                muted: w.muted,
-                textColor: w.textColor,
-                isDark: w.isDark,
-                italic: _referrerName.isEmpty,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ModalReferralDropdown(
-                label: 'Direct Referral',
-                members: _directReferrals,
-                emptyText: 'No direct referrals',
-                isLoading: _loading,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        // Row 2: Referral Count | Indirect Referral
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _ModalInfoRow(
-                icon: Icons.people_outline,
-                label: 'Referral Count',
-                value: _loading ? '...' : '$_referralCount',
-                muted: w.muted,
-                textColor: w.textColor,
-                isDark: w.isDark,
-                isLast: true,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ModalReferralDropdown(
-                label: 'Indirect Referral',
-                members: _indirectReferrals,
-                emptyText: 'No indirect referrals',
-                isLoading: _loading,
-              ),
-            ),
-          ],
+        // Referral details — 2×2 grid when wide, single full-width column
+        // on narrow (mobile). In the half-width grid cell the fixed-width
+        // label leaves the value ~0px, so names wrap vertically; stacking
+        // gives each item the full width.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final referredBy = _ModalInfoRow(
+              icon: Icons.person_add_outlined,
+              label: 'Referred by',
+              value: _loading
+                  ? '...'
+                  : (_referrerName.isEmpty ? 'None' : _referrerName),
+              muted: w.muted,
+              textColor: w.textColor,
+              isDark: w.isDark,
+              italic: _referrerName.isEmpty,
+            );
+            final directRef = _ModalReferralDropdown(
+              label: 'Direct Referral',
+              members: _directReferrals,
+              emptyText: 'No direct referrals',
+              isLoading: _loading,
+            );
+            final referralCountRow = _ModalInfoRow(
+              icon: Icons.people_outline,
+              label: 'Referral Count',
+              value: _loading ? '...' : '$_referralCount',
+              muted: w.muted,
+              textColor: w.textColor,
+              isDark: w.isDark,
+              isLast: true,
+            );
+            final indirectRef = _ModalReferralDropdown(
+              label: 'Indirect Referral',
+              members: _indirectReferrals,
+              emptyText: 'No indirect referrals',
+              isLoading: _loading,
+            );
+
+            if (constraints.maxWidth < 380) {
+              return Column(
+                children: [
+                  referredBy,
+                  const SizedBox(height: 8),
+                  referralCountRow,
+                  const SizedBox(height: 8),
+                  directRef,
+                  const SizedBox(height: 8),
+                  indirectRef,
+                ],
+              );
+            }
+
+            return Column(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: referredBy),
+                    const SizedBox(width: 10),
+                    Expanded(child: directRef),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: referralCountRow),
+                    const SizedBox(width: 10),
+                    Expanded(child: indirectRef),
+                  ],
+                ),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -7568,6 +7675,8 @@ class _ModalReferralDropdown extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: StockpileFonts.satoshi(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
@@ -7575,18 +7684,24 @@ class _ModalReferralDropdown extends StatelessWidget {
                 ),
               ),
             ),
-            Text(
-              isLoading
-                  ? '...'
-                  : hasItems
-                  ? '${members.length} ▼'
-                  : emptyText,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: hasItems ? FontWeight.w600 : FontWeight.normal,
-                color: hasItems
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                isLoading
+                    ? '...'
+                    : hasItems
+                    ? '${members.length} ▼'
+                    : emptyText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: hasItems ? FontWeight.w600 : FontWeight.normal,
+                  color: hasItems
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
           ],

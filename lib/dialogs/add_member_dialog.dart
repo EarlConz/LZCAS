@@ -221,10 +221,12 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
         children: [
           Icon(Icons.person_add_rounded, color: colorScheme.primary, size: 30),
           const SizedBox(width: 12),
-          Text(
-            'Add New Member',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              'Add New Member',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -356,6 +358,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               _sectionLabel('Verification ID', theme, colorScheme),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue:
                     _selectedIdType != null &&
                         _selectedIdType!.isNotEmpty &&
@@ -369,7 +372,12 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                   border: inputBorder,
                 ),
                 items: _idTypes
-                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                    .map(
+                      (t) => DropdownMenuItem(
+                        value: t,
+                        child: Text(t, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
                     .toList(),
                 onChanged: (v) => setState(() => _selectedIdType = v),
               ),
@@ -432,6 +440,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               const SizedBox(height: 12),
               DropdownButtonFormField<int?>(
                 key: _packageKey,
+                isExpanded: true,
                 initialValue: _selectedPackageId,
                 autovalidateMode: AutovalidateMode.onUserInteraction,
                 validator: (v) => (_hasIdPhoto && v == null)
@@ -450,12 +459,18 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 items: [
                   const DropdownMenuItem<int?>(
                     value: null,
-                    child: Text('None (Standard Member)'),
+                    child: Text(
+                      'None (Standard Member)',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   ..._packages.map(
                     (p) => DropdownMenuItem<int?>(
                       value: p.id,
-                      child: Text('${p.name} — ₱${p.price}'),
+                      child: Text(
+                        '${p.name} — ₱${p.price}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
                 ],
@@ -491,8 +506,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Text('Create login account for this member'),
-                  const Spacer(),
+                  const Expanded(
+                    child: Text('Create login account for this member'),
+                  ),
                   Switch(
                     value: _createAccount,
                     onChanged: (v) => setState(() => _createAccount = v),
@@ -646,24 +662,31 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
       ),
       actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
       actions: [
-        OutlinedButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        const SizedBox(width: 12),
-        FilledButton.icon(
-          onPressed: _submitting ? null : _submit,
-          icon: _submitting
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.person_add, size: 20),
-          label: Text(_submitting ? 'Adding…' : 'Add Member'),
+        OverflowBar(
+          spacing: 12,
+          overflowSpacing: 8,
+          alignment: MainAxisAlignment.end,
+          overflowAlignment: OverflowBarAlignment.end,
+          children: [
+            OutlinedButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: _submitting ? null : _submit,
+              icon: _submitting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.person_add, size: 20),
+              label: Text(_submitting ? 'Adding…' : 'Add Member'),
+            ),
+          ],
         ),
       ],
     );
@@ -730,12 +753,15 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   Widget _sectionLabel(String text, ThemeData theme, ColorScheme colorScheme) {
     return Row(
       children: [
-        Text(
-          text.toUpperCase(),
-          style: theme.textTheme.titleSmall?.copyWith(
-            color: colorScheme.primary,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.5,
+        Flexible(
+          child: Text(
+            text.toUpperCase(),
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: colorScheme.primary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.5,
+            ),
           ),
         ),
         const SizedBox(width: 10),
