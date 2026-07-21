@@ -85,8 +85,7 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> _refreshLowStock() async {
     try {
-      final threshold = _config?.lowStockThreshold ?? 50;
-      final count = await repository.fetchLowStockCount(threshold);
+      final count = await repository.fetchLowStockCount();
       if (_lowStockCount != count) {
         _lowStockCount = count;
         notifyListeners();

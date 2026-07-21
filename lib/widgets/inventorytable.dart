@@ -1,8 +1,11 @@
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:provider/provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/buttons/inventoryfilterbutton.dart';
@@ -31,9 +34,25 @@ class InventoryTable extends StatefulWidget {
 }
 
 class _InventoryTableState extends State<InventoryTable> {
+  /// Pseudo-status for the quick "Needs restocking" filter (Low + Out).
+  static const _needsRestockStatus = 'Needs Restocking';
+
   String searchTerm = "";
   String? selectedStatus;
   String? selectedCategory;
+  List<String> _categories = [];
+
+  // ── Summary strip figures ──────────────────────────────────────────
+  int _skuCount = 0;
+  int _lowCount = 0;
+  int _outCount = 0;
+  int _totalUnits = 0;
+  bool _summaryLoaded = false;
+  int get _needsRestockCount => _lowCount + _outCount;
+
+  // ── Sort state (server-side; exposed via headers/menu) ─────────────
+  String _sortColumn = 'name';
+  bool _sortAscending = true;
 
   late final StreamSubscription<String> _sub;
 
@@ -66,6 +85,8 @@ class _InventoryTableState extends State<InventoryTable> {
       _deleteItem,
     );
     _loadItems();
+    _loadCategories();
+    _loadSummary();
     _sub = repository.changes.listen((e) {
       if (e == 'item_updated' ||
           e == 'sale_added' ||
@@ -73,8 +94,137 @@ class _InventoryTableState extends State<InventoryTable> {
           e == 'item_added' ||
           e == 'item_deleted') {
         _loadItems();
+        _loadCategories();
+        _loadSummary();
       }
     });
+  }
+
+  /// Load the distinct category list that feeds the filter menu.
+  Future<void> _loadCategories() async {
+    try {
+      final cats = await repository.fetchCategories();
+      if (!mounted) return;
+      setState(() => _categories = cats);
+    } catch (_) {
+      // Non-fatal — the menu just won't offer category options.
+    }
+  }
+
+  /// Refresh the summary-strip figures (also feeds the "Needs restocking"
+  /// quick filter count).
+  Future<void> _loadSummary() async {
+    if (!mounted) return;
+    try {
+      final s = await repository.fetchInventorySummary();
+      if (!mounted) return;
+      setState(() {
+        _skuCount = s['skuCount'] ?? 0;
+        _lowCount = s['lowCount'] ?? 0;
+        _outCount = s['outCount'] ?? 0;
+        _totalUnits = s['totalUnits'] ?? 0;
+        _summaryLoaded = true;
+      });
+    } catch (_) {
+      // Non-fatal — the strip just stays hidden / the chip shows no count.
+    }
+  }
+
+  /// Column index the desktop table header arrow should highlight, or
+  /// null when the active sort isn't one of the sortable columns.
+  int? _sortColumnIndex() {
+    switch (_sortColumn) {
+      case 'name':
+        return 0;
+      case 'category':
+        return 1;
+      case 'stock':
+        return 2;
+      case 'last_updated':
+        return 3;
+      default:
+        return null;
+    }
+  }
+
+  /// Apply a new sort and reload from the first page.
+  void _applySort(String column, bool ascending) {
+    if (_sortColumn == column && _sortAscending == ascending) return;
+    setState(() {
+      _sortColumn = column;
+      _sortAscending = ascending;
+    });
+    _loadItems();
+  }
+
+  /// Clear every active filter in a single reload.
+  void _clearFilters() {
+    setState(() {
+      selectedStatus = null;
+      selectedCategory = null;
+    });
+    _loadItems();
+  }
+
+  /// Two-digit zero-pad for filename timestamps.
+  String _two(int n) => n.toString().padLeft(2, '0');
+
+  /// Export the current filtered/sorted view to a CSV file, then open it
+  /// (desktop) so it drops straight into Excel/Sheets.
+  Future<void> _exportCsv() async {
+    if (_totalCount == 0) {
+      BotToast.showText(text: 'Nothing to export');
+      return;
+    }
+    BotToast.showText(text: 'Exporting…');
+    try {
+      final csv = await repository.exportItemsCsvFiltered(
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        categoryFilter:
+            (selectedCategory != null && selectedCategory!.isNotEmpty)
+            ? selectedCategory
+            : null,
+        statusFilter: (selectedStatus != null && selectedStatus!.isNotEmpty)
+            ? selectedStatus
+            : null,
+        sortColumn: _sortColumn,
+        sortAscending: _sortAscending,
+      );
+
+      // Downloads on desktop; app documents as a fallback (e.g. Android).
+      Directory? dir;
+      try {
+        dir = await getDownloadsDirectory();
+      } catch (_) {}
+      dir ??= await getApplicationDocumentsDirectory();
+
+      final now = DateTime.now();
+      final ts =
+          '${now.year}${_two(now.month)}${_two(now.day)}_'
+          '${_two(now.hour)}${_two(now.minute)}${_two(now.second)}';
+      final file = File(p.join(dir.path, 'inventory_$ts.csv'));
+      await file.writeAsString(csv);
+
+      // Open with the system default app so it lands in Excel/Sheets.
+      if (Platform.isWindows) {
+        await Process.run('cmd', [
+          '/c',
+          'start',
+          '',
+          file.path,
+        ], runInShell: true);
+      } else if (Platform.isMacOS) {
+        await Process.run('open', [file.path]);
+      } else if (Platform.isLinux) {
+        await Process.run('xdg-open', [file.path]);
+      }
+
+      if (!mounted) return;
+      BotToast.showText(text: 'Exported to ${file.path}');
+    } catch (e) {
+      if (!mounted) return;
+      BotToast.showText(text: 'Export failed: $e');
+    }
   }
 
   void _onScroll() {
@@ -110,18 +260,16 @@ class _InventoryTableState extends State<InventoryTable> {
             (selectedCategory != null && selectedCategory!.isNotEmpty)
             ? selectedCategory
             : null,
-        sortColumn: 'name',
-        sortAscending: true,
+        statusFilter: (selectedStatus != null && selectedStatus!.isNotEmpty)
+            ? selectedStatus
+            : null,
+        sortColumn: _sortColumn,
+        sortAscending: _sortAscending,
       );
       if (!mounted) return;
-      final threshold = context.read<ConfigService>().lowStockThreshold;
-      final newItems = inventoryItemsFromRows(result.rows).map((m) {
-        final stockVal = (m['stock'] ?? 0) is int
-            ? m['stock'] as int
-            : int.tryParse(m['stock']?.toString() ?? '0') ?? 0;
-        m['status'] = statusFromStock(stockVal, threshold: threshold);
-        return m;
-      }).toList();
+      // Status comes from the view (per-category threshold), carried in
+      // each Item's status field — no client-side recompute needed.
+      final newItems = inventoryItemsFromRows(result.rows);
 
       setState(() {
         if (page == 1) {
@@ -166,18 +314,14 @@ class _InventoryTableState extends State<InventoryTable> {
             (selectedCategory != null && selectedCategory!.isNotEmpty)
             ? selectedCategory
             : null,
-        sortColumn: 'name',
-        sortAscending: true,
+        statusFilter: (selectedStatus != null && selectedStatus!.isNotEmpty)
+            ? selectedStatus
+            : null,
+        sortColumn: _sortColumn,
+        sortAscending: _sortAscending,
       );
       if (!mounted) return;
-      final threshold = context.read<ConfigService>().lowStockThreshold;
-      final newItems = inventoryItemsFromRows(page.rows).map((m) {
-        final stockVal = (m['stock'] ?? 0) is int
-            ? m['stock'] as int
-            : int.tryParse(m['stock']?.toString() ?? '0') ?? 0;
-        m['status'] = statusFromStock(stockVal, threshold: threshold);
-        return m;
-      }).toList();
+      final newItems = inventoryItemsFromRows(page.rows);
       setState(() {
         _serverPage.addAll(newItems);
         _totalCount = page.totalCount;
@@ -201,7 +345,10 @@ class _InventoryTableState extends State<InventoryTable> {
   }
 
   void _refreshStatus(Map<String, dynamic> item) {
-    final threshold = context.read<ConfigService>().lowStockThreshold;
+    // Optimistic per-category status; a reload from the view corrects it.
+    final threshold = context.read<ConfigService>().thresholdForCategory(
+      item["category"]?.toString(),
+    );
     if (item["stock"] <= 0) {
       item["status"] = "Out of Stock";
     } else if ((item["stock"] as num) < threshold) {
@@ -230,6 +377,7 @@ class _InventoryTableState extends State<InventoryTable> {
 
         return Column(
           children: [
+            _buildSummaryStrip(context, isMobile),
             Padding(
               padding: const EdgeInsets.all(appSpacing),
               child: isMobile
@@ -283,13 +431,31 @@ class _InventoryTableState extends State<InventoryTable> {
                                     dataRowMinHeight: 56,
                                     dataRowMaxHeight: 62,
                                     showCheckboxColumn: false,
-                                    columns: const [
-                                      DataColumn(label: Text("Item Name")),
-                                      DataColumn(label: Text("Category")),
-                                      DataColumn(label: Text("Stock")),
-                                      DataColumn(label: Text("Last Updated")),
-                                      DataColumn(label: Text("Status")),
-                                      DataColumn(label: Text("Action")),
+                                    sortColumnIndex: _sortColumnIndex(),
+                                    sortAscending: _sortAscending,
+                                    columns: [
+                                      DataColumn(
+                                        label: const Text("Item Name"),
+                                        onSort: (i, asc) =>
+                                            _applySort('name', asc),
+                                      ),
+                                      DataColumn(
+                                        label: const Text("Category"),
+                                        onSort: (i, asc) =>
+                                            _applySort('category', asc),
+                                      ),
+                                      DataColumn(
+                                        label: const Text("Stock"),
+                                        onSort: (i, asc) =>
+                                            _applySort('stock', asc),
+                                      ),
+                                      DataColumn(
+                                        label: const Text("Last Updated"),
+                                        onSort: (i, asc) =>
+                                            _applySort('last_updated', asc),
+                                      ),
+                                      const DataColumn(label: Text("Status")),
+                                      const DataColumn(label: Text("Action")),
                                     ],
                                     source: _inventorySource,
                                     onPageChanged: (pageIndex) =>
@@ -319,18 +485,25 @@ class _InventoryTableState extends State<InventoryTable> {
           children: [
             Expanded(child: _buildSearchBar()),
             const SizedBox(width: 8),
+            _buildSortButton(),
+            _buildExportButton(),
             InventoryFilterButton(
               selectedStatus: selectedStatus,
               selectedCategory: selectedCategory,
-              onStatusChanged: (status) =>
-                  setState(() => selectedStatus = status),
+              categories: _categories,
+              onStatusChanged: (status) {
+                setState(() => selectedStatus = status);
+                _loadItems();
+              },
               onCategoryChanged: (category) {
                 setState(() => selectedCategory = category);
                 _loadItems();
               },
+              onClear: _clearFilters,
             ),
           ],
         ),
+        _buildActiveFilterChips(),
         const SizedBox(height: 12),
         Row(children: [Expanded(child: _buildAddButton(context))]),
       ],
@@ -338,22 +511,254 @@ class _InventoryTableState extends State<InventoryTable> {
   }
 
   Widget _buildDesktopActionBar(BuildContext context, bool isTablet) {
-    return Row(
+    return Column(
       children: [
-        Expanded(flex: isTablet ? 2 : 3, child: _buildSearchBar()),
-        const SizedBox(width: 8),
-        InventoryFilterButton(
-          selectedStatus: selectedStatus,
-          selectedCategory: selectedCategory,
-          onStatusChanged: (status) => setState(() => selectedStatus = status),
-          onCategoryChanged: (category) {
-            setState(() => selectedCategory = category);
+        Row(
+          children: [
+            Expanded(flex: isTablet ? 2 : 3, child: _buildSearchBar()),
+            const SizedBox(width: 8),
+            InventoryFilterButton(
+              selectedStatus: selectedStatus,
+              selectedCategory: selectedCategory,
+              categories: _categories,
+              onStatusChanged: (status) {
+                setState(() => selectedStatus = status);
+                _loadItems();
+              },
+              onCategoryChanged: (category) {
+                setState(() => selectedCategory = category);
+                _loadItems();
+              },
+              onClear: _clearFilters,
+            ),
+            _buildExportButton(),
+            const SizedBox(width: 12),
+            _buildAddButton(context),
+          ],
+        ),
+        _buildActiveFilterChips(),
+      ],
+    );
+  }
+
+  // ── Sort menu (mobile; desktop uses column headers) ────────────────
+
+  /// Available sort orders as (label, column, ascending). Kept in sync
+  /// with the server-side `sortColumn` values in fetchItemsPaginated.
+  static const List<(String, String, bool)> _sortOptions = [
+    ('Name (A–Z)', 'name', true),
+    ('Name (Z–A)', 'name', false),
+    ('Stock (low → high)', 'stock', true),
+    ('Stock (high → low)', 'stock', false),
+    ('Recently updated', 'last_updated', false),
+  ];
+
+  Widget _buildSortButton() {
+    return PopupMenuButton<String>(
+      tooltip: 'Sort',
+      icon: const Icon(Icons.sort),
+      onSelected: (value) {
+        final parts = value.split('|');
+        _applySort(parts[0], parts[1] == 'asc');
+      },
+      itemBuilder: (context) => [
+        for (final (label, col, asc) in _sortOptions)
+          CheckedPopupMenuItem(
+            value: '$col|${asc ? 'asc' : 'desc'}',
+            checked: _sortColumn == col && _sortAscending == asc,
+            child: Text(label),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildExportButton() {
+    return IconButton(
+      tooltip: 'Export current view to CSV',
+      icon: const Icon(Icons.file_download_outlined),
+      onPressed: _exportCsv,
+    );
+  }
+
+  // ── Active-filter chips ────────────────────────────────────────────
+
+  Widget _buildActiveFilterChips() {
+    final needsSelected = selectedStatus == _needsRestockStatus;
+    final hasStatus = selectedStatus != null && selectedStatus!.isNotEmpty;
+    final hasCategory =
+        selectedCategory != null && selectedCategory!.isNotEmpty;
+    final showQuick = _needsRestockCount > 0 || needsSelected;
+
+    final children = <Widget>[];
+
+    // Quick "Needs restocking" toggle — an entry point even with no other
+    // filters, so it shows whenever there's anything to restock.
+    if (showQuick) {
+      final label = _needsRestockCount > 0
+          ? '$_needsRestockCount ${_needsRestockCount == 1 ? 'item needs' : 'items need'} restocking'
+          : 'Needs restocking';
+      children.add(
+        FilterChip(
+          avatar: Icon(
+            Icons.warning_amber_rounded,
+            size: 18,
+            color: Colors.orange.shade800,
+          ),
+          label: Text(label),
+          labelStyle: const TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+          ),
+          selected: needsSelected,
+          showCheckmark: false,
+          selectedColor: Colors.orange.withValues(alpha: 0.20),
+          onSelected: (sel) {
+            setState(() => selectedStatus = sel ? _needsRestockStatus : null);
             _loadItems();
           },
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
-        const SizedBox(width: 12),
-        _buildAddButton(context),
-      ],
+      );
+    }
+
+    // Generic status chip — skipped for the needs-restock pseudo status,
+    // which the quick chip above already represents.
+    if (hasStatus && !needsSelected) {
+      children.add(
+        _filterChip('Status: $selectedStatus', () {
+          setState(() => selectedStatus = null);
+          _loadItems();
+        }),
+      );
+    }
+    if (hasCategory) {
+      children.add(
+        _filterChip('Category: $selectedCategory', () {
+          setState(() => selectedCategory = null);
+          _loadItems();
+        }),
+      );
+    }
+    if (children.isEmpty) return const SizedBox.shrink();
+
+    // "Clear all" only when more than one filter dimension is active.
+    final activeDims = (hasStatus ? 1 : 0) + (hasCategory ? 1 : 0);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            ...children,
+            if (activeDims > 1)
+              TextButton(
+                onPressed: _clearFilters,
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                child: const Text('Clear all'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _filterChip(String label, VoidCallback onRemove) {
+    return InputChip(
+      label: Text(label),
+      labelStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500),
+      onDeleted: onRemove,
+      deleteIcon: const Icon(Icons.close, size: 16),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+  }
+
+  // ── Summary strip ──────────────────────────────────────────────────
+
+  /// Group an integer with thousands separators, e.g. 1240 → "1,240".
+  String _grouped(int n) {
+    final s = n.abs().toString();
+    final buf = StringBuffer();
+    for (int i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+      buf.write(s[i]);
+    }
+    return (n < 0 ? '-' : '') + buf.toString();
+  }
+
+  Widget _buildSummaryStrip(BuildContext context, bool isMobile) {
+    // Stay hidden until the first load resolves — avoids a flash of zeros.
+    if (!_summaryLoaded) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final onSurface = theme.colorScheme.onSurface;
+    final divider = theme.dividerColor.withValues(alpha: 0.5);
+
+    Widget stat(String value, String label, Color color) => Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: isMobile ? 16 : 18,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: theme.hintColor,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Widget sep() => Container(width: 1, height: 30, color: divider);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(appSpacing, appSpacing, appSpacing, 0),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(appRadius),
+        border: Border.all(color: divider),
+      ),
+      child: Row(
+        children: [
+          stat('$_skuCount', 'Products', onSurface),
+          sep(),
+          stat(
+            '$_lowCount',
+            'Low',
+            _lowCount > 0 ? Colors.orange.shade800 : onSurface,
+          ),
+          sep(),
+          stat(
+            '$_outCount',
+            'Out',
+            _outCount > 0 ? Colors.red.shade700 : onSurface,
+          ),
+          sep(),
+          stat(_grouped(_totalUnits), 'Units', onSurface),
+        ],
+      ),
     );
   }
 

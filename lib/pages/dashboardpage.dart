@@ -28,6 +28,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int previousMonthOrders = 0;
   int lowStockItems = 0;
   int packageRevenue = 0;
+  int previousPackageRevenue = 0;
   int packagesSold = 0;
   int previousPackagesSold = 0;
   List<Map<String, dynamic>> categoryRevenue = [];
@@ -101,7 +102,6 @@ class _DashboardPageState extends State<DashboardPage> {
     final thisMonthStart = DateTime(now.year, now.month, 1);
     final nextMonth = DateTime(now.year, now.month + 1, 1);
     final lastMonthStart = DateTime(now.year, now.month - 1, 1);
-    final threshold = context.read<ConfigService>().lowStockThreshold;
 
     // ── 1. Main metrics via server-side aggregate query ─────────────
     final stats = await repository.fetchDashboardStats(
@@ -109,7 +109,6 @@ class _DashboardPageState extends State<DashboardPage> {
       thisMonthEnd: nextMonth,
       lastMonthStart: lastMonthStart,
       lastMonthEnd: thisMonthStart,
-      lowStockThreshold: threshold,
     );
 
     if (!mounted) return;
@@ -119,6 +118,7 @@ class _DashboardPageState extends State<DashboardPage> {
     previousMonthOrders = stats['previousMonthOrders'] as int;
     lowStockItems = stats['lowStockItems'] as int;
     packageRevenue = stats['packageRevenue'] as int? ?? 0;
+    previousPackageRevenue = stats['previousPackageRevenue'] as int? ?? 0;
     packagesSold = stats['packagesSold'] as int? ?? 0;
     previousPackagesSold = stats['previousPackagesSold'] as int? ?? 0;
 
@@ -224,6 +224,7 @@ class _DashboardPageState extends State<DashboardPage> {
       );
       double productSum = 0;
       double productCount = 0;
+      double pkgSum = 0; // package revenue for this month (feeds Total Revenue)
       final Map<String, int> mRev = {};
       final Map<String, int> mCnt = {};
       for (final sale in monthlySales[m]) {
@@ -233,12 +234,13 @@ class _DashboardPageState extends State<DashboardPage> {
           mRev[name] = (mRev[name] ?? 0) + lineRevenue;
           mCnt[name] = (mCnt[name] ?? 0) + sale.quantity;
           pkgTotals[name] = (pkgTotals[name] ?? 0) + lineRevenue;
+          pkgSum += lineRevenue;
         } else {
           productSum += lineRevenue;
           productCount++;
         }
       }
-      revenueTrend.add(productSum);
+      revenueTrend.add(productSum + pkgSum);
       ordersTrend.add(productCount);
       monthLabels.add(DateFormat('MMM').format(monthStart));
       monthlyPkgRevenue.add(mRev);
@@ -291,7 +293,9 @@ class _DashboardPageState extends State<DashboardPage> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final revUp = monthlyRevenue >= previousMonthRevenue;
+    final totalRevenue = monthlyRevenue + packageRevenue;
+    final previousTotalRevenue = previousMonthRevenue + previousPackageRevenue;
+    final revUp = totalRevenue >= previousTotalRevenue;
     final ordUp = activeOrders >= previousMonthOrders;
 
     final mobilePad = isMobile ? 12.0 : appSpacing;
@@ -372,15 +376,18 @@ class _DashboardPageState extends State<DashboardPage> {
   // â”€â”€ Metric Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Widget _buildMetricRow(bool d, bool revUp, bool ordUp, bool mobile) {
+    final totalRevenue = monthlyRevenue + packageRevenue;
+    final previousTotalRevenue = previousMonthRevenue + previousPackageRevenue;
     final metricCards = [
       MetricCard(
         title: 'Total Revenue',
-        value: _fmt(monthlyRevenue),
-        badgeText: '${_chg(monthlyRevenue, previousMonthRevenue)} This Month',
+        value: _fmt(totalRevenue),
+        badgeText: '${_chg(totalRevenue, previousTotalRevenue)} This Month',
         badgeColor: revUp ? StockpileColors.success : StockpileColors.danger,
         trailing: MiniBarChart(
           values: revenueTrend.isEmpty ? [0, 0, 0, 0] : revenueTrend,
         ),
+        onTap: () => _showRevenueBreakdown(d),
       ),
       MetricCard(
         title: 'Sales This Month',
@@ -453,6 +460,217 @@ class _DashboardPageState extends State<DashboardPage> {
       },
     );
   }
+
+  // ── Revenue Breakdown Dialog ───────────────────────────────────────
+
+  /// Full breakdown of this month's Total Revenue: product sales (by
+  /// category) + package availments (by package), with a grand total.
+  void _showRevenueBreakdown(bool d) {
+    final productTotal = monthlyRevenue;
+    final packageTotal = packageRevenue;
+    final grandTotal = productTotal + packageTotal;
+
+    final surface = d ? StockpileColors.darkSurface : StockpileColors.surface;
+    final muted = d ? StockpileColors.darkTextMuted : StockpileColors.mutedText;
+    final body = d ? StockpileColors.darkTextBody : StockpileColors.bodyText;
+    final strong = d
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final divider = d ? StockpileColors.darkDivider : StockpileColors.divider;
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Row(
+          children: [
+            Icon(
+              Icons.pie_chart_outline_rounded,
+              size: 20,
+              color: StockpileColors.success,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Revenue Breakdown',
+                style: StockpileFonts.satoshi(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: strong,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 380,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  DateFormat('MMMM yyyy').format(DateTime.now()),
+                  style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+                ),
+                const SizedBox(height: 16),
+
+                // ── Products ──────────────────────────────────────────
+                _breakdownSectionHeader(
+                  'Products',
+                  _fmt(productTotal),
+                  strong,
+                  muted,
+                ),
+                if (categoryRevenue.isEmpty)
+                  _breakdownEmptyLine('No product sales', muted)
+                else
+                  for (final c in categoryRevenue)
+                    _breakdownRow(
+                      c['category'] as String,
+                      _fmt(c['revenue'] as int),
+                      body,
+                      muted,
+                    ),
+
+                const SizedBox(height: 14),
+                Divider(color: divider, height: 1),
+                const SizedBox(height: 14),
+
+                // ── Packages ──────────────────────────────────────────
+                _breakdownSectionHeader(
+                  'Packages',
+                  _fmt(packageTotal),
+                  strong,
+                  muted,
+                ),
+                if (packageBreakdown.isEmpty)
+                  _breakdownEmptyLine('No package availments', muted)
+                else
+                  for (final p in packageBreakdown)
+                    _breakdownRow(
+                      '${p['name']}  ×${p['count']}',
+                      _fmt(p['revenue'] as int),
+                      body,
+                      muted,
+                    ),
+
+                const SizedBox(height: 14),
+                Divider(color: divider, height: 1),
+                const SizedBox(height: 14),
+
+                // ── Grand total ───────────────────────────────────────
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Total Revenue',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: strong,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _fmt(grandTotal),
+                      style: StockpileFonts.satoshi(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: StockpileColors.success,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(
+              'Close',
+              style: StockpileFonts.satoshi(
+                fontWeight: FontWeight.w600,
+                color: StockpileColors.success,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _breakdownSectionHeader(
+    String label,
+    String total,
+    Color strong,
+    Color muted,
+  ) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: muted,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+        Text(
+          total,
+          style: StockpileFonts.satoshi(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: strong,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _breakdownRow(String label, String value, Color body, Color muted) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: StockpileFonts.satoshi(fontSize: 13, color: body),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              value,
+              style: StockpileFonts.satoshi(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: body,
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _breakdownEmptyLine(String text, Color muted) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Text(
+      text,
+      style: StockpileFonts.satoshi(
+        fontSize: 13,
+        color: muted,
+      ).copyWith(fontStyle: FontStyle.italic),
+    ),
+  );
 
   // ── Empty State ────────────────────────────────────────────────────
 
