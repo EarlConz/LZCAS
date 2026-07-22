@@ -15,6 +15,7 @@ import '../../services/config_service.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../widgets/member_sidebar.dart';
+import '../../widgets/memberqr.dart';
 
 class MemberDashboard extends StatefulWidget {
   const MemberDashboard({super.key});
@@ -242,6 +243,160 @@ class _MemberDashboardState extends State<MemberDashboard> {
   }
 }
 
+// ─── My QR Card ────────────────────────────────────────────────────────────
+
+/// Shows the member their own QR code so the terminal can scan it at checkout
+/// to attribute the sale to their account. Tappable to enlarge for scanning.
+class _MyQrCard extends StatelessWidget {
+  final Member member;
+  final bool isDark;
+
+  const _MyQrCard({required this.member, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final qrToken = member.qr ?? '';
+    final surface = isDark
+        ? StockpileColors.darkSurface
+        : StockpileColors.surface;
+    final divider = isDark
+        ? StockpileColors.darkDivider
+        : StockpileColors.divider;
+    final textPrimary = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final muted = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: divider),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.qr_code_2_rounded,
+                color: StockpileColors.primary900,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'My QR Code',
+                style: StockpileFonts.satoshi(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Show this at checkout so the cashier can add your purchase to '
+            'your account.',
+            textAlign: TextAlign.center,
+            style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+          ),
+          const SizedBox(height: 16),
+          if (qrToken.isEmpty)
+            Text(
+              "Your QR code isn't set up yet. Please contact an admin.",
+              textAlign: TextAlign.center,
+              style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+            )
+          else ...[
+            InkWell(
+              onTap: () => _showFullScreenQr(context),
+              borderRadius: BorderRadius.circular(12),
+              child: _qrBox(size: 180),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Tap to enlarge',
+              style: StockpileFonts.satoshi(fontSize: 11, color: muted),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// The QR always renders black-on-white (forced light theme + white
+  /// background) so it stays scannable regardless of the app's dark mode.
+  Widget _qrBox({required double size}) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Theme(
+        data: ThemeData.light(),
+        child: MemberQr(
+          lastName: member.lastName ?? '',
+          firstName: member.firstName ?? '',
+          middleName: member.middleName ?? '',
+          contactNo: member.contactNo ?? '',
+          birthday: member.birthday ?? '',
+          address: member.address ?? '',
+          referrer: member.referrer ?? '',
+          qrToken: member.qr ?? '',
+          size: size,
+        ),
+      ),
+    );
+  }
+
+  void _showFullScreenQr(BuildContext context) {
+    final name = '${member.firstName ?? ''} ${member.lastName ?? ''}'.trim();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _qrBox(size: 280),
+              const SizedBox(height: 16),
+              Text(
+                name.isEmpty ? 'Member' : name,
+                style: StockpileFonts.satoshi(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Show this to the cashier',
+                style: TextStyle(color: Colors.black54, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Overview Tab ──────────────────────────────────────────────────────────
 
 class _OverviewTab extends StatefulWidget {
@@ -320,6 +475,9 @@ class _OverviewTabState extends State<_OverviewTab> {
             isReseller: widget.isReseller,
             isDark: isDark,
           ),
+          const SizedBox(height: 20),
+          // My QR — shown at checkout so the cashier can identify the buyer.
+          _MyQrCard(member: widget.member, isDark: isDark),
           const SizedBox(height: 20),
           // Quick stats row
           if (_loadingStats)

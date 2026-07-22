@@ -1,15 +1,7 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:bot_toast/bot_toast.dart';
-import 'package:file_selector/file_selector.dart' as fs;
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member, Package;
 import 'package:lzcas/utils/phone_formatter.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 class AddMemberDialog extends StatefulWidget {
   final Future<int?> Function(Map<String, dynamic>) onMemberAdded;
@@ -27,7 +19,6 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final contactController = TextEditingController();
   final birthdayController = TextEditingController();
   final addressController = TextEditingController();
-  final idNumberController = TextEditingController();
   final referrerSearchController = TextEditingController();
   final usernameController = TextEditingController();
   final passwordController = TextEditingController();
@@ -36,34 +27,19 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
   int? _selectedPackageId;
-  String? _selectedIdType;
-  String? _selectedIdImagePath;
   bool _createAccount = false;
   bool _obscurePassword = true;
   bool _submitting = false;
 
-  bool get _hasIdPhoto =>
-      _selectedIdImagePath != null && _selectedIdImagePath!.isNotEmpty;
-
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
   final _contactKey = GlobalKey<FormFieldState>();
-  final _packageKey = GlobalKey<FormFieldState>();
+  final _usernameKey = GlobalKey<FormFieldState>();
+  final _passwordKey = GlobalKey<FormFieldState>();
 
-  static const _idTypes = [
-    'Driver\'s License',
-    'National ID (PhilSys)',
-    'Passport',
-    'UMID',
-    'SSS ID',
-    'GSIS eCard',
-    'PhilHealth ID',
-    'PRC License',
-    'Postal ID',
-    'Voter\'s ID',
-    'Senior Citizen ID',
-    'Other',
-  ];
+  /// A package makes this member a Verified Reseller, and reseller records
+  /// are tied to a login account — so a package makes the account mandatory.
+  bool get _accountRequired => _selectedPackageId != null;
 
   Future<void> _pickBirthday() async {
     final birthday = await showBirthdayPickerDialog(
@@ -74,69 +50,6 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     setState(() {
       birthdayController.text = birthday;
     });
-  }
-
-  Future<void> _pickIdImage() async {
-    // file_selector can throw MissingPluginException after hot reload
-    // because Flutter method channels aren't re-registered.
-    List<fs.XFile> files;
-    try {
-      files = await fs.openFiles(
-        acceptedTypeGroups: [
-          const fs.XTypeGroup(
-            label: 'Images',
-            extensions: ['jpg', 'jpeg', 'png'],
-          ),
-        ],
-      );
-    } catch (e) {
-      debugPrint('[AddMemberDialog] openFiles failed (hot reload?): $e');
-      if (mounted) {
-        BotToast.showText(
-          text: 'File picker unavailable. Please restart the app.',
-        );
-      }
-      return;
-    }
-    if (files.isEmpty || !mounted) return;
-
-    final xfile = files.first;
-
-    if (kIsWeb) {
-      // Web: read bytes and store as base64 data URL (dart:io File is unavailable)
-      try {
-        final bytes = await xfile.readAsBytes();
-        final ext = xfile.name.split('.').last.toLowerCase();
-        final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
-        final base64 = base64Encode(bytes);
-        setState(() => _selectedIdImagePath = 'data:$mime;base64,$base64');
-      } catch (_) {
-        setState(() {
-          _selectedIdImagePath = null;
-          _selectedPackageId = null; // packages require an ID photo
-        });
-      }
-      return;
-    }
-
-    // Native: read bytes and write to app documents directory
-    try {
-      final bytes = await xfile.readAsBytes();
-      final docsDir = await getApplicationDocumentsDirectory();
-      final memberIdDir = Directory(p.join(docsDir.path, 'member_ids'));
-      if (!await memberIdDir.exists()) {
-        await memberIdDir.create(recursive: true);
-      }
-      final ext = xfile.name.contains('.') ? p.extension(xfile.name) : '.jpg';
-      final destPath = p.join(
-        memberIdDir.path,
-        'new_${DateTime.now().millisecondsSinceEpoch}$ext',
-      );
-      await File(destPath).writeAsBytes(bytes);
-      setState(() => _selectedIdImagePath = destPath);
-    } catch (_) {
-      setState(() => _selectedIdImagePath = xfile.path);
-    }
   }
 
   @override
@@ -171,7 +84,6 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
     contactController.dispose();
     birthdayController.dispose();
     addressController.dispose();
-    idNumberController.dispose();
     referrerSearchController.dispose();
     usernameController.dispose();
     passwordController.dispose();
@@ -194,11 +106,17 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
       _contactKey.currentState?.validate();
       valid = false;
     }
-    // Package: required once an ID photo is uploaded (an ID photo means
-    // this member is being verified as a reseller, which needs a package)
-    if (_hasIdPhoto && _selectedPackageId == null) {
-      _packageKey.currentState?.validate();
-      valid = false;
+    // Account: username + password required whenever an account is created
+    // (which is mandatory once a package is selected).
+    if (_createAccount) {
+      if (usernameController.text.trim().isEmpty) {
+        _usernameKey.currentState?.validate();
+        valid = false;
+      }
+      if (passwordController.text.isEmpty) {
+        _passwordKey.currentState?.validate();
+        valid = false;
+      }
     }
     return valid;
   }
@@ -354,103 +272,17 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               ),
 
               const SizedBox(height: 24),
-              // ── ID Verification section ────────────────────
-              _sectionLabel('Verification ID', theme, colorScheme),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue:
-                    _selectedIdType != null &&
-                        _selectedIdType!.isNotEmpty &&
-                        _idTypes.contains(_selectedIdType)
-                    ? _selectedIdType
-                    : null,
-                decoration: InputDecoration(
-                  labelText: 'ID Type',
-                  hintText: 'Select ID type (optional)',
-                  prefixIcon: const Icon(Icons.credit_card_outlined),
-                  border: inputBorder,
-                ),
-                items: _idTypes
-                    .map(
-                      (t) => DropdownMenuItem(
-                        value: t,
-                        child: Text(t, overflow: TextOverflow.ellipsis),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedIdType = v),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: idNumberController,
-                decoration: InputDecoration(
-                  labelText: 'ID Number',
-                  hintText: 'Optional',
-                  prefixIcon: const Icon(Icons.numbers_outlined),
-                  border: inputBorder,
-                ),
-                textInputAction: TextInputAction.next,
-              ),
-              const SizedBox(height: 16),
-              InkWell(
-                onTap: _pickIdImage,
-                borderRadius: BorderRadius.circular(10),
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'ID Photo',
-                    hintText: 'Tap to upload',
-                    prefixIcon: const Icon(Icons.camera_alt_outlined),
-                    border: inputBorder,
-                  ),
-                  child:
-                      _selectedIdImagePath != null &&
-                          _selectedIdImagePath!.isNotEmpty
-                      ? Row(
-                          children: [
-                            Icon(
-                              Icons.check_circle,
-                              size: 18,
-                              color: colorScheme.primary,
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                kIsWeb
-                                    ? 'Image selected'
-                                    : p.basename(_selectedIdImagePath!),
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall,
-                              ),
-                            ),
-                          ],
-                        )
-                      : const Text(
-                          'Tap to select ID photo',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                ),
-              ),
-
-              const SizedBox(height: 24),
               // ── Package section ────────────────────────────
-              // Packages can only be availed by verified resellers, which
-              // requires an uploaded ID photo — gate the dropdown on it.
+              // Availing a package registers the member as a Verified
+              // Reseller; no package means a standard Member.
               _sectionLabel('Package', theme, colorScheme),
               const SizedBox(height: 12),
               DropdownButtonFormField<int?>(
-                key: _packageKey,
                 isExpanded: true,
                 initialValue: _selectedPackageId,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                validator: (v) => (_hasIdPhoto && v == null)
-                    ? 'Required — verified resellers must avail a package'
-                    : null,
                 decoration: InputDecoration(
                   labelText: 'Select Package',
-                  hintText: _hasIdPhoto
-                      ? 'Select a package (required)'
-                      : 'Upload an ID photo to avail a package',
+                  hintText: 'Optional — leave as None for a standard Member',
                   prefixIcon: const Icon(Icons.card_giftcard_outlined),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -474,25 +306,18 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                     ),
                   ),
                 ],
-                onChanged: _hasIdPhoto
-                    ? (v) => setState(() => _selectedPackageId = v)
-                    : null,
+                onChanged: (v) => setState(() {
+                  _selectedPackageId = v;
+                  // Reseller records need a login account — force it on.
+                  if (v != null) _createAccount = true;
+                }),
               ),
-              if (!_hasIdPhoto) ...[
+              if (_selectedPackageId != null) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'Packages can only be availed by verified resellers. '
-                  'Upload an ID photo under Verification ID to enable this.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.outline,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ] else if (_selectedPackageId != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '⚠ Selecting a package will verify this member as a '
-                  'Verified Reseller and create a transaction record.',
+                  '⚠ Selecting a package registers this member as a Verified '
+                  'Reseller (requires a login account) and creates a '
+                  'transaction record.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: colorScheme.primary,
                     fontStyle: FontStyle.italic,
@@ -502,23 +327,39 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
 
               const SizedBox(height: 24),
               // ── Account section ───────────────────────────
-              _sectionLabel('Account (Optional)', theme, colorScheme),
+              _sectionLabel(
+                _accountRequired ? 'Account (Required)' : 'Account (Optional)',
+                theme,
+                colorScheme,
+              ),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  const Expanded(
-                    child: Text('Create login account for this member'),
+                  Expanded(
+                    child: Text(
+                      _accountRequired
+                          ? 'A login account is required for reseller members'
+                          : 'Create login account for this member',
+                    ),
                   ),
                   Switch(
                     value: _createAccount,
-                    onChanged: (v) => setState(() => _createAccount = v),
+                    // Locked on while a package is selected.
+                    onChanged: _accountRequired
+                        ? null
+                        : (v) => setState(() => _createAccount = v),
                   ),
                 ],
               ),
               if (_createAccount) ...[
                 const SizedBox(height: 12),
                 TextFormField(
+                  key: _usernameKey,
                   controller: usernameController,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  validator: (v) => (_createAccount && (v ?? '').trim().isEmpty)
+                      ? 'Required'
+                      : null,
                   decoration: InputDecoration(
                     label: const Text.rich(
                       TextSpan(
@@ -540,8 +381,12 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
+                  key: _passwordKey,
                   controller: passwordController,
                   obscureText: _obscurePassword,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  validator: (v) =>
+                      (_createAccount && (v ?? '').isEmpty) ? 'Required' : null,
                   decoration: InputDecoration(
                     label: const Text.rich(
                       TextSpan(
@@ -728,13 +573,8 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           : '',
       'referrerId': _selectedReferrerId,
       'role': 'Member',
-      'idType': _selectedIdType,
-      'idNumber': idNumberController.text.trim().isEmpty
-          ? null
-          : idNumberController.text.trim(),
-      'idImagePath': _selectedIdImagePath,
-      // Packages require an uploaded ID photo (verified resellers only)
-      'packageId': _hasIdPhoto ? _selectedPackageId : null,
+      // A package registers the member as a Verified Reseller.
+      'packageId': _selectedPackageId,
       'createAccount': _createAccount,
       'username': _createAccount ? usernameController.text.trim() : null,
       'password': _createAccount ? passwordController.text : null,

@@ -96,7 +96,7 @@ class StockpileTopBar extends StatelessWidget {
             ),
             onPressed: () => _showNotificationPopover(context),
             tooltip: badgeCount > 0
-                ? '${notificationService.pendingCount} pending · ${notificationService.lowStockCount} low stock'
+                ? '${notificationService.pendingCount} pending · ${notificationService.lowStockCount} to restock'
                 : 'Notifications',
           ),
         ],
@@ -392,7 +392,7 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
                         // ── Low Stock ──────────────────────────
                         if (_lowStockItems.isNotEmpty) ...[
                           _sectionHeader(
-                            'Low Stock',
+                            'Low & Out of Stock',
                             _lowStockItems.length,
                             Icons.inventory_2_rounded,
                             Colors.red,
@@ -437,7 +437,9 @@ class _NotificationPopoverState extends State<_NotificationPopover> {
                                       ),
                                     ),
                                     subtitle: Text(
-                                      '${item.stock} left',
+                                      item.stock <= 0
+                                          ? 'Out of stock'
+                                          : '${item.stock} left',
                                       style: TextStyle(
                                         fontSize: 11,
                                         color: Colors.red.shade300,
