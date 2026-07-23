@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/utils/action_guard.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
@@ -178,7 +179,10 @@ class MembersTableState extends State<MembersTable> {
   }
 
   Future<int> addMember(Map<String, dynamic> newMember) async {
-    // Check username availability BEFORE creating the member.
+    // Guard against a double-click creating the member (and its login
+    // account / package availment sale) twice.
+    return await ActionGuard.run('add_member', () async {
+      // Check username availability BEFORE creating the member.
     // This ensures nothing is written to the database if the username is taken.
     if (newMember['createAccount'] == true) {
       final username = newMember['username']?.toString() ?? '';
@@ -302,8 +306,9 @@ class MembersTableState extends State<MembersTable> {
       }
     }
 
-    _loadMembers();
-    return memberId;
+      _loadMembers();
+      return memberId;
+    }) ?? 0;
   }
 
   String _memberDisplayName(Member m) {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/utils/action_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 
@@ -468,12 +469,14 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
 
     if (selected == null || !mounted) return;
 
-    try {
-      // RPC handles: rank validation, member update, AND referrer bonus
-      await repository.submitUpgrade(
-        memberId: memberId,
-        targetPackageId: selected.id!,
-      );
+    // Guard against a double-click availing the package twice.
+    await ActionGuard.run('avail_upgrade_$memberId', () async {
+      try {
+        // RPC handles: rank validation, member update, AND referrer bonus
+        await repository.submitUpgrade(
+          memberId: memberId,
+          targetPackageId: selected.id!,
+        );
 
       // ── POS: create a sale record for this upgrade ──
       await repository.addSale(
@@ -502,9 +505,10 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             member['role'] = 'Verified Reseller';
           }
         });
-    } catch (e) {
-      showErrorToast('Failed to upgrade package: $e');
-    }
+      } catch (e) {
+        showErrorToast('Failed to upgrade package: $e');
+      }
+    });
   }
 
   String _memberDisplayName() {

@@ -363,45 +363,31 @@ class EarningsSnapshot {
   };
 }
 
-/// A product category with a commission rate for earnings calculations.
+/// A product category, used for low-stock thresholds and grouping.
 class Category {
   final int? id;
   final String name;
-  final int commissionRate;
 
   /// Per-category low-stock threshold. Null means "not set" — the global
   /// app_config threshold is used as a fallback (for uncategorized items).
   final int? lowStockThreshold;
 
-  const Category({
-    this.id,
-    required this.name,
-    this.commissionRate = 0,
-    this.lowStockThreshold,
-  });
+  const Category({this.id, required this.name, this.lowStockThreshold});
 
   factory Category.fromJson(Map<String, dynamic> json) => Category(
     id: json['id'] as int?,
     name: json['name'] as String? ?? '',
-    commissionRate: json['commission_rate'] as int? ?? 0,
     lowStockThreshold: json['low_stock_threshold'] as int?,
   );
 
   Map<String, dynamic> toJson() => {
     'name': name,
-    'commission_rate': commissionRate,
     if (lowStockThreshold != null) 'low_stock_threshold': lowStockThreshold,
   };
 
-  Category copyWith({
-    int? id,
-    String? name,
-    int? commissionRate,
-    int? lowStockThreshold,
-  }) => Category(
+  Category copyWith({int? id, String? name, int? lowStockThreshold}) => Category(
     id: id ?? this.id,
     name: name ?? this.name,
-    commissionRate: commissionRate ?? this.commissionRate,
     lowStockThreshold: lowStockThreshold ?? this.lowStockThreshold,
   );
 }
