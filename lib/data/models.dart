@@ -199,7 +199,6 @@ class Package {
   /// Looked up from the *referrer's* current package at upgrade time.
   final int upgradeReferralBonus;
 
-  final String repeatPurchaseJson;
   final int groupSalesDirect;
   final int groupSalesIndirect;
 
@@ -217,7 +216,6 @@ class Package {
     this.indirectReferralBonus = 0,
     this.chairmansBonus = 0,
     this.upgradeReferralBonus = 0,
-    this.repeatPurchaseJson = '{}',
     this.groupSalesDirect = 0,
     this.groupSalesIndirect = 0,
     this.hierarchyRank = 0,
@@ -232,7 +230,6 @@ class Package {
     indirectReferralBonus: json['indirect_referral_bonus'] as int? ?? 0,
     chairmansBonus: json['chairmans_bonus'] as int? ?? 0,
     upgradeReferralBonus: json['upgrade_referral_bonus'] as int? ?? 0,
-    repeatPurchaseJson: json['repeat_purchase_json'] as String? ?? '{}',
     groupSalesDirect: json['group_sales_direct'] as int? ?? 0,
     groupSalesIndirect: json['group_sales_indirect'] as int? ?? 0,
     hierarchyRank: json['hierarchy_rank'] as int? ?? 0,
@@ -248,7 +245,6 @@ class Package {
     'indirect_referral_bonus': indirectReferralBonus,
     'chairmans_bonus': chairmansBonus,
     'upgrade_referral_bonus': upgradeReferralBonus,
-    'repeat_purchase_json': repeatPurchaseJson,
     'group_sales_direct': groupSalesDirect,
     'group_sales_indirect': groupSalesIndirect,
     'hierarchy_rank': hierarchyRank,
@@ -262,7 +258,6 @@ class Package {
     int? indirectReferralBonus,
     int? chairmansBonus,
     int? upgradeReferralBonus,
-    String? repeatPurchaseJson,
     int? groupSalesDirect,
     int? groupSalesIndirect,
     int? hierarchyRank,
@@ -274,7 +269,6 @@ class Package {
     indirectReferralBonus: indirectReferralBonus ?? this.indirectReferralBonus,
     chairmansBonus: chairmansBonus ?? this.chairmansBonus,
     upgradeReferralBonus: upgradeReferralBonus ?? this.upgradeReferralBonus,
-    repeatPurchaseJson: repeatPurchaseJson ?? this.repeatPurchaseJson,
     groupSalesDirect: groupSalesDirect ?? this.groupSalesDirect,
     groupSalesIndirect: groupSalesIndirect ?? this.groupSalesIndirect,
     hierarchyRank: hierarchyRank ?? this.hierarchyRank,

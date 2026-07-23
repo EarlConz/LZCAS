@@ -2285,7 +2285,9 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     upgradeReferralCtrl,
                     'Upgrade Referral Bonus',
                     prefix: '₱ ',
-                    helper: 'Paid when a direct downline upgrades their package',
+                    helper:
+                        'Earned by the holder when a direct downline upgrades '
+                        'from one package to a higher one',
                   ),
                   const SizedBox(height: 24),
 
@@ -2556,7 +2558,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
                     hierarchyRank: int.tryParse(hierarchyRankCtrl.text) ?? 0,
-                    repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
                         int.tryParse(groupIndirectCtrl.text) ?? 0,
@@ -2573,7 +2574,6 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     upgradeReferralBonus:
                         int.tryParse(upgradeReferralCtrl.text) ?? 0,
                     hierarchyRank: int.tryParse(hierarchyRankCtrl.text) ?? 0,
-                    repeatPurchaseJson: '{}',
                     groupSalesDirect: int.tryParse(groupDirectCtrl.text) ?? 0,
                     groupSalesIndirect:
                         int.tryParse(groupIndirectCtrl.text) ?? 0,
