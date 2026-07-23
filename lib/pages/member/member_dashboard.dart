@@ -1980,8 +1980,14 @@ class _EarningsLedgerCard extends StatelessWidget {
   }
 
   /// "+₱50" green, "−₱20" red, null when zero (not shown).
-  Widget? _deltaChip(int delta, String label) {
+  Widget? _deltaChip(int delta, String label, {bool positiveOnly = false}) {
     if (delta == 0) return null;
+    // Earnings-source chips only ever represent an increase. A decrease in a
+    // component (e.g. an admin lowering a package's rate, a removed downline,
+    // or a recomputation) is not a real loss and would otherwise surface as a
+    // misleading "−" chip — hide it. Genuine reductions to withdrawable funds
+    // are shown by the separate "Withdrawal" chip.
+    if (positiveOnly && delta < 0) return null;
     final up = delta > 0;
     final color = up ? StockpileColors.success : StockpileColors.danger;
     return Container(
@@ -2149,22 +2155,26 @@ class _EarningsLedgerCard extends StatelessWidget {
       ];
     } else if (prev != null || firstEver) {
       chips = <Widget>[
-        ?_deltaChip(h.balanceDelta, 'Direct Referral'),
+        ?_deltaChip(h.balanceDelta, 'Direct Referral', positiveOnly: true),
         ?_deltaChip(
           h.indirectBonus - (prev?.indirectBonus ?? 0),
           'Indirect Referral',
+          positiveOnly: true,
         ),
         ?_deltaChip(
           h.passiveIncome - (prev?.passiveIncome ?? 0),
           'Passive Income',
+          positiveOnly: true,
         ),
         ?_deltaChip(
           h.chairmanBonus - (prev?.chairmanBonus ?? 0),
           "Chairman's Bonus",
+          positiveOnly: true,
         ),
         ?_deltaChip(
           h.upgradeBonus - (prev?.upgradeBonus ?? 0),
           'Upgrade Bonus',
+          positiveOnly: true,
         ),
       ];
     } else {
