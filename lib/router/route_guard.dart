@@ -16,6 +16,9 @@ import 'package:lzcas/auth/auth.dart';
 abstract class AppRoutes {
   AppRoutes._();
 
+  // Public
+  static const String landing = '/landing';
+
   // Auth
   static const String login = '/login';
   static const String forbidden = '/forbidden';
@@ -79,7 +82,9 @@ class RouteGuard {
     AuthState auth,
   ) {
     // Public routes are always accessible.
-    if (route == AppRoutes.login || route == AppRoutes.forbidden) {
+    if (route == AppRoutes.landing ||
+        route == AppRoutes.login ||
+        route == AppRoutes.forbidden) {
       return null;
     }
 

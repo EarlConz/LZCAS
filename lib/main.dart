@@ -75,7 +75,7 @@ class _LzcasAppState extends State<LzcasApp> {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'LZCAS',
+      title: 'GUTVita',
       theme: stockpileTheme,
       builder: BotToastInit(),
       // Use onGenerateRoute for centralized, role-aware routing.
@@ -83,7 +83,15 @@ class _LzcasAppState extends State<LzcasApp> {
       // Initial route depends on authentication status.
       initialRoute: auth.isAuthenticated && auth.userRole != null
           ? AppRoutes.defaultForRole(auth.userRole!)
-          : AppRoutes.login,
+          : AppRoutes.landing,
+      // Build ONE route for the initial path. Flutter's default splits the
+      // path into segments (e.g. '/landing' → '/' + '/landing') and builds
+      // each; the '/' segment would hit the guard and redirect to login,
+      // clearing the landing page. Generating a single route avoids that.
+      onGenerateInitialRoutes: (initialRoute) {
+        final route = appRouter(RouteSettings(name: initialRoute));
+        return route == null ? const <Route<dynamic>>[] : [route];
+      },
       navigatorObservers: [BotToastNavigatorObserver()],
     );
   }

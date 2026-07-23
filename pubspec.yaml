@@ -58,6 +58,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   build_runner: ^2.4.6
+  flutter_launcher_icons: ^0.14.4
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -78,6 +79,23 @@ flutter:
 
   assets:
     - assets/supabase_config.json
+    - assets/images/
+
+# App launcher icon generation (GUTVita).
+# Source MUST be a square PNG — export logo.jpg to assets/images/logo.png
+# (~1024x1024) first, then run:  dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: "assets/images/logo.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  web:
+    generate: true
+  windows:
+    generate: true
+    icon_size: 48
+  macos:
+    generate: true
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
+import 'app_logo.dart';
 
 class Sidebar extends StatelessWidget {
   final int selectedIndex;
@@ -28,25 +29,10 @@ class Sidebar extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Row(
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary,
-                    borderRadius: BorderRadius.circular(appRadius),
-                  ),
-                  child: Text(
-                    'L',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      color: colorScheme.onPrimary,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
+                AppLogo(size: 48, radius: appRadius),
                 const SizedBox(width: 14),
                 Text(
-                  "LZCAS",
+                  "GUTVita",
                   style: theme.textTheme.headlineSmall?.copyWith(
                     color: colorScheme.primary,
                     fontWeight: FontWeight.w900,

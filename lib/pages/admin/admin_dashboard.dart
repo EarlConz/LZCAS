@@ -15,6 +15,7 @@ import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/widgets/app_logo.dart';
 import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 import 'package:lzcas/widgets/stockpile_topbar.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
@@ -3225,24 +3226,15 @@ class _AdminSidebar extends StatelessWidget {
           child: Row(
             children: [
               const SizedBox(width: 4),
-              SizedBox(
+              const SizedBox(
                 width: 44,
-                child: Center(
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: StockpileColors.primary900,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ),
-                ),
+                child: Center(child: AppLogo(size: 32, radius: 8)),
               ),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.only(left: 12),
                   child: Text(
-                    'LZCAS · Admin',
+                    'GUTVita · Admin',
                     maxLines: 1,
                     softWrap: false,
                     overflow: TextOverflow.clip,

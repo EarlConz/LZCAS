@@ -1,6 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import '../utils/fonts.dart';
 import '../theme.dart';
+import 'app_logo.dart';
 
 class StockpileSidebar extends StatelessWidget {
   final int selectedIndex;
@@ -41,17 +42,10 @@ class StockpileSidebar extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
             child: Row(
               children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: StockpileColors.primary900,
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                ),
+                const AppLogo(size: 34, radius: 8),
                 const SizedBox(width: 12),
                 Text(
-                  'LZCAS',
+                  'GUTVita',
                   style: StockpileFonts.satoshi(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
