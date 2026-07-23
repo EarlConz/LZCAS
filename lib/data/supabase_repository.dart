@@ -1258,14 +1258,12 @@ class SupabaseRepository {
 
   Future<int> addCategory({
     required String name,
-    int commissionRate = 0,
     int? lowStockThreshold,
   }) async {
     final data = await _supabase
         .from('categories')
         .insert({
           'name': name,
-          'commission_rate': commissionRate,
           if (lowStockThreshold != null)
             'low_stock_threshold': lowStockThreshold,
         })

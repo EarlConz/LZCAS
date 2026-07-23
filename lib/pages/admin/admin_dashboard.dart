@@ -13,6 +13,7 @@ import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/utils/action_guard.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/app_logo.dart';
@@ -2545,7 +2546,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () async {
+            onPressed: () => ActionGuard.run('save_package', () async {
               if (!formKey.currentState!.validate()) return;
               try {
                 if (existing != null) {
@@ -2587,7 +2588,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
               if (!ctx.mounted) return;
               Navigator.pop(ctx);
               _loadData();
-            },
+            }),
             child: Text(existing != null ? 'Save' : 'Create'),
           ),
         ],
@@ -3010,9 +3011,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
 
   void _showCategoryDialog({Category? existing}) {
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
-    final rateCtrl = TextEditingController(
-      text: existing != null ? '${existing.commissionRate}' : '0',
-    );
     final thresholdCtrl = TextEditingController(
       text: existing?.lowStockThreshold?.toString() ?? '',
     );
@@ -3035,16 +3033,6 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
                   ),
                   validator: (v) =>
                       (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: rateCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Commission Rate (₱)',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -3095,14 +3083,12 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
                   await repository.updateCategory(
                     existing.copyWith(
                       name: nameCtrl.text.trim(),
-                      commissionRate: int.tryParse(rateCtrl.text) ?? 0,
                       lowStockThreshold: threshold,
                     ),
                   );
                 } else {
                   await repository.addCategory(
                     name: nameCtrl.text.trim(),
-                    commissionRate: int.tryParse(rateCtrl.text) ?? 0,
                     lowStockThreshold: threshold,
                   );
                 }
@@ -3204,7 +3190,7 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
           LayoutBuilder(
             builder: (context, constraints) {
               final title = Text(
-                'Categories & Commission Rates',
+                'Categories',
                 style: StockpileFonts.satoshi(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -3255,7 +3241,7 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
               (c) => _ConfigTile(
                 icon: Icons.category_rounded,
                 title: c.name,
-                subtitle: 'Commission: ₱${c.commissionRate} per item',
+                subtitle: 'Low stock below ${c.lowStockThreshold ?? '—'}',
                 trailing: IconButton(
                   icon: const Icon(Icons.edit_outlined, size: 20),
                   onPressed: () => _showCategoryDialog(existing: c),
@@ -4509,37 +4495,42 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
 
     if (selected == null || !mounted) return;
 
-    try {
-      // RPC handles: rank validation, member update, AND referrer bonus
-      await repository.submitUpgrade(
-        memberId: memberId,
-        targetPackageId: selected.id!,
-      );
-      // POS sale record (client-side)
-      await repository.addSale(
-        itemId: 0,
-        itemName: 'Package Upgrade: ${selected.name}',
-        quantity: 1,
-        price: selected.price,
-        buyerId: memberId,
-        buyerName: [member['firstName'], member['lastName']]
-            .where((p) => p != null && p.toString().trim().isNotEmpty)
-            .join(' '),
-        packageId: selected.id,
-        timestamp: DateTime.now(),
-      );
-      BotToast.showText(
-        text: '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
-      );
-      onUpgraded?.call(selected);
-    } catch (e) {
-      final msg = e.toString();
-      if (msg.contains('Invalid upgrade') || msg.contains('downgrade')) {
-        BotToast.showText(text: 'Cannot downgrade or side-grade packages.');
-      } else {
-        BotToast.showText(text: 'Failed: $e');
+    // Guard against a double-click availing the package (and paying the
+    // referrer bonus + writing the availment sale) twice.
+    await ActionGuard.run('avail_upgrade_$memberId', () async {
+      try {
+        // RPC handles: rank validation, member update, AND referrer bonus
+        await repository.submitUpgrade(
+          memberId: memberId,
+          targetPackageId: selected.id!,
+        );
+        // POS sale record (client-side)
+        await repository.addSale(
+          itemId: 0,
+          itemName: 'Package Upgrade: ${selected.name}',
+          quantity: 1,
+          price: selected.price,
+          buyerId: memberId,
+          buyerName: [member['firstName'], member['lastName']]
+              .where((p) => p != null && p.toString().trim().isNotEmpty)
+              .join(' '),
+          packageId: selected.id,
+          timestamp: DateTime.now(),
+        );
+        BotToast.showText(
+          text:
+              '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
+        );
+        onUpgraded?.call(selected);
+      } catch (e) {
+        final msg = e.toString();
+        if (msg.contains('Invalid upgrade') || msg.contains('downgrade')) {
+          BotToast.showText(text: 'Cannot downgrade or side-grade packages.');
+        } else {
+          BotToast.showText(text: 'Failed: $e');
+        }
       }
-    }
+    });
   }
 
   void _showCreateAccountDialog(BuildContext ctx, Map<String, dynamic> member) {
@@ -5989,17 +5980,20 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   Future<void> _approveWithdrawal(WithdrawalRequest req) async {
     if (req.id == null) return;
 
-    final err = await repository.approveWithdrawalRequest(req.id!);
-    if (!mounted) return;
-    if (err == null) {
-      BotToast.showText(
-        text:
-            'Withdrawal (${req.sourceLabel} ₱${req.requestedAmount}) — approved',
-      );
-    } else {
-      BotToast.showText(text: 'Failed to approve withdrawal: $err');
-    }
-    _loadWithdrawals();
+    // Guard against a double-click approving (and deducting) twice.
+    await ActionGuard.run('approve_wd_${req.id}', () async {
+      final err = await repository.approveWithdrawalRequest(req.id!);
+      if (!mounted) return;
+      if (err == null) {
+        BotToast.showText(
+          text:
+              'Withdrawal (${req.sourceLabel} ₱${req.requestedAmount}) — approved',
+        );
+      } else {
+        BotToast.showText(text: 'Failed to approve withdrawal: $err');
+      }
+      _loadWithdrawals();
+    });
   }
 
   Future<void> _rejectWithdrawal(WithdrawalRequest req) async {
