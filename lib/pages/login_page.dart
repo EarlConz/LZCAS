@@ -9,6 +9,7 @@ import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/widgets/app_logo.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -68,6 +69,29 @@ class _LoginPageState extends State<LoginPage> {
     final isAuthenticating = auth.status == AuthStatus.authenticating;
 
     return Scaffold(
+      // Float a Back-to-landing control over the content. Always shown:
+      // if there's a page to pop (arrived from landing) we pop — keeping the
+      // reverse reveal animation — otherwise (arrived via logout, which clears
+      // the stack) we navigate to the landing page directly.
+      // extendBodyBehindAppBar keeps the form centered with no layout shift.
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leadingWidth: 120,
+        leading: _AnimatedBackButton(
+          isDark: isDark,
+          onPressed: () {
+            final nav = Navigator.of(context);
+            if (nav.canPop()) {
+              nav.maybePop();
+            } else {
+              nav.pushReplacementNamed(AppRoutes.landing);
+            }
+          },
+        ),
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -80,26 +104,10 @@ class _LoginPageState extends State<LoginPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // ── Logo / Brand ─────────────────────────────────────
-                    Container(
-                      width: 72,
-                      height: 72,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: StockpileColors.primary900,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'L',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
+                    const AppLogo(size: 72, radius: 20),
                     const SizedBox(height: 16),
                     Text(
-                      'LZCAS',
+                      'GUTVita',
                       style: StockpileFonts.satoshi(
                         fontSize: 28,
                         fontWeight: FontWeight.w800,
@@ -252,6 +260,45 @@ class _LoginPageState extends State<LoginPage> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Back-to-landing control that fades and slides in from the left on build,
+/// giving the appearance a small entrance to match the page's reveal.
+class _AnimatedBackButton extends StatelessWidget {
+  final bool isDark;
+  final VoidCallback onPressed;
+  const _AnimatedBackButton({required this.isDark, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(-14 * (1 - t), 0),
+          child: child,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: TextButton.icon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.arrow_back_rounded, size: 20),
+          label: Text(
+            'Back',
+            style: StockpileFonts.satoshi(fontWeight: FontWeight.w600),
+          ),
+          style: TextButton.styleFrom(foregroundColor: color),
         ),
       ),
     );

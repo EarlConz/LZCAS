@@ -1,14 +1,10 @@
-import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/search.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
-import 'dart:io';
 import 'package:lzcas/db/db.dart';
-import 'package:path/path.dart' as p;
 import 'dart:async';
 import '../theme.dart';
 import 'memberqr.dart';
@@ -182,10 +178,6 @@ class MembersTableState extends State<MembersTable> {
   }
 
   Future<int> addMember(Map<String, dynamic> newMember) async {
-    // Handle renaming the ID image from temp name to member-id-based name
-    final rawImagePath = newMember['idImagePath']?.toString();
-    String? finalImagePath = rawImagePath;
-
     // Check username availability BEFORE creating the member.
     // This ensures nothing is written to the database if the username is taken.
     if (newMember['createAccount'] == true) {
@@ -233,12 +225,9 @@ class MembersTableState extends State<MembersTable> {
       }
     }
 
-    // Auto-verify if an ID photo was uploaded AND a package was selected
-    final hasId = (newMember['idImagePath']?.toString() ?? '').isNotEmpty;
+    // Reseller status is derived purely from package availment.
     final hasPackage = (newMember['packageId'] as int?) != null;
-    final role = (hasId && hasPackage)
-        ? 'Verified Reseller'
-        : (newMember['role']?.toString() ?? 'Member');
+    final role = hasPackage ? 'Verified Reseller' : 'Member';
 
     // Wrap addMember in its own try/catch — after hot reload the auth session
     // can briefly be null, which causes _uid to throw uncaught.
@@ -254,91 +243,19 @@ class MembersTableState extends State<MembersTable> {
         address: newMember['address']?.toString(),
         referrer: newMember['referrer']?.toString(),
         referrerId: newMember['referrerId'] as int?,
-        idType: newMember['idType']?.toString(),
-        idNumber: newMember['idNumber']?.toString(),
-        idImagePath: null, // set after upload
         packageId: newMember['packageId'] as int?,
       );
     } catch (e) {
       debugPrint('[MembersTable] addMember failed: $e');
-      if (mounted)
+      if (mounted) {
         showErrorToast('Failed to add member. Please restart the app.');
+      }
       return 0;
     }
 
-    // Upload image to Supabase Storage for cross-device access.
-    if (finalImagePath != null) {
-      if (kIsWeb) {
-        final created = await repository.getMemberById(memberId);
-        if (created != null) {
-          final updated = created.copyWith(idImagePath: finalImagePath);
-          await repository.updateMember(updated);
-        }
-      } else {
-        try {
-          final srcFile = File(finalImagePath);
-          if (await srcFile.exists()) {
-            final bytes = await srcFile.readAsBytes();
-            final ext = p.extension(finalImagePath).isNotEmpty
-                ? p.extension(finalImagePath).substring(1)
-                : 'jpg';
-            String storedPath;
-            try {
-              storedPath = await repository.uploadMemberImage(
-                memberId,
-                bytes,
-                ext,
-              );
-              await srcFile.delete();
-            } catch (e) {
-              // Cloud upload failed — keep the local copy so the photo
-              // still shows on this device. The member's role was
-              // already set at insert time and is unaffected.
-              debugPrint('[MembersTable] ID photo cloud upload failed: $e');
-              storedPath = finalImagePath;
-              if (mounted) {
-                showErrorToast(
-                  'Photo saved on this device only — cloud upload failed: '
-                  '${_shortError(e)}',
-                );
-              }
-            }
-            final created = await repository.getMemberById(memberId);
-            if (created != null) {
-              final updated = created.copyWith(idImagePath: storedPath);
-              await repository.updateMember(updated);
-            }
-          }
-        } catch (e) {
-          debugPrint('[MembersTable] Saving ID photo failed: $e');
-        }
-      }
-    }
-
-    // ── Auto-create sale transaction when a package is selected ──────
-    final pkgId = newMember['packageId'] as int?;
-    if (pkgId != null) {
-      final pkg = await repository.getPackageById(pkgId);
-      if (pkg != null) {
-        final buyerName = [
-          newMember['firstName'],
-          newMember['lastName'],
-        ].where((p) => p != null && p.toString().isNotEmpty).join(' ');
-        await repository.addSale(
-          itemId: 0, // sentinel — package sales use item 0
-          itemName: pkg.name,
-          quantity: 1,
-          price: pkg.price,
-          buyerId: memberId,
-          buyerName: buyerName.isNotEmpty ? buyerName : 'Member #$memberId',
-          packageId: pkgId, // marks this as a package availment, not a product
-        );
-      }
-    }
-
-    // Account was already pre-checked above — now create it.
-    // If creation fails (race condition or pre-check bug), roll back the
-    // member so nothing persists.
+    // ── Create the login account FIRST (pre-checked above) ──────────
+    // Do this before the package sale so that, if account creation fails
+    // and the member is rolled back, no orphaned availment sale is left.
     if (newMember['createAccount'] == true) {
       final username = newMember['username']?.toString() ?? '';
       final password = newMember['password']?.toString() ?? '';
@@ -364,15 +281,29 @@ class MembersTableState extends State<MembersTable> {
       }
     }
 
+    // ── Auto-create sale transaction when a package is selected ──────
+    final pkgId = newMember['packageId'] as int?;
+    if (pkgId != null) {
+      final pkg = await repository.getPackageById(pkgId);
+      if (pkg != null) {
+        final buyerName = [
+          newMember['firstName'],
+          newMember['lastName'],
+        ].where((p) => p != null && p.toString().isNotEmpty).join(' ');
+        await repository.addSale(
+          itemId: 0, // sentinel — package sales use item 0
+          itemName: pkg.name,
+          quantity: 1,
+          price: pkg.price,
+          buyerId: memberId,
+          buyerName: buyerName.isNotEmpty ? buyerName : 'Member #$memberId',
+          packageId: pkgId, // marks this as a package availment, not a product
+        );
+      }
+    }
+
     _loadMembers();
     return memberId;
-  }
-
-  /// Compress an exception into a toast-sized message so the admin can
-  /// see (and report) the actual failure reason.
-  String _shortError(Object e) {
-    final s = e.toString();
-    return s.length > 110 ? '${s.substring(0, 110)}…' : s;
   }
 
   String _memberDisplayName(Member m) {
@@ -429,67 +360,12 @@ class MembersTableState extends State<MembersTable> {
     final row = await repository.getMemberById(id);
     if (row == null) return;
 
-    // Determine the final idImagePath — if it's a new local file, upload
-    // to Supabase Storage first so the image is accessible cross-device.
-    final rawImagePath = updatedMember['idImagePath']?.toString();
-    String? finalImagePath;
-    if (rawImagePath != null && rawImagePath.isNotEmpty) {
-      if (rawImagePath.startsWith('http://') ||
-          rawImagePath.startsWith('https://') ||
-          rawImagePath.startsWith('data:')) {
-        finalImagePath = rawImagePath;
-      } else if (!kIsWeb) {
-        final cancelLoading = BotToast.showLoading();
-        try {
-          final srcFile = File(rawImagePath);
-          if (await srcFile.exists()) {
-            final bytes = await srcFile.readAsBytes();
-            final ext = p.extension(rawImagePath).isNotEmpty
-                ? p.extension(rawImagePath).substring(1)
-                : 'jpg';
-            try {
-              finalImagePath = await repository.uploadMemberImage(
-                id,
-                bytes,
-                ext,
-              );
-              try {
-                await srcFile.delete();
-              } catch (_) {}
-            } catch (e) {
-              // Cloud upload failed — keep the local copy so the photo
-              // still shows on this device and, crucially, the Verified
-              // Reseller promotion below still proceeds. An attached ID
-              // photo verifies the member regardless of where the file
-              // ended up being stored.
-              debugPrint('[MembersTable] ID photo cloud upload failed: $e');
-              finalImagePath = rawImagePath;
-              if (mounted) {
-                showErrorToast(
-                  'Photo saved on this device only — cloud upload failed: '
-                  '${_shortError(e)}',
-                );
-              }
-            }
-          } else {
-            finalImagePath = row.idImagePath;
-          }
-        } catch (e) {
-          debugPrint('[MembersTable] Could not read the ID photo: $e');
-          if (mounted) {
-            showErrorToast('Could not read the selected photo.');
-          }
-          finalImagePath = row.idImagePath;
-        } finally {
-          cancelLoading();
-        }
-      } else {
-        finalImagePath = rawImagePath;
-      }
-    }
-
-    final hasId = (finalImagePath ?? '').isNotEmpty;
-    final newRole = hasId ? 'Verified Reseller' : (row.role ?? 'Member');
+    // Reseller status is derived purely from package availment.
+    final newPackageId = updatedMember['packageId'] is int
+        ? updatedMember['packageId'] as int
+        : null;
+    final isReseller = newPackageId != null;
+    final newRole = isReseller ? 'Verified Reseller' : 'Member';
 
     final updated = row.copyWith(
       lastName: updatedMember['lastName']?.toString(),
@@ -503,14 +379,13 @@ class MembersTableState extends State<MembersTable> {
       referrerId: updatedMember['referrerId'] is int
           ? updatedMember['referrerId'] as int
           : null,
-      idType: updatedMember['idType']?.toString(),
-      idNumber: updatedMember['idNumber']?.toString(),
-      idImagePath: finalImagePath,
-      packageId: updatedMember['packageId'] is int
-          ? updatedMember['packageId'] as int
-          : null,
+      packageId: newPackageId,
     );
     await repository.updateMember(updated);
+
+    // Keep the member's LOGIN role in sync with their reseller status so
+    // gaining/losing a package updates the tabs they can see.
+    await repository.syncMemberLoginRole(id, isReseller);
 
     // ── POS: create a sale when a package is newly assigned ──
     final newPkgId = updated.packageId;
@@ -531,7 +406,7 @@ class MembersTableState extends State<MembersTable> {
           quantity: 1,
           price: pkg.price,
           buyerId: id,
-          buyerName: updated.firstName,
+          buyerName: _memberDisplayName(updated),
           packageId: newPkgId,
           timestamp: DateTime.now(),
         );
@@ -884,14 +759,11 @@ class _MembersDataSource extends DataTableSource {
             children: [
               Flexible(
                 child: Text(
-                  (member['idImagePath']?.toString() ?? '').isNotEmpty
-                      ? 'Verified Reseller'
-                      : (member["role"] ?? ""),
+                  (member["role"] ?? "").toString(),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if ((member['idImagePath']?.toString() ?? '').isNotEmpty ||
-                  (member["role"] ?? '') == 'Verified Reseller')
+              if ((member["role"] ?? '') == 'Verified Reseller')
                 Padding(
                   padding: const EdgeInsets.only(left: 4),
                   child: Icon(

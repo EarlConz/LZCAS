@@ -75,9 +75,6 @@ class Member {
   final String? referrer;
   final int? referrerId;
   final String? qr;
-  final String? idType;
-  final String? idNumber;
-  final String? idImagePath;
   final String? email;
   final String? userId;
   final int? packageId;
@@ -99,9 +96,6 @@ class Member {
     this.referrer,
     this.referrerId,
     this.qr,
-    this.idType,
-    this.idNumber,
-    this.idImagePath,
     this.email,
     this.userId,
     this.packageId,
@@ -121,9 +115,6 @@ class Member {
     referrer: json['referrer'] as String?,
     referrerId: json['referrer_id'] as int?,
     qr: json['qr'] as String?,
-    idType: json['id_type'] as String?,
-    idNumber: json['id_number'] as String?,
-    idImagePath: json['id_image_path'] as String?,
     email: json['email'] as String?,
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
@@ -142,13 +133,19 @@ class Member {
     if (referrer != null) 'referrer': referrer,
     if (referrerId != null) 'referrer_id': referrerId,
     if (qr != null) 'qr': qr,
-    if (idType != null) 'id_type': idType,
-    if (idNumber != null) 'id_number': idNumber,
-    if (idImagePath != null) 'id_image_path': idImagePath,
     if (email != null) 'email': email,
     if (userId != null) 'user_id': userId,
-    if (packageId != null) 'package_id': packageId,
+    // Always sent (even when null) so clearing a package — which demotes a
+    // Verified Reseller back to Member — actually persists. Every other key
+    // above is omit-when-null so a partial update never wipes an unrelated
+    // field; package_id is deliberately different because null is meaningful.
+    'package_id': packageId,
   };
+
+  /// Sentinel so [copyWith] can distinguish "leave packageId unchanged" from
+  /// "explicitly clear the package". A plain `packageId ?? this.packageId`
+  /// can't express clearing, which silently blocked reseller → member demotion.
+  static const Object _unsetPackage = Object();
 
   Member copyWith({
     int? id,
@@ -162,12 +159,9 @@ class Member {
     String? referrer,
     int? referrerId,
     String? qr,
-    String? idType,
-    String? idNumber,
-    String? idImagePath,
     String? email,
     String? userId,
-    int? packageId,
+    Object? packageId = _unsetPackage,
     String? packageName,
     bool? isDeleted,
   }) => Member(
@@ -182,12 +176,11 @@ class Member {
     referrer: referrer ?? this.referrer,
     referrerId: referrerId ?? this.referrerId,
     qr: qr ?? this.qr,
-    idType: idType ?? this.idType,
-    idNumber: idNumber ?? this.idNumber,
-    idImagePath: idImagePath ?? this.idImagePath,
     email: email ?? this.email,
     userId: userId ?? this.userId,
-    packageId: packageId ?? this.packageId,
+    packageId: identical(packageId, _unsetPackage)
+        ? this.packageId
+        : packageId as int?,
     packageName: packageName ?? this.packageName,
     isDeleted: isDeleted ?? this.isDeleted,
   );
@@ -906,9 +899,6 @@ List<Map<String, dynamic>> membersFromRows(List<Member> rows) {
           'referrer': m.referrer ?? '',
           'referrerId': m.referrerId,
           'qr': m.qr ?? '',
-          'idType': m.idType ?? '',
-          'idNumber': m.idNumber ?? '',
-          'idImagePath': m.idImagePath ?? '',
           'email': m.email ?? '',
           'user_id': m.userId ?? '',
           'packageId': m.packageId,

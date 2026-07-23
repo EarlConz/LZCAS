@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:lzcas/pages/landing_page.dart';
 import 'package:lzcas/pages/login_page.dart';
 import 'package:lzcas/pages/admin/admin_dashboard.dart';
 import 'package:lzcas/pages/inventory/inventory_dashboard.dart';
@@ -20,6 +21,8 @@ import 'package:lzcas/auth/auth.dart';
 Route<dynamic>? appRouter(RouteSettings settings) {
   // Public routes — no guard needed.
   switch (settings.name) {
+    case AppRoutes.landing:
+      return _fadeRoute(settings, (_) => const LandingPage());
     case AppRoutes.login:
       return _fadeRoute(settings, (_) => const LoginPage());
     case AppRoutes.forbidden:

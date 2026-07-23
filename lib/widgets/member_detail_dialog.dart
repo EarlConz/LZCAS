@@ -6,7 +6,6 @@ import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/db/db.dart';
-import 'package:lzcas/widgets/memberdetails.dart' show buildIdImage;
 
 /// Opens the shared member detail dialog.
 /// [onViewHistory] — called when "View History" is tapped.
@@ -157,53 +156,6 @@ Future<void> showMemberDetailDialog({
                         surface: surface,
                         divider: divider,
                       ),
-                      const SizedBox(height: 12),
-                      if ((member['idImagePath']?.toString() ?? '').isNotEmpty)
-                        _InfoCard(
-                          isDark: isDark,
-                          textColor: textColor,
-                          muted: muted,
-                          surface: surface,
-                          divider: divider,
-                          title: 'ID Verification',
-                          icon: Icons.verified_user,
-                          children: [
-                            _InfoRow(
-                              icon: Icons.credit_card_outlined,
-                              label: 'ID Type',
-                              value: member['idType'],
-                              muted: muted,
-                              textColor: textColor,
-                              isDark: isDark,
-                            ),
-                            if ((member['idNumber']?.toString() ?? '')
-                                .isNotEmpty)
-                              _InfoRow(
-                                icon: Icons.numbers_outlined,
-                                label: 'ID Number',
-                                value: member['idNumber'],
-                                muted: muted,
-                                textColor: textColor,
-                                isDark: isDark,
-                              ),
-                            GestureDetector(
-                              onTap: () {
-                                final path = member['idImagePath']?.toString();
-                                if (path != null && path.isNotEmpty) {
-                                  _showIdImagePreview(ctx, path);
-                                }
-                              },
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: buildIdImage(
-                                  ctx,
-                                  member['idImagePath'].toString(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                          ],
-                        ),
                       const SizedBox(height: 20),
                       if (!hasAccount && onCreateAccount != null)
                         Padding(
@@ -348,27 +300,6 @@ Future<void> showMemberDetailDialog({
         ),
       );
     },
-  );
-}
-
-void _showIdImagePreview(BuildContext context, String path) {
-  showDialog(
-    context: context,
-    builder: (ctx) => Dialog(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: buildIdImage(ctx, path),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    ),
   );
 }
 

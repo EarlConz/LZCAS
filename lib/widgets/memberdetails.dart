@@ -1,8 +1,5 @@
 // ignore_for_file: unnecessary_underscores
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
@@ -16,117 +13,6 @@ import '../utils/formatters.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/auth/role_visibility.dart';
-
-/// Build an image widget from a file path, data URL, or network URL.
-Widget buildIdImage(
-  BuildContext context,
-  String source, {
-  BoxFit fit = BoxFit.contain,
-  double? height,
-  double? width,
-}) {
-  // Web: base64 data URL (never uploaded to storage)
-  if (source.startsWith('data:')) {
-    final commaIdx = source.indexOf(',');
-    if (commaIdx < 0) {
-      return const Icon(Icons.broken_image, size: 48);
-    }
-    final bytes = base64Decode(source.substring(commaIdx + 1));
-    return Image.memory(
-      Uint8List.fromList(bytes),
-      fit: fit,
-      height: height,
-      width: width,
-      errorBuilder: (_, __, ___) => _missingImage(context),
-    );
-  }
-
-  // Private member-ids bucket: resolve a short-lived signed URL from the
-  // object key (bare "5.jpg", or extracted from a legacy public URL).
-  final key = _storageKey(source);
-  if (key != null) {
-    return FutureBuilder<String?>(
-      future: repository.signedMemberImageUrl(key),
-      builder: (ctx, snap) {
-        if (snap.connectionState != ConnectionState.done) {
-          return SizedBox(
-            height: height ?? 60,
-            width: width,
-            child: const Center(
-              child: SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          );
-        }
-        final url = snap.data;
-        if (url == null) return _missingImage(context);
-        return Image.network(
-          url,
-          fit: fit,
-          height: height,
-          width: width,
-          errorBuilder: (_, __, ___) => _missingImage(context),
-        );
-      },
-    );
-  }
-
-  // Any other http(s) URL (non-member-ids): show directly.
-  if (source.startsWith('http://') || source.startsWith('https://')) {
-    return Image.network(
-      source,
-      fit: fit,
-      height: height,
-      width: width,
-      errorBuilder: (_, __, ___) => _missingImage(context),
-    );
-  }
-
-  // Legacy: local file path — validate it exists before displaying
-  final file = File(source);
-  if (!file.existsSync()) {
-    return _missingImage(context);
-  }
-  return Image.file(
-    file,
-    fit: fit,
-    height: height,
-    width: width,
-    errorBuilder: (_, __, ___) => _missingImage(context),
-  );
-}
-
-/// Extract a private member-ids object key from [source], or null if
-/// [source] is not a storage reference (local file, other URL, empty).
-/// Handles both a bare key ("5.jpg") and a legacy public URL that still
-/// embeds ".../member-ids/5.jpg".
-String? _storageKey(String source) {
-  const marker = '/member-ids/';
-  final idx = source.indexOf(marker);
-  if (idx >= 0) {
-    var k = source.substring(idx + marker.length);
-    final q = k.indexOf('?');
-    if (q >= 0) k = k.substring(0, q);
-    return k.isEmpty ? null : k;
-  }
-  // Bare object key: no path separators and not a URL.
-  if (source.isNotEmpty &&
-      !source.startsWith('http') &&
-      !source.contains('/') &&
-      !source.contains('\\')) {
-    return source;
-  }
-  return null;
-}
-
-Widget _missingImage(BuildContext context) => Container(
-  height: 60,
-  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-  child: const Center(child: Text('Image not available')),
-);
 
 class MemberDetailsCard extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -411,34 +297,6 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     );
   }
 
-  void _showIdImagePreview(String imagePath) {
-    showAnimatedDialog(
-      context,
-      builder: (ctx) => Dialog(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.8,
-            maxWidth: MediaQuery.of(ctx).size.width * 0.9,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Expanded(
-                child: InteractiveViewer(
-                  child: buildIdImage(context, imagePath, fit: BoxFit.contain),
-                ),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Close'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   void _showCreateAccountDialog() {
     final memberId = (member['id'] ?? 0) as int;
     final name = [
@@ -542,6 +400,18 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     final memberId = member['id'] as int?;
     if (memberId == null) return;
 
+    // A package makes this member a Verified Reseller, and reseller records are
+    // tied to a login account. Block availing one for an account-less member.
+    final hasAccount = (member['email']?.toString() ?? '').trim().isNotEmpty;
+    if (!hasAccount) {
+      BotToast.showText(
+        text:
+            'This member needs a login account before availing a package. '
+            'Create one from their details first.',
+      );
+      return;
+    }
+
     final packages = await repository.fetchPackages();
     if (!mounted) return;
 
@@ -612,7 +482,7 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
         quantity: 1,
         price: selected.price,
         buyerId: memberId,
-        buyerName: member['firstName']?.toString(),
+        buyerName: _memberDisplayName(),
         packageId: selected.id,
         timestamp: DateTime.now(),
       );
@@ -627,6 +497,9 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
           if (selId != null) {
             member['packageId'] = selId;
             _currentPackageName = selected.name;
+            // Holding a package = Verified Reseller (RPC promotes + syncs
+            // the login role server-side; reflect it locally right away).
+            member['role'] = 'Verified Reseller';
           }
         });
     } catch (e) {
@@ -663,12 +536,6 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             currentPackageName: _currentPackageName,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
-            onIdImageTap: () {
-              final path = widget.member['idImagePath']?.toString();
-              if (path != null && path.isNotEmpty) {
-                _showIdImagePreview(path);
-              }
-            },
             onCreateAccount: _showCreateAccountDialog,
             onUpgradePackage: _showUpgradePackageDialog,
           );
@@ -706,12 +573,6 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
             currentPackageName: _currentPackageName,
             onViewTransactions: _showTransactionHistory,
             showHeader: widget.showHeader,
-            onIdImageTap: () {
-              final path = widget.member['idImagePath']?.toString();
-              if (path != null && path.isNotEmpty) {
-                _showIdImagePreview(path);
-              }
-            },
             onCreateAccount: _showCreateAccountDialog,
             onUpgradePackage: _showUpgradePackageDialog,
           );
@@ -734,7 +595,6 @@ class _MemberProfileSection extends StatelessWidget {
     this.packagesLoading = false,
     this.currentPackageName = '',
     this.showHeader = true,
-    this.onIdImageTap,
     this.onCreateAccount,
     this.onUpgradePackage,
   });
@@ -750,7 +610,6 @@ class _MemberProfileSection extends StatelessWidget {
   final bool packagesLoading;
   final String currentPackageName;
   final bool showHeader;
-  final VoidCallback? onIdImageTap;
   final VoidCallback? onCreateAccount;
   final VoidCallback? onUpgradePackage;
 
@@ -967,41 +826,6 @@ class _MemberProfileSection extends StatelessWidget {
         const SizedBox(height: 8),
         _buildAccountStatus(context, theme),
 
-        // ── ID Verification section ────────────────────────
-        if ((member['idImagePath']?.toString() ?? '').isNotEmpty) ...[
-          const SizedBox(height: 8),
-          _SectionHeader(icon: Icons.verified_user, title: 'ID Verification'),
-          const SizedBox(height: 8),
-          _DetailLine(
-            icon: Icons.credit_card_outlined,
-            label: 'ID Type',
-            value: member['idType'],
-          ),
-          if ((member['idNumber']?.toString() ?? '').isNotEmpty)
-            _DetailLine(
-              icon: Icons.numbers_outlined,
-              label: 'ID Number',
-              value: member['idNumber'],
-            ),
-          if ((member['idImagePath']?.toString() ?? '').isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: GestureDetector(
-                onTap: () => onIdImageTap?.call(),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: buildIdImage(
-                    context,
-                    member['idImagePath'].toString(),
-                    height: 120,
-                    width: double.infinity,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-            ),
-        ],
-
         const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {
@@ -1036,9 +860,11 @@ class _MemberProfileSection extends StatelessWidget {
             );
           },
         ),
-        // ── Upgrade Package (Admin/Cashier + Verified Reseller only) ─
-        if (onUpgradePackage != null &&
-            (member['role']?.toString() ?? '') == 'Verified Reseller') ...[
+        // ── Upgrade Package (Admin/Cashier) ─────────────────────────
+        // Always available to staff — assigns a first package to a plain
+        // Member or raises a reseller's tier. The account-required rule is
+        // enforced by the guard in _showUpgradePackageDialog.
+        if (onUpgradePackage != null) ...[
           const SizedBox(height: 16),
           const Divider(height: 1),
           const SizedBox(height: 12),
@@ -1133,9 +959,7 @@ class _MemberProfileSection extends StatelessWidget {
   }
 
   Widget _buildKeyDetailsCard(ThemeData theme) {
-    final role = (member['idImagePath']?.toString() ?? '').isNotEmpty
-        ? 'Verified Reseller'
-        : (member['role'] ?? 'Member').toString();
+    final role = (member['role'] ?? 'Member').toString();
     final isReseller = role == 'Verified Reseller';
     final memberId = member['id']?.toString() ?? '—';
     final displayPkg = currentPackageName.isNotEmpty

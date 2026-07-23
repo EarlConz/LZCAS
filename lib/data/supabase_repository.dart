@@ -39,12 +39,31 @@ class SupabaseRepository {
   final StreamController<String> _changes =
       StreamController<String>.broadcast();
 
-  /// Real-time subscription to Supabase postgres changes.
-  StreamSubscription? _realtimeSub;
+  /// Active Realtime channels, tracked so they can be severed cleanly on
+  /// logout / dispose (see [_teardownRealtime]) — this is what keeps the
+  /// free-tier connection count from leaking.
+  final List<RealtimeChannel> _channels = [];
+
+  /// The repository is built at app boot, *before* any session is restored,
+  /// so realtime must (re)subscribe when the user actually signs in.
+  StreamSubscription? _authSub;
 
   SupabaseRepository({required SupabaseClient supabase})
     : _supabase = supabase {
     _initRealtime();
+    _authSub = _supabase.auth.onAuthStateChange.listen((state) {
+      switch (state.event) {
+        case AuthChangeEvent.signedIn:
+        case AuthChangeEvent.tokenRefreshed:
+          if (_channels.isEmpty) _initRealtime();
+          break;
+        case AuthChangeEvent.signedOut:
+          _teardownRealtime();
+          break;
+        default:
+          break;
+      }
+    });
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -66,57 +85,78 @@ class SupabaseRepository {
 
   Stream<String> get changes => _changes.stream;
 
+  /// Maps a realtime table name to the singular prefix of the granular change
+  /// events the UI already listens for (e.g. `items` → `item_added`).
+  static const Map<String, String> _tableSingular = {
+    'items': 'item',
+    'members': 'member',
+    'sales': 'sale',
+  };
+
   /// Initialize Supabase Realtime subscriptions for all tables.
   void _initRealtime() {
-    final userId = _supabase.auth.currentUser?.id;
-    if (userId == null) return;
+    if (_supabase.auth.currentUser == null || _channels.isNotEmpty) return;
 
-    // Tables filtered by the current user's user_id
-    final userTables = ['items', 'members', 'sales'];
-    for (final table in userTables) {
-      _supabase
+    // Shared business tables. Deliberately NO user_id filter: reads are
+    // unfiltered (RLS scopes visibility) and each row is stamped with the
+    // *writer's* user_id, so a filter here would hide a cashier's sale from
+    // the admin's device. Realtime delivery is still gated by RLS.
+    for (final table in _tableSingular.keys) {
+      final channel = _supabase
           .channel('public:$table')
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
             schema: 'public',
             table: table,
-            filter: PostgresChangeFilter(
-              type: PostgresChangeFilterType.eq,
-              column: 'user_id',
-              value: userId,
-            ),
-            callback: (payload) {
-              _changes.add('${table}_changed');
-            },
+            callback: (payload) => _emitGranular(table, payload.eventType),
           )
           .subscribe();
+      _channels.add(channel);
     }
 
-    // pending_requests — no user_id filter (admin must see all requests)
-    _supabase
-        .channel('public:pending_requests')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'pending_requests',
-          callback: (payload) {
-            _changes.add('pending_requests_changed');
-          },
-        )
-        .subscribe();
+    // Approval queues — admin must see every request regardless of author.
+    for (final table in ['pending_requests', 'withdrawal_requests']) {
+      final channel = _supabase
+          .channel('public:$table')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: table,
+            callback: (payload) => _changes.add('${table}_changed'),
+          )
+          .subscribe();
+      _channels.add(channel);
+    }
+  }
 
-    // withdrawal_requests — no user_id filter (admin must see all)
-    _supabase
-        .channel('public:withdrawal_requests')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.all,
-          schema: 'public',
-          table: 'withdrawal_requests',
-          callback: (payload) {
-            _changes.add('withdrawal_requests_changed');
-          },
-        )
-        .subscribe();
+  /// Translates a realtime payload into the same granular event names the local
+  /// mutation helpers emit, so every existing `repository.changes` listener
+  /// reacts to a cross-device change exactly as it does to a local one. The
+  /// coarse `<table>_changed` name is also emitted for listeners that use it.
+  void _emitGranular(String table, PostgresChangeEvent event) {
+    final singular = _tableSingular[table]!;
+    switch (event) {
+      case PostgresChangeEvent.insert:
+        _changes.add('${singular}_added');
+        break;
+      case PostgresChangeEvent.update:
+        _changes.add('${singular}_updated');
+        break;
+      case PostgresChangeEvent.delete:
+        _changes.add('${singular}_deleted');
+        break;
+      default:
+        _changes.add('${singular}_updated');
+    }
+    _changes.add('${table}_changed');
+  }
+
+  /// Unsubscribes every channel and frees the free-tier connection slot.
+  void _teardownRealtime() {
+    for (final channel in _channels) {
+      _supabase.removeChannel(channel);
+    }
+    _channels.clear();
   }
 
   void notifyCloudRestored() {
@@ -276,13 +316,16 @@ class SupabaseRepository {
     return Item.fromJson(data);
   }
 
-  /// Fetch Low Stock items (per-category threshold aware, via the
-  /// items_with_status view). Used by the notification popover.
+  /// Fetch items that need restocking — Low Stock *and* Out of Stock
+  /// (per-category threshold aware, via the items_with_status view). Used by
+  /// the notification popover. Ordered by stock ascending so the most urgent
+  /// (out-of-stock) items surface first.
   Future<List<Item>> fetchLowStockItems() async {
     final data = await _supabase
         .from('items_with_status')
         .select()
-        .eq('stock_status', 'Low Stock');
+        .neq('stock_status', 'Good')
+        .order('stock', ascending: true);
     return (data as List).map((j) {
       final map = j as Map<String, dynamic>;
       return Item.fromJson(map).copyWith(status: map['stock_status'] as String?);
@@ -558,14 +601,15 @@ class SupabaseRepository {
         .gte('timestamp', startDate.toIso8601String())
         .lt('timestamp', endDate.toIso8601String());
 
-    // Aggregate by YYYY-MM key (products only — package availments are
-    // not part of product revenue). price is per-unit: revenue is
-    // price × quantity.
+    // Aggregate by YYYY-MM key. Includes BOTH product sales and package
+    // availments so this matches the dashboard's Total Revenue card.
+    // price is per-unit: revenue is price × quantity. Timestamps are
+    // bucketed in LOCAL time so a sale near a month boundary lands in the
+    // month the user actually made it.
     final Map<String, Map<String, dynamic>> monthly = {};
     for (final row in (data as List)) {
       final rowMap = row as Map<String, dynamic>;
-      if (rowMap['package_id'] != null) continue;
-      final ts = DateTime.parse(rowMap['timestamp'] as String);
+      final ts = DateTime.parse(rowMap['timestamp'] as String).toLocal();
       final key = '${ts.year}-${ts.month.toString().padLeft(2, '0')}';
       monthly.putIfAbsent(
         key,
@@ -744,9 +788,6 @@ class SupabaseRepository {
     String? address,
     String? referrer,
     int? referrerId,
-    String? idType,
-    String? idNumber,
-    String? idImagePath,
     int? packageId,
   }) async {
     final data = await _supabase
@@ -763,9 +804,6 @@ class SupabaseRepository {
           if (referrer != null) 'referrer': referrer,
           if (referrerId != null) 'referrer_id': referrerId,
           'qr': _generateMemberQr(),
-          if (idType != null) 'id_type': idType,
-          if (idNumber != null) 'id_number': idNumber,
-          if (idImagePath != null) 'id_image_path': idImagePath,
           if (packageId != null) 'package_id': packageId,
         })
         .select('id');
@@ -777,45 +815,19 @@ class SupabaseRepository {
     return 0;
   }
 
-  /// Upload a member ID image to Supabase Storage so it's accessible
-  /// from any device. Returns the public URL. Throws on failure so
-  /// callers can fall back to the local file and show the real reason —
-  /// a swallowed error here is what used to leave members unverified
-  /// with no explanation.
-  Future<String> uploadMemberImage(
-    int memberId,
-    Uint8List bytes,
-    String ext,
-  ) async {
-    final path = '$memberId.$ext';
-    await _supabase.storage
-        .from('member-ids')
-        .uploadBinary(
-          path,
-          bytes,
-          fileOptions: const FileOptions(upsert: true),
-        );
-    // Store the object KEY (not a public URL): the bucket is private, so
-    // the image is displayed via a short-lived signed URL resolved at
-    // render time (see signedMemberImageUrl / buildIdImage).
-    return path;
-  }
-
-  /// Resolve a short-lived signed URL for a member ID photo stored in the
-  /// private member-ids bucket. [key] is the stored object key (e.g.
-  /// "5.jpg"). Returns null on failure. Only staff can sign (RLS), which
-  /// is why ID photos are visible only in staff-facing member views.
-  Future<String?> signedMemberImageUrl(
-    String key, {
-    int expiresIn = 3600,
-  }) async {
+  /// Sync a member's LOGIN account role to match their reseller status.
+  /// Reseller status is derived from package availment; when a package is
+  /// added/removed at edit time this updates profiles.role via a
+  /// staff-only SECURITY DEFINER RPC so the member sees the right tabs.
+  /// No-ops for members without a login account.
+  Future<void> syncMemberLoginRole(int memberId, bool isReseller) async {
     try {
-      return await _supabase.storage
-          .from('member-ids')
-          .createSignedUrl(key, expiresIn);
+      await _supabase.rpc(
+        'set_member_account_role',
+        params: {'p_member_id': memberId, 'p_is_reseller': isReseller},
+      );
     } catch (e) {
-      debugPrint('[Stockpile] signedMemberImageUrl failed: $e');
-      return null;
+      debugPrint('[Repo] syncMemberLoginRole failed: $e');
     }
   }
 
@@ -974,14 +986,6 @@ class SupabaseRepository {
     if (sale.id == null) return false;
     await _supabase.from('sales').update(sale.toJson()).eq('id', sale.id!);
     _changes.add('sale_updated');
-    return true;
-  }
-
-  Future<bool> verifyAsReseller(int memberId) async {
-    final member = await getMemberById(memberId);
-    if (member == null) return false;
-    final updated = member.copyWith(role: 'Verified Reseller');
-    await updateMember(updated);
     return true;
   }
 
@@ -1600,13 +1604,15 @@ class SupabaseRepository {
     return resp.count;
   }
 
-  /// Get the count of Low Stock items (per-category threshold aware, via
-  /// the items_with_status view).
+  /// Get the count of items that need restocking — Low Stock *and* Out of
+  /// Stock (per-category threshold aware, via the items_with_status view).
+  /// Out-of-stock is the more urgent case, so it must be included, not
+  /// dropped once an item hits zero.
   Future<int> fetchLowStockCount() async {
     final resp = await _supabase
         .from('items_with_status')
         .select('id')
-        .eq('stock_status', 'Low Stock')
+        .neq('stock_status', 'Good')
         .count(CountOption.exact);
     return resp.count;
   }
@@ -2508,7 +2514,9 @@ class SupabaseRepository {
   }
 
   void dispose() {
-    _realtimeSub?.cancel();
+    _teardownRealtime();
+    _supabase.removeAllChannels();
+    _authSub?.cancel();
     _changes.close();
   }
 }

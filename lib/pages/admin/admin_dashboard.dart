@@ -15,11 +15,11 @@ import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/widgets/app_logo.dart';
 import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 import 'package:lzcas/widgets/stockpile_topbar.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/memberstable.dart';
-import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
@@ -3226,24 +3226,15 @@ class _AdminSidebar extends StatelessWidget {
           child: Row(
             children: [
               const SizedBox(width: 4),
-              SizedBox(
+              const SizedBox(
                 width: 44,
-                child: Center(
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: StockpileColors.primary900,
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  ),
-                ),
+                child: Center(child: AppLogo(size: 32, radius: 8)),
               ),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.only(left: 12),
                   child: Text(
-                    'LZCAS · Admin',
+                    'GUTVita · Admin',
                     maxLines: 1,
                     softWrap: false,
                     overflow: TextOverflow.clip,
@@ -3714,17 +3705,6 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
 
     if (!mounted) return;
 
-    final fullName = [
-      member['firstName'],
-      member['middleName'],
-      member['lastName'],
-    ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
-    final initials = fullName.isNotEmpty ? fullName[0].toUpperCase() : 'M';
-    final isReseller =
-        (member['role']?.toString() ?? '') == 'Verified Reseller';
-    final email = (member['email']?.toString() ?? '').trim();
-    final hasAccount = email.isNotEmpty;
-
     showAnimatedDialog(
       context,
       builder: (ctx) {
@@ -3743,7 +3723,23 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
             ? StockpileColors.darkDivider
             : StockpileColors.divider;
 
-        return Dialog(
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            // Recomputed on each rebuild so an in-place upgrade refreshes the
+            // badges and package name live, without closing the modal.
+            final fullName = [
+              member['firstName'],
+              member['middleName'],
+              member['lastName'],
+            ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+            final initials =
+                fullName.isNotEmpty ? fullName[0].toUpperCase() : 'M';
+            final isReseller =
+                (member['role']?.toString() ?? '') == 'Verified Reseller';
+            final email = (member['email']?.toString() ?? '').trim();
+            final hasAccount = email.isNotEmpty;
+
+            return Dialog(
           backgroundColor: surface,
           surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(
@@ -3848,62 +3844,6 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                         ),
                         const SizedBox(height: 12),
 
-                        // ── ID Verification card ────────────
-                        if ((member['idImagePath']?.toString() ?? '')
-                            .isNotEmpty)
-                          _ModalInfoCard(
-                            isDark: isDark,
-                            textColor: textColor,
-                            muted: muted,
-                            surface: surface,
-                            divider: divider,
-                            title: 'ID Verification',
-                            icon: Icons.verified_user,
-                            children: [
-                              _ModalInfoRow(
-                                icon: Icons.credit_card_outlined,
-                                label: 'ID Type',
-                                value: member['idType'],
-                                muted: muted,
-                                textColor: textColor,
-                                isDark: isDark,
-                              ),
-                              if ((member['idNumber']?.toString() ?? '')
-                                  .isNotEmpty)
-                                _ModalInfoRow(
-                                  icon: Icons.numbers_outlined,
-                                  label: 'ID Number',
-                                  value: member['idNumber'],
-                                  muted: muted,
-                                  textColor: textColor,
-                                  isDark: isDark,
-                                ),
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: GestureDetector(
-                                  onTap: () {
-                                    final path = member['idImagePath']
-                                        ?.toString();
-                                    if (path != null && path.isNotEmpty) {
-                                      _showIdImagePreview(ctx, path);
-                                    }
-                                  },
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: buildIdImage(
-                                      ctx,
-                                      member['idImagePath'].toString(),
-                                      height: 140,
-                                      width: double.infinity,
-                                      fit: BoxFit.contain,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                            ],
-                          ),
-
                         // ── Action buttons ─────────────────
                         const SizedBox(height: 20),
 
@@ -4006,14 +3946,29 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                             ),
                           ],
                         ),
-                        // ── Upgrade Package (Verified Resellers only) ─
-                        if (isReseller) ...[
+                        // ── Upgrade Package ─────────────────────────────
+                        // Always available to staff: for a plain Member it
+                        // assigns their first package (promoting them to
+                        // Verified Reseller); for a reseller it raises their
+                        // tier. Account-less members are caught by the guard in
+                        // _showUpgradePackageDialog (prompts to create one).
+                        ...[
                           const SizedBox(height: 12),
                           SizedBox(
                             width: double.infinity,
                             child: FilledButton.icon(
-                              onPressed: () =>
-                                  _showUpgradePackageDialog(ctx, member),
+                              onPressed: () => _showUpgradePackageDialog(
+                                ctx,
+                                member,
+                                onUpgraded: (pkg) {
+                                  // Reflect the new package on the still-open
+                                  // modal (the list refreshes via realtime).
+                                  member['packageId'] = pkg.id;
+                                  member['role'] = 'Verified Reseller';
+                                  packageName = pkg.name;
+                                  setModalState(() {});
+                                },
+                              ),
                               icon: const Icon(Icons.upgrade, size: 18),
                               label: const Text('Upgrade Package'),
                               style: FilledButton.styleFrom(
@@ -4052,6 +4007,8 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
               ],
             ),
           ),
+            );
+          },
         );
       },
     );
@@ -4221,36 +4178,6 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     );
   }
 
-  void _showIdImagePreview(BuildContext ctx, String imagePath) {
-    showAnimatedDialog(
-      ctx,
-      builder: (c) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(c).size.height * 0.8,
-            maxWidth: MediaQuery.of(c).size.width * 0.9,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Expanded(
-                child: InteractiveViewer(
-                  child: buildIdImage(c, imagePath, fit: BoxFit.contain),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.pop(c),
-                child: const Text('Close'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   void _confirmDeleteMemberDialog(
     BuildContext ctx,
     Map<String, dynamic> member,
@@ -4304,10 +4231,23 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
 
   Future<void> _showUpgradePackageDialog(
     BuildContext ctx,
-    Map<String, dynamic> member,
-  ) async {
+    Map<String, dynamic> member, {
+    void Function(Package pkg)? onUpgraded,
+  }) async {
     final memberId = member['id'] as int?;
     if (memberId == null) return;
+
+    // A package makes this member a Verified Reseller, and reseller records are
+    // tied to a login account. Block availing one for an account-less member.
+    final hasAccount = (member['email']?.toString() ?? '').trim().isNotEmpty;
+    if (!hasAccount) {
+      BotToast.showText(
+        text:
+            'This member needs a login account before availing a package. '
+            'Create one from their details first.',
+      );
+      return;
+    }
 
     // Get current package rank
     final rawPkgId = member['packageId'];
@@ -4346,13 +4286,16 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
         quantity: 1,
         price: selected.price,
         buyerId: memberId,
-        buyerName: member['firstName']?.toString(),
+        buyerName: [member['firstName'], member['lastName']]
+            .where((p) => p != null && p.toString().trim().isNotEmpty)
+            .join(' '),
         packageId: selected.id,
         timestamp: DateTime.now(),
       );
       BotToast.showText(
         text: '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
       );
+      onUpgraded?.call(selected);
     } catch (e) {
       final msg = e.toString();
       if (msg.contains('Invalid upgrade') || msg.contains('downgrade')) {

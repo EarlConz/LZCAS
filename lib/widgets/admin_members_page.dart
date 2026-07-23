@@ -8,7 +8,6 @@ import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/memberstable.dart';
-import 'package:lzcas/widgets/memberdetails.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/auth/auth_state.dart';
@@ -177,57 +176,6 @@ class AdminMembersPageState extends State<AdminMembersPage> {
                           surface: surface,
                           divider: divider,
                         ),
-                        const SizedBox(height: 12),
-                        if ((member['idImagePath']?.toString() ?? '')
-                            .isNotEmpty)
-                          _InfoCard(
-                            isDark: isDark,
-                            textColor: textColor,
-                            muted: muted,
-                            surface: surface,
-                            divider: divider,
-                            title: 'ID Verification',
-                            icon: Icons.verified_user,
-                            children: [
-                              _InfoRow(
-                                icon: Icons.credit_card_outlined,
-                                label: 'ID Type',
-                                value: member['idType'],
-                                muted: muted,
-                                textColor: textColor,
-                                isDark: isDark,
-                              ),
-                              if ((member['idNumber']?.toString() ?? '')
-                                  .isNotEmpty)
-                                _InfoRow(
-                                  icon: Icons.numbers_outlined,
-                                  label: 'ID Number',
-                                  value: member['idNumber'],
-                                  muted: muted,
-                                  textColor: textColor,
-                                  isDark: isDark,
-                                ),
-                              GestureDetector(
-                                onTap: () {
-                                  final path = member['idImagePath']
-                                      ?.toString();
-                                  if (path != null && path.isNotEmpty)
-                                    _showIdImage(ctx, path);
-                                },
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: buildIdImage(
-                                    ctx,
-                                    member['idImagePath'].toString(),
-                                    height: 140,
-                                    width: double.infinity,
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                            ],
-                          ),
                         const SizedBox(height: 20),
                         if (!hasAccount)
                           Padding(
@@ -582,33 +530,25 @@ class AdminMembersPageState extends State<AdminMembersPage> {
     );
   }
 
-  void _showIdImage(BuildContext ctx, String path) {
-    showDialog(
-      context: ctx,
-      builder: (c) => Dialog(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: buildIdImage(c, path, fit: BoxFit.contain),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _showUpgradePackageDialog(
     BuildContext ctx,
     Map<String, dynamic> member,
   ) async {
     final memberId = member['id'] as int?;
     if (memberId == null) return;
+
+    // A package makes this member a Verified Reseller, and reseller records are
+    // tied to a login account. Block availing one for an account-less member.
+    final hasAccount = (member['email']?.toString() ?? '').trim().isNotEmpty;
+    if (!hasAccount) {
+      BotToast.showText(
+        text:
+            'This member needs a login account before availing a package. '
+            'Create one from their details first.',
+      );
+      return;
+    }
+
     final rawPkgId = member['packageId'];
     final currentPkgId = rawPkgId is int ? rawPkgId : int.tryParse('$rawPkgId');
     int currentRank = 0;
@@ -640,7 +580,9 @@ class AdminMembersPageState extends State<AdminMembersPage> {
         quantity: 1,
         price: selected.price,
         buyerId: memberId,
-        buyerName: member['firstName']?.toString(),
+        buyerName: [member['firstName'], member['lastName']]
+            .where((p) => p != null && p.toString().trim().isNotEmpty)
+            .join(' '),
         packageId: selected.id,
         timestamp: DateTime.now(),
       );

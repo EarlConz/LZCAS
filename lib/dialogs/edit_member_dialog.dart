@@ -1,16 +1,7 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:bot_toast/bot_toast.dart';
-import 'package:file_selector/file_selector.dart' as fs;
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member, Package;
 import 'package:lzcas/utils/phone_formatter.dart';
-import 'package:lzcas/utils/toast_utils.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 class EditMemberDialog extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -33,37 +24,23 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   late final TextEditingController contactController;
   late final TextEditingController birthdayController;
   late final TextEditingController addressController;
-  late final TextEditingController idNumberController;
   late final TextEditingController referrerSearchController;
-  late String _roleValue;
-  late String? _selectedIdType;
-  String? _selectedIdImagePath;
   List<Member> _members = [];
   Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
 
-  // ── Package state (shown when ID fields are filled) ──
+  // Reseller status is derived purely from package availment.
   int? _selectedPackageId;
   List<Package> _packages = [];
+
+  /// The package the member had when the dialog opened. Edit may only *keep*
+  /// or *remove* this — adding or raising a package must go through the guarded
+  /// Package Upgrade flow (rank rules + referral bonus), never here.
+  int? _originalPackageId;
 
   final _lastNameKey = GlobalKey<FormFieldState>();
   final _firstNameKey = GlobalKey<FormFieldState>();
   final _contactKey = GlobalKey<FormFieldState>();
-
-  static const _idTypes = [
-    'Driver\'s License',
-    'National ID (PhilSys)',
-    'Passport',
-    'UMID',
-    'SSS ID',
-    'GSIS eCard',
-    'PhilHealth ID',
-    'PRC License',
-    'Postal ID',
-    'Voter\'s ID',
-    'Senior Citizen ID',
-    'Other',
-  ];
 
   Future<void> _pickBirthday() async {
     final birthday = await showBirthdayPickerDialog(
@@ -88,7 +65,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     middleNameController = TextEditingController(
       text: widget.member['middleName']?.toString() ?? '',
     );
-    _roleValue = widget.member['role']?.toString() ?? 'Member';
     contactController = TextEditingController(
       text: _formatPhone(widget.member['contactNo']?.toString() ?? ''),
     );
@@ -99,72 +75,13 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
       text: widget.member['address']?.toString() ?? '',
     );
     _selectedReferrerId = widget.member['referrerId'] as int?;
-    _selectedIdType = widget.member['idType']?.toString();
-    _selectedIdImagePath = widget.member['idImagePath']?.toString();
-    idNumberController = TextEditingController(
-      text: widget.member['idNumber']?.toString() ?? '',
-    );
     _selectedPackageId = widget.member['packageId'] as int?;
+    _originalPackageId = _selectedPackageId;
     referrerSearchController = TextEditingController(
       text: widget.member['referrer']?.toString() ?? '',
     );
     _loadMembers();
     _loadPackages();
-  }
-
-  Future<void> _pickIdImage() async {
-    List<fs.XFile> files;
-    try {
-      files = await fs.openFiles(
-        acceptedTypeGroups: [
-          const fs.XTypeGroup(
-            label: 'Images',
-            extensions: ['jpg', 'jpeg', 'png'],
-          ),
-        ],
-      );
-    } catch (e) {
-      debugPrint('[EditMemberDialog] openFiles failed (hot reload?): $e');
-      if (mounted) {
-        BotToast.showText(
-          text: 'File picker unavailable. Please restart the app.',
-        );
-      }
-      return;
-    }
-    if (files.isEmpty || !mounted) return;
-
-    final xfile = files.first;
-
-    if (kIsWeb) {
-      try {
-        final bytes = await xfile.readAsBytes();
-        final ext = xfile.name.split('.').last.toLowerCase();
-        final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
-        final base64 = base64Encode(bytes);
-        setState(() => _selectedIdImagePath = 'data:$mime;base64,$base64');
-      } catch (_) {
-        setState(() => _selectedIdImagePath = null);
-      }
-      return;
-    }
-
-    // Native: read bytes and write to app documents directory
-    try {
-      final bytes = await xfile.readAsBytes();
-      final docsDir = await getApplicationDocumentsDirectory();
-      final memberIdDir = Directory(p.join(docsDir.path, 'member_ids'));
-      if (!await memberIdDir.exists()) {
-        await memberIdDir.create(recursive: true);
-      }
-      final memberId = widget.member['id'] as int? ?? 0;
-      final ext = xfile.name.contains('.') ? p.extension(xfile.name) : '.jpg';
-      final destPath = p.join(memberIdDir.path, '$memberId$ext');
-      await File(destPath).writeAsBytes(bytes);
-      setState(() => _selectedIdImagePath = destPath);
-    } catch (_) {
-      setState(() => _selectedIdImagePath = xfile.path);
-    }
   }
 
   Future<void> _loadMembers() async {
@@ -189,10 +106,17 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     setState(() => _packages = pkgs);
   }
 
-  /// Package selector only appears when an ID photo is uploaded — this is
-  /// the trigger for converting a member into a Verified Reseller.
-  bool get _hasIdFields =>
-      _selectedIdImagePath != null && _selectedIdImagePath!.isNotEmpty;
+  /// Reseller status is derived from package availment.
+  bool get _isReseller => _selectedPackageId != null;
+
+  /// Label for the member's current package in the (keep-only) dropdown.
+  String _currentPackageLabel() {
+    final match = _packages.where((p) => p.id == _originalPackageId);
+    if (match.isNotEmpty) {
+      return '${match.first.name} — ₱${match.first.price} (keep)';
+    }
+    return 'Current package (keep)';
+  }
 
   @override
   void dispose() {
@@ -202,8 +126,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     contactController.dispose();
     birthdayController.dispose();
     addressController.dispose();
-
-    idNumberController.dispose();
     referrerSearchController.dispose();
     super.dispose();
   }
@@ -301,13 +223,16 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
 
               const SizedBox(height: 20),
               // ── Role & status section ─────────────────────
+              // Role is derived from the package selection below.
               _sectionLabel('Role & Status', theme, colorScheme),
               const SizedBox(height: 10),
               TextFormField(
-                initialValue: _roleValue,
+                key: ValueKey(_isReseller),
+                initialValue: _isReseller ? 'Verified Reseller' : 'Member',
                 readOnly: true,
                 decoration: InputDecoration(
                   labelText: 'Role',
+                  helperText: 'Set by the package below',
                   prefixIcon: const Icon(Icons.shield_outlined),
                   border: inputBorder,
                   filled: true,
@@ -316,7 +241,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                   ),
                 ),
               ),
-              const SizedBox(height: 14),
 
               const SizedBox(height: 20),
               // ── Contact section ───────────────────────────
@@ -458,120 +382,80 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               ),
 
               const SizedBox(height: 20),
-              // ── ID Verification section ────────────────────
-              _sectionLabel('Verification ID', theme, colorScheme),
+              // ── Package section ────────────────────────────
+              // A package registers the member as a Verified Reseller;
+              // None keeps them a standard Member.
+              _sectionLabel('Package', theme, colorScheme),
               const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
+              DropdownButtonFormField<int?>(
+                initialValue: _selectedPackageId,
                 isExpanded: true,
-                value:
-                    _selectedIdType != null &&
-                        _selectedIdType!.isNotEmpty &&
-                        _idTypes.contains(_selectedIdType)
-                    ? _selectedIdType
-                    : null,
                 decoration: InputDecoration(
-                  labelText: 'ID Type',
-                  hintText: 'Select ID type (optional)',
-                  prefixIcon: const Icon(Icons.credit_card_outlined),
+                  labelText: 'Package',
+                  prefixIcon: const Icon(Icons.card_giftcard_outlined),
                   border: inputBorder,
                 ),
-                items: _idTypes
-                    .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedIdType = v),
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: idNumberController,
-                decoration: InputDecoration(
-                  labelText: 'ID Number',
-                  hintText: 'Optional',
-                  prefixIcon: const Icon(Icons.numbers_outlined),
-                  border: inputBorder,
-                ),
-                textInputAction: TextInputAction.next,
-              ),
-              const SizedBox(height: 14),
-              InkWell(
-                onTap: _pickIdImage,
-                borderRadius: BorderRadius.circular(10),
-                child: InputDecorator(
-                  decoration: InputDecoration(
-                    labelText: 'ID Photo',
-                    hintText: 'Tap to upload',
-                    prefixIcon: const Icon(Icons.camera_alt_outlined),
-                    border: inputBorder,
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text(
+                      'None (Standard Member)',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  child:
-                      _selectedIdImagePath != null &&
-                          _selectedIdImagePath!.isNotEmpty
-                      ? Row(
-                          children: [
-                            Icon(
-                              Icons.check_circle,
-                              size: 18,
-                              color: colorScheme.primary,
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                kIsWeb
-                                    ? 'Image selected'
-                                    : p.basename(_selectedIdImagePath!),
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall,
-                              ),
-                            ),
-                          ],
-                        )
-                      : const Text(
-                          'Tap to select ID photo',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                ),
-              ),
-
-              // ── Package section (auto-shown when ID fields filled) ──
-              if (_hasIdFields) ...[
-                const SizedBox(height: 20),
-                _sectionLabel('Package', theme, colorScheme),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<int?>(
-                  value: _packages.any((p) => p.id == _selectedPackageId)
-                      ? _selectedPackageId
-                      : null,
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    labelText: 'Select Package',
-                    hintText: 'Required for resellers',
-                    prefixIcon: const Icon(Icons.card_giftcard_outlined),
-                    border: inputBorder,
-                  ),
-                  items: [
-                    ..._packages.map(
-                      (p) => DropdownMenuItem<int?>(
-                        value: p.id,
-                        child: Text(
-                          '${p.name} — ₱${p.price}',
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                  // Edit may only keep the current package or remove it. No
+                  // other package is offered — upgrades/downgrades must go
+                  // through the guarded Package Upgrade flow so rank rules and
+                  // the referral bonus always run.
+                  if (_originalPackageId != null)
+                    DropdownMenuItem<int?>(
+                      value: _originalPackageId,
+                      child: Text(
+                        _currentPackageLabel(),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                  ],
-                  onChanged: (v) => setState(() => _selectedPackageId = v),
-                ),
-                if (_selectedPackageId != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    '⚠ Selecting a package will verify this member as a '
-                    'Verified Reseller and create a POS transaction record.',
+                ],
+                // A member with no package can't gain one here; the field is
+                // locked and they must be enrolled via the Upgrade flow.
+                onChanged: _originalPackageId == null
+                    ? null
+                    : (v) => setState(() => _selectedPackageId = v),
+              ),
+              const SizedBox(height: 8),
+              Builder(
+                builder: (context) {
+                  if (_originalPackageId == null) {
+                    return Text(
+                      'To enroll this member in a package, use the Package '
+                      'Upgrade action — it applies rank rules and pays the '
+                      'referral bonus.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    );
+                  }
+                  if (_selectedPackageId == null) {
+                    return Text(
+                      '⚠ Removing the package demotes this Verified Reseller to '
+                      'a standard Member and revokes reseller access.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.error,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    );
+                  }
+                  return Text(
+                    'This member is a Verified Reseller. To change tiers, use '
+                    'the Package Upgrade action instead.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: colorScheme.primary,
                       fontStyle: FontStyle.italic,
                     ),
-                  ),
-                ],
-              ],
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -602,25 +486,42 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     );
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_validateAll()) return;
 
-    // Uploading an ID photo converts this member into a Verified
-    // Reseller, and verified resellers must avail a package — block the
-    // save instead of letting the member keep (or skip) one silently.
-    if (_hasIdFields && _selectedPackageId == null) {
-      showErrorToast(
-        'Please select a package — uploading an ID verifies this member '
-        'as a reseller, and resellers must avail a package.',
+    // Removing an existing package demotes a Verified Reseller — confirm it,
+    // since it stops their reseller income and revokes their access.
+    final isDemotion = _originalPackageId != null && _selectedPackageId == null;
+    if (isDemotion) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Demote to Member?'),
+          content: const Text(
+            'Removing the package demotes this Verified Reseller back to a '
+            'standard Member and revokes their reseller access. Continue?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Demote'),
+            ),
+          ],
+        ),
       );
-      return;
+      if (confirmed != true || !mounted) return;
     }
 
     final updatedMember = {
       'firstName': firstNameController.text.trim(),
       'middleName': middleNameController.text.trim(),
       'lastName': lastNameController.text.trim(),
-      'role': _roleValue,
+      // Role is derived from the package by MembersTable.updateMember.
+      'role': _isReseller ? 'Verified Reseller' : 'Member',
       'contactNo': contactController.text.trim().isEmpty
           ? null
           : contactController.text.replaceAll(' ', '').trim(),
@@ -647,14 +548,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                 .let((m) => '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim()))
           : '',
       'referrerId': _selectedReferrerId,
-      'idType': _selectedIdType,
-      'idNumber': idNumberController.text.trim().isEmpty
-          ? null
-          : idNumberController.text.trim(),
-      'idImagePath': _selectedIdImagePath,
-      'packageId': _hasIdFields
-          ? _selectedPackageId
-          : widget.member['packageId'],
+      'packageId': _selectedPackageId,
     };
 
     widget.onMemberUpdated(updatedMember);
