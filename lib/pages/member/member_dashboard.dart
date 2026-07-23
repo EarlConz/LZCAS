@@ -965,21 +965,21 @@ class _PackageDetailsSheet extends StatelessWidget {
                         _benefitRow(
                           Icons.workspace_premium_rounded,
                           "Chairman's Bonus",
-                          '₱${pkg.chairmansBonus}',
+                          '₱${pkg.chairmansBonus} / Friday',
                           textColor,
                           mutedColor,
                         ),
                         _benefitRow(
                           Icons.groups_rounded,
-                          'Passive Income (Direct)',
-                          '₱5 / item purchased',
+                          'Group Sales (Direct)',
+                          '₱${pkg.groupSalesDirect} / item purchased',
                           textColor,
                           mutedColor,
                         ),
                         _benefitRow(
                           Icons.groups_outlined,
-                          'Passive Income (Indirect)',
-                          '₱3 / item purchased',
+                          'Group Sales (Indirect)',
+                          '₱${pkg.groupSalesIndirect} / item purchased',
                           textColor,
                           mutedColor,
                         ),
@@ -1798,21 +1798,21 @@ class _EarningsTabState extends State<_EarningsTab> {
                   _BreakdownRow(
                     label: 'Balance',
                     detail:
-                        'Flat one-time signup bonus (₱300/₱600) × number of direct referrals who activated a package',
+                        "Your package's direct referral bonus × number of direct referrals who activated a package",
                     isDark: isDark,
                     isCompact: isMobile,
                   ),
                   _BreakdownRow(
                     label: 'Total Earnings',
                     detail:
-                        "Indirect referral bonuses + Passive Income (₱5 per item your direct referrals purchase, ₱3 per item from indirect) + Chairman's Bonus + Upgrade Referral Bonuses",
+                        "Indirect referral bonuses + Group Sales (your package's per-item rate for products your direct and indirect referrals purchase) + Chairman's Bonus + Upgrade Referral Bonuses",
                     isDark: isDark,
                     isCompact: isMobile,
                   ),
                   _BreakdownRow(
                     label: "Chairman's Bonus",
                     detail:
-                        '₱50 per Starter Pack and ₱100 per Ambassador Pack registration in your network — credited on the Friday after each registration, based on the package availed at sign-up',
+                        "Your package's chairman's bonus, paid once every Friday since you availed your package",
                     isDark: isDark,
                     isCompact: isMobile,
                   ),

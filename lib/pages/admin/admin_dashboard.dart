@@ -1929,6 +1929,75 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
     );
   }
 
+  /// Popup listing the hierarchy ranks already in use, opened from the info
+  /// button on the Hierarchy Rank field so the helper text stays uncluttered.
+  void _showRanksInUse(
+    BuildContext ctx,
+    List<Package> otherPackages,
+    ThemeData theme,
+    bool isDark,
+  ) {
+    showDialog<void>(
+      context: ctx,
+      builder: (c) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Ranks in use'),
+        content: SizedBox(
+          width: 320,
+          child: otherPackages.isEmpty
+              ? const Text('No other packages have a rank yet.')
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final p in otherPackages)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                p.name,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primary.withAlpha(
+                                  isDark ? 40 : 24,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                'Rank ${p.hierarchyRank}',
+                                style: StockpileFonts.satoshi(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showEditPackageDialog({Package? existing}) {
     final nameCtrl = TextEditingController(text: existing?.name ?? '');
     final priceCtrl = TextEditingController(
@@ -1946,9 +2015,20 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
     final upgradeReferralCtrl = TextEditingController(
       text: existing != null ? '${existing.upgradeReferralBonus}' : '0',
     );
+    // Suggest the next open rank for a new package (top of the ladder).
+    // Rank 0 is reserved for "no package", so never default to it.
+    final maxRank = _packages.isEmpty
+        ? 0
+        : _packages.map((p) => p.hierarchyRank).reduce((a, b) => a > b ? a : b);
     final hierarchyRankCtrl = TextEditingController(
-      text: existing != null ? '${existing.hierarchyRank}' : '0',
+      text: existing != null ? '${existing.hierarchyRank}' : '${maxRank + 10}',
     );
+    // Ranks held by other packages — guarded against in the validator so the
+    // upgrade ladder stays strictly ordered, and surfaced on demand via the
+    // info button on the field (keeps the helper text uncluttered).
+    final otherPackages =
+        _packages.where((p) => p.id != existing?.id).toList()
+          ..sort((a, b) => a.hierarchyRank.compareTo(b.hierarchyRank));
     final groupDirectCtrl = TextEditingController(
       text: existing != null ? '${existing.groupSalesDirect}' : '3',
     );
@@ -1957,128 +2037,284 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
     );
     final formKey = GlobalKey<FormState>();
 
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final screenW = MediaQuery.of(context).size.width;
+    final dialogW = screenW < 620 ? screenW - 48 : 560.0;
+    final wide = dialogW >= 460;
+
+    InputDecoration deco(String label, {String? helper, String? prefix}) =>
+        InputDecoration(
+          labelText: label,
+          helperText: helper,
+          helperMaxLines: 2,
+          prefixText: prefix,
+          isDense: true,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        );
+
+    Widget numField(
+      TextEditingController c,
+      String label, {
+      String? helper,
+      String? prefix,
+      String? Function(String?)? validator,
+    }) => TextFormField(
+      controller: c,
+      decoration: deco(label, helper: helper, prefix: prefix),
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      validator: validator,
+    );
+
+    Widget twoCol(Widget a, Widget b) => wide
+        ? Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: a),
+              const SizedBox(width: 12),
+              Expanded(child: b),
+            ],
+          )
+        : Column(children: [a, const SizedBox(height: 14), b]);
+
+    Widget sectionHeader(IconData icon, String title, String subtitle) =>
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withAlpha(isDark ? 40 : 24),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 18, color: theme.colorScheme.primary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? StockpileColors.darkTextPrimary
+                            : StockpileColors.darkText,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 11.5,
+                        color: isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-        title: Text(existing != null ? 'Edit Package' : 'Add Package'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withAlpha(isDark ? 40 : 24),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                existing != null ? Icons.edit_rounded : Icons.add_rounded,
+                color: theme.colorScheme.primary,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(existing != null ? 'Edit Package' : 'Add Package'),
+          ],
+        ),
         content: SizedBox(
-          width: 560,
+          width: dialogW,
           child: SingleChildScrollView(
             child: Form(
               key: formKey,
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Context note
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withAlpha(
+                        isDark ? 30 : 18,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          size: 18,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'A member who avails this package becomes a '
+                            'Verified Reseller and earns the bonuses below.',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 12,
+                              color: isDark
+                                  ? StockpileColors.darkTextMuted
+                                  : StockpileColors.mutedText,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ── Package Details ──────────────────────────
+                  sectionHeader(
+                    Icons.inventory_2_rounded,
+                    'Package Details',
+                    'Name, price and tier ranking',
+                  ),
                   TextFormField(
                     controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Package Name',
-                    ),
+                    textCapitalization: TextCapitalization.words,
+                    decoration: deco('Package Name'),
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Required' : null,
                   ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: priceCtrl,
-                    decoration: const InputDecoration(labelText: 'Price (₱)'),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    validator: (v) {
-                      final n = int.tryParse(v ?? '');
-                      if (n == null || n <= 0) {
-                        return 'Enter a price above 0';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: directCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Direct Referral Bonus',
+                  const SizedBox(height: 14),
+                  twoCol(
+                    numField(
+                      priceCtrl,
+                      'Price',
+                      prefix: '₱ ',
+                      validator: (v) {
+                        final n = int.tryParse(v ?? '');
+                        if (n == null || n <= 0) {
+                          return 'Enter a price above 0';
+                        }
+                        return null;
+                      },
                     ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: indirectCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Indirect Referral Bonus',
-                    ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: chairmansCtrl,
-                    decoration: const InputDecoration(
-                      labelText: "Chairman's Bonus",
-                    ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: upgradeReferralCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Upgrade Referral Bonus',
-                      helperText:
-                          'Paid to referrer when a direct downline upgrades',
-                    ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: hierarchyRankCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Hierarchy Rank',
-                      helperText:
-                          'Higher = better tier. E.g. Starter=10, Ambassador=20',
-                    ),
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Group Sales',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: groupDirectCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Direct (per item)',
+                    TextFormField(
+                      controller: hierarchyRankCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                      ],
+                      decoration:
+                          deco(
+                            'Hierarchy Rank',
+                            helper: 'Higher = better tier. Must be unique.',
+                          ).copyWith(
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                Icons.info_outline_rounded,
+                                size: 20,
+                                color: theme.colorScheme.primary,
+                              ),
+                              tooltip: 'Ranks in use',
+                              onPressed: () => _showRanksInUse(
+                                ctx,
+                                otherPackages,
+                                theme,
+                                isDark,
+                              ),
+                            ),
                           ),
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextFormField(
-                          controller: groupIndirectCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'Indirect (per item)',
-                          ),
-                          keyboardType: TextInputType.number,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                          ],
-                        ),
-                      ),
-                    ],
+                      validator: (v) {
+                        final n = int.tryParse(v ?? '');
+                        if (n == null || n < 1) {
+                          return 'Enter a rank of 1 or higher (0 is reserved)';
+                        }
+                        final clash = otherPackages
+                            .where((p) => p.hierarchyRank == n)
+                            .toList();
+                        if (clash.isNotEmpty) {
+                          return 'Rank $n already used by "${clash.first.name}"';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // ── Referral Bonuses ─────────────────────────
+                  sectionHeader(
+                    Icons.groups_2_rounded,
+                    'Referral Bonuses',
+                    "Earned as this reseller's network grows",
+                  ),
+                  twoCol(
+                    numField(
+                      directCtrl,
+                      'Direct Referral',
+                      prefix: '₱ ',
+                      helper: 'Per direct referral who activates',
+                    ),
+                    numField(
+                      indirectCtrl,
+                      'Indirect Referral',
+                      prefix: '₱ ',
+                      helper: 'Per level-2 (indirect) referral',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  numField(
+                    upgradeReferralCtrl,
+                    'Upgrade Referral Bonus',
+                    prefix: '₱ ',
+                    helper: 'Paid when a direct downline upgrades their package',
+                  ),
+                  const SizedBox(height: 24),
+
+                  // ── Recurring & Sales Bonuses ────────────────
+                  sectionHeader(
+                    Icons.savings_rounded,
+                    'Recurring & Sales Bonuses',
+                    'Weekly payouts and per-item product commissions',
+                  ),
+                  numField(
+                    chairmansCtrl,
+                    "Chairman's Bonus",
+                    prefix: '₱ ',
+                    helper: 'Paid to the holder every Friday',
+                  ),
+                  const SizedBox(height: 14),
+                  twoCol(
+                    numField(
+                      groupDirectCtrl,
+                      'Group Sales — Direct',
+                      prefix: '₱ ',
+                      helper: 'Per item a direct referral buys',
+                    ),
+                    numField(
+                      groupIndirectCtrl,
+                      'Group Sales — Indirect',
+                      prefix: '₱ ',
+                      helper: 'Per item an indirect referral buys',
+                    ),
                   ),
                 ],
               ), // Column
@@ -2586,7 +2822,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                         const SizedBox(height: 4),
                         _BonusRow(
                           label: "Chairman's Bonus",
-                          value: '₱${pkg.chairmansBonus}',
+                          value: '₱${pkg.chairmansBonus} / Friday',
                           isDark: isDark,
                         ),
                         const SizedBox(height: 8),
