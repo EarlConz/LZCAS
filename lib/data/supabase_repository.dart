@@ -9,7 +9,6 @@ import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'models.dart';
-import '../services/bonus_engine.dart';
 
 /// Describes a page of results with metadata.
 class PageResult<T> {
@@ -1100,109 +1099,6 @@ class SupabaseRepository {
         : err;
   }
 
-  // ── Bonus / Commission Engine ────────────────────────────────────────────
-
-  /// Resolve a member by ID (used as callback for [BonusEngine]).
-  Member? _resolveMember(int id) => _memberCache[id];
-
-  /// Resolve a package by ID (used as callback for [BonusEngine]).
-  Package? _resolvePackage(int id) => _packageCache[id];
-
-  final Map<int, Member> _memberCache = {};
-  final Map<int, Package> _packageCache = {};
-
-  /// Refresh in-memory caches from Supabase. Called before bonus computations.
-  /// Includes soft-deleted members so referral chains stay walkable.
-  Future<void> _refreshCaches() async {
-    final members = await fetchMembers(includeDeleted: true);
-    final packages = await fetchPackages();
-    _memberCache.clear();
-    _packageCache.clear();
-    for (final m in members) {
-      if (m.id != null) _memberCache[m.id!] = m;
-    }
-    for (final p in packages) {
-      if (p.id != null) _packageCache[p.id!] = p;
-    }
-  }
-
-  /// Process a package upgrade: if the direct upline's package has a non-zero
-  /// [Package.upgradeReferralBonus], record a member_transaction for them.
-  ///
-  /// Call AFTER the member's package_id has been updated in the DB.
-  Future<void> processPackageUpgrade({
-    required int memberId,
-    required int upgradedPackageId,
-  }) async {
-    await _refreshCaches();
-
-    final upgradedPkg = _resolvePackage(upgradedPackageId);
-    if (upgradedPkg == null) return;
-
-    final engine = const BonusEngine();
-    final bonuses = engine.computeUpgradeBonus(
-      memberId: memberId,
-      upgradedPackage: upgradedPkg,
-      resolveMember: _resolveMember,
-      resolvePackage: _resolvePackage,
-    );
-
-    for (final b in bonuses) {
-      if (b.amount <= 0) continue;
-      try {
-        await _supabase.from('member_transactions').insert({
-          'user_id': _uid,
-          'member_id': b.recipientMemberId,
-          'item_name': 'Upgrade Bonus — ${upgradedPkg.name}',
-          'quantity': 1,
-          'price': b.amount,
-          'timestamp': DateTime.now().toUtc().toIso8601String(),
-        });
-      } catch (e) {
-        debugPrint('[Repo] processPackageUpgrade insert failed: $e');
-      }
-    }
-
-    _changes.add('bonus_processed');
-  }
-
-  /// Process passive income when [buyerId] purchases [itemCount] product items.
-  ///
-  /// Call AFTER the sale has been recorded.
-  Future<void> processItemPurchase({
-    required int buyerId,
-    required int itemCount,
-  }) async {
-    if (itemCount <= 0) return;
-    await _refreshCaches();
-
-    final engine = const BonusEngine();
-    final bonuses = engine.computePassiveIncome(
-      buyerId: buyerId,
-      itemCount: itemCount,
-      resolveMember: _resolveMember,
-    );
-
-    for (final b in bonuses) {
-      if (b.amount <= 0) continue;
-      try {
-        await _supabase.from('member_transactions').insert({
-          'user_id': _uid,
-          'member_id': b.recipientMemberId,
-          'item_name':
-              'Passive Income (${b.reason == 'passive_direct' ? 'Direct' : 'Indirect'})',
-          'quantity': itemCount,
-          'price': b.amount,
-          'timestamp': DateTime.now().toUtc().toIso8601String(),
-        });
-      } catch (e) {
-        debugPrint('[Repo] processItemPurchase insert failed: $e');
-      }
-    }
-
-    _changes.add('bonus_processed');
-  }
-
   /// Fetch packages with a higher [hierarchyRank] than [currentRank],
   /// ordered from lowest to highest rank.
   Future<List<Package>> fetchAvailableUpgrades(int currentRank) async {
@@ -1253,7 +1149,7 @@ class SupabaseRepository {
       'repeatPurchase': asInt('repeatPurchase'),
       'chairmanBonus': asInt('chairmanBonus'),
       'upgradeBonus': asInt('upgradeBonus'),
-      'chairmanFridays': 0, // deprecated — bonus is now per-registration
+      'chairmanFridays': asInt('chairmanFridays'), // weekly Friday count
     };
   }
 
