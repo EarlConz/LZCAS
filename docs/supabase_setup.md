@@ -8,7 +8,7 @@ as the local offline database.
 1. Go to https://supabase.com/dashboard.
 2. Create a new project.
 3. Open the SQL Editor.
-4. Paste and run `supabase/schema.sql` from this repository.
+4. Paste and run `supabase/schema/schema.sql` from this repository.
 
 ## 2. Get Your App Keys
 
