@@ -12,6 +12,8 @@ import '../../auth/auth.dart';
 import '../../db/db.dart';
 import '../../router/route_guard.dart';
 import '../../services/config_service.dart';
+import '../../services/updater_service.dart';
+import '../../dialogs/update_dialog.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../widgets/member_sidebar.dart';
@@ -38,6 +40,19 @@ class _MemberDashboardState extends State<MemberDashboard> {
   void initState() {
     super.initState();
     _loadMemberData();
+    _triggerUpdateCheck();
+  }
+
+  void _triggerUpdateCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final updater = context.read<UpdaterService>();
+      updater.checkForUpdate(silent: true).then((info) {
+        if (info != null && mounted) {
+          UpdateDialog.showIfAvailable(context);
+        }
+      });
+    });
   }
 
   Future<void> _loadMemberData() async {
@@ -361,9 +376,7 @@ class _MyQrCard extends StatelessWidget {
       context: context,
       builder: (ctx) => Dialog(
         backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: Padding(
           padding: const EdgeInsets.all(28),
           child: Column(
@@ -1058,7 +1071,6 @@ class _PackageDetailsSheet extends StatelessWidget {
       ],
     ),
   );
-
 }
 
 class _OverviewHero extends StatelessWidget {

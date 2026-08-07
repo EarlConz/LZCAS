@@ -11,6 +11,7 @@ import 'router/app_router.dart';
 import 'router/route_guard.dart';
 import 'services/notification_service.dart';
 import 'services/config_service.dart';
+import 'services/updater_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +45,9 @@ Future<void> main() async {
   final notificationService = NotificationService();
   await notificationService.init(config: configService);
 
+  // ── Initialize updater service ──────────────────────────────────────
+  final updaterService = UpdaterService();
+
   runApp(
     MultiProvider(
       providers: [
@@ -52,6 +56,7 @@ Future<void> main() async {
           value: notificationService,
         ),
         ChangeNotifierProvider<ConfigService>.value(value: configService),
+        ChangeNotifierProvider<UpdaterService>.value(value: updaterService),
       ],
       child: const LzcasApp(),
     ),
