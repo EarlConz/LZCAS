@@ -27,6 +27,8 @@ import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/notification_service.dart';
 import 'package:lzcas/services/config_service.dart';
+import 'package:lzcas/services/updater_service.dart';
+import 'package:lzcas/dialogs/update_dialog.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -88,6 +90,24 @@ class _AdminDashboardState extends State<AdminDashboard> {
     } else {
       _scaffoldKey.currentState!.openDrawer();
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _triggerUpdateCheck();
+  }
+
+  void _triggerUpdateCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final updater = context.read<UpdaterService>();
+      updater.checkForUpdate(silent: true).then((info) {
+        if (info != null && mounted) {
+          UpdateDialog.showIfAvailable(context);
+        }
+      });
+    });
   }
 
   @override
@@ -2027,9 +2047,8 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
     // Ranks held by other packages — guarded against in the validator so the
     // upgrade ladder stays strictly ordered, and surfaced on demand via the
     // info button on the field (keeps the helper text uncluttered).
-    final otherPackages =
-        _packages.where((p) => p.id != existing?.id).toList()
-          ..sort((a, b) => a.hierarchyRank.compareTo(b.hierarchyRank));
+    final otherPackages = _packages.where((p) => p.id != existing?.id).toList()
+      ..sort((a, b) => a.hierarchyRank.compareTo(b.hierarchyRank));
     final groupDirectCtrl = TextEditingController(
       text: existing != null ? '${existing.groupSalesDirect}' : '3',
     );
@@ -2221,9 +2240,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     TextFormField(
                       controller: hierarchyRankCtrl,
                       keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                      ],
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       decoration:
                           deco(
                             'Hierarchy Rank',
@@ -3381,6 +3398,48 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
               onPressed: _saveConfig,
             ),
           ),
+          const SizedBox(height: 32),
+
+          // ── Updates ───────────────────────────────────
+          Text(
+            'Updates',
+            style: StockpileFonts.satoshi(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Check for and install the latest version of GUTVita.',
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.system_update_rounded),
+              label: const Text('Check for Updates'),
+              onPressed: () async {
+                final updater = context.read<UpdaterService>();
+                final info = await updater.checkForUpdate(silent: false);
+                if (info != null && mounted) {
+                  await UpdateDialog.showIfAvailable(context);
+                } else if (mounted && updater.errorMessage != null) {
+                  BotToast.showText(text: updater.errorMessage!);
+                } else if (mounted) {
+                  BotToast.showText(text: 'You are on the latest version.');
+                }
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -3949,286 +4008,297 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
           builder: (ctx, setModalState) {
             // Recomputed on each rebuild so an in-place upgrade refreshes the
             // badges and package name live, without closing the modal.
-            final fullName = [
-              member['firstName'],
-              member['middleName'],
-              member['lastName'],
-            ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
-            final initials =
-                fullName.isNotEmpty ? fullName[0].toUpperCase() : 'M';
+            final fullName =
+                [member['firstName'], member['middleName'], member['lastName']]
+                    .where((p) => p != null && p.toString().trim().isNotEmpty)
+                    .join(' ');
+            final initials = fullName.isNotEmpty
+                ? fullName[0].toUpperCase()
+                : 'M';
             final isReseller =
                 (member['role']?.toString() ?? '') == 'Verified Reseller';
             final email = (member['email']?.toString() ?? '').trim();
             final hasAccount = email.isNotEmpty;
 
             return Dialog(
-          backgroundColor: surface,
-          surfaceTintColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 24,
-          ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 600,
-              maxHeight: MediaQuery.of(context).size.height * 0.88,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // ── Close button (top-right) ────────────────
-                Align(
-                  alignment: Alignment.topRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8, top: 8),
-                    child: IconButton(
-                      tooltip: 'Close',
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(Icons.close),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
+              backgroundColor: surface,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 24,
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 600,
+                  maxHeight: MediaQuery.of(context).size.height * 0.88,
                 ),
-
-                // ── Scrollable content ──────────────────────
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                    child: Column(
-                      children: [
-                        // ── Avatar header ──────────────────
-                        _ModalAvatarHeader(
-                          initials: initials,
-                          fullName: fullName.isEmpty
-                              ? 'Unnamed Member'
-                              : fullName,
-                          memberId: member['id']?.toString() ?? '—',
-                          isReseller: isReseller,
-                          email: email,
-                          hasAccount: hasAccount,
-                          packageName: packageName,
-                          isDark: isDark,
-                          textColor: textColor,
-                          muted: muted,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ── Close button (top-right) ────────────────
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8, top: 8),
+                        child: IconButton(
+                          tooltip: 'Close',
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(Icons.close),
+                          visualDensity: VisualDensity.compact,
                         ),
-                        const SizedBox(height: 20),
+                      ),
+                    ),
 
-                        // ── Personal Info card ─────────────
-                        _ModalInfoCard(
-                          isDark: isDark,
-                          textColor: textColor,
-                          muted: muted,
-                          surface: surface,
-                          divider: divider,
-                          title: 'Personal Info',
-                          icon: Icons.person_outline_rounded,
+                    // ── Scrollable content ──────────────────────
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                        child: Column(
                           children: [
-                            _ModalInfoRow(
-                              icon: Icons.cake_outlined,
-                              label: 'Birthday',
-                              value: member['birthday'],
-                              muted: muted,
-                              textColor: textColor,
+                            // ── Avatar header ──────────────────
+                            _ModalAvatarHeader(
+                              initials: initials,
+                              fullName: fullName.isEmpty
+                                  ? 'Unnamed Member'
+                                  : fullName,
+                              memberId: member['id']?.toString() ?? '—',
+                              isReseller: isReseller,
+                              email: email,
+                              hasAccount: hasAccount,
+                              packageName: packageName,
                               isDark: isDark,
+                              textColor: textColor,
+                              muted: muted,
                             ),
-                            _ModalInfoRow(
-                              icon: Icons.home_outlined,
-                              label: 'Address',
-                              value: member['address'],
-                              muted: muted,
-                              textColor: textColor,
+                            const SizedBox(height: 20),
+
+                            // ── Personal Info card ─────────────
+                            _ModalInfoCard(
                               isDark: isDark,
+                              textColor: textColor,
+                              muted: muted,
+                              surface: surface,
+                              divider: divider,
+                              title: 'Personal Info',
+                              icon: Icons.person_outline_rounded,
+                              children: [
+                                _ModalInfoRow(
+                                  icon: Icons.cake_outlined,
+                                  label: 'Birthday',
+                                  value: member['birthday'],
+                                  muted: muted,
+                                  textColor: textColor,
+                                  isDark: isDark,
+                                ),
+                                _ModalInfoRow(
+                                  icon: Icons.home_outlined,
+                                  label: 'Address',
+                                  value: member['address'],
+                                  muted: muted,
+                                  textColor: textColor,
+                                  isDark: isDark,
+                                ),
+                                _ModalInfoRow(
+                                  icon: Icons.phone_outlined,
+                                  label: 'Contact',
+                                  value: member['contactNo'],
+                                  muted: muted,
+                                  textColor: textColor,
+                                  isDark: isDark,
+                                  isLast: true,
+                                ),
+                              ],
                             ),
-                            _ModalInfoRow(
-                              icon: Icons.phone_outlined,
-                              label: 'Contact',
-                              value: member['contactNo'],
-                              muted: muted,
-                              textColor: textColor,
+                            const SizedBox(height: 12),
+
+                            // ── Referral card ──────────────────
+                            _ReferralModalCard(
+                              member: member,
                               isDark: isDark,
-                              isLast: true,
+                              textColor: textColor,
+                              muted: muted,
+                              surface: surface,
+                              divider: divider,
+                            ),
+                            const SizedBox(height: 12),
+
+                            // ── Action buttons ─────────────────
+                            const SizedBox(height: 20),
+
+                            // Create account button (only if no account)
+                            if (!hasAccount)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () =>
+                                        _showCreateAccountDialog(ctx, member),
+                                    icon: const Icon(
+                                      Icons.person_add_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Create Login Account'),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                            // View Password button (only if member HAS an account)
+                            if (hasAccount)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _viewMemberPassword(
+                                      ctx,
+                                      member,
+                                      fullName,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.vpn_key_rounded,
+                                      size: 18,
+                                      color: Colors.amber,
+                                    ),
+                                    label: const Text('View Password'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.amber.shade800,
+                                      side: BorderSide(
+                                        color: Colors.amber.shade300,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () =>
+                                        _showTransactionHistory(ctx, member),
+                                    icon: const Icon(
+                                      Icons.receipt_long_outlined,
+                                      size: 18,
+                                    ),
+                                    label: const Text('View History'),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: () {
+                                      Navigator.pop(ctx);
+                                      _openEditDialog(member);
+                                    },
+                                    icon: const Icon(
+                                      Icons.edit_outlined,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Edit Member'),
+                                    style: FilledButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            // ── Upgrade Package ─────────────────────────────
+                            // Always available to staff: for a plain Member it
+                            // assigns their first package (promoting them to
+                            // Verified Reseller); for a reseller it raises their
+                            // tier. Account-less members are caught by the guard in
+                            // _showUpgradePackageDialog (prompts to create one).
+                            ...[
+                              const SizedBox(height: 12),
+                              SizedBox(
+                                width: double.infinity,
+                                child: FilledButton.icon(
+                                  onPressed: () => _showUpgradePackageDialog(
+                                    ctx,
+                                    member,
+                                    onUpgraded: (pkg) {
+                                      // Reflect the new package on the still-open
+                                      // modal (the list refreshes via realtime).
+                                      member['packageId'] = pkg.id;
+                                      member['role'] = 'Verified Reseller';
+                                      packageName = pkg.name;
+                                      setModalState(() {});
+                                    },
+                                  ),
+                                  icon: const Icon(Icons.upgrade, size: 18),
+                                  label: const Text('Upgrade Package'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: StockpileColors.primary900,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                            SizedBox(
+                              width: double.infinity,
+                              child: TextButton.icon(
+                                onPressed: () =>
+                                    _confirmDeleteMemberDialog(ctx, member),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  size: 18,
+                                ),
+                                label: const Text('Delete Member'),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: StockpileColors.danger,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-
-                        // ── Referral card ──────────────────
-                        _ReferralModalCard(
-                          member: member,
-                          isDark: isDark,
-                          textColor: textColor,
-                          muted: muted,
-                          surface: surface,
-                          divider: divider,
-                        ),
-                        const SizedBox(height: 12),
-
-                        // ── Action buttons ─────────────────
-                        const SizedBox(height: 20),
-
-                        // Create account button (only if no account)
-                        if (!hasAccount)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () =>
-                                    _showCreateAccountDialog(ctx, member),
-                                icon: const Icon(
-                                  Icons.person_add_rounded,
-                                  size: 18,
-                                ),
-                                label: const Text('Create Login Account'),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-
-                        // View Password button (only if member HAS an account)
-                        if (hasAccount)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: () =>
-                                    _viewMemberPassword(ctx, member, fullName),
-                                icon: const Icon(
-                                  Icons.vpn_key_rounded,
-                                  size: 18,
-                                  color: Colors.amber,
-                                ),
-                                label: const Text('View Password'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.amber.shade800,
-                                  side: BorderSide(
-                                    color: Colors.amber.shade300,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () =>
-                                    _showTransactionHistory(ctx, member),
-                                icon: const Icon(
-                                  Icons.receipt_long_outlined,
-                                  size: 18,
-                                ),
-                                label: const Text('View History'),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: () {
-                                  Navigator.pop(ctx);
-                                  _openEditDialog(member);
-                                },
-                                icon: const Icon(Icons.edit_outlined, size: 18),
-                                label: const Text('Edit Member'),
-                                style: FilledButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 14,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        // ── Upgrade Package ─────────────────────────────
-                        // Always available to staff: for a plain Member it
-                        // assigns their first package (promoting them to
-                        // Verified Reseller); for a reseller it raises their
-                        // tier. Account-less members are caught by the guard in
-                        // _showUpgradePackageDialog (prompts to create one).
-                        ...[
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: () => _showUpgradePackageDialog(
-                                ctx,
-                                member,
-                                onUpgraded: (pkg) {
-                                  // Reflect the new package on the still-open
-                                  // modal (the list refreshes via realtime).
-                                  member['packageId'] = pkg.id;
-                                  member['role'] = 'Verified Reseller';
-                                  packageName = pkg.name;
-                                  setModalState(() {});
-                                },
-                              ),
-                              icon: const Icon(Icons.upgrade, size: 18),
-                              label: const Text('Upgrade Package'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: StockpileColors.primary900,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                        SizedBox(
-                          width: double.infinity,
-                          child: TextButton.icon(
-                            onPressed: () =>
-                                _confirmDeleteMemberDialog(ctx, member),
-                            icon: const Icon(Icons.delete_outline, size: 18),
-                            label: const Text('Delete Member'),
-                            style: TextButton.styleFrom(
-                              foregroundColor: StockpileColors.danger,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
             );
           },
         );
@@ -4511,9 +4581,10 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
           quantity: 1,
           price: selected.price,
           buyerId: memberId,
-          buyerName: [member['firstName'], member['lastName']]
-              .where((p) => p != null && p.toString().trim().isNotEmpty)
-              .join(' '),
+          buyerName: [
+            member['firstName'],
+            member['lastName'],
+          ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' '),
           packageId: selected.id,
           timestamp: DateTime.now(),
         );

@@ -15,6 +15,8 @@ import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/updater_service.dart';
+import 'package:lzcas/dialogs/update_dialog.dart';
 
 class BranchCashierDashboard extends StatefulWidget {
   const BranchCashierDashboard({super.key});
@@ -31,6 +33,19 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _triggerUpdateCheck();
+  }
+
+  void _triggerUpdateCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final updater = context.read<UpdaterService>();
+      updater.checkForUpdate(silent: true).then((info) {
+        if (info != null && mounted) {
+          UpdateDialog.showIfAvailable(context);
+        }
+      });
+    });
   }
 
   @override
@@ -140,7 +155,10 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard>
                 controller: _tabController,
                 children: const [
                   // Tab 1: POS terminal (reused)
-                  Padding(padding: EdgeInsets.all(16), child: TransactionsTable()),
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: TransactionsTable(),
+                  ),
                   // Tab 2: Stocks on Hand (read-only)
                   _StocksOnHandView(),
                 ],
@@ -253,10 +271,7 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
                         fontSize: 16,
                       ),
                     ),
-                    Text(
-                      status,
-                      style: TextStyle(fontSize: 11, color: color),
-                    ),
+                    Text(status, style: TextStyle(fontSize: 11, color: color)),
                   ],
                 ),
               );

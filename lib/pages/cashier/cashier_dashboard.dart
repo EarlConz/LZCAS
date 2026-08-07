@@ -19,6 +19,8 @@ import 'package:lzcas/widgets/admin_members_page.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/updater_service.dart';
+import 'package:lzcas/dialogs/update_dialog.dart';
 
 class CashierDashboard extends StatefulWidget {
   const CashierDashboard({super.key});
@@ -35,6 +37,19 @@ class _CashierDashboardState extends State<CashierDashboard>
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    _triggerUpdateCheck();
+  }
+
+  void _triggerUpdateCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final updater = context.read<UpdaterService>();
+      updater.checkForUpdate(silent: true).then((info) {
+        if (info != null && mounted) {
+          UpdateDialog.showIfAvailable(context);
+        }
+      });
+    });
   }
 
   @override
@@ -1394,4 +1409,3 @@ class _MyRequestsTabState extends State<_MyRequestsTab> {
     );
   }
 }
-
