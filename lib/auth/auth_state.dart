@@ -15,6 +15,7 @@ enum UserRole {
   admin('Admin'),
   inventory('Inventory'),
   cashier('Cashier'),
+  branchCashier('Branch Cashier'),
   member('Member'),
   reseller('Reseller');
 
@@ -29,6 +30,8 @@ enum UserRole {
         return UserRole.inventory;
       case 'cashier':
         return UserRole.cashier;
+      case 'branch_cashier':
+        return UserRole.branchCashier;
       case 'member':
         return UserRole.member;
       case 'reseller':
@@ -82,7 +85,9 @@ class AuthState extends ChangeNotifier {
   /// the app on mobile.
   bool get _mobileBlocked =>
       _isMobilePlatform &&
-      (_userRole == UserRole.cashier || _userRole == UserRole.inventory);
+      (_userRole == UserRole.cashier ||
+          _userRole == UserRole.inventory ||
+          _userRole == UserRole.branchCashier);
 
   // ── Session Sync ─────────────────────────────────────────────────────────
 

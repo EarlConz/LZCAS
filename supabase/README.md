@@ -44,8 +44,12 @@ fresh DB; on an existing DB only the ones not yet applied.
   referrer's package vs the package the downline upgraded to). No current-data
   impact with only two tiers; matters once a 3rd+ tier exists. Redefines
   `process_package_upgrade` + extends `referral_bonus_min_tier` with 'upgrade'.
+- v27 — Chairman's Bonus becomes **min-tier capped** too (lower of earner's vs
+  referral's first-availed package). Extends the helper with 'chairman',
+  redefines the availment trigger's chairman inserts, recomputes the Chairman
+  ledger. ⚠️ Changes existing earnings (only downward).
 
-> **Currently live: v26.** All five bonuses (Direct/Indirect Referral, Group
+> **Currently live: v27.** All five bonuses (Direct/Indirect Referral, Group
 > Sales, Upgrade, Chairman) are stored `member_transactions` rows the RPC sums —
 > none recomputed live, so editing package rates never changes history. Direct/
 > Indirect are availment-based + min-tier capped; Chairman is availment-gated at

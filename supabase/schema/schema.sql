@@ -14,7 +14,7 @@ create table if not exists public.profiles (
   username text not null,
   email text,
   role text not null default 'cashier',
-  member_id bigint references public.members(id),
+  member_id bigint,  -- soft link to members(id); FK omitted so a fresh-DB run doesn't require members to exist first
   created_at timestamptz not null default now()
 );
 
@@ -49,6 +49,15 @@ create trigger on_auth_user_created
 -- An RLS policy that blocks reads will silently redirect admins to cashier.
 alter table public.profiles disable row level security;
 
+-- Global key/value config (e.g. legacy low_stock_threshold). Created early so
+-- later migrations (v10) that reference it work on a fresh DB. RLS off to match
+-- live. Safe to re-run.
+create table if not exists public.app_config (
+  key text primary key,
+  value text not null
+);
+alter table public.app_config disable row level security;
+
 create table public.items (
   id bigint generated always as identity primary key,
   user_id uuid not null,
@@ -66,14 +75,13 @@ create table public.members (
   is_deleted boolean not null default false
 );
 
--- Buyer / member name stored at transaction time so names survive deletion
-alter table public.sales add column if not exists buyer_name text;
-
 create table public.sales (
   id bigint generated always as identity primary key,
   user_id uuid not null, item_id bigint not null, buyer_id bigint,
   item_name text not null, quantity integer not null,
   price integer not null default 0, timestamp timestamptz not null default now(),
+  -- Buyer / member name stored at transaction time so names survive deletion
+  buyer_name text,
   -- Set when the sale is a package availment (no FK: history must survive
   -- package deletion). Package sales are excluded from product metrics.
   package_id bigint

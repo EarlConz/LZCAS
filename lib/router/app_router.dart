@@ -10,6 +10,7 @@ import 'package:lzcas/pages/login_page.dart';
 import 'package:lzcas/pages/admin/admin_dashboard.dart';
 import 'package:lzcas/pages/inventory/inventory_dashboard.dart';
 import 'package:lzcas/pages/cashier/cashier_dashboard.dart';
+import 'package:lzcas/pages/branch/branch_cashier_dashboard.dart';
 import 'package:lzcas/pages/member/member_dashboard.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/auth/auth.dart';
@@ -49,6 +50,9 @@ Route<dynamic>? appRouter(RouteSettings settings) {
       case AppRoutes.cashierMembers:
       case AppRoutes.cashierDeleteRequest:
         return const CashierDashboard();
+
+      case AppRoutes.branchDashboard:
+        return const BranchCashierDashboard();
 
       case AppRoutes.memberDashboard:
         return const MemberDashboard();
