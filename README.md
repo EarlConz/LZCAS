@@ -23,14 +23,14 @@
 
 ## Supported Platforms
 
-| Platform | Status |
-|----------|--------|
-| **Android** | ✅ Release builds (APK signed via keystore) |
+| Platform    | Status                                         |
+| ----------- | ---------------------------------------------- |
+| **Android** | ✅ Release builds (APK signed via keystore)    |
 | **Windows** | ✅ Release builds (EXE + Inno Setup installer) |
-| **Web** | ✅ Configured (launcher icon + build target) |
-| **macOS** | ✅ Project scaffold present |
-| **Linux** | ✅ Project scaffold present |
-| **iOS** | ✅ Project scaffold present |
+| **Web**     | ✅ Configured (launcher icon + build target)   |
+| **macOS**   | ✅ Project scaffold present                    |
+| **Linux**   | ✅ Project scaffold present                    |
+| **iOS**     | ✅ Project scaffold present                    |
 
 > **Note:** Cashier, Inventory, and Branch Cashier roles are **desktop-only**. They are force-signed-out on mobile. Admin, Member, and Reseller roles work across all platforms.
 
@@ -38,22 +38,22 @@
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| **Framework** | [Flutter](https://flutter.dev/) 3.x (Dart SDK ^3.9.0) |
-| **Backend / DB** | [Supabase](https://supabase.com/) (PostgreSQL + Auth + Edge Functions) |
-| **State Management** | [Provider](https://pub.dev/packages/provider) (ChangeNotifier-based) |
-| **HTTP Client** | [Dio](https://pub.dev/packages/dio) + [http](https://pub.dev/packages/http) |
-| **Auth** | Supabase Auth (email/password) with session persistence |
-| **Charts** | [fl_chart](https://pub.dev/packages/fl_chart) |
-| **QR / Barcode** | [mobile_scanner](https://pub.dev/packages/mobile_scanner), [zxing2](https://pub.dev/packages/zxing2), [qr_flutter](https://pub.dev/packages/qr_flutter) |
-| **Auto-Updater** | GitHub REST API + Dio download with native `HttpClient` fallback |
-| **File Handling** | [file_selector](https://pub.dev/packages/file_selector), [csv](https://pub.dev/packages/csv), [open_filex](https://pub.dev/packages/open_filex) |
-| **Secure Storage** | [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) |
-| **Fonts** | [google_fonts](https://pub.dev/packages/google_fonts) (Satoshi) |
-| **Installer (Windows)** | [Inno Setup](https://jrsoftware.org/isinfo.php) |
-| **Code Generation** | [build_runner](https://pub.dev/packages/build_runner) |
-| **Linting** | [flutter_lints](https://pub.dev/packages/flutter_lints) |
+| Layer                   | Technology                                                                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Framework**           | [Flutter](https://flutter.dev/) 3.x (Dart SDK ^3.9.0)                                                                                                   |
+| **Backend / DB**        | [Supabase](https://supabase.com/) (PostgreSQL + Auth + Edge Functions)                                                                                  |
+| **State Management**    | [Provider](https://pub.dev/packages/provider) (ChangeNotifier-based)                                                                                    |
+| **HTTP Client**         | [Dio](https://pub.dev/packages/dio) + [http](https://pub.dev/packages/http)                                                                             |
+| **Auth**                | Supabase Auth (email/password) with session persistence                                                                                                 |
+| **Charts**              | [fl_chart](https://pub.dev/packages/fl_chart)                                                                                                           |
+| **QR / Barcode**        | [mobile_scanner](https://pub.dev/packages/mobile_scanner), [zxing2](https://pub.dev/packages/zxing2), [qr_flutter](https://pub.dev/packages/qr_flutter) |
+| **Auto-Updater**        | GitHub REST API + Dio download with native `HttpClient` fallback                                                                                        |
+| **File Handling**       | [file_selector](https://pub.dev/packages/file_selector), [csv](https://pub.dev/packages/csv), [open_filex](https://pub.dev/packages/open_filex)         |
+| **Secure Storage**      | [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage)                                                                               |
+| **Fonts**               | [google_fonts](https://pub.dev/packages/google_fonts) (Satoshi)                                                                                         |
+| **Installer (Windows)** | [Inno Setup](https://jrsoftware.org/isinfo.php)                                                                                                         |
+| **Code Generation**     | [build_runner](https://pub.dev/packages/build_runner)                                                                                                   |
+| **Linting**             | [flutter_lints](https://pub.dev/packages/flutter_lints)                                                                                                 |
 
 ---
 
@@ -83,16 +83,20 @@
 ### Local Configuration
 
 1. Copy the example config and fill in your Supabase credentials:
+
    ```powershell
    cp supabase.local.example.json supabase.local.json
    ```
+
    Edit `supabase.local.json`:
+
    ```json
    {
      "SUPABASE_URL": "https://your-project.supabase.co",
      "SUPABASE_ANON_KEY": "eyJhbGciOi..."
    }
    ```
+
    > ⚠️ `supabase.local.json` is git-ignored. Never commit real keys.
 
 2. Install dependencies:
@@ -157,9 +161,11 @@ The app includes a built-in auto-updater that queries the [GitHub Releases API](
 ### 1. Prepare the Release
 
 1. **Bump the version** in `pubspec.yaml`:
+
    ```yaml
-   version: 1.0.1+2   # <name>+<buildNumber>
+   version: 1.0.1+2 # <name>+<buildNumber>
    ```
+
    Increment the build number every release — Android uses it to recognize updates, and the updater compares semantic versions.
 
 2. **Run static analysis**: `flutter analyze` — ensure no new errors.
@@ -193,12 +199,12 @@ flutter build windows --release
 4. Write **release notes** in the description — these appear in the in-app update dialog as the changelog.
 5. Upload the platform binaries as release assets. **Name them so the auto-updater can match the current OS:**
 
-   | Platform | Recommended Asset Name |
-   |----------|------------------------|
-   | Android | `GUTVita-v1.0.1.apk` |
-   | Windows | `GUTVita-Setup-1.0.1.exe` or `.msi` |
-   | macOS | `GUTVita-1.0.1.dmg` or `.pkg` |
-   | Linux | `GUTVita-1.0.1.AppImage` or `.deb` |
+   | Platform | Recommended Asset Name              |
+   | -------- | ----------------------------------- |
+   | Android  | `GUTVita-v1.0.1.apk`                |
+   | Windows  | `GUTVita-Setup-1.0.1.exe` or `.msi` |
+   | macOS    | `GUTVita-1.0.1.dmg` or `.pkg`       |
+   | Linux    | `GUTVita-1.0.1.AppImage` or `.deb`  |
 
    The updater matches assets by file extension: `.apk` (Android), `.exe`/`.msi` (Windows), `.dmg`/`.pkg` (macOS), `.AppImage`/`.deb`/`.tar.gz` (Linux).
 
@@ -312,23 +318,23 @@ LZCAS/
 
 ## Key Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| `supabase_flutter` | Backend-as-a-Service (DB, Auth, real-time) |
-| `provider` | State management |
-| `dio` | HTTP client with interceptors |
-| `fl_chart` | Analytics charts (line, bar, donut) |
-| `mobile_scanner` / `zxing2` / `qr_flutter` | QR/barcode scanning and generation |
-| `package_info_plus` | App version detection (for auto-updater) |
-| `open_filex` | Launch downloaded installers |
-| `path_provider` | Platform temp directories |
-| `file_selector` | File picker for CSV import |
-| `csv` | CSV parsing/generation |
-| `flutter_secure_storage` | Secure token storage |
-| `google_fonts` | Satoshi font family |
-| `bot_toast` | Toast notifications |
-| `intl` | Number/date formatting |
-| `camera` / `camera_windows` | Camera access for barcode scanning |
+| Package                                    | Purpose                                    |
+| ------------------------------------------ | ------------------------------------------ |
+| `supabase_flutter`                         | Backend-as-a-Service (DB, Auth, real-time) |
+| `provider`                                 | State management                           |
+| `dio`                                      | HTTP client with interceptors              |
+| `fl_chart`                                 | Analytics charts (line, bar, donut)        |
+| `mobile_scanner` / `zxing2` / `qr_flutter` | QR/barcode scanning and generation         |
+| `package_info_plus`                        | App version detection (for auto-updater)   |
+| `open_filex`                               | Launch downloaded installers               |
+| `path_provider`                            | Platform temp directories                  |
+| `file_selector`                            | File picker for CSV import                 |
+| `csv`                                      | CSV parsing/generation                     |
+| `flutter_secure_storage`                   | Secure token storage                       |
+| `google_fonts`                             | Satoshi font family                        |
+| `bot_toast`                                | Toast notifications                        |
+| `intl`                                     | Number/date formatting                     |
+| `camera` / `camera_windows`                | Camera access for barcode scanning         |
 
 ---
 
