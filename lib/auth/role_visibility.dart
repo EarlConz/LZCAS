@@ -83,7 +83,9 @@ extension UserRolePermissions on UserRole {
 
   /// Returns true if this role can process sales (POS terminal).
   bool get canProcessSales =>
-      this == UserRole.admin || this == UserRole.cashier;
+      this == UserRole.admin ||
+      this == UserRole.cashier ||
+      this == UserRole.branchCashier;
 
   /// Returns true if this role can manage users (admin only).
   bool get canManageUsers => this == UserRole.admin;
