@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/utils/action_guard.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/receipt_dialog.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
@@ -572,7 +573,9 @@ class _SellDialogState extends State<_SellDialog> {
           ),
         FilledButton(
           onPressed: isCartValid()
-              ? () async {
+              // Guard against a double-click creating the sale (and deducting
+              // stock) twice.
+              ? () => ActionGuard.run('pos_confirm_sale', () async {
                   final safeContext = context;
                   final transactionTs = DateTime.now();
 
@@ -671,7 +674,7 @@ class _SellDialogState extends State<_SellDialog> {
                   // ignore: use_build_context_synchronously
                   Navigator.pop(safeContext, cart);
                   cart.clear();
-                }
+                })
               : null,
           child: const Text('Confirm'),
         ),

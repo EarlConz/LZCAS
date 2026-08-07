@@ -6,6 +6,7 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/utils/action_guard.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
@@ -569,34 +570,38 @@ class AdminMembersPageState extends State<AdminMembersPage> {
       ),
     );
     if (selected == null || !mounted) return;
-    try {
-      await repository.submitUpgrade(
-        memberId: memberId,
-        targetPackageId: selected.id!,
-      );
-      await repository.addSale(
-        itemId: 0,
-        itemName: 'Package Upgrade: ${selected.name}',
-        quantity: 1,
-        price: selected.price,
-        buyerId: memberId,
-        buyerName: [member['firstName'], member['lastName']]
-            .where((p) => p != null && p.toString().trim().isNotEmpty)
-            .join(' '),
-        packageId: selected.id,
-        timestamp: DateTime.now(),
-      );
-      BotToast.showText(
-        text: '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
-      );
-    } catch (e) {
-      final msg = e.toString();
-      BotToast.showText(
-        text: msg.contains('Invalid upgrade') || msg.contains('downgrade')
-            ? 'Cannot downgrade or side-grade packages.'
-            : 'Failed: $e',
-      );
-    }
+    // Guard against a double-click availing the package twice.
+    await ActionGuard.run('avail_upgrade_$memberId', () async {
+      try {
+        await repository.submitUpgrade(
+          memberId: memberId,
+          targetPackageId: selected.id!,
+        );
+        await repository.addSale(
+          itemId: 0,
+          itemName: 'Package Upgrade: ${selected.name}',
+          quantity: 1,
+          price: selected.price,
+          buyerId: memberId,
+          buyerName: [member['firstName'], member['lastName']]
+              .where((p) => p != null && p.toString().trim().isNotEmpty)
+              .join(' '),
+          packageId: selected.id,
+          timestamp: DateTime.now(),
+        );
+        BotToast.showText(
+          text:
+              '${member['firstName'] ?? 'Member'} upgraded to ${selected.name}',
+        );
+      } catch (e) {
+        final msg = e.toString();
+        BotToast.showText(
+          text: msg.contains('Invalid upgrade') || msg.contains('downgrade')
+              ? 'Cannot downgrade or side-grade packages.'
+              : 'Failed: $e',
+        );
+      }
+    });
   }
 }
 
