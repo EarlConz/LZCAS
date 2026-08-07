@@ -39,6 +39,9 @@ abstract class AppRoutes {
   static const String cashierMembers = '/cashier/members';
   static const String cashierDeleteRequest = '/cashier/delete-request';
 
+  // Branch Cashier (POS + Stocks on Hand only)
+  static const String branchDashboard = '/branch/dashboard';
+
   // Member (reseller & basic members)
   static const String memberDashboard = '/member/dashboard';
 
@@ -47,6 +50,7 @@ abstract class AppRoutes {
     UserRole.admin: '/admin',
     UserRole.inventory: '/inventory',
     UserRole.cashier: '/cashier',
+    UserRole.branchCashier: '/branch',
     UserRole.member: '/member',
     UserRole.reseller: '/member',
   };
@@ -60,6 +64,8 @@ abstract class AppRoutes {
         return inventoryDashboard;
       case UserRole.cashier:
         return cashierDashboard;
+      case UserRole.branchCashier:
+        return branchDashboard;
       case UserRole.member:
       case UserRole.reseller:
         return memberDashboard;
@@ -107,10 +113,13 @@ class RouteGuard {
     // Guard 2: Mobile platform — cashier and inventory accounts are
     // desktop-only. Admin, member, and reseller may use phones/tablets.
     final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
-    if (isMobile && (role == UserRole.cashier || role == UserRole.inventory)) {
+    if (isMobile &&
+        (role == UserRole.cashier ||
+            role == UserRole.inventory ||
+            role == UserRole.branchCashier)) {
       return RouteRedirect(
         AppRoutes.login,
-        reason: 'Cashier and inventory accounts must use a desktop.',
+        reason: 'Cashier, branch cashier, and inventory accounts must use a desktop.',
       );
     }
 

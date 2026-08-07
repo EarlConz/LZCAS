@@ -54,9 +54,12 @@ select
   coalesce((select sum(mt.price) from public.member_transactions mt
             where mt.member_id = (select earner from params) and mt.item_id = r.ref_id
               and mt.item_name ilike (r.level || ' Referral%')), 0) as now_bonus,
-  -- chairman (direct only): earner's OWN rate at crystallization vs current stored
+  -- chairman (direct only): min-tier (v27) at crystallization vs current stored
   case when r.level = 'Direct'
-       then coalesce(epk.chairmans_bonus, 0) else null end as new_chairman,
+       then public.referral_bonus_min_tier(
+              public.package_held_at((select earner from params), r.cts),
+              public.first_availed_package(r.ref_id), 'chairman')
+       else null end as new_chairman,
   case when r.level = 'Direct'
        then coalesce((select sum(mt.price) from public.member_transactions mt
                       where mt.member_id = (select earner from params) and mt.item_id = r.ref_id
