@@ -12,15 +12,20 @@ import '../data/models.dart';
 enum AuthStatus { unauthenticated, authenticating, authenticated, authError }
 
 enum UserRole {
-  admin('Admin'),
-  inventory('Inventory'),
-  cashier('Cashier'),
-  branchCashier('Branch Cashier'),
-  member('Member'),
-  reseller('Reseller');
+  admin('Admin', 'admin'),
+  inventory('Inventory', 'inventory'),
+  cashier('Cashier', 'cashier'),
+  branchCashier('Branch Cashier', 'branch_cashier'),
+  member('Member', 'member'),
+  reseller('Reseller', 'reseller');
 
   final String displayName;
-  const UserRole(this.displayName);
+
+  /// The exact string stored in `profiles.role`. NOTE: this is not always the
+  /// same as the enum identifier — e.g. [branchCashier] persists as
+  /// `branch_cashier` (snake_case). Always serialize with this, never `.name`.
+  final String dbValue;
+  const UserRole(this.displayName, this.dbValue);
 
   static UserRole fromString(String raw) {
     switch (raw.trim().toLowerCase()) {
@@ -52,6 +57,7 @@ class AuthState extends ChangeNotifier {
   String _username = '';
   String _error = '';
   String? _userId;
+  bool _mobileEnabled = false; // admin-granted mobile login (branch_cashier)
 
   StreamSubscription? _authSubscription;
 
@@ -74,6 +80,10 @@ class AuthState extends ChangeNotifier {
   SupabaseClient get sb => _sb;
   bool get isTempAdmin => false;
 
+  /// Whether the current account has been granted mobile login by an admin.
+  /// Only meaningful for [UserRole.branchCashier]; other roles ignore it.
+  bool get mobileEnabled => _mobileEnabled;
+
   /// True when running on a mobile OS (Android / iOS), false on desktop or web.
   bool get _isMobilePlatform {
     if (kIsWeb) return false;
@@ -81,13 +91,21 @@ class AuthState extends ChangeNotifier {
   }
 
   /// Cashier and inventory accounts are desktop-only; on mobile they are
-  /// force-signed-out and blocked. Admin, member, and reseller may use
-  /// the app on mobile.
-  bool get _mobileBlocked =>
-      _isMobilePlatform &&
-      (_userRole == UserRole.cashier ||
-          _userRole == UserRole.inventory ||
-          _userRole == UserRole.branchCashier);
+  /// force-signed-out and blocked. Branch cashier is desktop-only UNLESS an
+  /// admin has granted that specific account mobile access ([_mobileEnabled]).
+  /// Admin, member, and reseller may always use the app on mobile.
+  bool get _mobileBlocked {
+    if (!_isMobilePlatform) return false;
+    switch (_userRole) {
+      case UserRole.cashier:
+      case UserRole.inventory:
+        return true;
+      case UserRole.branchCashier:
+        return !_mobileEnabled; // allowed only when admin-granted
+      default:
+        return false;
+    }
+  }
 
   // ── Session Sync ─────────────────────────────────────────────────────────
 
@@ -140,6 +158,7 @@ class AuthState extends ChangeNotifier {
         final profile = UserProfile.fromJson(data);
         _userRole = UserRole.fromString(profile.role);
         _username = profile.username.isNotEmpty ? profile.username : _username;
+        _mobileEnabled = profile.mobileEnabled;
       } else {
         // No profile row — auto-create one via handle_new_user trigger won't
         // fire on re-login. Default to cashier but log so we can diagnose.
@@ -147,10 +166,12 @@ class AuthState extends ChangeNotifier {
           '[Stockpile] No profile row for uid=$uid — defaulting to cashier',
         );
         _userRole = UserRole.cashier;
+        _mobileEnabled = false;
       }
     } catch (e) {
       debugPrint('[Stockpile] Failed to load profile for uid=$uid: $e');
       _userRole = UserRole.cashier;
+      _mobileEnabled = false;
     }
     _status = AuthStatus.authenticated;
     notifyListeners();
@@ -218,10 +239,14 @@ class AuthState extends ChangeNotifier {
           return false;
         }
 
-        // ── Mobile gate: cashier & inventory are desktop-only ──
+        // ── Mobile gate: cashier & inventory are desktop-only; branch cashier
+        //    needs admin-granted mobile access ──
         if (_mobileBlocked) {
+          final wasBranchCashier = _userRole == UserRole.branchCashier;
           await _sb.auth.signOut();
-          _error = 'Cashier and inventory accounts must use a desktop.';
+          _error = wasBranchCashier
+              ? 'This account is not allowed on mobile yet. Ask your admin to enable mobile access.'
+              : 'Cashier and inventory accounts must use a desktop.';
           _status = AuthStatus.authError;
           notifyListeners();
           return false;
@@ -272,17 +297,20 @@ class AuthState extends ChangeNotifier {
           _username = profile.username.isNotEmpty
               ? profile.username
               : _username;
+          _mobileEnabled = profile.mobileEnabled;
         } else {
           debugPrint(
             '[Stockpile] tryRestoreSession: no profile row for uid=${s.user.id}',
           );
           _userRole = UserRole.cashier;
+          _mobileEnabled = false;
         }
       } catch (e) {
         debugPrint(
           '[Stockpile] tryRestoreSession: profile query failed for uid=${s.user.id}: $e',
         );
         _userRole = UserRole.cashier;
+        _mobileEnabled = false;
       }
       _status = AuthStatus.authenticated;
       notifyListeners();
@@ -342,7 +370,7 @@ class AuthState extends ChangeNotifier {
         body: {
           'email': email,
           'password': password,
-          'role': role.name,
+          'role': role.dbValue,
           'username': username ?? email,
         },
       );
@@ -419,6 +447,7 @@ class AuthState extends ChangeNotifier {
     UserRole? role,
     String? username,
     String? email,
+    bool? mobileEnabled,
   }) async {
     if (_userRole != UserRole.admin) {
       _error = 'Only admins can update users.';
@@ -427,9 +456,10 @@ class AuthState extends ChangeNotifier {
     try {
       final body = <String, dynamic>{'user_id': userId};
       if (password != null && password.isNotEmpty) body['password'] = password;
-      if (role != null) body['role'] = role.name;
+      if (role != null) body['role'] = role.dbValue;
       if (username != null && username.isNotEmpty) body['username'] = username;
       if (email != null && email.isNotEmpty) body['email'] = email;
+      if (mobileEnabled != null) body['mobile_enabled'] = mobileEnabled;
 
       final result = await _sb.functions.invoke('update-user', body: body);
       if (result.status == 200) return true;

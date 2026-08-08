@@ -11,7 +11,12 @@ import 'package:lzcas/theme.dart';
 class SellButton extends StatefulWidget {
   final bool compact;
 
-  const SellButton({super.key, this.compact = false});
+  /// When non-null, this POS sells from the given branch cashier's allocation
+  /// (branch_stock) instead of central stock, and records the sale via the
+  /// `record_branch_sale` RPC. Null = normal central-stock POS.
+  final String? branchOwnerId;
+
+  const SellButton({super.key, this.compact = false, this.branchOwnerId});
 
   @override
   State<SellButton> createState() => _SellButtonState();
@@ -30,7 +35,9 @@ class _SellButtonState extends State<SellButton> {
   }
 
   Future<void> _loadItems() async {
-    final rows = await repository.fetchItems();
+    final rows = widget.branchOwnerId != null
+        ? await repository.fetchBranchStock(widget.branchOwnerId!)
+        : await repository.fetchItems();
     if (!mounted) return;
     final inventory = inventoryItemsFromRows(rows).toList();
     setState(() {
@@ -62,6 +69,7 @@ class _SellButtonState extends State<SellButton> {
         itemStock: _itemStock,
         members: members,
         onSaleConfirmed: _loadItems,
+        branchOwnerId: widget.branchOwnerId,
       ),
     );
   }
@@ -90,11 +98,15 @@ class _SellDialog extends StatefulWidget {
   final List<Map<String, dynamic>> members;
   final VoidCallback onSaleConfirmed;
 
+  /// When set, the sale draws from this branch cashier's allocation.
+  final String? branchOwnerId;
+
   const _SellDialog({
     required this.items,
     required this.itemStock,
     required this.members,
     required this.onSaleConfirmed,
+    this.branchOwnerId,
   });
 
   @override
@@ -107,6 +119,12 @@ class _SellDialogState extends State<_SellDialog> {
   int quantity = 1;
   List<Map<String, dynamic>> cart = [];
   String? _stockWarning;
+
+  /// Live stock source — the branch cashier's allocation when in branch mode,
+  /// otherwise central stock. Returns [Item]s (stock = available quantity).
+  Future<List<Item>> _fetchStockSource() => widget.branchOwnerId != null
+      ? repository.fetchBranchStock(widget.branchOwnerId!)
+      : repository.fetchItems();
 
   final TextEditingController _qtyController = TextEditingController(text: '1');
   final TextEditingController _itemSearchController = TextEditingController();
@@ -426,7 +444,7 @@ class _SellDialogState extends State<_SellDialog> {
                           _showError('Invalid item');
                           return;
                         }
-                        repository.fetchItems().then((allItems) {
+                        _fetchStockSource().then((allItems) {
                           final dbItem = allItems.firstWhere(
                             (r) => r.name == selectedItem,
                             orElse: () => Item(name: '', stock: 0),
@@ -593,7 +611,7 @@ class _SellDialogState extends State<_SellDialog> {
                   }
 
                   // ── Stock validation before sale ──────────────────
-                  final allItems = await repository.fetchItems();
+                  final allItems = await _fetchStockSource();
                   final stockMap = <String, int>{};
                   for (final item in allItems) {
                     stockMap[item.name] = item.stock;
@@ -624,26 +642,41 @@ class _SellDialogState extends State<_SellDialog> {
                       (r) => r.name == entry['item'],
                     );
                     final q = entry['quantity'] as int;
-                    final newStock = dbItem.stock - q;
-                    final newStatus = statusFromStock(newStock);
-                    final updated = dbItem.copyWith(
-                      stock: newStock,
-                      lastUpdated: DateTime.now(),
-                      status: newStatus,
-                    );
-                    await repository.updateItem(updated);
-
                     final priceStr = (entry['price'] ?? '').toString();
                     final price = int.tryParse(priceStr) ?? 0;
-                    await repository.addSale(
-                      itemId: dbItem.id!,
-                      itemName: dbItem.name,
-                      quantity: q,
-                      price: price,
-                      timestamp: transactionTs,
-                      buyerId: selectedBuyerId,
-                      buyerName: buyerName,
-                    );
+
+                    if (widget.branchOwnerId != null) {
+                      // Branch POS: decrement the cashier's own allocation and
+                      // record the sale atomically via the RPC.
+                      await repository.recordBranchSale(
+                        itemId: dbItem.id!,
+                        quantity: q,
+                        price: price,
+                        buyerId: selectedBuyerId,
+                        buyerName: buyerName,
+                        timestamp: transactionTs,
+                      );
+                    } else {
+                      // Central POS: decrement global stock and record the sale.
+                      final newStock = dbItem.stock - q;
+                      final newStatus = statusFromStock(newStock);
+                      final updated = dbItem.copyWith(
+                        stock: newStock,
+                        lastUpdated: DateTime.now(),
+                        status: newStatus,
+                      );
+                      await repository.updateItem(updated);
+
+                      await repository.addSale(
+                        itemId: dbItem.id!,
+                        itemName: dbItem.name,
+                        quantity: q,
+                        price: price,
+                        timestamp: transactionTs,
+                        buyerId: selectedBuyerId,
+                        buyerName: buyerName,
+                      );
+                    }
                   }
 
                   widget.onSaleConfirmed();

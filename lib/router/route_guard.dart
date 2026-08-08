@@ -110,16 +110,21 @@ class RouteGuard {
       );
     }
 
-    // Guard 2: Mobile platform — cashier and inventory accounts are
-    // desktop-only. Admin, member, and reseller may use phones/tablets.
+    // Guard 2: Mobile platform — cashier and inventory accounts are strictly
+    // desktop-only. Branch cashier is desktop-only UNLESS an admin has granted
+    // that account mobile access (auth.mobileEnabled). Admin, member, and
+    // reseller may always use phones/tablets.
     final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
-    if (isMobile &&
-        (role == UserRole.cashier ||
-            role == UserRole.inventory ||
-            role == UserRole.branchCashier)) {
+    final blockedOnMobile =
+        role == UserRole.cashier ||
+        role == UserRole.inventory ||
+        (role == UserRole.branchCashier && !auth.mobileEnabled);
+    if (isMobile && blockedOnMobile) {
       return RouteRedirect(
         AppRoutes.login,
-        reason: 'Cashier, branch cashier, and inventory accounts must use a desktop.',
+        reason: role == UserRole.branchCashier
+            ? 'This branch cashier account is not allowed on mobile. Ask your admin to enable mobile access.'
+            : 'Cashier and inventory accounts must use a desktop.',
       );
     }
 

@@ -51,6 +51,7 @@ serve(async (req: Request) => {
     role?: string;
     username?: string;
     email?: string;
+    mobile_enabled?: boolean;
   };
   try {
     body = await req.json();
@@ -61,7 +62,7 @@ serve(async (req: Request) => {
     });
   }
 
-  const { user_id, password, role, username, email } = body;
+  const { user_id, password, role, username, email, mobile_enabled } = body;
   if (!user_id) {
     return new Response(
       JSON.stringify({ error: "user_id is required" }),
@@ -108,6 +109,11 @@ serve(async (req: Request) => {
   if (username) profileUpdates.username = username;
   if (email && email.includes("@")) profileUpdates.email = email;
   if (password && password.length >= 6) profileUpdates.password = password;
+  // Per-account mobile-login flag (branch cashier). Explicit boolean check so
+  // `false` is persisted (not skipped like a missing field).
+  if (typeof mobile_enabled === "boolean") {
+    profileUpdates.mobile_enabled = mobile_enabled;
+  }
 
   if (Object.keys(profileUpdates).length > 0) {
     const { error: profileError } = await serviceClient

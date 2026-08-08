@@ -32,7 +32,11 @@ class TransactionGroup {
 // ── Table widget ──────────────────────────────────────────────────────
 
 class TransactionsTable extends StatefulWidget {
-  const TransactionsTable({super.key});
+  /// When set, this table belongs to a branch cashier: the POS sells from that
+  /// cashier's allocation, and the transaction list is scoped to their sales.
+  final String? branchOwnerId;
+
+  const TransactionsTable({super.key, this.branchOwnerId});
 
   @override
   State<TransactionsTable> createState() => _TransactionsTableState();
@@ -171,6 +175,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
       search: search,
       sortColumn: 'timestamp',
       sortAscending: false,
+      userId: widget.branchOwnerId,
     );
 
     final buyerIds = salePage.rows
@@ -337,7 +342,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        const SellButton(),
+                        SellButton(branchOwnerId: widget.branchOwnerId),
                       ],
                     )
                   : Column(
@@ -355,9 +360,14 @@ class _TransactionsTableState extends State<TransactionsTable> {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        const Row(
+                        Row(
                           children: [
-                            Expanded(child: SellButton(compact: true)),
+                            Expanded(
+                              child: SellButton(
+                                compact: true,
+                                branchOwnerId: widget.branchOwnerId,
+                              ),
+                            ),
                           ],
                         ),
                       ],
