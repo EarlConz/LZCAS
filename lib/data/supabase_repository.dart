@@ -465,9 +465,16 @@ class SupabaseRepository {
     String? search,
     String sortColumn = 'timestamp',
     bool sortAscending = false,
+    String? userId,
   }) async {
     dynamic dataQuery = _supabase.from('sales').select('*');
     dynamic countQuery = _supabase.from('sales').select('id');
+
+    // Scope to a single seller (e.g. a branch cashier sees only their sales).
+    if (userId != null) {
+      dataQuery = dataQuery.eq('user_id', userId);
+      countQuery = countQuery.eq('user_id', userId);
+    }
 
     if (search != null && search.isNotEmpty) {
       final orFilter = 'buyer_name.ilike.%$search%,item_name.ilike.%$search%';
@@ -967,6 +974,139 @@ class SupabaseRepository {
     await _supabase.from('items').update(item.toJson()).eq('id', item.id!);
     _changes.add('item_updated');
     return true;
+  }
+
+  // ── Branch Stock (two-tier inventory) ──────────────────────────────────────
+
+  /// A branch cashier's own on-hand allocation, shaped as [Item]s (stock =
+  /// their quantity, status = Good/Low/Out). Reads `branch_stock_view`.
+  Future<List<Item>> fetchBranchStock(String ownerId) async {
+    final data = await _supabase
+        .from('branch_stock_view')
+        .select()
+        .eq('owner_id', ownerId);
+    return (data as List).map((j) => Item.fromJson(j)).toList();
+  }
+
+  /// All branches' stock rows (admin overview). Each row includes owner_id,
+  /// id (item), name, category, stock (quantity), status.
+  Future<List<Map<String, dynamic>>> fetchAllBranchStock() async {
+    final data = await _supabase
+        .from('branch_stock_view')
+        .select()
+        .order('owner_id');
+    return List<Map<String, dynamic>>.from(data as List);
+  }
+
+  /// Branch-cashier accounts (id + username) for the give-out picker.
+  Future<List<Map<String, dynamic>>> listBranchCashiers() async {
+    final data = await _supabase
+        .from('profiles')
+        .select('id, username')
+        .eq('role', 'branch_cashier')
+        .order('username');
+    return List<Map<String, dynamic>>.from(data as List);
+  }
+
+  /// Give central stock to a branch cashier (admin / main cashier only).
+  Future<void> transferStockToBranch({
+    required int itemId,
+    required String ownerId,
+    required int quantity,
+    String? note,
+  }) async {
+    await _supabase.rpc(
+      'transfer_stock_to_branch',
+      params: {
+        'p_item_id': itemId,
+        'p_owner_id': ownerId,
+        'p_quantity': quantity,
+        'p_note': note,
+      },
+    );
+    _changes.add('branch_stock_changed');
+  }
+
+  /// Return stock from a branch back to central.
+  Future<void> returnBranchStock({
+    required int itemId,
+    required String ownerId,
+    required int quantity,
+    String? note,
+  }) async {
+    await _supabase.rpc(
+      'return_branch_stock',
+      params: {
+        'p_item_id': itemId,
+        'p_owner_id': ownerId,
+        'p_quantity': quantity,
+        'p_note': note,
+      },
+    );
+    _changes.add('branch_stock_changed');
+  }
+
+  /// Set a branch's count for an item to an absolute value (correction).
+  Future<void> adjustBranchStock({
+    required int itemId,
+    required String ownerId,
+    required int newQuantity,
+    String? note,
+  }) async {
+    await _supabase.rpc(
+      'adjust_branch_stock',
+      params: {
+        'p_item_id': itemId,
+        'p_owner_id': ownerId,
+        'p_new_quantity': newQuantity,
+        'p_note': note,
+      },
+    );
+    _changes.add('branch_stock_changed');
+  }
+
+  /// Record a sale from the CURRENT branch cashier's allocation. Decrements
+  /// their branch stock and writes a normal sales row. Returns the sale id.
+  Future<int> recordBranchSale({
+    required int itemId,
+    required int quantity,
+    int price = 0,
+    int? buyerId,
+    String? buyerName,
+    DateTime? timestamp,
+  }) async {
+    final data = await _supabase.rpc(
+      'record_branch_sale',
+      params: {
+        'p_item_id': itemId,
+        'p_quantity': quantity,
+        'p_price': price,
+        'p_buyer_id': buyerId,
+        'p_buyer_name': buyerName,
+        'p_timestamp': timestamp?.toUtc().toIso8601String(),
+      },
+    );
+    _changes.add('sale_added');
+    if (data is num) return data.toInt();
+    return 0;
+  }
+
+  /// Transfer/return/adjust audit history (newest first), paginated and
+  /// optionally filtered by branch cashier and/or transfer type. Server-side
+  /// `range` keeps the payload bounded no matter how much history accrues.
+  Future<List<Map<String, dynamic>>> fetchStockTransfers({
+    String? ownerId,
+    String? transferType, // 'give_out' | 'return' | 'adjust'
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    var q = _supabase.from('stock_transfers').select();
+    if (ownerId != null) q = q.eq('to_owner_id', ownerId);
+    if (transferType != null) q = q.eq('transfer_type', transferType);
+    final data = await q
+        .order('created_at', ascending: false)
+        .range(offset, offset + limit - 1);
+    return List<Map<String, dynamic>>.from(data as List);
   }
 
   Future<bool> updateMember(Member member) async {

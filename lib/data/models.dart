@@ -794,8 +794,9 @@ class UserProfile {
   final String username;
   final String?
   email; // auth.users.email — populated via handle_new_user trigger
-  final String role; // admin, inventory, cashier, member, reseller
+  final String role; // admin, inventory, cashier, branch_cashier, member, reseller
   final int? memberId; // links to members.id for member/reseller roles
+  final bool mobileEnabled; // admin-granted mobile login (branch_cashier only)
   final DateTime? createdAt;
 
   const UserProfile({
@@ -804,6 +805,7 @@ class UserProfile {
     this.email,
     this.role = 'cashier',
     this.memberId,
+    this.mobileEnabled = false,
     this.createdAt,
   });
 
@@ -813,6 +815,7 @@ class UserProfile {
     email: json['email'] as String?,
     role: json['role'] as String? ?? 'cashier',
     memberId: json['member_id'] as int?,
+    mobileEnabled: json['mobile_enabled'] == true,
     createdAt: json['created_at'] != null
         ? DateTime.tryParse(json['created_at'].toString())
         : null,
@@ -822,6 +825,7 @@ class UserProfile {
     'id': id,
     'username': username,
     'role': role,
+    'mobile_enabled': mobileEnabled,
     if (email != null) 'email': email,
     if (memberId != null) 'member_id': memberId,
     if (createdAt != null) 'created_at': createdAt!.toIso8601String(),

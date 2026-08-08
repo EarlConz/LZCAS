@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v24)
+├── migrations/    Ordered, apply-once changes (v2 … v33)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -49,17 +49,48 @@ fresh DB; on an existing DB only the ones not yet applied.
   redefines the availment trigger's chairman inserts, recomputes the Chairman
   ledger. ⚠️ Changes existing earnings (only downward).
 
-> **Currently live: v27.** All five bonuses (Direct/Indirect Referral, Group
+> **Live on prod: v27.** All five bonuses (Direct/Indirect Referral, Group
 > Sales, Upgrade, Chairman) are stored `member_transactions` rows the RPC sums —
 > none recomputed live, so editing package rates never changes history. Direct/
 > Indirect are availment-based + min-tier capped; Chairman is availment-gated at
 > the earner's own rate. Referral bonuses crystallize at first availment (with
 > catch-up), frozen thereafter.
 
+**Branch Cashier role + Branch Stock (v28–v33)** — *staging only; not yet on
+prod. Apply in this exact order:*
+- v28 — `is_staff()` accepts the new `branch_cashier` role.
+- v29 — `profiles.mobile_enabled` flag (admin-granted mobile login for a branch
+  cashier; desktop-only by default). Enforced in-app.
+- v30 — Branch stock system: `branch_stock` + `stock_transfers` tables,
+  `branch_stock_view`, and RPCs `transfer_stock_to_branch`, `return_branch_stock`,
+  `adjust_branch_stock`, `record_branch_sale` (two-tier inventory: central
+  `items.stock` + per-branch allocation; give-out deducts central).
+- v31 — Give-out/return also log `stock_movements` (`transfer_out`/`transfer_in`)
+  so branch transfers show up in Reports as **Branch Out / Branch In**. (adjust is
+  not logged — it doesn't change central stock.)
+- v32 — Include the give-stock **note** in the Reports movement reason
+  (`branch - note`).
+- v33 — **RLS + policies** for `branch_stock`/`stock_transfers` (the read fix):
+  RLS on, SELECT only; admin/main-cashier see all, a branch cashier sees only
+  their own rows. All writes stay locked to the SECURITY DEFINER RPCs.
+
+> **Rollout order (all environments):** DB migrations first (invisible/reversible)
+> → app release second (`UserRole.fromString` throws on unknown roles, so the new
+> build must ship before any `branch_cashier` account exists) → create accounts
+> last. Edge Functions `create-user` / `update-user` must be **deployed** to the
+> target project (staging currently) for admin user-management + the mobile flag.
+
 ## rollbacks/
 `rollback_get_member_earnings_vNN.sql` restores the function/behavior as it was
 **before** the next migration (e.g. `…_v24.sql` reverts v24 back to v23). Run
 one only if you need to undo the corresponding migration.
+
+Branch cashier / branch stock undo scripts:
+- `rollback_mobile_flag_v29.sql` — drop `profiles.mobile_enabled`.
+- `rollback_branch_stock_v30.sql` — drop the whole branch-stock system.
+- `rollback_branch_transfer_reports_v31.sql` — stop logging transfers to Reports.
+- `rollback_branch_transfer_note_v32.sql` — drop the note from the Reports reason.
+- `rollback_is_staff_v27.sql` — reverts the `is_staff()` change from v28.
 
 ## diagnostics/
 Read-only — safe on the live DB, write nothing.

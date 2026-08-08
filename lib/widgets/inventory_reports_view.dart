@@ -22,6 +22,8 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
   final List<Map<String, dynamic>> _movements = [];
   int _stockInTotal = 0;
   int _stockOutTotal = 0;
+  int _branchOutTotal = 0; // stock given to branches
+  int _branchInTotal = 0; // stock returned from branches
   bool _loading = true;
 
   // ── Filters ──────────────────────────────────────────────
@@ -35,6 +37,8 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     'All',
     'Stock In',
     'Stock Out',
+    'Branch Out',
+    'Branch In',
     'New Product',
     'Sale',
     'Package',
@@ -124,20 +128,45 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
       final now = DateTime.now();
       int stockIn = 0;
       int stockOut = 0;
+      int branchOut = 0;
+      int branchIn = 0;
 
       final movements = <Map<String, dynamic>>[];
 
       for (final sm in stockMovements) {
-        final isIn = sm.movementType == 'stock_in';
+        final mt = sm.movementType;
+        final isTransferOut = mt == 'transfer_out';
+        final isTransferIn = mt == 'transfer_in';
+        final isIn = mt == 'stock_in';
         final isNewProduct = sm.reason == 'new_product';
-        if (isIn)
+
+        if (isTransferOut) {
+          branchOut += sm.quantity;
+        } else if (isTransferIn) {
+          branchIn += sm.quantity;
+        } else if (isIn) {
           stockIn += sm.quantity;
-        else
+        } else {
           stockOut += sm.quantity;
+        }
+
+        final String typeLabel = isNewProduct
+            ? 'New Product'
+            : isTransferOut
+                ? 'Branch Out'
+                : isTransferIn
+                    ? 'Branch In'
+                    : (isIn ? 'Stock In' : 'Stock Out');
 
         String userLabel = '';
         String? reasonLabel;
-        if (!isNewProduct) {
+        if (isTransferOut || isTransferIn) {
+          // reason holds the branch cashier's name; user = staff who moved it.
+          reasonLabel = sm.reason;
+          userLabel = sm.userId != null
+              ? (profiles[sm.userId] ?? 'Unknown')
+              : '';
+        } else if (!isNewProduct) {
           reasonLabel = sm.reason;
           // For stock out, show who requested it instead of the reason
           if (!isIn && sm.userId != null) {
@@ -148,9 +177,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
         }
 
         movements.add({
-          'type': isNewProduct
-              ? 'New Product'
-              : (isIn ? 'Stock In' : 'Stock Out'),
+          'type': typeLabel,
           'item': sm.itemName,
           'qty': sm.quantity,
           'user': userLabel,
@@ -194,6 +221,8 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
       setState(() {
         _stockInTotal = stockIn;
         _stockOutTotal = stockOut;
+        _branchOutTotal = branchOut;
+        _branchInTotal = branchIn;
         _movements.clear();
         _movements.addAll(movements);
         _loading = false;
@@ -318,9 +347,12 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Reason label
+                      // Label — branch transfers store the branch name here,
+                      // not a free-text reason, so label it accordingly.
                       Text(
-                        'Reason',
+                        (type == 'Branch Out' || type == 'Branch In')
+                            ? 'Branch name'
+                            : 'Reason',
                         style: StockpileFonts.satoshi(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -445,6 +477,18 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
           color: StockpileColors.error500,
           label: 'Stock Out',
         );
+      case 'Branch Out':
+        return (
+          icon: Icons.local_shipping_rounded,
+          color: Colors.orange.shade700,
+          label: 'Branch Out',
+        );
+      case 'Branch In':
+        return (
+          icon: Icons.move_to_inbox_rounded,
+          color: Colors.teal.shade600,
+          label: 'Branch In',
+        );
       case 'Package':
         return (
           icon: Icons.inventory_2_rounded,
@@ -505,6 +549,20 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
                     label: 'Stock Out',
                     value: '$_stockOutTotal',
                     color: StockpileColors.error500,
+                    isDark: isDark,
+                  ),
+                  _ReportStatCard(
+                    icon: Icons.local_shipping_rounded,
+                    label: 'Branch Out',
+                    value: '$_branchOutTotal',
+                    color: Colors.orange.shade700,
+                    isDark: isDark,
+                  ),
+                  _ReportStatCard(
+                    icon: Icons.move_to_inbox_rounded,
+                    label: 'Branch In',
+                    value: '$_branchInTotal',
+                    color: Colors.teal.shade600,
                     isDark: isDark,
                   ),
                   _ReportStatCard(

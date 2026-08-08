@@ -23,6 +23,7 @@ import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
+import 'package:lzcas/pages/admin/branch_stock_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/notification_service.dart';
@@ -54,6 +55,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'Members',
     'Requests',
     'Package',
+    'Branch Stock',
     'Settings',
   ];
 
@@ -74,7 +76,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _AdminDeleteRequestTab(),
     // 7: Package Management
     _AdminPackageTab(),
-    // 8: Settings — Global Config moved here
+    // 8: Branch Stock — give/return/adjust + all-branches overview
+    BranchStockPage(),
+    // 9: Settings — Global Config moved here
     _AdminSettingsTab(),
   ];
 
@@ -352,6 +356,7 @@ class _UserManagementTabState extends State<_UserManagementTab>
     String username,
     String role,
     String email,
+    bool mobileEnabled,
   ) async {
     final result = await showDialog<_EditUserResult>(
       context: context,
@@ -360,6 +365,7 @@ class _UserManagementTabState extends State<_UserManagementTab>
         username: username,
         role: role,
         email: email,
+        mobileEnabled: mobileEnabled,
       ),
     );
     if (result == null || !mounted) return;
@@ -369,12 +375,18 @@ class _UserManagementTabState extends State<_UserManagementTab>
       final newRole = result.role.isNotEmpty
           ? UserRole.fromString(result.role)
           : null;
+      // Only branch-cashier accounts carry a mobile-access flag; for any other
+      // role leave it untouched (null = don't write).
+      final mobileFlag = result.role == UserRole.branchCashier.dbValue
+          ? result.mobileEnabled
+          : null;
       final ok = await auth.updateUser(
         userId: userId,
         password: result.password.isNotEmpty ? result.password : null,
         role: newRole,
         username: result.username.isNotEmpty ? result.username : null,
         email: result.email.isNotEmpty ? result.email : null,
+        mobileEnabled: mobileFlag,
       );
       if (!mounted) return;
       if (ok) {
@@ -423,7 +435,7 @@ class _UserManagementTabState extends State<_UserManagementTab>
       );
 
       if (shouldReset == true && mounted) {
-        _editUser(userId, username, '', '');
+        _editUser(userId, username, '', '', false);
       }
       return;
     }
@@ -1068,6 +1080,7 @@ class _UserManagementTabState extends State<_UserManagementTab>
       final role = u['role']?.toString() ?? '';
       final username = u['username']?.toString() ?? '';
       final email = u['email']?.toString() ?? '';
+      final mobileEnabled = u['mobile_enabled'] == true;
       final createdAt = u['created_at']?.toString() ?? '';
       final isLast = i == users.length - 1;
 
@@ -1196,9 +1209,7 @@ class _UserManagementTabState extends State<_UserManagementTab>
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    role.isNotEmpty
-                        ? role[0].toUpperCase() + role.substring(1)
-                        : '',
+                    _roleLabel(role),
                     style: TextStyle(
                       color: _roleColor(role),
                       fontWeight: FontWeight.w700,
@@ -1228,7 +1239,7 @@ class _UserManagementTabState extends State<_UserManagementTab>
                           _viewUserPassword(id, username);
                           break;
                         case 'edit':
-                          _editUser(id, username, role, email);
+                          _editUser(id, username, role, email, mobileEnabled);
                           break;
                         case 'delete':
                           _deleteUser(id, username);
@@ -1301,6 +1312,7 @@ class _UserManagementTabState extends State<_UserManagementTab>
                         username,
                         role,
                         email,
+                        mobileEnabled,
                       ),
                       icon: const CircleAvatar(
                         radius: 16,
@@ -1384,8 +1396,20 @@ class _UserManagementTabState extends State<_UserManagementTab>
         return Colors.blue.shade700;
       case 'cashier':
         return Colors.amber.shade700;
+      case 'branch_cashier':
+        return Colors.teal.shade700;
       default:
         return Colors.grey;
+    }
+  }
+
+  /// Friendly display label for a raw `profiles.role` value. Falls back to a
+  /// simple capitalization for any unknown value.
+  String _roleLabel(String role) {
+    try {
+      return UserRole.fromString(role).displayName;
+    } catch (_) {
+      return role.isNotEmpty ? role[0].toUpperCase() + role.substring(1) : '';
     }
   }
 }
@@ -1397,12 +1421,14 @@ class _EditUserResult {
   final String role;
   final String username;
   final String email;
+  final bool mobileEnabled;
 
   const _EditUserResult({
     required this.password,
     required this.role,
     required this.username,
     required this.email,
+    required this.mobileEnabled,
   });
 }
 
@@ -1413,12 +1439,14 @@ class _EditUserDialog extends StatefulWidget {
   final String username;
   final String role;
   final String email;
+  final bool mobileEnabled;
 
   const _EditUserDialog({
     required this.userId,
     required this.username,
     required this.role,
     required this.email,
+    required this.mobileEnabled,
   });
 
   @override
@@ -1430,6 +1458,7 @@ class _EditUserDialogState extends State<_EditUserDialog> {
   late final TextEditingController _usernameCtrl;
   late final TextEditingController _emailCtrl;
   late String _role;
+  late bool _mobileEnabled;
   bool _passwordVisible = false;
   String? _error;
   bool _changePassword = false;
@@ -1467,6 +1496,7 @@ class _EditUserDialogState extends State<_EditUserDialog> {
     _usernameCtrl = TextEditingController(text: widget.username);
     _emailCtrl = TextEditingController(text: widget.email);
     _role = widget.role;
+    _mobileEnabled = widget.mobileEnabled;
   }
 
   @override
@@ -1621,6 +1651,10 @@ class _EditUserDialogState extends State<_EditUserDialog> {
               const SizedBox(height: 10),
 
               // ── Role ───────────────────────────────
+              // NOTE: item value is `dbValue` (the exact profiles.role string),
+              // NOT `.name` — branch cashier persists as `branch_cashier`, so
+              // using `.name` here ('branchCashier') would not match the loaded
+              // value and crash the dropdown.
               DropdownButtonFormField<String>(
                 value: _role,
                 items: UserRole.values
@@ -1629,10 +1663,10 @@ class _EditUserDialogState extends State<_EditUserDialog> {
                     )
                     .map(
                       (r) => DropdownMenuItem(
-                        value: r.name,
+                        value: r.dbValue,
                         child: Row(
                           children: [
-                            _RoleDot(color: _colorForRole(r.name)),
+                            _RoleDot(color: _colorForRole(r.dbValue)),
                             const SizedBox(width: 8),
                             Text(r.displayName),
                           ],
@@ -1643,6 +1677,59 @@ class _EditUserDialogState extends State<_EditUserDialog> {
                 onChanged: (v) => setState(() => _role = v!),
                 decoration: _inputDeco('Role', Icons.badge_outlined),
               ),
+
+              // ── Mobile access (branch cashier only) ─────────────
+              // Branch-cashier accounts are desktop-only unless an admin
+              // enables mobile login here.
+              if (_role == UserRole.branchCashier.dbValue) ...[
+                const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isDark
+                          ? StockpileColors.darkDivider
+                          : StockpileColors.divider,
+                    ),
+                  ),
+                  child: SwitchListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                    secondary: Icon(
+                      _mobileEnabled
+                          ? Icons.smartphone_rounded
+                          : Icons.phonelink_erase_rounded,
+                      color: isDark
+                          ? StockpileColors.darkTextMuted
+                          : StockpileColors.mutedText,
+                      size: 20,
+                    ),
+                    title: Text(
+                      'Allow mobile login',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: isDark
+                            ? StockpileColors.darkTextPrimary
+                            : StockpileColors.darkText,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _mobileEnabled
+                          ? 'This account can log in on a phone or tablet.'
+                          : 'Desktop only. Turn on to permit mobile login.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark
+                            ? StockpileColors.darkTextMuted
+                            : StockpileColors.mutedText,
+                      ),
+                    ),
+                    value: _mobileEnabled,
+                    onChanged: (v) => setState(() => _mobileEnabled = v),
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 18),
 
@@ -1795,6 +1882,7 @@ class _EditUserDialogState extends State<_EditUserDialog> {
         role: _role,
         username: username,
         email: email,
+        mobileEnabled: _mobileEnabled,
       ),
     );
   }
@@ -3420,6 +3508,7 @@ class _AdminSidebar extends StatelessWidget {
     _NavItem(Icons.people_alt_rounded, 'Members'),
     _NavItem(Icons.person_remove_rounded, 'Requests'),
     _NavItem(Icons.card_giftcard_rounded, 'Package'),
+    _NavItem(Icons.local_shipping_rounded, 'Branch Stock'),
   ];
 
   static const _bottomItems = <_NavItem>[
@@ -3530,13 +3619,13 @@ class _AdminSidebar extends StatelessWidget {
                 endIndent: 12,
               ),
               const SizedBox(height: 8),
-              // Settings → index 8
+              // Settings → index 9
               _AdminSidebarTile(
                 item: _bottomItems[0],
-                isSelected: selectedIndex == 8,
+                isSelected: selectedIndex == 9,
                 activeBg: activeBg,
                 isDark: isDark,
-                onTap: () => onItemSelected(8),
+                onTap: () => onItemSelected(9),
                 expanded: wide,
               ),
             ],
