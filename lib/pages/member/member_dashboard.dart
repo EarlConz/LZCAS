@@ -425,6 +425,7 @@ class _OverviewTab extends StatefulWidget {
 class _OverviewTabState extends State<_OverviewTab> {
   int _totalItemsBought = 0;
   int _purchaseCount = 0;
+  int _lifetimeEarnings = 0;
   List<Sale> _recentSales = [];
   List<Sale> _availedPackages = [];
   bool _loadingStats = true;
@@ -441,6 +442,9 @@ class _OverviewTabState extends State<_OverviewTab> {
       repository.fetchMemberPurchaseHistory(id, limit: 5),
       repository.fetchSalesForMember(id),
       repository.fetchPackages(),
+      // Gross lifetime earnings: sum of ALL member_transactions ever
+      // recorded. This NEVER decreases (withdrawals are not subtracted).
+      repository.fetchMemberGrossLifetimeEarnings(id).catchError((_) => 0),
     ]);
     if (!mounted) return;
     setState(() {
@@ -450,6 +454,9 @@ class _OverviewTabState extends State<_OverviewTab> {
       _totalItemsBought = allSales
           .where((s) => !s.isPackage)
           .fold(0, (sum, s) => sum + s.quantity);
+      // Gross lifetime earning — sum of all historical earning/credit
+      // transactions (never reduced by withdrawals).
+      _lifetimeEarnings = results[3] as int;
       // Availed packages display the CURRENT catalog name/price (renames
       // and price changes must reflect immediately); the sale row's
       // snapshot is only a fallback for packages deleted from the catalog.
@@ -517,6 +524,8 @@ class _OverviewTabState extends State<_OverviewTab> {
   }
 
   Widget _buildStatsRow(bool isDark, bool isWide) {
+    final currencySymbol = context.watch<ConfigService>().currencySymbol;
+
     final cards = [
       _StatCard(
         icon: Icons.inventory_2_rounded,
@@ -539,9 +548,17 @@ class _OverviewTabState extends State<_OverviewTab> {
         color: const Color(0xFF6366F1),
         isDark: isDark,
       ),
+      _StatCard(
+        icon: Icons.savings_rounded,
+        label: 'Lifetime Earning',
+        value: '$currencySymbol$_lifetimeEarnings',
+        color: StockpileColors.success,
+        isDark: isDark,
+      ),
     ];
 
     if (isWide) {
+      // 4 cards in a row on wide screens
       return Row(
         children: [
           for (var i = 0; i < cards.length; i++) ...[
@@ -551,6 +568,7 @@ class _OverviewTabState extends State<_OverviewTab> {
         ],
       );
     }
+    // 2×2 grid on narrow screens
     return Column(
       children: [
         Row(
@@ -561,7 +579,13 @@ class _OverviewTabState extends State<_OverviewTab> {
           ],
         ),
         const SizedBox(height: 12),
-        cards[2],
+        Row(
+          children: [
+            Expanded(child: cards[2]),
+            const SizedBox(width: 12),
+            Expanded(child: cards[3]),
+          ],
+        ),
       ],
     );
   }
