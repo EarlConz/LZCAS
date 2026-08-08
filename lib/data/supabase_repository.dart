@@ -327,7 +327,9 @@ class SupabaseRepository {
         .order('stock', ascending: true);
     return (data as List).map((j) {
       final map = j as Map<String, dynamic>;
-      return Item.fromJson(map).copyWith(status: map['stock_status'] as String?);
+      return Item.fromJson(
+        map,
+      ).copyWith(status: map['stock_status'] as String?);
     }).toList();
   }
 
@@ -383,7 +385,9 @@ class SupabaseRepository {
     final rows = (results[1] as List).map((j) {
       final map = j as Map<String, dynamic>;
       // The view's computed status overrides the stored `status` column.
-      return Item.fromJson(map).copyWith(status: map['stock_status'] as String?);
+      return Item.fromJson(
+        map,
+      ).copyWith(status: map['stock_status'] as String?);
     }).toList();
 
     return PageResult(
@@ -1149,6 +1153,31 @@ class SupabaseRepository {
       'upgradeBonus': asInt('upgradeBonus'),
       'chairmanFridays': asInt('chairmanFridays'), // weekly Friday count
     };
+  }
+
+  /// Returns the true gross lifetime earnings for a member — the sum of
+  /// ALL earning/credit transactions ever recorded, regardless of withdrawals.
+  /// This value never decreases; it represents the absolute cumulative gross
+  /// income from account creation to the present moment.
+  ///
+  /// Queries the member_transactions ledger directly (RLS scoped to the
+  /// authenticated member), which is the canonical source of all frozen
+  /// earning records (direct/indirect referral, group sales, chairman's
+  /// bonus, upgrade bonus).
+  Future<int> fetchMemberGrossLifetimeEarnings(int memberId) async {
+    try {
+      final data = await _supabase
+          .from('member_transactions')
+          .select('price')
+          .eq('member_id', memberId);
+      return (data as List).fold<int>(
+        0,
+        (sum, row) => sum + ((row['price'] as num?)?.toInt() ?? 0),
+      );
+    } catch (e) {
+      debugPrint('[fetchMemberGrossLifetimeEarnings] failed: $e');
+      return 0;
+    }
   }
 
   // ── Earnings history (snapshot ledger) ────────────────────────────
