@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider path configuration for the GUTVita updater.
+     Exposes the app's cache and external files directories so the
+     Android package installer can access downloaded APKs. -->
+<paths>
+    <cache-path
+        name="cache"
+        path="." />
+    <external-cache-path
+        name="external_cache"
+        path="." />
+    <files-path
+        name="files"
+        path="." />
+    <external-files-path
+        name="external_files"
+        path="." />
+</paths>

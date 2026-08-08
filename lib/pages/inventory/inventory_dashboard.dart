@@ -16,6 +16,8 @@ import "package:lzcas/utils/fonts.dart";
 import "package:lzcas/widgets/inventorytable.dart";
 import "package:lzcas/widgets/inventory_reports_view.dart";
 import "package:lzcas/widgets/my_requests_tab.dart";
+import "package:lzcas/services/updater_service.dart";
+import "package:lzcas/dialogs/update_dialog.dart";
 
 class InventoryDashboard extends StatefulWidget {
   const InventoryDashboard({super.key});
@@ -32,6 +34,19 @@ class _InventoryDashboardState extends State<InventoryDashboard>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _triggerUpdateCheck();
+  }
+
+  void _triggerUpdateCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final updater = context.read<UpdaterService>();
+      updater.checkForUpdate(silent: true).then((info) {
+        if (info != null && mounted) {
+          UpdateDialog.showIfAvailable(context);
+        }
+      });
+    });
   }
 
   @override

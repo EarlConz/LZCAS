@@ -17,6 +17,8 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/updater_service.dart';
+import 'package:lzcas/dialogs/update_dialog.dart';
 
 class BranchCashierDashboard extends StatefulWidget {
   const BranchCashierDashboard({super.key});
@@ -33,6 +35,19 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _triggerUpdateCheck();
+  }
+
+  void _triggerUpdateCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final updater = context.read<UpdaterService>();
+      updater.checkForUpdate(silent: true).then((info) {
+        if (info != null && mounted) {
+          UpdateDialog.showIfAvailable(context);
+        }
+      });
+    });
   }
 
   @override
@@ -140,14 +155,14 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard>
             Expanded(
               child: TabBarView(
                 controller: _tabController,
-                children: [
-                  // Tab 1: POS terminal — sells from THIS cashier's allocation.
+                children: const [
+                  // Tab 1: POS terminal (reused)
                   Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: TransactionsTable(branchOwnerId: auth.userId),
+                    padding: EdgeInsets.all(16),
+                    child: TransactionsTable(),
                   ),
-                  // Tab 2: Stocks on Hand — this branch's allocation (read-only).
-                  _StocksOnHandView(ownerId: auth.userId),
+                  // Tab 2: Stocks on Hand (read-only)
+                  _StocksOnHandView(),
                 ],
               ),
             ),
@@ -354,172 +369,7 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
                         ],
                       ),
                     ),
-                  )
-                : Column(
-                    key: ValueKey('list_${_statusFilter}_${items.length}'),
-                    children: [
-                      for (var i = 0; i < items.length; i++)
-                        _entrance(
-                            i, _itemCard(items[i], _statusOf(items[i], data))),
-                    ],
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Subtle staggered fade + slide-up as tiles mount.
-  Widget _entrance(int index, Widget child) => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: 1),
-        duration: Duration(milliseconds: 280 + (index * 28).clamp(0, 240)),
-        curve: Curves.easeOutCubic,
-        builder: (_, t, ch) => Opacity(
-          opacity: t,
-          child: Transform.translate(offset: Offset(0, (1 - t) * 10), child: ch),
-        ),
-        child: child,
-      );
-
-  Widget _filterChips(_StockData data) {
-    final good =
-        data.items.where((i) => _statusOf(i, data) == 'Good').length;
-    final low =
-        data.items.where((i) => _statusOf(i, data) == 'Low Stock').length;
-    final out = data.items.where((i) => i.stock <= 0).length;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          _chip('All', 'All products', data.items.length,
-              StockpileColors.primary700),
-          const SizedBox(width: 8),
-          _chip('Good', 'Good', good, _cGood),
-          const SizedBox(width: 8),
-          _chip('Low Stock', 'Low', low, _cLow),
-          const SizedBox(width: 8),
-          _chip('Out of Stock', 'Out', out, _cOut),
-        ],
-      ),
-    );
-  }
-
-  Widget _chip(String value, String label, int count, Color color) {
-    final selected = _statusFilter == value;
-    return ScaleTap(
-      child: GestureDetector(
-        onTap: () => setState(() => _statusFilter = value),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: selected ? color.withAlpha(_isDark ? 60 : 34) : _inputFill,
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(
-                color: selected ? color : _border,
-                width: selected ? 1.4 : 1),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(label,
-                  style: StockpileFonts.satoshi(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: selected ? color : _textPrimary)),
-              const SizedBox(width: 6),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                decoration: BoxDecoration(
-                  color: selected ? color : _textMuted.withAlpha(40),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text('$count',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: selected ? Colors.white : _textMuted)),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  List<BoxShadow> get _softShadow => [
-        BoxShadow(
-          color: Colors.black.withAlpha(_isDark ? 46 : 15),
-          blurRadius: 18,
-          offset: const Offset(0, 8),
-        ),
-      ];
-
-  Widget _heroCard(_StockData data) {
-    final units = data.items.fold<int>(0, (s, i) => s + i.stock);
-    final products = data.items.length;
-    final good = data.items.where((i) => _statusOf(i, data) == 'Good').length;
-    final low =
-        data.items.where((i) => _statusOf(i, data) == 'Low Stock').length;
-    final out = data.items.where((i) => i.stock <= 0).length;
-    final cats = data.items
-        .map((i) => (i.category ?? 'Uncategorized'))
-        .toSet()
-        .length;
-
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: _isDark
-              ? [const Color(0xFF262640), const Color(0xFF1B1B2C)]
-              : [Colors.white, const Color(0xFFFBF7EF)],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: _border),
-        boxShadow: _softShadow,
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('STOCK ON HAND',
-                        style: StockpileFonts.satoshi(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: _textMuted,
-                            letterSpacing: 1.2)),
-                    const SizedBox(height: 8),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text('$units',
-                            style: StockpileFonts.satoshi(
-                                fontSize: 40,
-                                fontWeight: FontWeight.w800,
-                                color: _textPrimary)),
-                        const SizedBox(width: 7),
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Text('units',
-                              style: StockpileFonts.satoshi(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: _textMuted)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text('$products products · $cats categories',
-                        style: TextStyle(color: _textMuted, fontSize: 12.5)),
+                    Text(status, style: TextStyle(fontSize: 11, color: color)),
                   ],
                 ),
               ),
