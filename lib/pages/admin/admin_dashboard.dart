@@ -2407,7 +2407,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                     chairmansCtrl,
                     "Chairman's Bonus",
                     prefix: '₱ ',
-                    helper: 'Paid to the holder every Friday',
+                    helper: 'Paid to the holder for each direct referral',
                   ),
                   const SizedBox(height: 14),
                   twoCol(
@@ -2928,7 +2928,7 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
                         const SizedBox(height: 4),
                         _BonusRow(
                           label: "Chairman's Bonus",
-                          value: '₱${pkg.chairmansBonus} / Friday',
+                          value: '₱${pkg.chairmansBonus} / referral',
                           isDark: isDark,
                         ),
                         const SizedBox(height: 8),
@@ -6570,18 +6570,32 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
       return true;
     }).toList();
 
-    // "All" per dimension reflects the OTHER dimension's filter
-    final statusAllCount = typeFiltered.length;
+    // "All" per dimension reflects the OTHER dimension's filter.
+    //
+    // Withdrawals live in a separate list but render in this same history
+    // view, so they must feed the Status counts too — otherwise the chips
+    // read 0 while approved/rejected withdrawal cards are on screen. They
+    // participate only when the Action filter is 'all' or 'withdrawal'
+    // (mirrors _filteredWithdrawalHistory).
+    final withdrawalsInType =
+        _historyTypeFilter == 'all' || _historyTypeFilter == 'withdrawal';
+    int withdrawalStatusCount(String status) => withdrawalsInType
+        ? _withdrawalHistory.where((w) => w.status == status).length
+        : 0;
+
+    final statusAllCount =
+        typeFiltered.length +
+        (withdrawalsInType ? _withdrawalHistory.length : 0);
     final withdrawalCount = _withdrawalHistory
         .where((w) => _historyFilter == 'all' || w.status == _historyFilter)
         .length;
     final actionAllCount = statusFiltered.length + withdrawalCount;
-    final approvedCount = typeFiltered
-        .where((r) => r.status == 'approved')
-        .length;
-    final rejectedCount = typeFiltered
-        .where((r) => r.status == 'rejected')
-        .length;
+    final approvedCount =
+        typeFiltered.where((r) => r.status == 'approved').length +
+        withdrawalStatusCount('approved');
+    final rejectedCount =
+        typeFiltered.where((r) => r.status == 'rejected').length +
+        withdrawalStatusCount('rejected');
     final deleteCount = statusFiltered
         .where((r) => r.requestType == 'delete')
         .length;
