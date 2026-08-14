@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../config/build_flavor.dart';
+
 class SupabaseConfig {
   static const _definedUrl = String.fromEnvironment('SUPABASE_URL');
   static const _definedAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
@@ -55,6 +57,13 @@ Future<bool> initSupabase() async {
   if (!SupabaseConfig.isConfigured) {
     // Supabase is optional for now so the app can still run fully offline.
     return false;
+  }
+
+  // Refuse to connect if this build is aimed at the wrong project — checked
+  // BEFORE initialize() so a mis-built binary never touches the database.
+  final mismatch = BuildConfig.supabaseMismatch(SupabaseConfig.url);
+  if (mismatch != null) {
+    throw StateError(mismatch);
   }
 
   await Supabase.initialize(

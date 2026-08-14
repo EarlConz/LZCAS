@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart'
     hide AuthState; // Our AuthState is in auth/auth.dart
 import 'package:bot_toast/bot_toast.dart';
 import 'theme.dart';
+import 'config/build_flavor.dart';
+import 'widgets/staging_badge.dart';
 import 'data/supabase_config.dart';
 import 'db/db.dart';
 import 'auth/auth.dart';
@@ -78,11 +80,16 @@ class _LzcasAppState extends State<LzcasApp> {
     // Read auth state to determine the initial route.
     final auth = context.watch<AuthState>();
 
+    final botToastBuilder = BotToastInit();
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'GUTVita',
+      title: 'GUTVita${BuildConfig.titleSuffix}',
       theme: stockpileTheme,
-      builder: BotToastInit(),
+      // Wrap BotToast's builder so a staging build is always visibly marked.
+      // On production the ribbon is absent and this is a pass-through.
+      builder: (context, child) =>
+          botToastBuilder(context, StagingBadge(child: child)),
       // Use onGenerateRoute for centralized, role-aware routing.
       onGenerateRoute: appRouter,
       // Initial route depends on authentication status.
