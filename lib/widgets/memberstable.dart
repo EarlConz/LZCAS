@@ -38,6 +38,9 @@ class MembersTableState extends State<MembersTable> {
   // ── Server-page state for desktop PaginatedDataTable ──────────────
   final List<Map<String, dynamic>> _serverPage = [];
   int _totalCount = 0;
+  bool _fetchingServer = false; // a fetch loop is currently running
+  int _pendingNeeded = 0; // highest requested row count (coalesces requests)
+  bool _didInitialPrefetch = false; // primed page 2 once after first load
   late final _MembersDataSource _membersSource;
 
   late final StreamSubscription<String> _changesSub;
@@ -107,6 +110,8 @@ class MembersTableState extends State<MembersTable> {
           _items.clear();
           _serverPage.clear();
           _serverPage.addAll(newMembers);
+          _pendingNeeded = _serverPage.length;
+          _didInitialPrefetch = false;
           final currentIds = newMembers
               .map((m) => m['id'])
               .whereType<int>()
@@ -132,6 +137,42 @@ class MembersTableState extends State<MembersTable> {
         _isLoadingMore = false;
       });
     }
+  }
+
+  /// Ensure `_serverPage` holds at least [neededCount] rows by loading
+  /// consecutive server pages, then let the table repaint. Called from
+  /// `onPageChanged` with the last row index the new table page needs.
+  ///
+  /// NOTE: PaginatedDataTable.onPageChanged reports the *first row index* of
+  /// the page — NOT a page number — so we convert it to the server page(s) to
+  /// fetch here rather than treating it as a page index.
+  Future<void> _ensureLoadedThrough(int neededCount) async {
+    if (neededCount > _pendingNeeded) _pendingNeeded = neededCount;
+    // A running loop re-reads _pendingNeeded each iteration, so a fast
+    // multi-page jump (or a background prefetch racing a navigation) never
+    // drops a request.
+    if (_fetchingServer) return;
+    _fetchingServer = true;
+    try {
+      while (_serverPage.length < _pendingNeeded &&
+          (_totalCount == 0 || _serverPage.length < _totalCount)) {
+        final nextPage = (_serverPage.length ~/ _pageSize) + 1;
+        final before = _serverPage.length;
+        await _fetchServerPage(nextPage);
+        if (!mounted) return;
+        if (_serverPage.length <= before) break; // no progress — stop
+      }
+    } finally {
+      _fetchingServer = false;
+    }
+  }
+
+  /// Quietly load ONE page beyond what's loaded so the next forward step is
+  /// instant. Fire-and-forget; ignored when a fetch is running or all rows
+  /// are already loaded.
+  void _prefetchNext() {
+    final hasMore = _totalCount == 0 || _serverPage.length < _totalCount;
+    if (hasMore) _ensureLoadedThrough(_serverPage.length + 1);
   }
 
   /// Fetch a specific server page — updates desktop PaginatedDataTable.
@@ -608,6 +649,16 @@ class MembersTableState extends State<MembersTable> {
             var available = constraints.maxHeight - reserved;
             if (available < 62) available = 62;
             final estimated = (available ~/ 62).clamp(1, 20);
+
+            // Desktop table is built → prime the second page once so the first
+            // "next" is already loaded. (Runs here so the mobile list never
+            // wastes a fetch into _serverPage.)
+            if (!_didInitialPrefetch && !_isInitialLoading) {
+              _didInitialPrefetch = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _prefetchNext();
+              });
+            }
             final tableWidth = constraints.hasBoundedWidth
                 ? constraints.maxWidth
                 : (constraints.minWidth.isFinite && constraints.minWidth > 0
@@ -637,7 +688,13 @@ class MembersTableState extends State<MembersTable> {
                     DataColumn(label: Text('QR')),
                   ],
                   source: _membersSource,
-                  onPageChanged: (pageIndex) => _fetchServerPage(pageIndex + 1),
+                  // pageIndex is the FIRST row index of the new page; ensure we
+                  // have loaded through the last visible row of that page, then
+                  // quietly prime the following page.
+                  onPageChanged: (pageIndex) =>
+                      _ensureLoadedThrough(
+                        pageIndex + estimated,
+                      ).then((_) => _prefetchNext()),
                 ),
               ),
             );
@@ -723,7 +780,19 @@ class _MembersDataSource extends DataTableSource {
   @override
   DataRow getRow(int index) {
     if (index >= _items.length) {
-      return DataRow(cells: List.filled(8, const DataCell(Text('Loading…'))));
+      // Not fetched yet — show a shimmering skeleton row instead of raw text.
+      return DataRow(
+        cells: [
+          skeletonCell(width: 90), // Last Name
+          skeletonCell(width: 90), // First Name
+          skeletonCell(width: 70), // Middle Name
+          skeletonCell(width: 80), // Role
+          skeletonCell(width: 100), // Contact No.
+          skeletonCell(width: 80), // Birthday
+          skeletonCell(width: 130), // Address
+          skeletonCell(width: 32), // QR
+        ],
+      );
     }
     final member = _items[index];
     final id = member['id'] as int?;

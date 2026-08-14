@@ -337,3 +337,13 @@ class SkeletonList extends StatelessWidget {
     return Column(children: List.generate(count, (_) => const SkeletonRow()));
   }
 }
+
+/// A shimmering placeholder cell for a not-yet-loaded row in a
+/// [PaginatedDataTable]. Reuses [SkeletonBlock] so it matches the app's other
+/// loading states. Left-aligned to line up with real cell content.
+DataCell skeletonCell({double width = 90}) => DataCell(
+  Align(
+    alignment: Alignment.centerLeft,
+    child: SkeletonBlock(width: width, height: 14, borderRadius: 7),
+  ),
+);
