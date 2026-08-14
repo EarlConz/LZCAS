@@ -1002,7 +1002,7 @@ class _PackageDetailsSheet extends StatelessWidget {
                         _benefitRow(
                           Icons.workspace_premium_rounded,
                           "Chairman's Bonus",
-                          '₱${pkg.chairmansBonus} / Friday',
+                          '₱${pkg.chairmansBonus} / referral',
                           textColor,
                           mutedColor,
                         ),
@@ -1656,7 +1656,6 @@ class _EarningsTabState extends State<_EarningsTab> {
   int _balance = 0;
   int _totalPurchases = 0;
   int _chairmanBonus = 0;
-  int _chairmanFridays = 0;
   List<EarningsSnapshot> _history = [];
   bool _loading = true;
   StreamSubscription<String>? _changeSub;
@@ -1713,7 +1712,6 @@ class _EarningsTabState extends State<_EarningsTab> {
           .where((s) => !s.isPackage)
           .fold(0, (sum, s) => sum + s.quantity);
       _chairmanBonus = breakdown['chairmanBonus'] ?? 0;
-      _chairmanFridays = breakdown['chairmanFridays'] ?? 0;
       _history = history;
       _loading = false;
     });
@@ -1848,7 +1846,7 @@ class _EarningsTabState extends State<_EarningsTab> {
                   _BreakdownRow(
                     label: "Chairman's Bonus",
                     detail:
-                        "Your package's chairman's bonus, paid once every Friday since you availed your package",
+                        "Your package's chairman's bonus, earned once for each direct referral you recruit",
                     isDark: isDark,
                     isCompact: isMobile,
                   ),
@@ -1896,9 +1894,7 @@ class _EarningsTabState extends State<_EarningsTab> {
         Expanded(
           child: _StatCard(
             icon: Icons.workspace_premium_rounded,
-            label:
-                "Chairman's Bonus"
-                '${_chairmanFridays > 0 ? ' ($_chairmanFridays Friday${_chairmanFridays == 1 ? '' : 's'})' : ''}',
+            label: "Chairman's Bonus",
             value: '$currencySymbol$_chairmanBonus',
             color: StockpileColors.success,
             isDark: isDark,
@@ -1936,9 +1932,7 @@ class _EarningsTabState extends State<_EarningsTab> {
             Expanded(
               child: _StatCard(
                 icon: Icons.workspace_premium_rounded,
-                label:
-                    "Chairman's Bonus"
-                    '${_chairmanFridays > 0 ? ' ($_chairmanFridays Friday${_chairmanFridays == 1 ? '' : 's'})' : ''}',
+                label: "Chairman's Bonus",
                 value: '$currencySymbol$_chairmanBonus',
                 color: StockpileColors.success,
                 isDark: isDark,
@@ -1971,9 +1965,7 @@ class _EarningsTabState extends State<_EarningsTab> {
         const SizedBox(height: 8),
         _StatCard(
           icon: Icons.workspace_premium_rounded,
-          label:
-              "Chairman's Bonus"
-              '${_chairmanFridays > 0 ? ' ($_chairmanFridays Friday${_chairmanFridays == 1 ? '' : 's'})' : ''}',
+          label: "Chairman's Bonus",
           value: '$currencySymbol$_chairmanBonus',
           color: StockpileColors.success,
           isDark: isDark,

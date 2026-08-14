@@ -70,6 +70,9 @@ class _InventoryTableState extends State<InventoryTable> {
   // ── Server-page state for desktop PaginatedDataTable ──────────────
   final List<Map<String, dynamic>> _serverPage = [];
   int _totalCount = 0;
+  bool _fetchingServer = false; // a fetch loop is currently running
+  int _pendingNeeded = 0; // highest requested row count (coalesces requests)
+  bool _didInitialPrefetch = false; // primed page 2 once after first load
   late final _InventoryDataSource _inventorySource;
 
   @override
@@ -276,6 +279,8 @@ class _InventoryTableState extends State<InventoryTable> {
           _items.clear();
           _serverPage.clear();
           _serverPage.addAll(newItems);
+          _pendingNeeded = _serverPage.length;
+          _didInitialPrefetch = false;
         }
         _items.addAll(newItems);
         _currentPage = page;
@@ -296,6 +301,40 @@ class _InventoryTableState extends State<InventoryTable> {
         _isLoadingMore = false;
       });
     }
+  }
+
+  /// Ensure `_serverPage` holds at least [neededCount] rows by loading
+  /// consecutive server pages until it does (or all rows are loaded).
+  ///
+  /// NOTE: PaginatedDataTable.onPageChanged reports the *first row index* of
+  /// the new table page — NOT a page number — so we translate the required
+  /// row count into however many server pages that takes.
+  Future<void> _ensureLoadedThrough(int neededCount) async {
+    if (neededCount > _pendingNeeded) _pendingNeeded = neededCount;
+    // A running loop re-reads _pendingNeeded each iteration, so a fast
+    // multi-page jump (or a background prefetch racing a navigation) never
+    // drops a request.
+    if (_fetchingServer) return;
+    _fetchingServer = true;
+    try {
+      while (_serverPage.length < _pendingNeeded &&
+          (_totalCount == 0 || _serverPage.length < _totalCount)) {
+        final nextPage = (_serverPage.length ~/ _pageSize) + 1;
+        final before = _serverPage.length;
+        await _fetchServerPage(nextPage);
+        if (_serverPage.length <= before) break; // no progress — stop
+      }
+    } finally {
+      _fetchingServer = false;
+    }
+  }
+
+  /// Quietly load ONE page beyond what's loaded so the next forward step is
+  /// instant. Fire-and-forget; ignored when a fetch is running or all rows
+  /// are already loaded.
+  void _prefetchNext() {
+    final hasMore = _totalCount == 0 || _serverPage.length < _totalCount;
+    if (hasMore) _ensureLoadedThrough(_serverPage.length + 1);
   }
 
   /// Fetch a specific server page — updates desktop PaginatedDataTable.
@@ -326,6 +365,7 @@ class _InventoryTableState extends State<InventoryTable> {
         _serverPage.addAll(newItems);
         _totalCount = page.totalCount;
       });
+      _inventorySource.refresh();
     } catch (e) {
       if (!mounted) return;
     }
@@ -396,6 +436,16 @@ class _InventoryTableState extends State<InventoryTable> {
                         final rowsPerPage = ((availableHeight - 170) ~/ 62)
                             .clamp(1, 7);
 
+                        // Desktop table is built → prime the second page once so
+                        // the first "next" is already loaded. (Runs here so the
+                        // mobile list never wastes a fetch into _serverPage.)
+                        if (!_didInitialPrefetch && !_isInitialLoading) {
+                          _didInitialPrefetch = true;
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) _prefetchNext();
+                          });
+                        }
+
                         return SizedBox(
                           height: availableHeight,
                           width: double.infinity,
@@ -458,8 +508,14 @@ class _InventoryTableState extends State<InventoryTable> {
                                       const DataColumn(label: Text("Action")),
                                     ],
                                     source: _inventorySource,
+                                    // pageIndex is the FIRST row index of the
+                                    // new page, not a page number — load through
+                                    // the last row this page needs, then quietly
+                                    // prime the following page.
                                     onPageChanged: (pageIndex) =>
-                                        _fetchServerPage(pageIndex + 1),
+                                        _ensureLoadedThrough(
+                                          pageIndex + rowsPerPage,
+                                        ).then((_) => _prefetchNext()),
                                   ),
                                 ),
                               ),
@@ -1139,7 +1195,17 @@ class _InventoryDataSource extends DataTableSource {
   @override
   DataRow getRow(int index) {
     if (index >= _items.length) {
-      return DataRow(cells: List.filled(6, const DataCell(Text('Loading…'))));
+      // Not fetched yet — show a shimmering skeleton row instead of raw text.
+      return DataRow(
+        cells: [
+          skeletonCell(width: 150), // Item Name
+          skeletonCell(width: 90), // Category
+          skeletonCell(width: 50), // Stock
+          skeletonCell(width: 100), // Last Updated
+          skeletonCell(width: 70), // Status
+          skeletonCell(width: 40), // Action
+        ],
+      );
     }
     final item = _items[index];
     final isEven = index % 2 == 0;

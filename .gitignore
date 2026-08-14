@@ -54,3 +54,8 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 lib/data/app.db
+
+# Compiled Inno Setup installers (see docs/staging_builds.md).
+# These are release artifacts — upload them to a GitHub release, never commit
+# them; each one is >14 MB and would live in history forever.
+/installer_output/

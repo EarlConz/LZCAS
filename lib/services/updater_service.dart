@@ -13,6 +13,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
+import '../config/build_flavor.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -27,12 +28,19 @@ class UpdateInfo {
   final String fileName;
   final int fileSize;
 
+  /// True when the running app is below the release's declared
+  /// `min-supported-version` floor — the update must be installed (the dialog
+  /// hides "Later" and blocks dismissal). Used to force clients up when a
+  /// release is backend-breaking (e.g. ships DB migrations).
+  final bool mandatory;
+
   const UpdateInfo({
     required this.version,
     required this.changelog,
     required this.downloadUrl,
     required this.fileName,
     required this.fileSize,
+    this.mandatory = false,
   });
 }
 
@@ -67,6 +75,14 @@ class UpdaterService extends ChangeNotifier {
   /// notified unless an update IS available — the user never sees a
   /// "no update found" toast after login.
   Future<UpdateInfo?> checkForUpdate({bool silent = true}) async {
+    // Skip automatic (silent) checks in debug builds so development isn't
+    // interrupted by the update prompt. A manual check from Settings
+    // (silent: false) still runs so the flow remains testable.
+    if (kDebugMode && silent) {
+      _status = UpdateStatus.idle;
+      return null;
+    }
+
     _status = UpdateStatus.checking;
     _errorMessage = null;
     _updateInfo = null;
@@ -87,8 +103,18 @@ class UpdaterService extends ChangeNotifier {
       }
 
       final latestVersion = _stripV(latest['tag_name'] as String? ?? '');
-      final changelog =
-          (latest['body'] as String?)?.trim() ?? 'No release notes.';
+      final rawBody = (latest['body'] as String?)?.trim() ?? '';
+
+      // Declared minimum supported version (floor). When the running app is
+      // below it, the update is mandatory. Marker is stripped from the notes.
+      final minSupported = _parseMinSupported(rawBody);
+      final mandatory = minSupported != null &&
+          _compareVersions(currentVersion, minSupported) < 0 &&
+          _compareVersions(latestVersion, minSupported) >= 0;
+      final changelog = () {
+        final c = _stripMinMarker(rawBody);
+        return c.isEmpty ? 'No release notes.' : c;
+      }();
 
       // 3) Compare — only continue if the remote version is newer.
       if (_compareVersions(latestVersion, currentVersion) <= 0) {
@@ -113,6 +139,7 @@ class UpdaterService extends ChangeNotifier {
         downloadUrl: asset['browser_download_url'] as String,
         fileName: asset['name'] as String,
         fileSize: (asset['size'] as num?)?.toInt() ?? 0,
+        mandatory: mandatory,
       );
 
       _status = UpdateStatus.updateAvailable;
@@ -270,21 +297,41 @@ class UpdaterService extends ChangeNotifier {
 
   // ── Internal ─────────────────────────────────────────────────────────────
 
+  /// Fetch the newest release for THIS build's channel.
+  ///
+  /// The two flavors read disjoint sets of releases, so a staging build can
+  /// never update itself into production (or vice-versa):
+  ///
+  ///   • production → `/releases/latest`, which GitHub defines as the newest
+  ///     release that is NOT a pre-release and NOT a draft.
+  ///   • staging    → `/releases` (newest first), taking the first entry
+  ///     flagged `prerelease` and skipping drafts.
   Future<Map<String, dynamic>?> _fetchLatestRelease() async {
+    final path = BuildConfig.isStaging
+        ? '/repos/$_repoOwner/$_repoName/releases?per_page=30'
+        : '/repos/$_repoOwner/$_repoName/releases/latest';
     try {
-      final uri = Uri.parse(
-        '$_apiBase/repos/$_repoOwner/$_repoName/releases/latest',
-      );
       final response = await http.get(
-        uri,
+        Uri.parse('$_apiBase$path'),
         headers: {
           'Accept': 'application/vnd.github+json',
           'User-Agent': 'LZCAS-Updater/1.0',
         },
       );
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        if (decoded is Map<String, dynamic>) return decoded;
+      if (response.statusCode != 200) return null;
+      final decoded = jsonDecode(response.body);
+
+      // Production: the endpoint already returns exactly one release.
+      if (!BuildConfig.isStaging) {
+        return decoded is Map<String, dynamic> ? decoded : null;
+      }
+
+      // Staging: pick the newest pre-release from the list.
+      if (decoded is! List) return null;
+      for (final r in decoded) {
+        if (r is! Map<String, dynamic>) continue;
+        if (r['draft'] == true) continue;
+        if (r['prerelease'] == true) return r;
       }
       return null;
     } catch (e) {
@@ -295,6 +342,36 @@ class UpdaterService extends ChangeNotifier {
 
   /// Strip leading 'v' from semver tag: "v1.2.3" → "1.2.3".
   String _stripV(String tag) => tag.startsWith('v') ? tag.substring(1) : tag;
+
+  /// Read the declared minimum supported version from a release body.
+  /// Recognises `min-supported-version: 1.5.0` (any of -/_/space, `:` or `=`)
+  /// and the shorthand `[min:1.5.0]`. Returns null if none present.
+  String? _parseMinSupported(String body) {
+    final patterns = [
+      RegExp(
+          r'min[-_ ]?supported[-_ ]?version\s*[:=]\s*v?(\d+\.\d+(?:\.\d+)?)',
+          caseSensitive: false),
+      RegExp(r'\[\s*min\s*:\s*v?(\d+\.\d+(?:\.\d+)?)\s*\]',
+          caseSensitive: false),
+    ];
+    for (final re in patterns) {
+      final m = re.firstMatch(body);
+      if (m != null) return m.group(1);
+    }
+    return null;
+  }
+
+  /// Remove the min-version marker so it doesn't show in the changelog.
+  String _stripMinMarker(String body) => body
+      .replaceAll(
+          RegExp(r'^.*min[-_ ]?supported[-_ ]?version\s*[:=].*$',
+              multiLine: true, caseSensitive: false),
+          '')
+      .replaceAll(
+          RegExp(r'\[\s*min\s*:\s*v?\d+\.\d+(?:\.\d+)?\s*\]',
+              caseSensitive: false),
+          '')
+      .trim();
 
   /// Compare two semantic versions.
   /// Returns >0 if [a] > [b], <0 if [a] < [b], 0 if equal.
@@ -308,21 +385,42 @@ class UpdaterService extends ChangeNotifier {
     return 0;
   }
 
+  /// Parse "1.2.3" into [1, 2, 3], tolerating a pre-release/build suffix on
+  /// any segment.
+  ///
+  /// Only the LEADING digits of each segment are read, so "1.1.2-rc1" yields
+  /// [1, 1, 2] rather than [1, 1, 0]. The naive `int.tryParse` used to fail on
+  /// "2-rc1" and fall back to 0, silently discarding the patch number and
+  /// making a real update look identical to an older one.
+  ///
+  /// Note this still ignores the suffix itself: "1.2.3-rc1" and "1.2.3-rc2"
+  /// compare EQUAL. Tag releases with plain incrementing numbers.
   List<int> _parseVersion(String version) {
-    final parts = version.split('.');
-    return [
-      int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 0,
-      int.tryParse(parts.length > 1 ? parts[1] : '') ?? 0,
-      int.tryParse(parts.length > 2 ? parts[2] : '') ?? 0,
-    ];
+    final parts = version.trim().split('.');
+    int segment(int i) {
+      if (i >= parts.length) return 0;
+      final match = RegExp(r'^\d+').firstMatch(parts[i].trim());
+      return match == null ? 0 : (int.tryParse(match.group(0)!) ?? 0);
+    }
+
+    return [segment(0), segment(1), segment(2)];
   }
 
   /// Match a release asset to the current OS.
+  /// Pick the asset for this platform AND this build flavor.
+  ///
+  /// Flavor safety: a staging build only accepts an asset whose filename
+  /// contains "staging", and a production build only accepts one that does
+  /// NOT. If the wrong binary is attached to a release, the update fails
+  /// loudly ("No binary found for your platform") instead of silently
+  /// converting a client's staging install into production, or vice-versa.
   Map<String, dynamic>? _findMatchingAsset(List<dynamic> assets) {
     for (final a in assets) {
       if (a is! Map<String, dynamic>) continue;
       final name = (a['name'] as String?)?.toLowerCase() ?? '';
-      if (_isMatchForCurrentPlatform(name)) return a;
+      if (!_isMatchForCurrentPlatform(name)) continue;
+      if (name.contains('staging') != BuildConfig.isStaging) continue;
+      return a;
     }
     return null;
   }

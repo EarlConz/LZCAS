@@ -37,6 +37,30 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Default label; overridden per flavor below so the two builds are
+        // distinguishable on the launcher.
+        manifestPlaceholders["appLabel"] = "GUTVita"
+    }
+
+    // ── Build flavors ────────────────────────────────────────────────
+    // "prod" keeps the original applicationId so EXISTING installs keep
+    // updating normally. "staging" gets a suffixed id, which is what lets
+    // Android treat it as a separate app — both can be installed on the same
+    // phone, with separate data, and neither overwrites the other.
+    //
+    // Build with:  flutter build apk --flavor staging --dart-define=APP_FLAVOR=staging
+    flavorDimensions += "env"
+    productFlavors {
+        create("prod") {
+            dimension = "env"
+            // No suffix — this IS the production identity.
+        }
+        create("staging") {
+            dimension = "env"
+            applicationIdSuffix = ".staging"      // com.lzcas.app.staging
+            versionNameSuffix = "-staging"
+            manifestPlaceholders["appLabel"] = "GUTVita Staging"
+        }
     }
 
     signingConfigs {

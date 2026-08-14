@@ -33,18 +33,21 @@ class UpdateDialog extends StatefulWidget {
 class _UpdateDialogState extends State<UpdateDialog> {
   bool _downloading = false;
   bool _opening = false;
+  late final UpdaterService _updater;
 
   @override
   void initState() {
     super.initState();
-    final updater = context.read<UpdaterService>();
+    // Capture the service here (context.read is safe in initState) so dispose()
+    // can detach the listener without looking up a deactivated ancestor.
+    _updater = context.read<UpdaterService>();
     // Rebuild when the service notifies (progress / status changes).
-    updater.addListener(_onServiceChanged);
+    _updater.addListener(_onServiceChanged);
   }
 
   @override
   void dispose() {
-    context.read<UpdaterService>().removeListener(_onServiceChanged);
+    _updater.removeListener(_onServiceChanged);
     super.dispose();
   }
 
@@ -82,29 +85,34 @@ class _UpdateDialogState extends State<UpdateDialog> {
     final updater = context.watch<UpdaterService>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final info = updater.updateInfo;
+    final mandatory = info?.mandatory ?? false;
 
-    return AlertDialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 60),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-        side: BorderSide(
-          color: isDark ? StockpileColors.darkDivider : StockpileColors.divider,
+    return PopScope(
+      // A mandatory update cannot be dismissed with the back button / Esc.
+      canPop: !mandatory,
+      child: AlertDialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 60),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(
+            color:
+                isDark ? StockpileColors.darkDivider : StockpileColors.divider,
+          ),
         ),
+        backgroundColor:
+            isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+        surfaceTintColor: Colors.transparent,
+        titlePadding: EdgeInsets.zero,
+        contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
+        title: _buildHeader(isDark, mandatory),
+        content: _buildContent(updater, info, isDark),
+        actions: _buildActions(updater, isDark, mandatory),
       ),
-      backgroundColor: isDark
-          ? StockpileColors.darkSurface
-          : StockpileColors.surface,
-      surfaceTintColor: Colors.transparent,
-      titlePadding: EdgeInsets.zero,
-      contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-      actionsPadding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
-      title: _buildHeader(isDark),
-      content: _buildContent(updater, info, isDark),
-      actions: _buildActions(updater, isDark),
     );
   }
 
-  Widget _buildHeader(bool isDark) {
+  Widget _buildHeader(bool isDark, bool mandatory) {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 22, 24, 16),
       decoration: BoxDecoration(
@@ -130,9 +138,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Update Available',
-                  style: TextStyle(
+                Text(
+                  mandatory ? 'Required Update' : 'Update Available',
+                  style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: StockpileColors.primary900,
@@ -141,7 +149,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'A new version is ready',
+                  mandatory
+                      ? 'You must update to continue'
+                      : 'A new version is ready',
                   style: StockpileFonts.satoshi(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
@@ -343,25 +353,29 @@ class _UpdateDialogState extends State<UpdateDialog> {
     );
   }
 
-  List<Widget> _buildActions(UpdaterService updater, bool isDark) {
+  List<Widget> _buildActions(
+      UpdaterService updater, bool isDark, bool mandatory) {
     final status = updater.status;
 
     switch (status) {
       case UpdateStatus.updateAvailable:
         return [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(
-              'Later',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
+          // "Later" is hidden for a mandatory update — it must be installed.
+          if (!mandatory) ...[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(
+                'Later',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: isDark
+                      ? StockpileColors.darkTextMuted
+                      : StockpileColors.mutedText,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
+            const SizedBox(width: 8),
+          ],
           FilledButton.icon(
             style: FilledButton.styleFrom(
               backgroundColor: StockpileColors.primary900,

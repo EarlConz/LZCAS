@@ -60,6 +60,11 @@ class _TransactionsTableState extends State<TransactionsTable> {
   // ── Server-page state for desktop PaginatedDataTable ──────────────
   final List<TransactionGroup> _serverPage = [];
   int _totalCount = 0;
+  bool _serverHasMore = true; // more server pages available (desktop paging)
+  bool _fetchingServer = false; // a fetch loop is currently running
+  int _serverPageLoaded = 0; // highest server page fetched into _serverPage
+  int _pendingNeeded = 0; // highest requested row count (coalesces requests)
+  bool _didInitialPrefetch = false; // primed page 2 once after first load
   late final _TxnDataSource _txnSource;
 
   @override
@@ -70,6 +75,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
     _txnSource = _TxnDataSource(
       _serverPage,
       () => _totalCount,
+      () => _serverHasMore,
       onDelete: _deleteTransaction,
       onReceipt: _viewReceipt,
     );
@@ -124,6 +130,10 @@ class _TransactionsTableState extends State<TransactionsTable> {
           _items.clear();
           _serverPage.clear();
           _serverPage.addAll(result.rows);
+          _serverPageLoaded = 1;
+          _serverHasMore = result.hasMore;
+          _pendingNeeded = _serverPage.length;
+          _didInitialPrefetch = false;
         }
         _items.addAll(result.rows);
         _currentPage = page;
@@ -146,18 +156,52 @@ class _TransactionsTableState extends State<TransactionsTable> {
     }
   }
 
-  /// Fetch a specific server page for desktop PaginatedDataTable.
-  /// Accumulates pages into _serverPage; getRow reads _serverPage[index]
-  /// directly, so table pages and server pages don't need to align.
+  /// Load consecutive server pages until `_serverPage` holds at least
+  /// [neededCount] displayed rows (grouped transactions), or the server has
+  /// no more pages.
+  ///
+  /// NOTE: PaginatedDataTable.onPageChanged reports the *first row index* of
+  /// the new table page — NOT a page number. Rows are also grouped, so one
+  /// server page yields ≤ _pageSize display rows; we therefore page by
+  /// server-page number and stop on "no more" or "no progress".
+  Future<void> _ensureLoadedThrough(int neededCount) async {
+    if (neededCount > _pendingNeeded) _pendingNeeded = neededCount;
+    // A fetch loop is already running; it re-reads _pendingNeeded each
+    // iteration, so it will honor this raised target too. This coalescing
+    // means a fast multi-page jump (or a background prefetch racing a
+    // navigation) never drops a request.
+    if (_fetchingServer) return;
+    _fetchingServer = true;
+    try {
+      while (_serverPage.length < _pendingNeeded && _serverHasMore) {
+        final before = _serverPage.length;
+        await _fetchServerPage(_serverPageLoaded + 1);
+        if (_serverPage.length <= before) break; // no progress — stop
+      }
+    } finally {
+      _fetchingServer = false;
+    }
+  }
+
+  /// Quietly load ONE page beyond what's already loaded so the next forward
+  /// step is instant. Fire-and-forget; the coalescing loader ignores it when a
+  /// fetch is already running or there's nothing more to load.
+  void _prefetchNext() {
+    if (_serverHasMore) _ensureLoadedThrough(_serverPage.length + 1);
+  }
+
+  /// Fetch one server page for the desktop PaginatedDataTable and append its
+  /// (grouped) rows to _serverPage. Advances _serverPageLoaded/_serverHasMore.
   Future<void> _fetchServerPage(int serverPage) async {
-    final neededEnd = serverPage * _pageSize;
-    if (_serverPage.length >= neededEnd) return;
+    if (serverPage <= _serverPageLoaded) return;
     try {
       final page = await _fetchPageInternal(serverPage, _searchTerm);
       if (!mounted) return;
       setState(() {
         _serverPage.addAll(page.rows);
         _totalCount = page.totalCount;
+        _serverPageLoaded = serverPage;
+        _serverHasMore = page.hasMore;
       });
       _txnSource.refresh();
     } catch (e) {
@@ -404,6 +448,16 @@ class _TransactionsTableState extends State<TransactionsTable> {
             if (available < 56) available = 56;
             final estimated = (available ~/ 62).clamp(1, 10);
 
+            // Desktop table is built → prime the second page once so the very
+            // first "next" is already loaded. (Runs here so mobile never
+            // wastes a fetch into _serverPage it doesn't read.)
+            if (!_didInitialPrefetch && !_isInitialLoading && _serverHasMore) {
+              _didInitialPrefetch = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _prefetchNext();
+              });
+            }
+
             return SizedBox(
               height: constraints.maxHeight,
               child: PaginatedDataTable(
@@ -422,7 +476,12 @@ class _TransactionsTableState extends State<TransactionsTable> {
                   DataColumn(label: Text('Actions')),
                 ],
                 source: _txnSource,
-                onPageChanged: (pageIndex) => _fetchServerPage(pageIndex + 1),
+                // pageIndex is the FIRST row index of the new page, not a page
+                // number — load through the last row this page needs, then
+                // quietly prime the following page so the next step is instant.
+                onPageChanged: (pageIndex) => _ensureLoadedThrough(
+                  pageIndex + estimated,
+                ).then((_) => _prefetchNext()),
               ),
             ); // PaginatedDataTable + SizedBox + return
           },
@@ -619,23 +678,41 @@ class _Pill extends StatelessWidget {
 class _TxnDataSource extends DataTableSource {
   final List<TransactionGroup> _items;
   final int Function() _getTotalCount;
+  final bool Function() _getHasMore;
   final Future<void> Function(TransactionGroup)? onDelete;
   final Future<void> Function(TransactionGroup)? onReceipt;
 
   _TxnDataSource(
     this._items,
-    this._getTotalCount, {
+    this._getTotalCount,
+    this._getHasMore, {
     this.onDelete,
     this.onReceipt,
   });
 
   @override
-  int get rowCount => _getTotalCount();
+  int get rowCount {
+    // _items are grouped transactions (a multi-item checkout collapses into
+    // one row), so the raw sale count is only an UPPER bound on displayed
+    // rows. While more server pages remain, report that upper bound so the
+    // pager keeps advancing; once fully loaded, report the exact group count
+    // so there are no permanent "Loading…" phantom rows.
+    return _getHasMore() ? _getTotalCount() : _items.length;
+  }
 
   @override
   DataRow getRow(int index) {
     if (index >= _items.length) {
-      return DataRow(cells: List.filled(5, const DataCell(Text('Loading…'))));
+      // Not fetched yet — show a shimmering skeleton row instead of raw text.
+      return DataRow(
+        cells: [
+          skeletonCell(width: 130), // Buyer
+          skeletonCell(width: 90), // Date
+          skeletonCell(width: 60), // Items
+          skeletonCell(width: 70), // Total
+          skeletonCell(width: 32), // Actions
+        ],
+      );
     }
     final group = _items[index];
     final isEven = index % 2 == 0;
