@@ -1291,7 +1291,9 @@ class SupabaseRepository {
       'repeatPurchase': asInt('repeatPurchase'),
       'chairmanBonus': asInt('chairmanBonus'),
       'upgradeBonus': asInt('upgradeBonus'),
-      'chairmanFridays': asInt('chairmanFridays'), // weekly Friday count
+      // Legacy key from the old weekly-Friday chairman model; the RPC now
+      // always returns 0 (v24 made Chairman's Bonus per-direct-referral).
+      'chairmanFridays': asInt('chairmanFridays'),
     };
   }
 
