@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v33)
+├── migrations/    Ordered, apply-once changes (v2 … v34)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -74,6 +74,16 @@ prod. Apply in this exact order:*
   RLS on, SELECT only; admin/main-cashier see all, a branch cashier sees only
   their own rows. All writes stay locked to the SECURITY DEFINER RPCs.
 
+**Itemised earnings sources (v34)** — *needed on BOTH staging and prod.*
+
+- v34 — `get_member_earnings_sources(p_member_id)`: the per-credit list behind
+  each earnings bucket ("Chairman's Bonus — from Maria Santos"). Must be a
+  SECURITY DEFINER RPC because RLS limits a member to their **own** rows in
+  `members`/`sales`, so resolving downline names client-side silently returns
+  nothing and every row renders "Source not recorded". Same staff-or-self
+  authorization as `get_member_earnings`. Read-only; changes no policies.
+  Ship with the app build that adds the breakdown card.
+
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
 > build must ship before any `branch_cashier` account exists) → create accounts
@@ -91,6 +101,7 @@ Branch cashier / branch stock undo scripts:
 - `rollback_branch_transfer_reports_v31.sql` — stop logging transfers to Reports.
 - `rollback_branch_transfer_note_v32.sql` — drop the note from the Reports reason.
 - `rollback_is_staff_v27.sql` — reverts the `is_staff()` change from v28.
+- `rollback_earnings_sources_v34.sql` — drop the earnings-sources RPC (v34).
 
 ## diagnostics/
 Read-only — safe on the live DB, write nothing.

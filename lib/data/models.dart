@@ -849,6 +849,65 @@ class MemberTransactionEntry {
   });
 }
 
+/// Which wallet a ledger row pays into, and how it is labelled in the UI.
+///
+/// Mirrors how `get_member_earnings` buckets the same rows, so an itemised
+/// list always reconciles to the totals shown on the dashboard.
+enum EarningsBucket {
+  directReferral('Direct Referral', isBalance: true),
+  indirectReferral('Indirect Referral'),
+  groupSales('Group Sales'),
+  chairmanBonus("Chairman's Bonus"),
+  upgradeBonus('Upgrade Bonus'),
+  other('Other');
+
+  const EarningsBucket(this.label, {this.isBalance = false});
+
+  final String label;
+
+  /// Direct Referral pays the Balance wallet; every other bucket feeds
+  /// Total Earnings. Matches v24's split.
+  final bool isBalance;
+
+  /// Classify a `member_transactions.item_name`. Order matters: "Indirect
+  /// Referral" must be tested before "Direct Referral" would ever match, and
+  /// Group Sales rows are named "Group Sales (Direct)" / "(Indirect)".
+  static EarningsBucket fromItemName(String raw) {
+    final n = raw.toLowerCase();
+    if (n.startsWith('group sales')) return EarningsBucket.groupSales;
+    if (n.startsWith('indirect referral')) return EarningsBucket.indirectReferral;
+    if (n.startsWith('direct referral')) return EarningsBucket.directReferral;
+    if (n.startsWith('chairman bonus')) return EarningsBucket.chairmanBonus;
+    if (n.startsWith('upgrade bonus')) return EarningsBucket.upgradeBonus;
+    return EarningsBucket.other;
+  }
+}
+
+/// One earning event from the frozen ledger (`member_transactions`), with its
+/// source resolved to a human-readable name.
+///
+/// [sourceName] is the person the credit came from — the referred member for
+/// referral/chairman rows, the buyer for group-sales rows. Null when the
+/// ledger row carries no link (Upgrade Bonus rows don't record which downline
+/// upgraded), in which case the UI shows the raw label only.
+class EarningsSource {
+  final EarningsBucket bucket;
+  final String rawLabel;
+  final String? sourceName;
+  final String? detail;
+  final int amount;
+  final DateTime? timestamp;
+
+  const EarningsSource({
+    required this.bucket,
+    required this.rawLabel,
+    required this.amount,
+    this.sourceName,
+    this.detail,
+    this.timestamp,
+  });
+}
+
 // ── Helper Functions ──────────────────────────────────────────────────────
 
 /// Convert a list of [Item]s to a list of maps for UI consumption.

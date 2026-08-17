@@ -27,6 +27,10 @@ class ReceiptLineItem {
 class ReceiptDialog extends StatefulWidget {
   final List<ReceiptLineItem> lineItems;
   final String? buyerName;
+
+  /// Package the buyer availed. Null/empty renders as "None". Only shown
+  /// when there is a named buyer — a walk-in sale has no package to report.
+  final String? buyerPackage;
   final DateTime? transactionTime;
   final String title;
 
@@ -34,11 +38,16 @@ class ReceiptDialog extends StatefulWidget {
     super.key,
     required this.lineItems,
     this.buyerName,
+    this.buyerPackage,
     required this.transactionTime,
     this.title = 'Sell Receipt',
   });
 
-  factory ReceiptDialog.fromSale(Sale sale, {String? buyerName}) {
+  factory ReceiptDialog.fromSale(
+    Sale sale, {
+    String? buyerName,
+    String? buyerPackage,
+  }) {
     return ReceiptDialog(
       lineItems: [
         ReceiptLineItem(
@@ -48,6 +57,7 @@ class ReceiptDialog extends StatefulWidget {
         ),
       ],
       buyerName: buyerName,
+      buyerPackage: buyerPackage,
       transactionTime: sale.timestamp,
     );
   }
@@ -153,6 +163,15 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                         _InfoRow(
                           label: 'Buyer',
                           value: widget.buyerName!,
+                          colorScheme: colorScheme,
+                        ),
+                        const SizedBox(height: 8),
+                        _InfoRow(
+                          label: 'Package',
+                          value:
+                              (widget.buyerPackage ?? '').trim().isEmpty
+                              ? 'None'
+                              : widget.buyerPackage!.trim(),
                           colorScheme: colorScheme,
                         ),
                       ],

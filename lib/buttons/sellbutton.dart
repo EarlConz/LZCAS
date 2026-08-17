@@ -208,6 +208,23 @@ class _SellDialogState extends State<_SellDialog> {
     return true;
   }
 
+  /// The selected buyer's row, or null for a walk-in sale.
+  Map<String, dynamic>? get _selectedBuyer {
+    if (selectedBuyerId == null) return null;
+    return widget.members.cast<Map<String, dynamic>?>().firstWhere(
+      (m) => m?['id'] == selectedBuyerId,
+      orElse: () => null,
+    );
+  }
+
+  /// Name of the package the selected buyer availed, or null when they have
+  /// none (rendered as "None"). Falls back to null if the join didn't return
+  /// a name, so a package-less member and a missing name read the same.
+  String? get _selectedBuyerPackage {
+    final name = (_selectedBuyer?['packageName'] ?? '').toString().trim();
+    return name.isEmpty ? null : name;
+  }
+
   Future<void> _scanBuyerQr(BuildContext context) async {
     final scanned = await showQrScannerDialog(context);
     if (scanned == null || scanned.isEmpty) return;
@@ -308,6 +325,42 @@ class _SellDialogState extends State<_SellDialog> {
                     ],
                   ),
                 ),
+
+                // Availed package of the selected buyer ("None" when they
+                // have not availed one). Hidden entirely for a walk-in sale,
+                // where there is no member to describe.
+                if (selectedBuyerId != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.workspace_premium_rounded,
+                          size: 16,
+                          color: theme.hintColor,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Package: ',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.hintColor,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            _selectedBuyerPackage ?? 'None',
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: _selectedBuyerPackage == null
+                                  ? theme.hintColor
+                                  : theme.colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
                 Divider(color: theme.dividerColor, height: 28),
 
@@ -699,6 +752,7 @@ class _SellDialogState extends State<_SellDialog> {
                     builder: (_) => ReceiptDialog(
                       lineItems: receiptItems,
                       buyerName: buyerName,
+                      buyerPackage: _selectedBuyerPackage,
                       transactionTime: transactionTs,
                     ),
                   );

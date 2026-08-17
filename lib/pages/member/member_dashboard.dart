@@ -12,6 +12,7 @@ import '../../auth/auth.dart';
 import '../../db/db.dart';
 import '../../router/route_guard.dart';
 import '../../services/config_service.dart';
+import '../../utils/formatters.dart' show formatDisplayDate;
 import '../../services/updater_service.dart';
 import '../../dialogs/update_dialog.dart';
 import '../../theme.dart';
@@ -1643,6 +1644,44 @@ class _PurchasesTabState extends State<_PurchasesTab> {
 
 // ─── Earnings Tab (Reseller-only) ──────────────────────────────────────────
 
+/// Short-lived cache for the itemised earnings sources.
+///
+/// The dashboard builds a NEW _EarningsTab every time the member switches
+/// back to Earnings (tabs are a `switch`, not an IndexedStack), so without
+/// this every visit refetched the member's whole ledger. The ledger only
+/// changes when a referral, sale or withdrawal happens, so a short TTL plus
+/// explicit invalidation on those events keeps it fresh without the
+/// round-trip on every tab tap.
+class _SourcesCache {
+  _SourcesCache._();
+
+  static const _ttl = Duration(minutes: 2);
+
+  static int? _memberId;
+  static List<EarningsSource>? _rows;
+  static DateTime? _at;
+
+  /// Cached rows for [memberId], or null when absent/stale/for another member.
+  static List<EarningsSource>? get(int memberId) {
+    if (_memberId != memberId || _rows == null || _at == null) return null;
+    if (DateTime.now().difference(_at!) > _ttl) return null;
+    return _rows;
+  }
+
+  static void put(int memberId, List<EarningsSource> rows) {
+    _memberId = memberId;
+    _rows = rows;
+    _at = DateTime.now();
+  }
+
+  /// Drop the cache after anything that can add a ledger row.
+  static void invalidate() {
+    _memberId = null;
+    _rows = null;
+    _at = null;
+  }
+}
+
 class _EarningsTab extends StatefulWidget {
   final Member member;
   const _EarningsTab({required this.member});
@@ -1657,6 +1696,14 @@ class _EarningsTabState extends State<_EarningsTab> {
   int _totalPurchases = 0;
   int _chairmanBonus = 0;
   List<EarningsSnapshot> _history = [];
+  List<EarningsSource> _sources = [];
+
+  /// Which of the two ledger views is showing. They answer different
+  /// questions ("where did it come from" vs "how did my total change over
+  /// time"), and stacking both made the tab very long — so they share one
+  /// slot. 0 = sources, 1 = history.
+  int _ledgerView = 0;
+
   bool _loading = true;
   StreamSubscription<String>? _changeSub;
 
@@ -1665,9 +1712,20 @@ class _EarningsTabState extends State<_EarningsTab> {
     super.initState();
     _load();
     _changeSub = repository.changes.listen((event) {
-      if (event == 'withdrawal_request_approved' ||
-          event == 'withdrawal_request_rejected' ||
-          event == 'withdrawal_requests_changed') {
+      // Anything that can add a ledger row or move money must drop the
+      // cached sources, otherwise the breakdown would lag behind the totals.
+      const invalidating = {
+        'withdrawal_request_approved',
+        'withdrawal_request_rejected',
+        'withdrawal_requests_changed',
+        'sale_added',
+        'sale_updated',
+        'sale_deleted',
+        'member_added',
+        'member_updated',
+      };
+      if (invalidating.contains(event)) {
+        _SourcesCache.invalidate();
         _load();
       }
     });
@@ -1703,6 +1761,19 @@ class _EarningsTabState extends State<_EarningsTab> {
       upgradeBonus: breakdown['upgradeBonus'] ?? 0,
     );
     final history = await repository.fetchEarningsHistory(id);
+    // Itemised sources for the "Where your earnings came from" card. Served
+    // from the short-lived cache when the member is just flicking between
+    // tabs. Failing to load must not break the earnings tab, so fall back to
+    // empty (the card then shows its own empty state).
+    var sources = _SourcesCache.get(id);
+    if (sources == null) {
+      try {
+        sources = await repository.fetchEarningsSources(id);
+        _SourcesCache.put(id, sources);
+      } catch (_) {
+        sources = const [];
+      }
+    }
 
     if (!mounted) return;
     setState(() {
@@ -1713,6 +1784,7 @@ class _EarningsTabState extends State<_EarningsTab> {
           .fold(0, (sum, s) => sum + s.quantity);
       _chairmanBonus = breakdown['chairmanBonus'] ?? 0;
       _history = history;
+      _sources = sources ?? const [];
       _loading = false;
     });
   }
@@ -1866,13 +1938,54 @@ class _EarningsTabState extends State<_EarningsTab> {
             ),
           ),
           SizedBox(height: isMobile ? 8 : 16),
-          // ── Ledger: Earnings History ─────────────────────
-          _EarningsLedgerCard(
-            history: _history,
-            isDark: isDark,
-            currencySymbol: currencySymbol,
-            isCompact: isMobile,
+          // ── One slot, two views: sources ⇄ history ───────
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<int>(
+                showSelectedIcon: false,
+                style: ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  shape: WidgetStatePropertyAll(
+                    RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                segments: const [
+                  ButtonSegment(
+                    value: 0,
+                    icon: Icon(Icons.account_tree_rounded, size: 16),
+                    label: Text('Sources'),
+                  ),
+                  ButtonSegment(
+                    value: 1,
+                    icon: Icon(Icons.history_rounded, size: 16),
+                    label: Text('History'),
+                  ),
+                ],
+                selected: {_ledgerView},
+                onSelectionChanged: (s) =>
+                    setState(() => _ledgerView = s.first),
+              ),
+            ),
           ),
+          SizedBox(height: isMobile ? 8 : 12),
+          if (_ledgerView == 0)
+            _EarningsSourcesCard(
+              sources: _sources,
+              isDark: isDark,
+              currencySymbol: currencySymbol,
+              isCompact: isMobile,
+            )
+          else
+            _EarningsLedgerCard(
+              history: _history,
+              isDark: isDark,
+              currencySymbol: currencySymbol,
+              isCompact: isMobile,
+            ),
         ],
       ),
     );
@@ -2453,6 +2566,290 @@ class _EarningsHeroCard extends StatelessWidget {
                   ),
                 ],
               ),
+      ),
+    );
+  }
+}
+
+/// "Where your earnings came from" — the itemised ledger grouped by bucket.
+///
+/// Each bucket is collapsed to a one-line total; expanding it lists the
+/// individual credits and who each came from. Rows come from
+/// member_transactions (the same frozen ledger the totals are summed from),
+/// so the numbers always reconcile with the stat cards above.
+class _EarningsSourcesCard extends StatefulWidget {
+  final List<EarningsSource> sources;
+  final bool isDark;
+  final String currencySymbol;
+  final bool isCompact;
+
+  const _EarningsSourcesCard({
+    required this.sources,
+    required this.isDark,
+    required this.currencySymbol,
+    required this.isCompact,
+  });
+
+  @override
+  State<_EarningsSourcesCard> createState() => _EarningsSourcesCardState();
+}
+
+class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
+  /// How many credits a bucket renders before collapsing behind "Show all".
+  ///
+  /// ExpansionTile builds its children even while collapsed, so without a cap
+  /// a member with thousands of ledger rows would construct thousands of
+  /// widgets on every rebuild. Bucket TOTALS are still summed from the full
+  /// list, so capping the display never changes the figures.
+  static const _previewCount = 10;
+
+  /// Buckets the member has chosen to see in full.
+  final Set<EarningsBucket> _showAll = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final sources = widget.sources;
+    final textColor = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final mutedColor = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    // Group by bucket, preserving the ledger's newest-first order within
+    // each group, and drop buckets that never paid anything.
+    final grouped = <EarningsBucket, List<EarningsSource>>{};
+    for (final s in sources) {
+      grouped.putIfAbsent(s.bucket, () => []).add(s);
+    }
+
+    // Earnings buckets first, then the Balance bucket (direct referral).
+    const order = [
+      EarningsBucket.groupSales,
+      EarningsBucket.chairmanBonus,
+      EarningsBucket.indirectReferral,
+      EarningsBucket.upgradeBonus,
+      EarningsBucket.other,
+      EarningsBucket.directReferral,
+    ];
+    final visible = order
+        .where((b) => (grouped[b]?.isNotEmpty ?? false))
+        .toList();
+
+    return Card(
+      elevation: 0,
+      color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isDark
+              ? StockpileColors.darkDivider
+              : StockpileColors.divider,
+        ),
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(widget.isCompact ? 12 : 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.account_tree_rounded,
+                  size: 16,
+                  color: StockpileColors.primary900,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Where your earnings came from',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            if (visible.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  'No earnings recorded yet. Once you refer members or your '
+                  'downline buys products, each credit will be itemised here.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontStyle: FontStyle.italic,
+                    color: mutedColor,
+                  ),
+                ),
+              )
+            else
+              ...visible.map(
+                (b) => _bucketTile(b, grouped[b]!, textColor, mutedColor),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _bucketTile(
+    EarningsBucket bucket,
+    List<EarningsSource> entries,
+    Color textColor,
+    Color mutedColor,
+  ) {
+    // Total is summed from the FULL list, never from the visible slice, so
+    // capping the display can't change the figure a member sees.
+    final total = entries.fold<int>(0, (sum, e) => sum + e.amount);
+    final count = entries.length;
+
+    final expanded = _showAll.contains(bucket);
+    final visible = expanded ? entries : entries.take(_previewCount).toList();
+    final hidden = count - visible.length;
+
+    return Theme(
+      // Strip ExpansionTile's default dividers so it sits flush in the card.
+      data: ThemeData(
+        dividerColor: Colors.transparent,
+        brightness: widget.isDark ? Brightness.dark : Brightness.light,
+      ),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(left: 8, bottom: 8),
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                bucket.label,
+                style: StockpileFonts.satoshi(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
+                ),
+              ),
+            ),
+            Text(
+              '${widget.currencySymbol}$total',
+              style: StockpileFonts.satoshi(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: bucket.isBalance
+                    ? StockpileColors.primary900
+                    : StockpileColors.success,
+              ),
+            ),
+          ],
+        ),
+        subtitle: Text(
+          '$count credit${count == 1 ? '' : 's'} · '
+          '${bucket.isBalance ? 'Balance' : 'Total Earnings'}',
+          style: TextStyle(fontSize: 10, color: mutedColor),
+        ),
+        children: [
+          // Only the most recent few are built; the rest stay behind
+          // "Show all" so a long history never inflates the widget tree.
+          ...visible.map((e) => _sourceRow(e, textColor, mutedColor)),
+          if (hidden > 0)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => setState(() {
+                  if (expanded) {
+                    _showAll.remove(bucket);
+                  } else {
+                    _showAll.add(bucket);
+                  }
+                }),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: Icon(
+                  expanded
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
+                  size: 16,
+                ),
+                label: Text(
+                  expanded ? 'Show fewer' : 'Show all $count',
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Row heading: the person when known; otherwise something honest.
+  ///
+  /// Upgrade Bonus rows never record a member, but their raw label carries
+  /// the target tier ("Upgrade Bonus — Ambassador"), so it stays useful.
+  /// Legacy/imported rows have no link at all — say so rather than repeating
+  /// the bucket name back at the reader.
+  String _title(EarningsSource e) {
+    if (e.sourceName != null) return e.sourceName!;
+    if (e.bucket == EarningsBucket.upgradeBonus) return e.rawLabel;
+    return 'Source not recorded';
+  }
+
+  Widget _sourceRow(EarningsSource e, Color textColor, Color mutedColor) {
+    final parts = <String>[
+      if (e.detail != null && e.detail!.isNotEmpty) e.detail!,
+      if (e.timestamp != null) formatDisplayDate(e.timestamp),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 3, right: 8),
+            child: Icon(Icons.circle, size: 6, color: mutedColor),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _title(e),
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    // Muted + italic when we genuinely don't know the source,
+                    // so an unattributed row never masquerades as a name.
+                    fontStyle: e.sourceName == null
+                        ? FontStyle.italic
+                        : FontStyle.normal,
+                    color: e.sourceName == null ? mutedColor : textColor,
+                  ),
+                ),
+                if (parts.isNotEmpty)
+                  Text(
+                    parts.join(' · '),
+                    style: TextStyle(fontSize: 10, color: mutedColor),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '${widget.currencySymbol}${e.amount}',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+        ],
       ),
     );
   }

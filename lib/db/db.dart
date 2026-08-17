@@ -14,6 +14,8 @@ export '../data/models.dart'
         Package,
         Category,
         EarningsSnapshot,
+        EarningsBucket,
+        EarningsSource,
         MemberTransactionEntry,
         inventoryItemsFromRows,
         membersFromRows,

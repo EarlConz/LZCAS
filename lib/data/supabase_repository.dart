@@ -183,7 +183,10 @@ class SupabaseRepository {
   /// (Filtered client-side so the app keeps working even before the
   /// is_deleted migration has been applied.)
   Future<List<Member>> fetchMembers({bool includeDeleted = false}) async {
-    final data = await _supabase.from('members').select();
+    // Join the availed package so Member.packageName is populated (the POS
+    // buyer picker and the receipt show it). Members with no package simply
+    // get a null `packages`, which _extractPackageName maps to null.
+    final data = await _supabase.from('members').select('*, packages(name)');
     final members = (data as List).map((j) => Member.fromJson(j)).toList();
     if (includeDeleted) return members;
     return members.where((m) => !m.isDeleted).toList();
@@ -1295,6 +1298,58 @@ class SupabaseRepository {
       // always returns 0 (v24 made Chairman's Bonus per-direct-referral).
       'chairmanFridays': asInt('chairmanFridays'),
     };
+  }
+
+  /// Itemised sources behind a member's earnings, newest first.
+  ///
+  /// Reads the same frozen ledger (`member_transactions`) that
+  /// [fetchMemberEarningsBreakdown] sums, so the list always reconciles to
+  /// the totals on the dashboard — deliberately NOT derived from
+  /// earnings_history snapshots, which can drift.
+  ///
+  /// Goes through the `get_member_earnings_sources` RPC (v34) rather than
+  /// querying the tables directly: RLS limits a member to their OWN rows in
+  /// `members`/`sales`, so client-side name resolution silently returns
+  /// nothing and every entry reads "Source not recorded". The RPC is
+  /// SECURITY DEFINER with the same staff-or-self check as
+  /// `get_member_earnings`, so names resolve without loosening any policy.
+  Future<List<EarningsSource>> fetchEarningsSources(int memberId) async {
+    final data = await _supabase.rpc(
+      'get_member_earnings_sources',
+      params: {'p_member_id': memberId},
+    );
+    final rows = (data as List?) ?? const [];
+
+    return rows.map((r) {
+      final map = (r as Map).cast<String, dynamic>();
+      final rawLabel = (map['label'] ?? '').toString();
+      final bucket = EarningsBucket.fromItemName(rawLabel);
+      final resolved = (map['source_name'] ?? '').toString().trim();
+      final qty = (map['quantity'] as num?)?.toInt() ?? 0;
+      final saleItem = (map['sale_item'] ?? '').toString().trim();
+
+      String? detail;
+      if (bucket == EarningsBucket.groupSales) {
+        detail = saleItem.isEmpty
+            ? (qty > 0 ? '$qty item${qty == 1 ? '' : 's'}' : null)
+            : '$qty × $saleItem';
+      } else if (bucket == EarningsBucket.upgradeBonus) {
+        // "Upgrade Bonus — Ambassador" carries the target tier in the label.
+        final dash = rawLabel.indexOf('—');
+        if (dash != -1 && dash + 1 < rawLabel.length) {
+          detail = 'Upgraded to ${rawLabel.substring(dash + 1).trim()}';
+        }
+      }
+
+      return EarningsSource(
+        bucket: bucket,
+        rawLabel: rawLabel,
+        sourceName: resolved.isEmpty ? null : resolved,
+        detail: detail,
+        amount: (map['amount'] as num?)?.toInt() ?? 0,
+        timestamp: DateTime.tryParse((map['occurred_at'] ?? '').toString()),
+      );
+    }).toList();
   }
 
   /// Returns the true gross lifetime earnings for a member — the sum of

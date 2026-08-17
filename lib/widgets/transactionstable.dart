@@ -57,6 +57,10 @@ class _TransactionsTableState extends State<TransactionsTable> {
   String? _error;
   late final ScrollController _scrollController;
 
+  /// buyerId → availed package name (empty = no package). Filled while
+  /// resolving buyer names; read by the receipt's "Package" row.
+  final Map<int, String> _memberPackages = {};
+
   // ── Server-page state for desktop PaginatedDataTable ──────────────
   final List<TransactionGroup> _serverPage = [];
   int _totalCount = 0;
@@ -237,6 +241,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
             m.lastName,
           ].where((p) => p != null && p.trim().isNotEmpty);
           memberNames[m.id!] = parts.isNotEmpty ? parts.join(' ') : 'Unnamed';
+          // Cached for the receipt's "Package" row.
+          _memberPackages[m.id!] = m.packageName ?? '';
         }
       }
     }
@@ -353,6 +359,9 @@ class _TransactionsTableState extends State<TransactionsTable> {
     await ReceiptDialog(
       lineItems: lineItems,
       buyerName: group.buyerId != null ? group.buyerName : null,
+      buyerPackage: group.buyerId != null
+          ? _memberPackages[group.buyerId!]
+          : null,
       transactionTime: group.timestamp,
     ).show(localCtx);
   }
