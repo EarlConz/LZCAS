@@ -751,12 +751,39 @@ class _InventoryTableState extends State<InventoryTable> {
   }
 
   Widget _buildSummaryStrip(BuildContext context, bool isMobile) {
-    // Stay hidden until the first load resolves — avoids a flash of zeros.
-    if (!_summaryLoaded) return const SizedBox.shrink();
-
     final theme = Theme.of(context);
     final onSurface = theme.colorScheme.onSurface;
     final divider = theme.dividerColor.withValues(alpha: 0.5);
+
+    // Before the first load resolves, render the strip's SHELL with shimmer
+    // placeholders rather than returning an empty box. Collapsing it made the
+    // page render as though the stats feature didn't exist, then pop in and
+    // shove the table down — which reads as "the old design loaded first".
+    // Reserving the space keeps the layout stable and shows zeros never.
+    if (!_summaryLoaded) {
+      return _summaryShell(
+        theme,
+        divider,
+        List.generate(
+          4,
+          (_) => const Expanded(
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SkeletonBlock(width: 34, height: 18, borderRadius: 6),
+                    SizedBox(height: 6),
+                    SkeletonBlock(width: 46, height: 9, borderRadius: 4),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     Widget stat(String value, String label, Color color) => Expanded(
       child: Column(
@@ -788,16 +815,7 @@ class _InventoryTableState extends State<InventoryTable> {
 
     Widget sep() => Container(width: 1, height: 30, color: divider);
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(appSpacing, appSpacing, appSpacing, 0),
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(appRadius),
-        border: Border.all(color: divider),
-      ),
-      child: Row(
-        children: [
+    return _summaryShell(theme, divider, [
           stat('$_skuCount', 'Products', onSurface),
           sep(),
           stat(
@@ -812,9 +830,23 @@ class _InventoryTableState extends State<InventoryTable> {
             _outCount > 0 ? Colors.red.shade700 : onSurface,
           ),
           sep(),
-          stat(_grouped(_totalUnits), 'Units', onSurface),
-        ],
+      stat(_grouped(_totalUnits), 'Units', onSurface),
+    ]);
+  }
+
+  /// The summary strip's outer container. Shared by the loaded and loading
+  /// states so both occupy exactly the same space — that's what stops the
+  /// table shifting once the figures arrive.
+  Widget _summaryShell(ThemeData theme, Color divider, List<Widget> children) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(appSpacing, appSpacing, appSpacing, 0),
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(appRadius),
+        border: Border.all(color: divider),
       ),
+      child: Row(children: children),
     );
   }
 
