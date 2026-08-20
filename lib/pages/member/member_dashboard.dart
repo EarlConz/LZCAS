@@ -2283,11 +2283,12 @@ class _EarningsLedgerCard extends StatelessWidget {
     List<Widget> chips;
     final netDelta = h.earningsDelta + h.balanceDelta;
     if (netDelta < 0) {
-      // A negative change can only come from an approved withdrawal —
-      // earnings otherwise only ever increase. Label it explicitly as a
-      // "Withdrawal" instead of attributing it to an earning source or
-      // falling through to the generic "Adjustment" text.
-      chips = <Widget>[?_deltaChip(netDelta, 'Withdrawal')];
+      // A decrease is either an approved withdrawal OR an admin correction
+      // (a negative ledger row). A snapshot only records the delta, not its
+      // cause, so this used to guess "Withdrawal" — which mislabels a
+      // correction as money paid out. Use a neutral term instead; the
+      // Sources view names the exact entry and its reason.
+      chips = <Widget>[?_deltaChip(netDelta, 'Deduction')];
     } else if (h.isLegacy || (prev?.isLegacy ?? false)) {
       // Rows from before component tracking — sources unknown.
       chips = <Widget>[
@@ -2796,8 +2797,31 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
   /// the bucket name back at the reader.
   String _title(EarningsSource e) {
     if (e.sourceName != null) return e.sourceName!;
-    if (e.bucket == EarningsBucket.upgradeBonus) return e.rawLabel;
+    // No linked person — but the ledger label may still explain the entry
+    // ("Upgrade Bonus — Ambassador", "Direct Referral Adjustment — reversed
+    // duplicate referral"). If it says anything beyond the bare bucket name,
+    // that text IS the explanation, so show it.
+    if (!_isUnknownSource(e)) return e.rawLabel;
     return 'Source not recorded';
+  }
+
+  /// True only when the row has neither a linked person nor a label that says
+  /// more than the bucket it already sits under — i.e. we genuinely can't
+  /// explain it (legacy/imported rows with no item_id or sale_id).
+  bool _isUnknownSource(EarningsSource e) {
+    if (e.sourceName != null) return false;
+    const bases = {
+      EarningsBucket.directReferral: 'direct referral',
+      EarningsBucket.indirectReferral: 'indirect referral',
+      EarningsBucket.chairmanBonus: 'chairman bonus',
+      EarningsBucket.groupSales: 'group sales',
+      EarningsBucket.upgradeBonus: 'upgrade bonus',
+    };
+    final base = bases[e.bucket];
+    if (base == null) return e.rawLabel.trim().isEmpty;
+    // Anything left after the standard prefix is extra information.
+    final rest = e.rawLabel.toLowerCase().replaceFirst(base, '');
+    return !RegExp(r'[a-z0-9]').hasMatch(rest);
   }
 
   Widget _sourceRow(EarningsSource e, Color textColor, Color mutedColor) {
@@ -2824,12 +2848,14 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
                   style: TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w600,
-                    // Muted + italic when we genuinely don't know the source,
-                    // so an unattributed row never masquerades as a name.
-                    fontStyle: e.sourceName == null
+                    // Muted + italic ONLY for a genuinely unknown source, so
+                    // it never masquerades as a name. A descriptive label
+                    // (an adjustment reason, an upgrade tier) is real
+                    // information and reads normally.
+                    fontStyle: _isUnknownSource(e)
                         ? FontStyle.italic
                         : FontStyle.normal,
-                    color: e.sourceName == null ? mutedColor : textColor,
+                    color: _isUnknownSource(e) ? mutedColor : textColor,
                   ),
                 ),
                 if (parts.isNotEmpty)
