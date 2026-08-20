@@ -47,6 +47,14 @@ Tap any earning type to see the individual credits and **the person each one
 came from** — the member you referred, or the buyer whose purchase earned you
 a commission. The numbers always add up to the totals shown at the top.
 
+Each earning type shows its ten most recent credits, with a **"Show all"**
+link if there are more — so the screen stays readable even for members with
+a long history.
+
+The Earnings screen now has a **Sources / History** switch at the top, so
+you choose between *where the money came from* and *how your total changed
+over time* instead of scrolling past both.
+
 This should cut down a lot of "why is my total this amount?" questions,
 because members can now answer it themselves.
 
@@ -60,6 +68,10 @@ When you pick a member in the POS, their availed package appears right under
 their name — and it prints on the receipt too. If they haven't availed one,
 it simply says "None". No more checking a separate screen to confirm what
 package someone is on.
+
+**Receipts now say GUTVita.** They previously showed "LZCAS", which didn't
+match the name customers see anywhere else. Both the header and the footer
+now read GUTVita.
 
 ### ⬇️ The app updates itself
 
@@ -100,6 +112,10 @@ an item quickly.
   actually paid. *(How much anyone earns has not changed — only the
   description.)*
 - **The update window could crash** when you closed it. It no longer does.
+- **Inventory looked like it opened in an older layout.** The stats bar
+  along the top (Products / Low / Out / Units) was hidden until its figures
+  finished loading, so for a moment the page appeared without it and then
+  everything jumped down. The bar now holds its place and fills in.
 
 ### Good to know
 
