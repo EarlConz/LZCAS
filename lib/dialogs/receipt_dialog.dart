@@ -219,7 +219,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'LZCAS Sales System',
+                        'GUTVita Sales System',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: colorScheme.outline,
                         ),
@@ -417,7 +417,7 @@ class _ReceiptHeader extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            'LZCAS',
+            'GUTVita',
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
               color: colorScheme.onPrimary.withValues(alpha: 0.75),
               letterSpacing: 2,
