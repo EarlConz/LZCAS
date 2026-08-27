@@ -299,6 +299,12 @@ class EarningsSnapshot {
   /// Upgrade referral bonus earned when direct downlines upgrade.
   final int upgradeBonus;
 
+  /// Why this snapshot moved, when the cause is known. Snapshots otherwise
+  /// record only deltas, which is why a decrease used to be guessed at (and
+  /// mislabelled "Withdrawal"). Written by `admin_adjust_member_funds` (v35);
+  /// null for the ordinary snapshots the member's own dashboard records.
+  final String? note;
+
   final DateTime? recordedAt;
 
   const EarningsSnapshot({
@@ -314,6 +320,7 @@ class EarningsSnapshot {
     this.repeatPurchase = 0,
     this.chairmanBonus = 0,
     this.upgradeBonus = 0,
+    this.note,
     this.recordedAt,
   });
 
@@ -343,6 +350,9 @@ class EarningsSnapshot {
         repeatPurchase: json['repeat_purchase'] as int? ?? 0,
         chairmanBonus: json['chairman_bonus'] as int? ?? 0,
         upgradeBonus: json['upgrade_bonus'] as int? ?? 0,
+        note: (json['note'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : (json['note'] as String).trim(),
         recordedAt: json['recorded_at'] != null
             ? DateTime.tryParse(json['recorded_at'].toString())
             : null,
@@ -854,20 +864,28 @@ class MemberTransactionEntry {
 /// Mirrors how `get_member_earnings` buckets the same rows, so an itemised
 /// list always reconciles to the totals shown on the dashboard.
 enum EarningsBucket {
-  directReferral('Direct Referral', isBalance: true),
-  indirectReferral('Indirect Referral'),
-  groupSales('Group Sales'),
-  chairmanBonus("Chairman's Bonus"),
-  upgradeBonus('Upgrade Bonus'),
+  directReferral('Direct Referral', isBalance: true, wire: 'direct_referral'),
+  indirectReferral('Indirect Referral', wire: 'indirect_referral'),
+  groupSales('Group Sales', wire: 'group_sales'),
+  chairmanBonus("Chairman's Bonus", wire: 'chairman_bonus'),
+  upgradeBonus('Upgrade Bonus', wire: 'upgrade_bonus'),
   other('Other');
 
-  const EarningsBucket(this.label, {this.isBalance = false});
+  const EarningsBucket(this.label, {this.isBalance = false, this.wire});
 
   final String label;
 
   /// Direct Referral pays the Balance wallet; every other bucket feeds
   /// Total Earnings. Matches v24's split.
   final bool isBalance;
+
+  /// Key the `admin_adjust_member_funds` RPC (v35) accepts for this bucket.
+  /// Null for [other], which is not a real bucket and cannot be adjusted.
+  final String? wire;
+
+  /// The buckets an admin may adjust — every one except [other].
+  static List<EarningsBucket> get adjustable =>
+      values.where((b) => b.wire != null).toList(growable: false);
 
   /// Classify a `member_transactions.item_name`. Order matters: "Indirect
   /// Referral" must be tested before "Direct Referral" would ever match, and
@@ -898,6 +916,11 @@ class EarningsSource {
   final int amount;
   final DateTime? timestamp;
 
+  /// True when an admin posted this row through `admin_adjust_member_funds`
+  /// rather than it being earned. Such a row has no counterparty — its label
+  /// carries the admin's reason instead of a person's name.
+  final bool isAdjustment;
+
   const EarningsSource({
     required this.bucket,
     required this.rawLabel,
@@ -905,7 +928,55 @@ class EarningsSource {
     this.sourceName,
     this.detail,
     this.timestamp,
+    this.isAdjustment = false,
   });
+}
+
+/// One entry from the admin fund-adjustment audit trail (`fund_adjustments`).
+///
+/// The money itself lives in `member_transactions`; this is the paperwork —
+/// who changed what, when, and why. Readable by admins only.
+class FundAdjustment {
+  final int? id;
+  final int memberId;
+  final EarningsBucket bucket;
+  final int amount; // signed: negative deducts
+  final String reason;
+  final int balanceBefore; // of this bucket, not the wallet
+  final int balanceAfter;
+  final DateTime? createdAt;
+
+  const FundAdjustment({
+    this.id,
+    required this.memberId,
+    required this.bucket,
+    required this.amount,
+    required this.reason,
+    this.balanceBefore = 0,
+    this.balanceAfter = 0,
+    this.createdAt,
+  });
+
+  bool get isDeduction => amount < 0;
+
+  factory FundAdjustment.fromJson(Map<String, dynamic> json) {
+    final wire = (json['bucket'] ?? '').toString();
+    return FundAdjustment(
+      id: json['id'] as int?,
+      memberId: json['member_id'] as int? ?? 0,
+      bucket: EarningsBucket.values.firstWhere(
+        (b) => b.wire == wire,
+        orElse: () => EarningsBucket.other,
+      ),
+      amount: (json['amount'] as num?)?.toInt() ?? 0,
+      reason: (json['reason'] ?? '').toString(),
+      balanceBefore: (json['balance_before'] as num?)?.toInt() ?? 0,
+      balanceAfter: (json['balance_after'] as num?)?.toInt() ?? 0,
+      createdAt: json['created_at'] != null
+          ? DateTime.tryParse(json['created_at'].toString())
+          : null,
+    );
+  }
 }
 
 // ── Helper Functions ──────────────────────────────────────────────────────

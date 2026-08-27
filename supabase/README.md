@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v34)
+├── migrations/    Ordered, apply-once changes (v2 … v35)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -56,8 +56,8 @@ fresh DB; on an existing DB only the ones not yet applied.
 > the earner's own rate. Referral bonuses crystallize at first availment (with
 > catch-up), frozen thereafter.
 
-**Branch Cashier role + Branch Stock (v28–v33)** — *staging only; not yet on
-prod. Apply in this exact order:*
+**Branch Cashier role + Branch Stock (v28–v33)** — *applied to staging and
+prod (shipped in v1.3.0). Apply in this exact order:*
 - v28 — `is_staff()` accepts the new `branch_cashier` role.
 - v29 — `profiles.mobile_enabled` flag (admin-granted mobile login for a branch
   cashier; desktop-only by default). Enforced in-app.
@@ -84,6 +84,31 @@ prod. Apply in this exact order:*
   authorization as `get_member_earnings`. Read-only; changes no policies.
   Ship with the app build that adds the breakdown card.
 
+**Admin fund adjustments (v35)** — *not yet applied anywhere.*
+
+- v35 — `admin_adjust_member_funds(member, bucket, amount, reason)`: the only
+  supported way to correct a member's earned funds. **Append-only** — it
+  writes a new signed `member_transactions` row whose `item_name` keeps the
+  bucket's prefix (`'Chairman Bonus Adjustment — <reason>'` still matches
+  `ilike 'Chairman Bonus%'`), so `get_member_earnings` picks it up unchanged
+  and the original credits stay intact. Never `UPDATE`s or `DELETE`s a credit.
+
+  Gated by `is_admin()`, **not** `is_staff()`. Refuses a zero amount, a reason
+  under 3 characters, and any deduction that would drive the bucket below zero
+  (`get_member_earnings` clamps at 0, so a negative bucket would silently
+  swallow later earnings).
+
+  Also in v35: `earnings_history.note` (snapshots had no cause, so a decrease
+  was guessed at and mislabelled "Withdrawal"); the `fund_adjustments` audit
+  table (admin-SELECT only, no INSERT policy — the RPC is the only way in);
+  and `get_member_earnings_sources` gains `is_adjustment`, which **drops and
+  recreates** the v34 function because `CREATE OR REPLACE` cannot alter OUT
+  columns.
+
+  Additive and safe to apply ahead of the app — a v1.3.0 client ignores the
+  extra column. The reverse is not: **apply v35 before releasing the build
+  that adds the Adjust Funds dialog.**
+
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
 > build must ship before any `branch_cashier` account exists) → create accounts
@@ -102,6 +127,10 @@ Branch cashier / branch stock undo scripts:
 - `rollback_branch_transfer_note_v32.sql` — drop the note from the Reports reason.
 - `rollback_is_staff_v27.sql` — reverts the `is_staff()` change from v28.
 - `rollback_earnings_sources_v34.sql` — drop the earnings-sources RPC (v34).
+- `rollback_admin_fund_adjustments_v35.sql` — remove the adjust RPC and restore
+  the v34 sources function. Does **not** reverse adjustments already posted —
+  those are real ledger rows; post the opposite adjustment instead. Dropping
+  `fund_adjustments` and `earnings_history.note` is deliberately commented out.
 
 ## diagnostics/
 Read-only — safe on the live DB, write nothing.

@@ -5,13 +5,72 @@ admins). This file carries the parts a developer needs and a user shouldn't
 have to read: commit history, database migrations, rollout order, and the
 reasons behind each change.
 
-Baseline: last released build is tag **v1.2** (2026-08-07).
+Baseline: last released build is tag **v1.3.0** (2026-08-20).
 
 ---
 
 ## Unreleased — next production release
 
-**Status:** on staging, awaiting client sign-off.
+**Status:** in development.
+
+### Added
+- **Admin fund adjustments** (migration v35) — `admin_adjust_member_funds`,
+  an admin-only SECURITY DEFINER RPC, plus an Adjust Funds dialog on the
+  admin member-detail modal.
+
+  The ledger is append-only, so an adjustment is a **new signed row**, never
+  an `UPDATE`/`DELETE` of an existing credit. Its `item_name` keeps the
+  bucket's prefix — `'Chairman Bonus Adjustment — <reason>'` still matches
+  `ilike 'Chairman Bonus%'` — so `get_member_earnings` picks it up with **no
+  change to the earnings RPC**. That prefix match is the whole mechanism.
+
+  Design points worth keeping:
+  - `is_admin()`, not `is_staff()`. Stricter than every other earnings RPC on
+    purpose.
+  - **Reason is mandatory** and lives in `item_name`, because that is the
+    string the member's Sources card renders. Whitespace-collapsed and capped
+    at 120 chars server-side so one long paste can't wreck the row; the full
+    text is kept in `fund_adjustments.reason`.
+  - **Bucket cannot go negative.** `get_member_earnings` clamps totals at 0,
+    so a negative bucket would silently swallow later legitimate earnings
+    instead of showing them. The RPC refuses rather than create that trap.
+  - `fund_adjustments` is the audit trail (who/when/why/before/after),
+    deliberately separate from `member_transactions` — that table is the
+    money, this one is the paperwork. SELECT is admin-only; there is **no**
+    INSERT policy, so the RPC is the only way in.
+  - The RPC writes its own `earnings_history` snapshot with the new
+    `note` column, rather than waiting for the member's dashboard to record
+    one. Otherwise the entry would surface later with no cause attached.
+- **`earnings_history.note`** — snapshots previously stored deltas with no
+  cause, which is why the member's History guessed "Withdrawal" for any
+  decrease.
+- **`get_member_earnings_sources.is_adjustment`** — v34's RPC plus one
+  boolean, joined from `fund_adjustments.transaction_id` rather than sniffed
+  from the label. Needed because `'Upgrade Bonus — Ambassador'` encodes the
+  target tier after the dash and the client parses it into "Upgraded to
+  Ambassador"; an `'Upgrade Bonus Adjustment — <reason>'` row has the same
+  shape and would otherwise read "Upgraded to \<reason\>".
+
+  The return type changed, so v35 **drops and recreates** the function —
+  `CREATE OR REPLACE` cannot alter OUT columns. Adding a column is
+  backward-compatible: older clients read by key and ignore it.
+
+### Fixed
+- **Corrections labelled "Withdrawal"** — `_historyRow` assumed any negative
+  delta was money paid out. It now prefers the snapshot's `note` when one
+  exists and falls back to the neutral "Deduction".
+- **Negative amounts rendered `₱-300`** in the Sources list — the sign now
+  sits outside the currency symbol and the row is coloured `danger`.
+
+### Known gap
+- `member_transactions` has **no realtime subscription**, so a member already
+  sitting on the Earnings tab sees an adjustment on their next visit rather
+  than instantly. Subscribing would stream every sale and referral row to
+  every device for a rare manual action; not worth the WAL load.
+
+---
+
+## v1.3.0 — 2026-08-20
 
 ### Added
 - **Branch Cashier role + Branch Stock** (`9d87cda`) — two-tier inventory.
@@ -80,15 +139,28 @@ Baseline: last released build is tag **v1.2** (2026-08-07).
 
 | Migration | Purpose | Staging | Prod |
 |---|---|---|---|
-| v28 | `is_staff()` includes `branch_cashier` | ✅ | ❌ |
-| v29 | `profiles.mobile_enabled` | ✅ | ❌ |
-| v30 | `branch_stock`, `stock_transfers`, RPCs | ✅ | ❌ |
-| v31 | Branch transfers → `stock_movements` | ✅ | ❌ |
-| v32 | Give-stock note in the Reports reason | ✅ | ❌ |
-| v33 | RLS + SELECT policies for branch stock | ✅ | ❌ |
+| v28 | `is_staff()` includes `branch_cashier` | ✅ | ✅ |
+| v29 | `profiles.mobile_enabled` | ✅ | ✅ |
+| v30 | `branch_stock`, `stock_transfers`, RPCs | ✅ | ✅ |
+| v31 | Branch transfers → `stock_movements` | ✅ | ✅ |
+| v32 | Give-stock note in the Reports reason | ✅ | ✅ |
+| v33 | RLS + SELECT policies for branch stock | ✅ | ✅ |
 | v34 | `get_member_earnings_sources` RPC | ✅ | ✅ |
+| v35 | Admin fund adjustments + `is_adjustment` | ❌ | ❌ |
 
 Each has a matching script in `supabase/rollbacks/`.
+
+### v35 must ship before the build that uses it
+
+v35 is additive and safe to apply on its own — a v1.3.0 client keeps working
+against it, because the extra `is_adjustment` column is simply ignored. The
+reverse is not true: a build with the Adjust Funds dialog against a v34
+database fails at the RPC call. **Apply v35 to prod before releasing the
+next binary.**
+
+The `note` column and the `fund_adjustments` table are the two things worth
+preserving on any rollback — part 3 of the rollback script is destructive and
+commented out for that reason.
 
 ### Why v34 must be SECURITY DEFINER
 
