@@ -12,6 +12,49 @@ history) live in `docs/release_notes_technical.md`.*
 
 > Currently being tested. Nothing here is live for everyone yet.
 
+### 🛠️ Admins can correct a member's earnings
+
+Sometimes a bonus is paid on something that turns out to be a mistake — a
+duplicate referral, a cancelled sale, a wrong package. Until now the only
+way to put that right was to edit the database by hand.
+
+Admins now get an **Adjust Funds** button on a member's details. Pick which
+earnings to correct (Direct Referral, Indirect Referral, Group Sales,
+Chairman's Bonus or Upgrade Bonus), choose **Add** or **Deduct**, enter the
+amount, and — this part is required — **write the reason**.
+
+Before you confirm, the screen shows exactly what will change:
+
+> **Chairman's Bonus**  ~~₱200~~ → **₱150**
+> Their Total Earnings moves by −₱50.
+
+A few things worth knowing about how it works:
+
+- **Nothing is erased.** The original bonus stays in the member's history
+  exactly as it was earned. The correction is added as its own separate
+  entry, so the books always show what happened and in what order.
+- **The reason is shown to the member.** It appears in their earnings
+  breakdown next to the amount, so write it for them to read — a correction
+  with no explanation is what generates the support message you were trying
+  to avoid.
+- **You can't push someone below zero.** If a deduction is larger than what
+  they've earned in that category, it's refused and tells you the actual
+  figure.
+- **Admins only.** Cashiers and branch cashiers don't see the button.
+
+### 🐛 Fixes
+
+- **Corrections are no longer labelled "Withdrawal".** A drop in earnings
+  was previously described as money paid out, even when it was an admin
+  correction. The history now says what actually happened and shows the
+  reason.
+- **Deductions read properly.** A negative entry showed as "₱-300"; it now
+  reads "−₱300" in red.
+
+---
+
+## Version 1.3.0 — 20 August 2026
+
 ### 🏪 Branch stores can now hold their own stock
 
 The biggest change in this update. Previously all stock sat in one place.
@@ -131,5 +174,4 @@ an item quickly.
 
 ## Version 1.2 — 7 August 2026
 
-The last update released to everyone. Changes before this date weren't
-tracked in this file.
+Changes before this date weren't tracked in this file.

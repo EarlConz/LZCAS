@@ -25,6 +25,7 @@ import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/pages/admin/branch_stock_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
+import 'package:lzcas/dialogs/adjust_funds_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/notification_service.dart';
 import 'package:lzcas/services/config_service.dart';
@@ -4360,6 +4361,40 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                               ),
                               const SizedBox(height: 12),
                             ],
+                            // ── Adjust Funds ────────────────────────────────
+                            // Admin-only, and gated again server-side by
+                            // is_admin() in admin_adjust_member_funds. Hidden
+                            // rather than disabled for other roles: a cashier
+                            // has no business seeing a control for moving
+                            // money that was already earned.
+                            if (context.read<AuthState>().userRole
+                                    ?.canAdjustFunds ??
+                                false) ...[
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _openAdjustFundsDialog(
+                                    ctx,
+                                    member,
+                                    fullName,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.account_balance_wallet_outlined,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Adjust Funds'),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
                             SizedBox(
                               width: double.infinity,
                               child: TextButton.icon(
@@ -4392,6 +4427,32 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
           },
         );
       },
+    );
+  }
+
+  /// Correct one of a member's earnings buckets, with a reason.
+  ///
+  /// Closes the detail modal first: posting an adjustment changes the very
+  /// figures behind it, and the modal has no way to reload them — leaving it
+  /// open would show stale numbers over a completed change.
+  Future<void> _openAdjustFundsDialog(
+    BuildContext ctx,
+    Map<String, dynamic> member,
+    String fullName,
+  ) async {
+    final memberId = (member['id'] ?? 0) as int;
+    if (memberId == 0) {
+      showErrorToast('This member has no record to adjust.');
+      return;
+    }
+
+    Navigator.pop(ctx);
+    if (!mounted) return;
+
+    await showAdjustFundsDialog(
+      context,
+      memberId: memberId,
+      memberName: fullName.isEmpty ? 'Member #$memberId' : fullName,
     );
   }
 

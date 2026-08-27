@@ -90,6 +90,14 @@ extension UserRolePermissions on UserRole {
   /// Returns true if this role can manage users (admin only).
   bool get canManageUsers => this == UserRole.admin;
 
+  /// Returns true if this role can correct a member's earned funds.
+  ///
+  /// Stricter than the other staff permissions on purpose: cashiers record
+  /// sales, but only an admin moves money that has already been earned. The
+  /// `admin_adjust_member_funds` RPC enforces the same rule server-side, so
+  /// this only decides whether the control is worth showing.
+  bool get canAdjustFunds => this == UserRole.admin;
+
   /// Returns true if this role can view reports.
   bool get canViewReports =>
       this == UserRole.admin || this == UserRole.inventory;

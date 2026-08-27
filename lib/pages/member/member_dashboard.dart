@@ -1723,6 +1723,12 @@ class _EarningsTabState extends State<_EarningsTab> {
         'sale_deleted',
         'member_added',
         'member_updated',
+        // An admin correction (v35). Note this only fires on the device that
+        // posted it: `member_transactions` has no realtime subscription, so a
+        // member already sitting on this tab picks the change up on their next
+        // visit rather than instantly. Rare enough (and manual enough) not to
+        // justify streaming the whole ledger to every device.
+        'funds_adjusted',
       };
       if (invalidating.contains(event)) {
         _SourcesCache.invalidate();
@@ -2270,6 +2276,34 @@ class _EarningsLedgerCard extends StatelessWidget {
     );
   }
 
+  /// Split an admin adjustment's note into (bucket, reason).
+  ///
+  /// `admin_adjust_member_funds` writes the note as the ledger label it
+  /// created — `'Chairman Bonus Adjustment — Duplicate referral reversed'`.
+  /// The bucket half labels the chip and the reason goes on its own line, so
+  /// the member reads the explanation rather than a bare minus figure.
+  /// Returns (null, null) for an ordinary snapshot, which has no note.
+  (String?, String?) _splitAdjustmentNote(String? note) {
+    final text = note?.trim() ?? '';
+    if (text.isEmpty) return (null, null);
+
+    const marker = ' Adjustment — ';
+    final at = text.indexOf(marker);
+    // A note that doesn't follow the pattern is still a real explanation —
+    // show it whole rather than dropping it.
+    if (at <= 0) return (null, text);
+
+    final reason = text.substring(at + marker.length).trim();
+    if (reason.isEmpty) return (null, text);
+
+    // The note carries the ledger's prefix ("Chairman Bonus"); the rest of
+    // the UI uses the display label ("Chairman's Bonus"). Translate so the
+    // chip reads the same as every other chip on the screen.
+    final prefix = text.substring(0, at).trim();
+    final bucket = EarningsBucket.fromItemName(prefix);
+    return (bucket == EarningsBucket.other ? prefix : bucket.label, reason);
+  }
+
   /// One ledger entry: direction icon, source chips + date, running totals.
   Widget _historyRow(
     EarningsSnapshot h,
@@ -2280,9 +2314,16 @@ class _EarningsLedgerCard extends StatelessWidget {
   ) {
     final firstEver = prev == null && prevIsComplete;
 
+    // An admin correction records its own cause (v35). When one is present it
+    // beats every heuristic below — those exist only because a snapshot
+    // normally stores a delta with no explanation at all.
+    final (noteBucket, noteReason) = _splitAdjustmentNote(h.note);
+
     List<Widget> chips;
     final netDelta = h.earningsDelta + h.balanceDelta;
-    if (netDelta < 0) {
+    if (noteReason != null) {
+      chips = <Widget>[?_deltaChip(netDelta, noteBucket ?? 'Correction')];
+    } else if (netDelta < 0) {
       // A decrease is either an approved withdrawal OR an admin correction
       // (a negative ledger row). A snapshot only records the delta, not its
       // cause, so this used to guess "Withdrawal" — which mislabels a
@@ -2326,11 +2367,22 @@ class _EarningsLedgerCard extends StatelessWidget {
       ];
     }
 
-    // Direction of the net change drives the leading icon.
+    // The leading mark says what KIND of event this is; the chip beside it
+    // says which direction it moved. Those are two different questions, and
+    // picking the icon from the sign of the delta alone answered only the
+    // second — an admin correction got the identical red arrow a withdrawal
+    // gets, and a positive correction was indistinguishable from having
+    // genuinely earned the money. Three kinds, three marks.
     final net = h.earningsDelta + h.balanceDelta;
     final IconData dirIcon;
     final Color dirColor;
-    if (net > 0) {
+    if (noteReason != null) {
+      dirIcon = Icons.edit_note_rounded;
+      // Primary rather than a red/green: a correction can go either way, so
+      // its mark must carry no direction of its own. It is also the History
+      // card's own header colour, so it reads as "the office wrote this".
+      dirColor = StockpileColors.primary900;
+    } else if (net > 0) {
       dirIcon = Icons.trending_up_rounded;
       dirColor = StockpileColors.success;
     } else if (net < 0) {
@@ -2340,6 +2392,14 @@ class _EarningsLedgerCard extends StatelessWidget {
       dirIcon = Icons.swap_vert_rounded;
       dirColor = mutedColor;
     }
+
+    // Attribution rides in the existing meta line rather than a new row, so
+    // it costs no height. Same wording the Sources view uses, so one event
+    // no longer reads two different ways depending on which tab you opened.
+    final metaParts = <String>[
+      if (noteReason != null) 'Correction by admin',
+      if (h.recordedAt != null) _fmtDateTime(h.recordedAt!),
+    ];
 
     return Padding(
       padding: EdgeInsets.symmetric(vertical: isCompact ? 8 : 10),
@@ -2374,9 +2434,24 @@ class _EarningsLedgerCard extends StatelessWidget {
                       color: mutedColor,
                     ),
                   ),
+                if (noteReason != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    noteReason,
+                    style: StockpileFonts.satoshi(
+                      fontSize: isCompact ? 11 : 12,
+                      // A reason runs to 120 characters and wraps to several
+                      // lines in a phone-width column. Left to stack at the
+                      // default leading it reads as a block; it is never
+                      // truncated, because the reason is the point of the row.
+                      height: 1.35,
+                      color: textColor,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 4),
                 Text(
-                  h.recordedAt != null ? _fmtDateTime(h.recordedAt!) : '—',
+                  metaParts.isEmpty ? '—' : metaParts.join(' · '),
                   style: StockpileFonts.satoshi(
                     fontSize: isCompact ? 10 : 11,
                     color: mutedColor,
@@ -2797,10 +2872,21 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
   /// the bucket name back at the reader.
   String _title(EarningsSource e) {
     if (e.sourceName != null) return e.sourceName!;
+    // An admin correction's label repeats the bucket it already sits under
+    // ("Chairman Bonus Adjustment — Duplicate referral reversed"). Lead with
+    // the reason instead; the heading above already says which bucket.
+    if (e.isAdjustment) {
+      const marker = ' Adjustment — ';
+      final at = e.rawLabel.indexOf(marker);
+      if (at > 0) {
+        final reason = e.rawLabel.substring(at + marker.length).trim();
+        if (reason.isNotEmpty) return reason;
+      }
+      return e.rawLabel;
+    }
     // No linked person — but the ledger label may still explain the entry
-    // ("Upgrade Bonus — Ambassador", "Direct Referral Adjustment — reversed
-    // duplicate referral"). If it says anything beyond the bare bucket name,
-    // that text IS the explanation, so show it.
+    // ("Upgrade Bonus — Ambassador"). If it says anything beyond the bare
+    // bucket name, that text IS the explanation, so show it.
     if (!_isUnknownSource(e)) return e.rawLabel;
     return 'Source not recorded';
   }
@@ -2810,6 +2896,9 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
   /// explain it (legacy/imported rows with no item_id or sale_id).
   bool _isUnknownSource(EarningsSource e) {
     if (e.sourceName != null) return false;
+    // An admin correction has no counterparty by design — its label is the
+    // reason, which is an explanation, not a missing one.
+    if (e.isAdjustment) return false;
     const bases = {
       EarningsBucket.directReferral: 'direct referral',
       EarningsBucket.indirectReferral: 'indirect referral',
@@ -2826,9 +2915,18 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
 
   Widget _sourceRow(EarningsSource e, Color textColor, Color mutedColor) {
     final parts = <String>[
+      // Name the row for what it is. Without this a correction is
+      // indistinguishable from an earning except by the sign of its amount.
+      if (e.isAdjustment) 'Correction by admin',
       if (e.detail != null && e.detail!.isNotEmpty) e.detail!,
       if (e.timestamp != null) formatDisplayDate(e.timestamp),
     ];
+
+    // Corrections can be negative; every earned credit is positive. Render
+    // the sign outside the currency symbol — "₱-300" reads as a typo.
+    final negative = e.amount < 0;
+    final amountText =
+        '${negative ? '−' : ''}${widget.currencySymbol}${e.amount.abs()}';
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
@@ -2868,11 +2966,11 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
           ),
           const SizedBox(width: 8),
           Text(
-            '${widget.currencySymbol}${e.amount}',
+            amountText,
             style: TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
-              color: textColor,
+              color: negative ? StockpileColors.danger : textColor,
             ),
           ),
         ],

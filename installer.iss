@@ -23,7 +23,7 @@
 #else
   #define MyAppName "LZCAS"
   #define MyAppId "{{3A9C1E57-8B24-4D6F-A1E0-7C5B93D2F846}"
-  #define MyOutputBase "LZCAS_Setup_v"
+  #define MyOutputBase "GUTVita_Setup_v"
   #define MyDirName "LZCAS"
 #endif
 

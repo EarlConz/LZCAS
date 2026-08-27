@@ -1327,9 +1327,19 @@ class SupabaseRepository {
       final resolved = (map['source_name'] ?? '').toString().trim();
       final qty = (map['quantity'] as num?)?.toInt() ?? 0;
       final saleItem = (map['sale_item'] ?? '').toString().trim();
+      // v35. Null on a database still on v34, which is the honest default —
+      // no adjustments can exist there.
+      final isAdjustment = map['is_adjustment'] == true;
 
       String? detail;
-      if (bucket == EarningsBucket.groupSales) {
+      if (isAdjustment) {
+        // An admin correction, not something earned. The reason is already
+        // in the label, so there is no sub-detail to add — and in particular
+        // the Upgrade Bonus branch below must not run, or an
+        // "Upgrade Bonus Adjustment — <reason>" row would read
+        // "Upgraded to <reason>".
+        detail = null;
+      } else if (bucket == EarningsBucket.groupSales) {
         detail = saleItem.isEmpty
             ? (qty > 0 ? '$qty item${qty == 1 ? '' : 's'}' : null)
             : '$qty × $saleItem';
@@ -1348,8 +1358,104 @@ class SupabaseRepository {
         detail: detail,
         amount: (map['amount'] as num?)?.toInt() ?? 0,
         timestamp: DateTime.tryParse((map['occurred_at'] ?? '').toString()),
+        isAdjustment: isAdjustment,
       );
     }).toList();
+  }
+
+  // ── Admin fund adjustments (v35) ──────────────────────────────────
+
+  /// Gross total per earnings bucket, straight from the frozen ledger.
+  ///
+  /// Deliberately NOT read from [fetchMemberEarningsBreakdown]: that returns
+  /// `balance` and `totalEarnings` already net of approved withdrawals, so
+  /// its Direct Referral figure is smaller than the ledger's. The adjustment
+  /// guard in `admin_adjust_member_funds` compares against the GROSS bucket,
+  /// so the dialog has to show the same number or its preview would disagree
+  /// with what the server allows.
+  ///
+  /// Folded from the sources RPC rather than a query of its own — same rows,
+  /// same classification, no extra database surface.
+  Future<Map<EarningsBucket, int>> fetchMemberFundBuckets(int memberId) async {
+    final totals = {for (final b in EarningsBucket.adjustable) b: 0};
+    for (final s in await fetchEarningsSources(memberId)) {
+      if (!totals.containsKey(s.bucket)) continue;
+      totals[s.bucket] = totals[s.bucket]! + s.amount;
+    }
+    return totals;
+  }
+
+  /// Post an admin adjustment to one of a member's earnings buckets.
+  ///
+  /// Append-only by design: this never edits or deletes an existing credit,
+  /// it writes a new signed row that the earnings RPC picks up because its
+  /// `item_name` keeps the bucket's prefix. See migration v35.
+  ///
+  /// [amount] is signed — negative deducts. [reason] is required and is
+  /// shown to the member in their earnings breakdown.
+  ///
+  /// Returns null on success, or a message to show the admin. The server
+  /// refuses non-admins, a zero amount, a blank reason, and any adjustment
+  /// that would drive the bucket below zero.
+  Future<String?> adjustMemberFunds({
+    required int memberId,
+    required EarningsBucket bucket,
+    required int amount,
+    required String reason,
+  }) async {
+    final wire = bucket.wire;
+    if (wire == null) return 'That earnings type cannot be adjusted.';
+
+    try {
+      await _supabase.rpc(
+        'admin_adjust_member_funds',
+        params: {
+          'p_member_id': memberId,
+          'p_bucket': wire,
+          'p_amount': amount,
+          'p_reason': reason,
+        },
+      );
+    } on PostgrestException catch (e) {
+      // Surface the server's own wording rather than _friendlyError's generic
+      // fallback: every `raise exception` in the RPC is written to be read by
+      // the admin ("Chairman Bonus is only 200; deducting 300 would leave it
+      // below zero"), and losing that turns a fixable mistake into a mystery.
+      debugPrint('[adjustMemberFunds] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'The adjustment was rejected.' : msg;
+    } catch (e) {
+      debugPrint('[adjustMemberFunds] failed: $e');
+      return _friendlyError(e);
+    }
+
+    // The member's own dashboard listens for these to drop its sources cache
+    // and refetch, so the adjustment shows without a manual refresh.
+    _changes.add('member_transactions_committed');
+    _changes.add('funds_adjusted');
+    return null;
+  }
+
+  /// Audit trail of adjustments made to a member's funds, newest first.
+  /// Admin-only — RLS returns nothing for anyone else.
+  Future<List<FundAdjustment>> fetchFundAdjustments(
+    int memberId, {
+    int limit = 50,
+  }) async {
+    try {
+      final data = await _supabase
+          .from('fund_adjustments')
+          .select()
+          .eq('member_id', memberId)
+          .order('created_at', ascending: false)
+          .limit(limit);
+      return (data as List)
+          .map((j) => FundAdjustment.fromJson(j as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('[fetchFundAdjustments] failed: $e');
+      return [];
+    }
   }
 
   /// Returns the true gross lifetime earnings for a member — the sum of
