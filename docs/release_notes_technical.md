@@ -55,7 +55,44 @@ Baseline: last released build is tag **v1.3.0** (2026-08-20).
   `CREATE OR REPLACE` cannot alter OUT columns. Adding a column is
   backward-compatible: older clients read by key and ignore it.
 
+- **Announcements + birthday greetings** (migration v36) — `announcements`,
+  `member_saved_items`, and three `app_config` keys.
+
+  Two policy decisions carry the design:
+  - **No DELETE policy on `announcements`.** Once a member can save one,
+    deleting the row would reach into their saved list and empty it.
+    "Take down" sets `archived_at`. The *absence* of a policy is the
+    enforcement — there is no code path to delete.
+  - **RLS does not filter by `ends_at`.** It filters `archived_at` and
+    audience, but an expired announcement stays readable, or a member could
+    not see one they had saved. Current-vs-saved is a presentation split
+    (`Announcement.isCurrent`), not a visibility rule.
+
+  `member_saved_items` covers both kinds in one table so the Saved list is
+  one query. A birthday greeting is not a row anywhere — it is computed —
+  so it is keyed by the **year** it was given. Two partial unique indexes
+  rather than one composite: a plain UNIQUE over nullable columns treats
+  NULLs as distinct and would let the same item be saved twice.
+
+  **No scheduler anywhere.** `birthdayGreetingFor()` runs when the member
+  opens the app. Three cases it has to get right, all covered in
+  `lib/utils/birthday_window.dart`: the **year wrap** (a 20 Dec birthday is
+  still inside a 30-day window on 5 Jan, so it checks last year's
+  occurrence too), **29 February** (Dart's `DateTime(2027, 2, 29)` silently
+  rolls to 1 March, so it pins to the 28th in common years), and
+  **unparseable text** (`members.birthday` is `text`; anything that will not
+  parse returns null and lands in the admin screen's "no birthday recorded"
+  count).
+
 ### Fixed
+- **Member dashboard tab indices** — `_effectiveIndex` mapped a plain
+  member's Profile tap to 4 while `_buildPage` handled only 0–3, so it fell
+  through to `default` and rendered Overview: **non-resellers could not
+  reach their own Profile.** A leftover from when a Rankings tab existed.
+  Replaced with an explicit `_MemberTab` enum and a per-role list, which
+  cannot drift out of step with itself. The admin sidebar's Settings index
+  was hardcoded to `9` for the same class of reason; it is now
+  `_navItems.length`.
 - **Corrections labelled "Withdrawal"** — `_historyRow` assumed any negative
   delta was money paid out. It now prefers the snapshot's `note` when one
   exists and falls back to the neutral "Deduction".
@@ -146,7 +183,8 @@ Baseline: last released build is tag **v1.3.0** (2026-08-20).
 | v32 | Give-stock note in the Reports reason | ✅ | ✅ |
 | v33 | RLS + SELECT policies for branch stock | ✅ | ✅ |
 | v34 | `get_member_earnings_sources` RPC | ✅ | ✅ |
-| v35 | Admin fund adjustments + `is_adjustment` | ❌ | ❌ |
+| v35 | Admin fund adjustments + `is_adjustment` | ✅ | ❌ |
+| v36 | Announcements, saved items, birthday config | ❌ | ❌ |
 
 Each has a matching script in `supabase/rollbacks/`.
 

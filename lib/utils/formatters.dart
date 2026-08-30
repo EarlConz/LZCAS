@@ -1,5 +1,34 @@
 import 'package:intl/intl.dart';
 
+/// "Today", "3 days ago", "2 weeks ago", "5 months ago".
+///
+/// Rounds down deliberately — a notice from 13 days ago reads "1 week ago"
+/// rather than "2 weeks ago", so it never sounds older than it is. Past
+/// roughly a year it gives up and shows the date, since "14 months ago"
+/// tells a reader less than "12 Aug 2025".
+String formatRelativeDate(DateTime? dt) {
+  if (dt == null) return '';
+  final local = dt.toLocal();
+  final today = DateTime.now();
+  final days = DateTime(today.year, today.month, today.day)
+      .difference(DateTime(local.year, local.month, local.day))
+      .inDays;
+
+  if (days < 0) return DateFormat('d MMMM').format(local); // scheduled ahead
+  if (days == 0) return 'Today';
+  if (days == 1) return 'Yesterday';
+  if (days < 7) return '$days days ago';
+  if (days < 14) return '1 week ago';
+  if (days < 31) return '${days ~/ 7} weeks ago';
+  if (days < 62) return '1 month ago';
+  if (days < 365) return '${days ~/ 30} months ago';
+  return DateFormat('d MMM yyyy').format(local);
+}
+
+/// "21 August" — the day a thing happened, without the year.
+String formatDayAndMonth(DateTime? dt) =>
+    dt == null ? '' : DateFormat('d MMMM').format(dt.toLocal());
+
 String formatDisplayDate(DateTime? dt) {
   if (dt == null) return '';
   try {

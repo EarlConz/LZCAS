@@ -36,6 +36,27 @@ class ConfigService extends ChangeNotifier {
 
   bool get notificationsEnabled => _config['notifications_enabled'] != 'false';
 
+  // ── Birthday greetings (v36) ────────────────────────────────────────
+  // Kept in app_config so the wording and the window can be changed without
+  // shipping a new build.
+
+  bool get birthdayGreetingsEnabled =>
+      _config['birthday_greetings_enabled'] != 'false';
+
+  /// How long a greeting stays on the member's Overview after the day
+  /// itself. Clamped because a value typed into settings drives a date
+  /// window: zero would show nothing at all, and a year would never clear.
+  int get birthdayGreetingDays {
+    final raw = int.tryParse(_config['birthday_greeting_days'] ?? '');
+    return (raw ?? 30).clamp(1, 180);
+  }
+
+  String get birthdayGreetingMessage =>
+      (_config['birthday_greeting_message'] ?? '').trim().isNotEmpty
+      ? _config['birthday_greeting_message']!.trim()
+      : 'Everyone at GUTVita wishes you all the best for the year ahead. '
+            'Thank you for being part of the team.';
+
   /// Fetches config once on startup.
   Future<void> load() async {
     if (_loaded) return;

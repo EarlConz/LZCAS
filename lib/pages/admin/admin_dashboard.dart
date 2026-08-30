@@ -24,6 +24,7 @@ import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/pages/admin/branch_stock_page.dart';
+import 'package:lzcas/pages/admin/announcements_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/dialogs/adjust_funds_dialog.dart';
 import 'package:lzcas/db/db.dart';
@@ -59,6 +60,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'Requests',
     'Package',
     'Branch Stock',
+    'Announcements',
     'Settings',
   ];
 
@@ -81,7 +83,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     _AdminPackageTab(),
     // 8: Branch Stock — give/return/adjust + all-branches overview
     BranchStockPage(),
-    // 9: Settings — Global Config moved here
+    // 9: Announcements — post notices + the automatic birthday greeting
+    AdminAnnouncementsPage(),
+    // 10: Settings — Global Config moved here
     _AdminSettingsTab(),
   ];
 
@@ -3569,6 +3573,7 @@ class _AdminSidebar extends StatelessWidget {
     _NavItem(Icons.person_remove_rounded, 'Requests'),
     _NavItem(Icons.card_giftcard_rounded, 'Package'),
     _NavItem(Icons.local_shipping_rounded, 'Branch Stock'),
+    _NavItem(Icons.campaign_rounded, 'Announcements'),
   ];
 
   static const _bottomItems = <_NavItem>[
@@ -3679,13 +3684,15 @@ class _AdminSidebar extends StatelessWidget {
                 endIndent: 12,
               ),
               const SizedBox(height: 8),
-              // Settings → index 9
+              // Settings sits after every main item. Derived rather than
+              // hardcoded so adding a nav item can't silently collide with
+              // it — which is exactly what a literal 9 did.
               _AdminSidebarTile(
                 item: _bottomItems[0],
-                isSelected: selectedIndex == 9,
+                isSelected: selectedIndex == _navItems.length,
                 activeBg: activeBg,
                 isDark: isDark,
-                onTap: () => onItemSelected(9),
+                onTap: () => onItemSelected(_navItems.length),
                 expanded: wide,
               ),
             ],

@@ -932,6 +932,122 @@ class EarningsSource {
   });
 }
 
+/// Who an announcement is addressed to. The three values are mutually
+/// exclusive: [members] means plain members only, so a reseller does not
+/// receive one sent to "members".
+enum AnnouncementAudience {
+  all('all', 'Everyone'),
+  resellers('resellers', 'Resellers only'),
+  members('members', 'Members only');
+
+  const AnnouncementAudience(this.wire, this.label);
+
+  final String wire;
+  final String label;
+
+  static AnnouncementAudience fromWire(String? raw) =>
+      values.firstWhere((a) => a.wire == raw, orElse: () => all);
+}
+
+/// An admin-posted notice shown to members.
+class Announcement {
+  final int id;
+  final String title;
+  final String body;
+  final AnnouncementAudience audience;
+  final DateTime? publishedAt;
+
+  /// When it stops being current. Null means it stays up until archived.
+  final DateTime? endsAt;
+
+  /// Set when an admin takes it out of circulation. Announcements are never
+  /// deleted — a member may have saved one.
+  final DateTime? archivedAt;
+
+  /// Whether THIS member has starred it. Populated by the repository from
+  /// the member's saved list, not by the announcements query.
+  final bool saved;
+
+  const Announcement({
+    required this.id,
+    required this.title,
+    required this.body,
+    this.audience = AnnouncementAudience.all,
+    this.publishedAt,
+    this.endsAt,
+    this.archivedAt,
+    this.saved = false,
+  });
+
+  bool get isArchived => archivedAt != null;
+
+  /// Still in its window. An announcement with no end date is current
+  /// forever; one with an end date stops on the dot.
+  bool isCurrent([DateTime? now]) {
+    if (isArchived) return false;
+    final at = now ?? DateTime.now();
+    if (publishedAt != null && publishedAt!.isAfter(at)) return false;
+    return endsAt == null || endsAt!.isAfter(at);
+  }
+
+  factory Announcement.fromJson(Map<String, dynamic> json) => Announcement(
+    id: json['id'] as int? ?? 0,
+    title: (json['title'] ?? '').toString(),
+    body: (json['body'] ?? '').toString(),
+    audience: AnnouncementAudience.fromWire(json['audience'] as String?),
+    publishedAt: DateTime.tryParse((json['published_at'] ?? '').toString()),
+    endsAt: DateTime.tryParse((json['ends_at'] ?? '').toString()),
+    archivedAt: DateTime.tryParse((json['archived_at'] ?? '').toString()),
+  );
+
+  Announcement copyWith({bool? saved}) => Announcement(
+    id: id,
+    title: title,
+    body: body,
+    audience: audience,
+    publishedAt: publishedAt,
+    endsAt: endsAt,
+    archivedAt: archivedAt,
+    saved: saved ?? this.saved,
+  );
+}
+
+/// A birthday greeting for one member in one year.
+///
+/// Not a database row — it is computed from `members.birthday` when the
+/// member opens the app, which is why the feature needs no scheduler and
+/// sends nothing. [year] is what identifies it when saved.
+class BirthdayGreeting {
+  /// The year this greeting belongs to — normally the current year, but the
+  /// PREVIOUS year when the window straddles New Year (a 20 December
+  /// birthday viewed on 5 January is still last year's greeting).
+  final int year;
+
+  /// The actual date the birthday fell on, for display.
+  final DateTime occurredOn;
+
+  /// Whole days since the birthday. 0 on the day itself.
+  final int daysSince;
+
+  final bool saved;
+
+  const BirthdayGreeting({
+    required this.year,
+    required this.occurredOn,
+    required this.daysSince,
+    this.saved = false,
+  });
+
+  bool get isToday => daysSince == 0;
+
+  BirthdayGreeting copyWith({bool? saved}) => BirthdayGreeting(
+    year: year,
+    occurredOn: occurredOn,
+    daysSince: daysSince,
+    saved: saved ?? this.saved,
+  );
+}
+
 /// One entry from the admin fund-adjustment audit trail (`fund_adjustments`).
 ///
 /// The money itself lives in `member_transactions`; this is the paperwork —

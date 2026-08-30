@@ -17,8 +17,11 @@ import '../../services/updater_service.dart';
 import '../../dialogs/update_dialog.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
+import '../../utils/birthday_window.dart';
+import '../../widgets/announcement_widgets.dart';
 import '../../widgets/member_sidebar.dart';
 import '../../widgets/memberqr.dart';
+import 'announcements_tab.dart';
 
 class MemberDashboard extends StatefulWidget {
   const MemberDashboard({super.key});
@@ -85,16 +88,24 @@ class _MemberDashboardState extends State<MemberDashboard> {
     ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
   }
 
-  // ── Reseller-only tab indices (offset by shared tab count) ──────
+  // ── Tabs ────────────────────────────────────────────────────────
+  //
+  // An explicit list per role, rather than an index arithmetic mapping.
+  // The old version mapped a plain member's Profile tap to 4 while
+  // _buildPage only handled 0–3, so it fell through to the default and
+  // showed Overview — members could not reach their own Profile at all.
+  // A list cannot drift out of step with itself that way.
 
-  // For basic members: skip earnings and rankings
-  int get _effectiveIndex {
-    if (_isReseller) return _selectedIndex;
-    // Map: Overview→0, Purchases→1, Profile→2
-    if (_selectedIndex == 0) return 0;
-    if (_selectedIndex == 1) return 1;
-    return 4; // Profile
-  }
+  List<_MemberTab> get _tabs => [
+    _MemberTab.overview,
+    _MemberTab.purchases,
+    _MemberTab.announcements,
+    if (_isReseller) _MemberTab.earnings,
+    _MemberTab.profile,
+  ];
+
+  _MemberTab get _currentTab =>
+      _tabs[_selectedIndex.clamp(0, _tabs.length - 1)];
 
   @override
   Widget build(BuildContext context) {
@@ -170,7 +181,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
               child: Column(
                 children: [
                   _buildTopBar(isDark, isDesktop),
-                  Expanded(child: _buildPage(_effectiveIndex)),
+                  Expanded(child: _buildPage(_currentTab)),
                 ],
               ),
             ),
@@ -181,10 +192,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
   }
 
   Widget _buildTopBar(bool isDark, bool isDesktop) {
-    final titles = _isReseller
-        ? ['Overview', 'My Purchases', 'Earnings', 'Profile']
-        : ['Overview', 'My Purchases', 'Profile'];
-    final title = titles[_selectedIndex.clamp(0, titles.length - 1)];
+    final title = _currentTab.title;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
@@ -242,21 +250,44 @@ class _MemberDashboardState extends State<MemberDashboard> {
     );
   }
 
-  Widget _buildPage(int index) {
-    switch (index) {
-      case 0:
-        return _OverviewTab(member: _member!, isReseller: _isReseller);
-      case 1:
+  Widget _buildPage(_MemberTab tab) {
+    switch (tab) {
+      case _MemberTab.overview:
+        return _OverviewTab(
+          member: _member!,
+          isReseller: _isReseller,
+          onViewAnnouncements: _openAnnouncements,
+        );
+      case _MemberTab.purchases:
         return _PurchasesTab(member: _member!);
-      case 2:
-        if (!_isReseller) return _PurchasesTab(member: _member!);
+      case _MemberTab.announcements:
+        return AnnouncementsTab(member: _member!);
+      case _MemberTab.earnings:
         return _EarningsTab(member: _member!);
-      case 3:
+      case _MemberTab.profile:
         return _ProfileTab(member: _member!, onUpdated: _loadMemberData);
-      default:
-        return _OverviewTab(member: _member!, isReseller: _isReseller);
     }
   }
+
+  /// Jump to the Announcements tab — used by the Overview strip's "View all".
+  void _openAnnouncements() {
+    final index = _tabs.indexOf(_MemberTab.announcements);
+    if (index >= 0) setState(() => _selectedIndex = index);
+  }
+}
+
+/// The member dashboard's tabs. Which of them are present depends on the
+/// role (see `_tabs`), so the enum is the identity and the index is only
+/// ever a position within the list built for that member.
+enum _MemberTab {
+  overview('Overview'),
+  purchases('My Purchases'),
+  announcements('Announcements'),
+  earnings('Earnings'),
+  profile('Profile');
+
+  const _MemberTab(this.title);
+  final String title;
 }
 
 // ─── My QR Card ────────────────────────────────────────────────────────────
@@ -416,8 +447,13 @@ class _MyQrCard extends StatelessWidget {
 class _OverviewTab extends StatefulWidget {
   final Member member;
   final bool isReseller;
+  final VoidCallback onViewAnnouncements;
 
-  const _OverviewTab({required this.member, required this.isReseller});
+  const _OverviewTab({
+    required this.member,
+    required this.isReseller,
+    required this.onViewAnnouncements,
+  });
 
   @override
   State<_OverviewTab> createState() => _OverviewTabState();
@@ -431,10 +467,69 @@ class _OverviewTabState extends State<_OverviewTab> {
   List<Sale> _availedPackages = [];
   bool _loadingStats = true;
 
+  /// Announcements still in their window, for the strip. Loaded separately
+  /// from the stats so a slow or failed announcements read never holds up
+  /// the member's own numbers.
+  List<Announcement> _currentAnnouncements = const [];
+
+  BirthdayGreeting? _greeting;
+
   @override
   void initState() {
     super.initState();
     _loadStats();
+    _loadAnnouncements();
+    _loadGreeting();
+  }
+
+  Future<void> _loadAnnouncements() async {
+    final id = widget.member.id;
+    if (id == null) return;
+    final all = await repository.fetchAnnouncementsFor(id);
+    if (!mounted) return;
+    setState(() {
+      _currentAnnouncements = all.where((a) => a.isCurrent()).toList();
+    });
+  }
+
+  /// The birthday greeting is computed here, from the member's own record —
+  /// no scheduler, no job, nothing sent. It simply is or is not their
+  /// birthday window when they open the app.
+  Future<void> _loadGreeting() async {
+    final id = widget.member.id;
+    if (id == null) return;
+    final config = context.read<ConfigService>();
+    if (!config.birthdayGreetingsEnabled) return;
+
+    final greeting = birthdayGreetingFor(
+      widget.member.birthday,
+      windowDays: config.birthdayGreetingDays,
+    );
+    if (greeting == null) return;
+
+    final savedYears = await repository.fetchSavedBirthdayYears(id);
+    if (!mounted) return;
+    setState(() {
+      _greeting = greeting.copyWith(saved: savedYears.contains(greeting.year));
+    });
+  }
+
+  Future<void> _toggleGreetingSaved() async {
+    final id = widget.member.id;
+    final greeting = _greeting;
+    if (id == null || greeting == null) return;
+    final wanted = !greeting.saved;
+
+    setState(() => _greeting = greeting.copyWith(saved: wanted));
+
+    final ok = await repository.setBirthdaySaved(
+      memberId: id,
+      year: greeting.year,
+      saved: wanted,
+    );
+    if (!ok && mounted) {
+      setState(() => _greeting = greeting.copyWith(saved: !wanted));
+    }
   }
 
   Future<void> _loadStats() async {
@@ -497,6 +592,29 @@ class _OverviewTabState extends State<_OverviewTab> {
             isDark: isDark,
           ),
           const SizedBox(height: 20),
+          // Birthday greeting — personal, so it sits closest to the hero and
+          // above the office's news rather than among it.
+          if (_greeting != null) ...[
+            BirthdayGreetingCard(
+              greeting: _greeting!,
+              firstName: widget.member.firstName?.trim() ?? '',
+              message: context.watch<ConfigService>().birthdayGreetingMessage,
+              onToggleSaved: _toggleGreetingSaved,
+              isDark: isDark,
+            ),
+            const SizedBox(height: 20),
+          ],
+          // Newest announcement, one line. Renders nothing when there is
+          // nothing current, so the Overview is unchanged for most members
+          // most of the time.
+          if (_currentAnnouncements.isNotEmpty) ...[
+            AnnouncementStrip(
+              current: _currentAnnouncements,
+              onViewAll: widget.onViewAnnouncements,
+              isDark: isDark,
+            ),
+            const SizedBox(height: 20),
+          ],
           // My QR — shown at checkout so the cashier can identify the buyer.
           _MyQrCard(member: widget.member, isDark: isDark),
           const SizedBox(height: 20),
