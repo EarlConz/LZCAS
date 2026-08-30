@@ -12,6 +12,55 @@ history) live in `docs/release_notes_technical.md`.*
 
 > Currently being tested. Nothing here is live for everyone yet.
 
+### 📣 Announcements
+
+Admins can now post a notice — a holiday cut-off, a change to pack rates,
+new pick-up hours — and have it reach everyone at once instead of a chain
+of messages.
+
+**Posting one.** Admin → Announcements → New Announcement. Write a title
+and a message, choose who gets it (Everyone, Resellers only, or Members
+only), and optionally set a date for it to stop showing. The screen tells
+you how many accounts you are about to reach before you post.
+
+**Reading them.** Members get an **Announcements** screen of their own.
+The newest one also appears as a single line on their Overview, so people
+see it without going looking.
+
+> Write the title carefully — only the first line of it shows on the
+> Overview, so the opening words have to carry the notice.
+
+**Keeping one.** Tap the star on any announcement and it stays in a
+**Saved** list even after it stops being current. Useful for a price list
+or a set of hours someone wants to check back on. Saved items are marked
+**Ended** so nobody mistakes an old notice for a live one.
+
+Announcements are never really deleted — taking one down removes it from
+everyone's screen but leaves saved copies alone. The screen tells you how
+many people have saved it before you take it down.
+
+### 🎂 Automatic birthday greetings
+
+On a reseller's birthday, a greeting appears at the top of their Overview.
+Nobody has to remember to send it.
+
+It stays up for **30 days**, so a reseller who does not open the app on the
+day itself still gets it. They can star it to keep it, the same as an
+announcement.
+
+Admins can change the wording, the number of days, or switch greetings off
+entirely from Admin → Announcements.
+
+> **Worth knowing:** the greeting only works for members whose birthday is
+> recorded. The Announcements screen tells you how many resellers are
+> missing one, so you can fill them in.
+
+### 🐛 Fixes
+
+- **Members could not open their Profile.** For accounts that are not
+  resellers, tapping Profile in the sidebar showed the Overview instead.
+  It now opens the Profile.
+
 ### 🛠️ Admins can correct a member's earnings
 
 Sometimes a bonus is paid on something that turns out to be a mistake — a

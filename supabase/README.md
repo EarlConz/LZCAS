@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v35)
+├── migrations/    Ordered, apply-once changes (v2 … v36)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -109,6 +109,32 @@ prod (shipped in v1.3.0). Apply in this exact order:*
   extra column. The reverse is not: **apply v35 before releasing the build
   that adds the Adjust Funds dialog.**
 
+**Announcements + birthday greetings (v36)** — *not yet applied anywhere.*
+
+- v36 — `announcements`, `member_saved_items`, and three `app_config` keys
+  (`birthday_greetings_enabled`, `birthday_greeting_days`,
+  `birthday_greeting_message`).
+
+  Two things in the policies are load-bearing and easy to "fix" by mistake:
+
+  **There is no DELETE policy on `announcements`, on purpose.** Members can
+  save an announcement, so deleting the row would empty their saved list.
+  Taking a notice out of circulation sets `archived_at`. Adding a delete
+  policy would quietly break saved items.
+
+  **The SELECT policy deliberately does not filter `ends_at`.** It filters
+  `archived_at` and audience only — an expired announcement must stay
+  readable or a member could not see one they saved. "Current" vs "saved" is
+  decided in the app, not by RLS.
+
+  `member_saved_items` holds both kinds. A birthday greeting has no row
+  anywhere (it is computed from `members.birthday` when the member opens the
+  app), so it is identified by the **year** it was given.
+
+  No scheduler, no cron, no email: the birthday check is pure client-side
+  date arithmetic. Applying v36 without the matching app build is harmless —
+  nothing reads the tables.
+
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
 > build must ship before any `branch_cashier` account exists) → create accounts
@@ -127,6 +153,11 @@ Branch cashier / branch stock undo scripts:
 - `rollback_branch_transfer_note_v32.sql` — drop the note from the Reports reason.
 - `rollback_is_staff_v27.sql` — reverts the `is_staff()` change from v28.
 - `rollback_earnings_sources_v34.sql` — drop the earnings-sources RPC (v34).
+- `rollback_announcements_v36.sql` — ⚠️ **destructive**: drops the tables, and
+  the tables *are* the content (every announcement, everyone's saved list).
+  The safe alternative is in the script's header — archive everything and
+  switch birthday greetings off, which clears the members' screens without
+  losing anything.
 - `rollback_admin_fund_adjustments_v35.sql` — remove the adjust RPC and restore
   the v34 sources function. Does **not** reverse adjustments already posted —
   those are real ledger rows; post the opposite adjustment instead. Dropping

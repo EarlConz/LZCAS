@@ -8,6 +8,7 @@ import 'dart:math';
 import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/birthday_window.dart' show parseBirthday;
 import 'models.dart';
 
 /// Describes a page of results with metadata.
@@ -1434,6 +1435,263 @@ class SupabaseRepository {
     _changes.add('member_transactions_committed');
     _changes.add('funds_adjusted');
     return null;
+  }
+
+  // ── Announcements & saved items (v36) ─────────────────────────────
+
+  /// Announcements this member may see, newest first, each carrying whether
+  /// they have saved it.
+  ///
+  /// RLS already filters by audience and drops archived ones, so this does
+  /// not re-check either — but it deliberately does NOT filter by `ends_at`
+  /// either. An expired announcement the member saved must still come back;
+  /// splitting "current" from "saved" is [Announcement.isCurrent]'s job.
+  Future<List<Announcement>> fetchAnnouncementsFor(int memberId) async {
+    try {
+      final rows = await _supabase
+          .from('announcements')
+          .select()
+          .isFilter('archived_at', null)
+          .order('published_at', ascending: false);
+
+      final savedIds = await _fetchSavedAnnouncementIds(memberId);
+
+      return (rows as List)
+          .map((j) => Announcement.fromJson(j as Map<String, dynamic>))
+          .map((a) => a.copyWith(saved: savedIds.contains(a.id)))
+          .where((a) => a.isCurrent() || a.saved)
+          .toList();
+    } catch (e) {
+      debugPrint('[fetchAnnouncementsFor] failed: $e');
+      return [];
+    }
+  }
+
+  Future<Set<int>> _fetchSavedAnnouncementIds(int memberId) async {
+    final rows = await _supabase
+        .from('member_saved_items')
+        .select('announcement_id')
+        .eq('member_id', memberId)
+        .eq('item_kind', 'announcement');
+    return {
+      for (final r in rows as List)
+        if ((r as Map)['announcement_id'] != null)
+          (r['announcement_id'] as num).toInt(),
+    };
+  }
+
+  /// Years for which this member has saved their birthday greeting.
+  Future<Set<int>> fetchSavedBirthdayYears(int memberId) async {
+    try {
+      final rows = await _supabase
+          .from('member_saved_items')
+          .select('birthday_year')
+          .eq('member_id', memberId)
+          .eq('item_kind', 'birthday');
+      return {
+        for (final r in rows as List)
+          if ((r as Map)['birthday_year'] != null)
+            (r['birthday_year'] as num).toInt(),
+      };
+    } catch (e) {
+      debugPrint('[fetchSavedBirthdayYears] failed: $e');
+      return {};
+    }
+  }
+
+  /// Star or unstar an announcement for a member. Returns true on success.
+  Future<bool> setAnnouncementSaved({
+    required int memberId,
+    required int announcementId,
+    required bool saved,
+  }) async {
+    try {
+      if (saved) {
+        await _supabase.from('member_saved_items').insert({
+          'member_id': memberId,
+          'item_kind': 'announcement',
+          'announcement_id': announcementId,
+        });
+      } else {
+        await _supabase
+            .from('member_saved_items')
+            .delete()
+            .eq('member_id', memberId)
+            .eq('item_kind', 'announcement')
+            .eq('announcement_id', announcementId);
+      }
+      _changes.add('saved_items_changed');
+      return true;
+    } catch (e) {
+      debugPrint('[setAnnouncementSaved] failed: $e');
+      return false;
+    }
+  }
+
+  /// Star or unstar one year's birthday greeting.
+  Future<bool> setBirthdaySaved({
+    required int memberId,
+    required int year,
+    required bool saved,
+  }) async {
+    try {
+      if (saved) {
+        await _supabase.from('member_saved_items').insert({
+          'member_id': memberId,
+          'item_kind': 'birthday',
+          'birthday_year': year,
+        });
+      } else {
+        await _supabase
+            .from('member_saved_items')
+            .delete()
+            .eq('member_id', memberId)
+            .eq('item_kind', 'birthday')
+            .eq('birthday_year', year);
+      }
+      _changes.add('saved_items_changed');
+      return true;
+    } catch (e) {
+      debugPrint('[setBirthdaySaved] failed: $e');
+      return false;
+    }
+  }
+
+  // ── Announcements: admin side ─────────────────────────────────────
+
+  /// Every announcement including archived ones, newest first. Staff only —
+  /// RLS returns just the live, audience-matched set to anyone else.
+  Future<List<Announcement>> fetchAllAnnouncements() async {
+    try {
+      final rows = await _supabase
+          .from('announcements')
+          .select()
+          .order('published_at', ascending: false);
+      return (rows as List)
+          .map((j) => Announcement.fromJson(j as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('[fetchAllAnnouncements] failed: $e');
+      return [];
+    }
+  }
+
+  /// Post a new announcement. Returns null on success, else a message.
+  Future<String?> createAnnouncement({
+    required String title,
+    required String body,
+    required AnnouncementAudience audience,
+    DateTime? endsAt,
+  }) async {
+    try {
+      await _supabase.from('announcements').insert({
+        'title': title.trim(),
+        'body': body.trim(),
+        'audience': audience.wire,
+        'ends_at': endsAt?.toUtc().toIso8601String(),
+        'created_by': _uid,
+      });
+      _changes.add('announcements_changed');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[createAnnouncement] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'The announcement was not posted.' : msg;
+    } catch (e) {
+      debugPrint('[createAnnouncement] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  Future<String?> updateAnnouncement({
+    required int id,
+    required String title,
+    required String body,
+    required AnnouncementAudience audience,
+    DateTime? endsAt,
+  }) async {
+    try {
+      await _supabase
+          .from('announcements')
+          .update({
+            'title': title.trim(),
+            'body': body.trim(),
+            'audience': audience.wire,
+            'ends_at': endsAt?.toUtc().toIso8601String(),
+          })
+          .eq('id', id);
+      _changes.add('announcements_changed');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[updateAnnouncement] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'The announcement was not updated.' : msg;
+    } catch (e) {
+      debugPrint('[updateAnnouncement] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// Take an announcement out of circulation.
+  ///
+  /// Never a delete: a member may have saved it, and deleting the row would
+  /// empty their saved list. The database has no DELETE policy for this
+  /// table, so this is the only way out.
+  Future<bool> archiveAnnouncement(int id) async {
+    try {
+      await _supabase
+          .from('announcements')
+          .update({'archived_at': DateTime.now().toUtc().toIso8601String()})
+          .eq('id', id);
+      _changes.add('announcements_changed');
+      return true;
+    } catch (e) {
+      debugPrint('[archiveAnnouncement] failed: $e');
+      return false;
+    }
+  }
+
+  /// How many members have saved this announcement — shown before archiving
+  /// so an admin clearing out old notices knows who is still keeping one.
+  Future<int> countMembersWhoSaved(int announcementId) async {
+    try {
+      final rows = await _supabase
+          .from('member_saved_items')
+          .select('id')
+          .eq('item_kind', 'announcement')
+          .eq('announcement_id', announcementId);
+      return (rows as List).length;
+    } catch (e) {
+      debugPrint('[countMembersWhoSaved] failed: $e');
+      return 0;
+    }
+  }
+
+  /// Resellers whose birthday is missing or unreadable, and the total the
+  /// greeting applies to. Drives the honest line on the admin screen: a
+  /// feature that quietly does nothing for part of the list is worse than
+  /// one that says so.
+  Future<({int total, int withoutBirthday})> birthdayCoverage() async {
+    try {
+      final rows = await _supabase
+          .from('members')
+          .select('birthday')
+          .eq('role', 'Verified Reseller')
+          .eq('is_deleted', false);
+
+      var total = 0;
+      var missing = 0;
+      for (final r in rows as List) {
+        total++;
+        if (parseBirthday((r as Map)['birthday'] as String?) == null) {
+          missing++;
+        }
+      }
+      return (total: total, withoutBirthday: missing);
+    } catch (e) {
+      debugPrint('[birthdayCoverage] failed: $e');
+      return (total: 0, withoutBirthday: 0);
+    }
   }
 
   /// Audit trail of adjustments made to a member's funds, newest first.

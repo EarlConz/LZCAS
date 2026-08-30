@@ -82,6 +82,15 @@ class MemberSidebar extends StatelessWidget {
                   isDark: isDark,
                   onTap: () => onItemSelected(1),
                 ),
+                _SidebarTile(
+                  icon: Icons.campaign_rounded,
+                  label: 'Announcements',
+                  index: 2,
+                  selectedIndex: selectedIndex,
+                  activeBg: activeBg,
+                  isDark: isDark,
+                  onTap: () => onItemSelected(2),
+                ),
                 // Reseller-only items
                 if (isReseller) ...[
                   const SizedBox(height: 12),
@@ -113,11 +122,11 @@ class MemberSidebar extends StatelessWidget {
                   _SidebarTile(
                     icon: Icons.account_balance_wallet_rounded,
                     label: 'Earnings',
-                    index: 2,
+                    index: 3,
                     selectedIndex: selectedIndex,
                     activeBg: activeBg,
                     isDark: isDark,
-                    onTap: () => onItemSelected(2),
+                    onTap: () => onItemSelected(3),
                   ),
                   const SizedBox(height: 12),
                   Divider(
@@ -129,14 +138,18 @@ class MemberSidebar extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 4),
+                // Profile is last, so its index depends on whether the
+                // reseller-only Earnings tile is present. These indices are
+                // positions in `_tabs` over in member_dashboard.dart —
+                // change one and change the other.
                 _SidebarTile(
                   icon: Icons.person_rounded,
                   label: 'Profile',
-                  index: isReseller ? 3 : 2,
+                  index: isReseller ? 4 : 3,
                   selectedIndex: selectedIndex,
                   activeBg: activeBg,
                   isDark: isDark,
-                  onTap: () => onItemSelected(isReseller ? 3 : 2),
+                  onTap: () => onItemSelected(isReseller ? 4 : 3),
                 ),
               ],
             ),
