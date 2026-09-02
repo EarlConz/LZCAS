@@ -12,6 +12,7 @@ import 'package:lzcas/pages/inventory/inventory_dashboard.dart';
 import 'package:lzcas/pages/cashier/cashier_dashboard.dart';
 import 'package:lzcas/pages/branch/branch_cashier_dashboard.dart';
 import 'package:lzcas/pages/member/member_dashboard.dart';
+import 'package:lzcas/pages/member/nearest_cashiers_page.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/auth/auth.dart';
 
@@ -56,6 +57,9 @@ Route<dynamic>? appRouter(RouteSettings settings) {
 
       case AppRoutes.memberDashboard:
         return const MemberDashboard();
+
+      case AppRoutes.memberNearestCashiers:
+        return const NearestCashiersPage();
 
       default:
         return null; // unknown route

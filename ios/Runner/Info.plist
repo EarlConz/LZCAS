@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>GUTVita uses your location to find the nearest branch cashiers and to save your cashier location.</string>
 </dict>
 </plist>

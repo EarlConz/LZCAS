@@ -25,6 +25,12 @@ alter table public.profiles add column if not exists member_id bigint;
 -- by default; an admin sets this true to allow that account to log in on mobile.
 alter table public.profiles add column if not exists mobile_enabled boolean not null default false;
 
+-- Saved cashier/branch location (v37) — for the member "Nearest Cashiers" map.
+alter table public.profiles add column if not exists latitude double precision;
+alter table public.profiles add column if not exists longitude double precision;
+alter table public.profiles add column if not exists address text;
+alter table public.profiles add column if not exists updated_at timestamptz;
+
 -- Auto-populate email on new auth.users (so username→email resolution works)
 create or replace function public.handle_new_user()
 returns trigger as $$

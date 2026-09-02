@@ -167,6 +167,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
       isReseller: _isReseller,
       onItemSelected: _onItemTapped,
       onLogout: _handleLogout,
+      onFindCashiers: _openNearestCashiers,
     );
 
     return Scaffold(
@@ -273,6 +274,14 @@ class _MemberDashboardState extends State<MemberDashboard> {
   void _openAnnouncements() {
     final index = _tabs.indexOf(_MemberTab.announcements);
     if (index >= 0) setState(() => _selectedIndex = index);
+  }
+
+  /// Open the dedicated Nearest Cashiers map screen.
+  void _openNearestCashiers() {
+    // Close the mobile drawer first (no-op when there is no drawer, e.g. on
+    // desktop where the sidebar is inline).
+    _scaffoldKey.currentState?.closeDrawer();
+    Navigator.of(context).pushNamed(AppRoutes.memberNearestCashiers);
   }
 }
 
@@ -2837,9 +2846,7 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: isDark
-              ? StockpileColors.darkDivider
-              : StockpileColors.divider,
+          color: isDark ? StockpileColors.darkDivider : StockpileColors.divider,
         ),
       ),
       child: Padding(
