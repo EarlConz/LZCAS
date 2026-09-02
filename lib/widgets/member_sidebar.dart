@@ -13,12 +13,17 @@ class MemberSidebar extends StatelessWidget {
   final ValueChanged<int> onItemSelected;
   final VoidCallback? onLogout;
 
+  /// Opens the "Nearest Cashiers" map. Kept separate from [onItemSelected]
+  /// because it navigates to a dedicated route rather than switching tabs.
+  final VoidCallback? onFindCashiers;
+
   const MemberSidebar({
     super.key,
     required this.selectedIndex,
     required this.isReseller,
     required this.onItemSelected,
     this.onLogout,
+    this.onFindCashiers,
   });
 
   @override
@@ -90,6 +95,16 @@ class MemberSidebar extends StatelessWidget {
                   activeBg: activeBg,
                   isDark: isDark,
                   onTap: () => onItemSelected(2),
+                ),
+                // Nearest Cashiers opens a dedicated map screen (no tab index).
+                _SidebarTile(
+                  icon: Icons.near_me_rounded,
+                  label: 'Nearest Cashiers',
+                  index: -1,
+                  selectedIndex: selectedIndex,
+                  activeBg: activeBg,
+                  isDark: isDark,
+                  onTap: () => onFindCashiers?.call(),
                 ),
                 // Reseller-only items
                 if (isReseller) ...[

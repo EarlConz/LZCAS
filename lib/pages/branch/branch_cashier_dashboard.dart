@@ -16,6 +16,7 @@ import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
+import 'package:lzcas/widgets/cashier_location_settings.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/updater_service.dart';
 import 'package:lzcas/dialogs/update_dialog.dart';
@@ -34,7 +35,7 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _triggerUpdateCheck();
   }
 
@@ -147,6 +148,16 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard>
                       ],
                     ),
                   ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.location_on_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text('Location'),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -163,6 +174,8 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard>
                   ),
                   // Tab 2: Stocks on Hand — this branch's allocation (read-only).
                   _StocksOnHandView(ownerId: auth.userId),
+                  // Tab 3: Saved cashier location (static GPS point).
+                  const CashierLocationSettings(),
                 ],
               ),
             ),
@@ -276,15 +289,19 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snap.hasError) {
-          return _centeredMessage(Icons.cloud_off_rounded,
-              'Could not load your stock', '${snap.error}');
+          return _centeredMessage(
+            Icons.cloud_off_rounded,
+            'Could not load your stock',
+            '${snap.error}',
+          );
         }
         final data = snap.data;
         if (data == null || data.items.isEmpty) {
           return _centeredMessage(
-              Icons.inventory_2_outlined,
-              'No stock assigned yet',
-              'Ask an admin or main cashier to give you stock.');
+            Icons.inventory_2_outlined,
+            'No stock assigned yet',
+            'Ask an admin or main cashier to give you stock.',
+          );
         }
         return _content(data);
       },
@@ -294,7 +311,8 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
   Widget _content(_StockData data) {
     final term = _search.trim().toLowerCase();
     final items = data.items.where((i) {
-      final matchesSearch = term.isEmpty ||
+      final matchesSearch =
+          term.isEmpty ||
           i.name.toLowerCase().contains(term) ||
           (i.category?.toLowerCase().contains(term) ?? false);
       final matchesStatus =
@@ -355,17 +373,24 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
                     child: Center(
                       child: Column(
                         children: [
-                          Icon(Icons.search_off_rounded,
-                              size: 34, color: _textMuted),
+                          Icon(
+                            Icons.search_off_rounded,
+                            size: 34,
+                            color: _textMuted,
+                          ),
                           const SizedBox(height: 8),
-                          Text('Nothing here',
-                              style: StockpileFonts.satoshi(
-                                  fontWeight: FontWeight.w700,
-                                  color: _textPrimary)),
+                          Text(
+                            'Nothing here',
+                            style: StockpileFonts.satoshi(
+                              fontWeight: FontWeight.w700,
+                              color: _textPrimary,
+                            ),
+                          ),
                           const SizedBox(height: 2),
-                          Text('No products match this filter.',
-                              style: TextStyle(
-                                  color: _textMuted, fontSize: 12.5)),
+                          Text(
+                            'No products match this filter.',
+                            style: TextStyle(color: _textMuted, fontSize: 12.5),
+                          ),
                         ],
                       ),
                     ),
@@ -375,7 +400,9 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
                     children: [
                       for (var i = 0; i < items.length; i++)
                         _entrance(
-                            i, _itemCard(items[i], _statusOf(items[i], data))),
+                          i,
+                          _itemCard(items[i], _statusOf(items[i], data)),
+                        ),
                     ],
                   ),
           ),
@@ -386,28 +413,32 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
 
   /// Subtle staggered fade + slide-up as tiles mount.
   Widget _entrance(int index, Widget child) => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: 1),
-        duration: Duration(milliseconds: 280 + (index * 28).clamp(0, 240)),
-        curve: Curves.easeOutCubic,
-        builder: (_, t, ch) => Opacity(
-          opacity: t,
-          child: Transform.translate(offset: Offset(0, (1 - t) * 10), child: ch),
-        ),
-        child: child,
-      );
+    tween: Tween(begin: 0, end: 1),
+    duration: Duration(milliseconds: 280 + (index * 28).clamp(0, 240)),
+    curve: Curves.easeOutCubic,
+    builder: (_, t, ch) => Opacity(
+      opacity: t,
+      child: Transform.translate(offset: Offset(0, (1 - t) * 10), child: ch),
+    ),
+    child: child,
+  );
 
   Widget _filterChips(_StockData data) {
-    final good =
-        data.items.where((i) => _statusOf(i, data) == 'Good').length;
-    final low =
-        data.items.where((i) => _statusOf(i, data) == 'Low Stock').length;
+    final good = data.items.where((i) => _statusOf(i, data) == 'Good').length;
+    final low = data.items
+        .where((i) => _statusOf(i, data) == 'Low Stock')
+        .length;
     final out = data.items.where((i) => i.stock <= 0).length;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          _chip('All', 'All products', data.items.length,
-              StockpileColors.primary700),
+          _chip(
+            'All',
+            'All products',
+            data.items.length,
+            StockpileColors.primary700,
+          ),
           const SizedBox(width: 8),
           _chip('Good', 'Good', good, _cGood),
           const SizedBox(width: 8),
@@ -431,30 +462,36 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
             color: selected ? color.withAlpha(_isDark ? 60 : 34) : _inputFill,
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
-                color: selected ? color : _border,
-                width: selected ? 1.4 : 1),
+              color: selected ? color : _border,
+              width: selected ? 1.4 : 1,
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(label,
-                  style: StockpileFonts.satoshi(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: selected ? color : _textPrimary)),
+              Text(
+                label,
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? color : _textPrimary,
+                ),
+              ),
               const SizedBox(width: 6),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
                   color: selected ? color : _textMuted.withAlpha(40),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text('$count',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: selected ? Colors.white : _textMuted)),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: selected ? Colors.white : _textMuted,
+                  ),
+                ),
               ),
             ],
           ),
@@ -464,19 +501,20 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
   }
 
   List<BoxShadow> get _softShadow => [
-        BoxShadow(
-          color: Colors.black.withAlpha(_isDark ? 46 : 15),
-          blurRadius: 18,
-          offset: const Offset(0, 8),
-        ),
-      ];
+    BoxShadow(
+      color: Colors.black.withAlpha(_isDark ? 46 : 15),
+      blurRadius: 18,
+      offset: const Offset(0, 8),
+    ),
+  ];
 
   Widget _heroCard(_StockData data) {
     final units = data.items.fold<int>(0, (s, i) => s + i.stock);
     final products = data.items.length;
     final good = data.items.where((i) => _statusOf(i, data) == 'Good').length;
-    final low =
-        data.items.where((i) => _statusOf(i, data) == 'Low Stock').length;
+    final low = data.items
+        .where((i) => _statusOf(i, data) == 'Low Stock')
+        .length;
     final out = data.items.where((i) => i.stock <= 0).length;
     final cats = data.items
         .map((i) => (i.category ?? 'Uncategorized'))
@@ -505,36 +543,47 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('STOCK ON HAND',
-                        style: StockpileFonts.satoshi(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: _textMuted,
-                            letterSpacing: 1.2)),
+                    Text(
+                      'STOCK ON HAND',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: _textMuted,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.baseline,
                       textBaseline: TextBaseline.alphabetic,
                       children: [
-                        Text('$units',
-                            style: StockpileFonts.satoshi(
-                                fontSize: 40,
-                                fontWeight: FontWeight.w800,
-                                color: _textPrimary)),
+                        Text(
+                          '$units',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 40,
+                            fontWeight: FontWeight.w800,
+                            color: _textPrimary,
+                          ),
+                        ),
                         const SizedBox(width: 7),
                         Padding(
                           padding: const EdgeInsets.only(bottom: 6),
-                          child: Text('units',
-                              style: StockpileFonts.satoshi(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
-                                  color: _textMuted)),
+                          child: Text(
+                            'units',
+                            style: StockpileFonts.satoshi(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: _textMuted,
+                            ),
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text('$products products · $cats categories',
-                        style: TextStyle(color: _textMuted, fontSize: 12.5)),
+                    Text(
+                      '$products products · $cats categories',
+                      style: TextStyle(color: _textMuted, fontSize: 12.5),
+                    ),
                   ],
                 ),
               ),
@@ -570,27 +619,31 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
   }
 
   Widget _legend(Color c, String label, int n) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 9,
-            height: 9,
-            decoration: BoxDecoration(color: c, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 7),
-          Text('$label  ',
-              style: TextStyle(color: _textMuted, fontSize: 12.5)),
-          Text('$n',
-              style: StockpileFonts.satoshi(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                  color: _textPrimary)),
-        ],
-      );
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 9,
+        height: 9,
+        decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+      ),
+      const SizedBox(width: 7),
+      Text('$label  ', style: TextStyle(color: _textMuted, fontSize: 12.5)),
+      Text(
+        '$n',
+        style: StockpileFonts.satoshi(
+          fontWeight: FontWeight.w800,
+          fontSize: 13,
+          color: _textPrimary,
+        ),
+      ),
+    ],
+  );
 
   Widget _itemCard(Item it, String status) {
     final color = _statusColor(status);
-    final initial = it.name.trim().isNotEmpty ? it.name.trim()[0].toUpperCase() : '?';
+    final initial = it.name.trim().isNotEmpty
+        ? it.name.trim()[0].toUpperCase()
+        : '?';
     return Container(
       margin: const EdgeInsets.only(bottom: 11),
       decoration: BoxDecoration(
@@ -626,26 +679,36 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
                                 color: color.withAlpha(_fillAlpha),
                                 borderRadius: BorderRadius.circular(13),
                               ),
-                              child: Text(initial,
-                                  style: StockpileFonts.satoshi(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                      color: color)),
+                              child: Text(
+                                initial,
+                                style: StockpileFonts.satoshi(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: color,
+                                ),
+                              ),
                             ),
                             const SizedBox(width: 13),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(it.name,
-                                      style: StockpileFonts.satoshi(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 15,
-                                          color: _textPrimary)),
+                                  Text(
+                                    it.name,
+                                    style: StockpileFonts.satoshi(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 15,
+                                      color: _textPrimary,
+                                    ),
+                                  ),
                                   const SizedBox(height: 3),
-                                  Text(it.category ?? 'Uncategorized',
-                                      style: TextStyle(
-                                          fontSize: 12, color: _textMuted)),
+                                  Text(
+                                    it.category ?? 'Uncategorized',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: _textMuted,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -653,30 +716,41 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Text('${it.stock}',
-                                    style: StockpileFonts.satoshi(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 20,
-                                        color: color)),
+                                Text(
+                                  '${it.stock}',
+                                  style: StockpileFonts.satoshi(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 20,
+                                    color: color,
+                                  ),
+                                ),
                                 const SizedBox(height: 3),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 9, vertical: 3),
+                                    horizontal: 9,
+                                    vertical: 3,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: color.withAlpha(_fillAlpha),
                                     borderRadius: BorderRadius.circular(20),
                                   ),
-                                  child: Text(status,
-                                      style: TextStyle(
-                                          fontSize: 10.5,
-                                          color: color,
-                                          fontWeight: FontWeight.w700)),
+                                  child: Text(
+                                    status,
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      color: color,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
                             const SizedBox(width: 4),
-                            Icon(Icons.chevron_right_rounded,
-                                color: _textMuted, size: 22),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: _textMuted,
+                              size: 22,
+                            ),
                           ],
                         ),
                       ),
@@ -732,21 +806,29 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
                     color: color.withAlpha(_fillAlpha),
                     borderRadius: BorderRadius.circular(15),
                   ),
-                  child:
-                      Icon(Icons.inventory_2_rounded, color: color, size: 26),
+                  child: Icon(
+                    Icons.inventory_2_rounded,
+                    color: color,
+                    size: 26,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(it.name,
-                          style: StockpileFonts.satoshi(
-                              fontSize: 19,
-                              fontWeight: FontWeight.w800,
-                              color: _textPrimary)),
-                      Text(it.category ?? 'Uncategorized',
-                          style: TextStyle(color: _textMuted, fontSize: 13)),
+                      Text(
+                        it.name,
+                        style: StockpileFonts.satoshi(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      Text(
+                        it.category ?? 'Uncategorized',
+                        style: TextStyle(color: _textMuted, fontSize: 13),
+                      ),
                     ],
                   ),
                 ),
@@ -767,44 +849,58 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('${it.stock}',
-                          style: StockpileFonts.satoshi(
-                              fontSize: 36,
-                              fontWeight: FontWeight.w800,
-                              color: color)),
-                      Text('on hand',
-                          style:
-                              TextStyle(color: _textMuted, fontSize: 12.5)),
+                      Text(
+                        '${it.stock}',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w800,
+                          color: color,
+                        ),
+                      ),
+                      Text(
+                        'on hand',
+                        style: TextStyle(color: _textMuted, fontSize: 12.5),
+                      ),
                     ],
                   ),
                   const Spacer(),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 8),
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: color,
                       borderRadius: BorderRadius.circular(30),
                     ),
-                    child: Text(status,
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13)),
+                    child: Text(
+                      status,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 14),
-            _detailRow(Icons.category_outlined, 'Category',
-                it.category ?? 'Uncategorized'),
+            _detailRow(
+              Icons.category_outlined,
+              'Category',
+              it.category ?? 'Uncategorized',
+            ),
             if (it.lastUpdated != null)
-              _detailRow(Icons.update_rounded, 'Last updated',
-                  _fmtDate(it.lastUpdated!)),
+              _detailRow(
+                Icons.update_rounded,
+                'Last updated',
+                _fmtDate(it.lastUpdated!),
+              ),
             const SizedBox(height: 14),
             Row(
               children: [
-                Icon(Icons.point_of_sale_rounded,
-                    size: 16, color: _textMuted),
+                Icon(Icons.point_of_sale_rounded, size: 16, color: _textMuted),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -821,27 +917,40 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
   }
 
   Widget _detailRow(IconData icon, String label, String value) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: _textMuted),
-            const SizedBox(width: 10),
-            Text(label, style: TextStyle(color: _textMuted, fontSize: 13)),
-            const Spacer(),
-            Text(value,
-                style: StockpileFonts.satoshi(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13.5,
-                    color: _textPrimary)),
-          ],
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Row(
+      children: [
+        Icon(icon, size: 18, color: _textMuted),
+        const SizedBox(width: 10),
+        Text(label, style: TextStyle(color: _textMuted, fontSize: 13)),
+        const Spacer(),
+        Text(
+          value,
+          style: StockpileFonts.satoshi(
+            fontWeight: FontWeight.w600,
+            fontSize: 13.5,
+            color: _textPrimary,
+          ),
         ),
-      );
+      ],
+    ),
+  );
 
   String _fmtDate(DateTime d) {
     final l = d.toLocal();
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final h = l.hour % 12 == 0 ? 12 : l.hour % 12;
     final ap = l.hour < 12 ? 'AM' : 'PM';
@@ -849,26 +958,31 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
   }
 
   Widget _centeredMessage(IconData icon, String title, String sub) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 46, color: _textMuted),
-              const SizedBox(height: 14),
-              Text(title,
-                  style: StockpileFonts.satoshi(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: _textPrimary)),
-              const SizedBox(height: 6),
-              Text(sub,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: _textMuted, fontSize: 13, height: 1.4)),
-            ],
+    child: Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 46, color: _textMuted),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: StockpileFonts.satoshi(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: _textPrimary,
+            ),
           ),
-        ),
-      );
+          const SizedBox(height: 6),
+          Text(
+            sub,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _textMuted, fontSize: 13, height: 1.4),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _StockData {
@@ -927,13 +1041,18 @@ class _StatusRing extends StatelessWidget {
           Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(centerTop,
-                  style: StockpileFonts.satoshi(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: centerTopColor)),
-              Text(centerBottom,
-                  style: TextStyle(fontSize: 10.5, color: centerBottomColor)),
+              Text(
+                centerTop,
+                style: StockpileFonts.satoshi(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: centerTopColor,
+                ),
+              ),
+              Text(
+                centerBottom,
+                style: TextStyle(fontSize: 10.5, color: centerBottomColor),
+              ),
             ],
           ),
         ],

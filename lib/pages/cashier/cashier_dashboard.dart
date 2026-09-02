@@ -17,6 +17,7 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/admin_members_page.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
+import 'package:lzcas/widgets/cashier_location_settings.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/updater_service.dart';
@@ -36,7 +37,7 @@ class _CashierDashboardState extends State<CashierDashboard>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _triggerUpdateCheck();
   }
 
@@ -177,6 +178,16 @@ class _CashierDashboardState extends State<CashierDashboard>
                       ],
                     ),
                   ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.location_on_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text('Location'),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -187,6 +198,9 @@ class _CashierDashboardState extends State<CashierDashboard>
                 controller: _tabController,
                 children: [
                   // Tab 1: Transaction (POS)
+
+                  // Tab 5: Saved cashier location (static GPS point).
+                  const CashierLocationSettings(),
                   const _TransactionTab(),
 
                   // Tab 2: Members (read-only)

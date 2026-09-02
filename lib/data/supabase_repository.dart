@@ -1016,6 +1016,53 @@ class SupabaseRepository {
     return List<Map<String, dynamic>>.from(data as List);
   }
 
+  /// Every cashier / branch cashier who has saved a physical location.
+  /// Read by the member "Nearest Cashiers" map. Distances are computed
+  /// client-side — the server only stores lat/lng + a readable address.
+  Future<List<CashierLocation>> fetchCashierLocations() async {
+    final data = await _supabase
+        .from('profiles')
+        .select('id, username, role, latitude, longitude, address, updated_at')
+        .inFilter('role', ['cashier', 'branch_cashier'])
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null)
+        .order('username');
+    return (data as List)
+        .map((j) => CashierLocation.fromJson(Map<String, dynamic>.from(j)))
+        .toList();
+  }
+
+  /// The saved location for one profile (null when never set).
+  Future<CashierLocation?> fetchCashierLocation(String userId) async {
+    final data = await _supabase
+        .from('profiles')
+        .select('id, username, role, latitude, longitude, address, updated_at')
+        .eq('id', userId)
+        .maybeSingle();
+    if (data == null) return null;
+    if (data['latitude'] == null || data['longitude'] == null) return null;
+    return CashierLocation.fromJson(Map<String, dynamic>.from(data));
+  }
+
+  /// Save (or overwrite) the current user's cashier/branch location.
+  Future<void> updateCashierLocation({
+    required String userId,
+    required double latitude,
+    required double longitude,
+    required String address,
+  }) async {
+    await _supabase
+        .from('profiles')
+        .update({
+          'latitude': latitude,
+          'longitude': longitude,
+          'address': address,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', userId);
+    _changes.add('cashier_location_updated');
+  }
+
   /// Give central stock to a branch cashier (admin / main cashier only).
   Future<void> transferStockToBranch({
     required int itemId,

@@ -21,6 +21,7 @@ export '../data/models.dart'
         AnnouncementAudience,
         BirthdayGreeting,
         MemberTransactionEntry,
+        CashierLocation,
         inventoryItemsFromRows,
         membersFromRows,
         statusFromStock;

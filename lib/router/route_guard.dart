@@ -44,6 +44,7 @@ abstract class AppRoutes {
 
   // Member (reseller & basic members)
   static const String memberDashboard = '/member/dashboard';
+  static const String memberNearestCashiers = '/member/nearest-cashiers';
 
   /// All role-based route prefixes for quick matching.
   static const _rolePrefixes = {

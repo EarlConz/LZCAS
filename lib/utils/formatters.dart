@@ -10,9 +10,11 @@ String formatRelativeDate(DateTime? dt) {
   if (dt == null) return '';
   final local = dt.toLocal();
   final today = DateTime.now();
-  final days = DateTime(today.year, today.month, today.day)
-      .difference(DateTime(local.year, local.month, local.day))
-      .inDays;
+  final days = DateTime(
+    today.year,
+    today.month,
+    today.day,
+  ).difference(DateTime(local.year, local.month, local.day)).inDays;
 
   if (days < 0) return DateFormat('d MMMM').format(local); // scheduled ahead
   if (days == 0) return 'Today';
@@ -29,6 +31,17 @@ String formatRelativeDate(DateTime? dt) {
 String formatDayAndMonth(DateTime? dt) =>
     dt == null ? '' : DateFormat('d MMMM').format(dt.toLocal());
 
+/// Formats a distance in metres as "850 m" or "1.2 km" / "12 km away".
+///
+/// Used by the Nearest Cashiers map. Keeps one decimal for kilometres under
+/// 10 km so nearby results remain distinguishable ("0.8 km" vs "1.2 km").
+String formatDistance(double meters) {
+  if (meters < 1000) return '${meters.round()} m';
+  final km = meters / 1000;
+  if (km < 10) return '${km.toStringAsFixed(1)} km';
+  return '${km.round()} km';
+}
+
 String formatDisplayDate(DateTime? dt) {
   if (dt == null) return '';
   try {
@@ -43,12 +56,16 @@ String formatDisplayDate(DateTime? dt) {
     // If candidate milliseconds is unreasonably large (e.g. > 100x now),
     // assume it actually represents microseconds and divide by 1000.
     if (candMs > nowMs * 100) {
-      final corrected = DateTime.fromMillisecondsSinceEpoch(candMs ~/ 1000).toLocal();
+      final corrected = DateTime.fromMillisecondsSinceEpoch(
+        candMs ~/ 1000,
+      ).toLocal();
       return DateFormat('MM/dd/yyyy hh:mma').format(corrected);
     }
     // If year is absurdly large, also attempt correction.
     if (candidate.year > 3000) {
-      final corrected = DateTime.fromMillisecondsSinceEpoch(candMs ~/ 1000).toLocal();
+      final corrected = DateTime.fromMillisecondsSinceEpoch(
+        candMs ~/ 1000,
+      ).toLocal();
       return DateFormat('MM/dd/yyyy hh:mma').format(corrected);
     }
     return DateFormat('MM/dd/yyyy hh:mma').format(candidate);

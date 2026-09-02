@@ -395,11 +395,12 @@ class Category {
     if (lowStockThreshold != null) 'low_stock_threshold': lowStockThreshold,
   };
 
-  Category copyWith({int? id, String? name, int? lowStockThreshold}) => Category(
-    id: id ?? this.id,
-    name: name ?? this.name,
-    lowStockThreshold: lowStockThreshold ?? this.lowStockThreshold,
-  );
+  Category copyWith({int? id, String? name, int? lowStockThreshold}) =>
+      Category(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        lowStockThreshold: lowStockThreshold ?? this.lowStockThreshold,
+      );
 }
 
 /// A sale / transaction record.
@@ -804,9 +805,20 @@ class UserProfile {
   final String username;
   final String?
   email; // auth.users.email — populated via handle_new_user trigger
-  final String role; // admin, inventory, cashier, branch_cashier, member, reseller
+  final String
+  role; // admin, inventory, cashier, branch_cashier, member, reseller
   final int? memberId; // links to members.id for member/reseller roles
   final bool mobileEnabled; // admin-granted mobile login (branch_cashier only)
+
+  /// Saved physical location (cashier / branch cashier only). Set from the
+  /// Cashier Location Settings screen; read by the member's Nearest Cashiers
+  /// map. Null means "not set yet".
+  final double? latitude;
+  final double? longitude;
+  final String? address;
+
+  /// When the cashier/branch location was last set (null = never set).
+  final DateTime? updatedAt;
   final DateTime? createdAt;
 
   const UserProfile({
@@ -816,6 +828,10 @@ class UserProfile {
     this.role = 'cashier',
     this.memberId,
     this.mobileEnabled = false,
+    this.latitude,
+    this.longitude,
+    this.address,
+    this.updatedAt,
     this.createdAt,
   });
 
@@ -826,6 +842,12 @@ class UserProfile {
     role: json['role'] as String? ?? 'cashier',
     memberId: json['member_id'] as int?,
     mobileEnabled: json['mobile_enabled'] == true,
+    latitude: (json['latitude'] as num?)?.toDouble(),
+    longitude: (json['longitude'] as num?)?.toDouble(),
+    address: json['address'] as String?,
+    updatedAt: json['updated_at'] != null
+        ? DateTime.tryParse(json['updated_at'].toString())
+        : null,
     createdAt: json['created_at'] != null
         ? DateTime.tryParse(json['created_at'].toString())
         : null,
@@ -838,8 +860,55 @@ class UserProfile {
     'mobile_enabled': mobileEnabled,
     if (email != null) 'email': email,
     if (memberId != null) 'member_id': memberId,
+    if (latitude != null) 'latitude': latitude,
+    if (longitude != null) 'longitude': longitude,
+    if (address != null) 'address': address,
+    if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
     if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
   };
+}
+
+/// A cashier (or branch cashier) with a saved physical location.
+///
+/// Used by the member-facing "Nearest Cashiers" map. Distance is computed
+/// client-side with `Geolocator.distanceBetween()` and never persisted.
+class CashierLocation {
+  final String id; // profiles.id (UUID)
+  final String name; // profiles.username — shown as the branch/cashier name
+  final String role; // 'cashier' or 'branch_cashier'
+  final double latitude;
+  final double longitude;
+  final String? address;
+
+  /// When this location was last set (null when the row predates this field).
+  final DateTime? updatedAt;
+
+  const CashierLocation({
+    required this.id,
+    required this.name,
+    required this.role,
+    required this.latitude,
+    required this.longitude,
+    this.address,
+    this.updatedAt,
+  });
+
+  bool get isBranchCashier => role == 'branch_cashier';
+
+  String get roleLabel => isBranchCashier ? 'Branch Cashier' : 'Cashier';
+
+  factory CashierLocation.fromJson(Map<String, dynamic> json) =>
+      CashierLocation(
+        id: json['id'] as String? ?? '',
+        name: json['username'] as String? ?? 'Unknown',
+        role: json['role'] as String? ?? 'cashier',
+        latitude: (json['latitude'] as num).toDouble(),
+        longitude: (json['longitude'] as num).toDouble(),
+        address: json['address'] as String?,
+        updatedAt: json['updated_at'] != null
+            ? DateTime.tryParse(json['updated_at'].toString())
+            : null,
+      );
 }
 
 /// Small DTO for parsed transaction entries (used in member CSV import).
@@ -893,7 +962,8 @@ enum EarningsBucket {
   static EarningsBucket fromItemName(String raw) {
     final n = raw.toLowerCase();
     if (n.startsWith('group sales')) return EarningsBucket.groupSales;
-    if (n.startsWith('indirect referral')) return EarningsBucket.indirectReferral;
+    if (n.startsWith('indirect referral'))
+      return EarningsBucket.indirectReferral;
     if (n.startsWith('direct referral')) return EarningsBucket.directReferral;
     if (n.startsWith('chairman bonus')) return EarningsBucket.chairmanBonus;
     if (n.startsWith('upgrade bonus')) return EarningsBucket.upgradeBonus;
