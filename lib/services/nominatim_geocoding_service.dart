@@ -27,7 +27,7 @@ class NominatimGeocodingService {
   /// Nominatim strictly requires a descriptive User-Agent, otherwise
   /// requests are rejected with HTTP 403. Replace with a real contact address
   /// before shipping.
-  static const String _userAgent = 'LZCAS-App/1.0 (contact@lzcas.app)';
+  static const String _userAgent = 'LZCAS-App/1.0 (lzcastrading0418@gmail.com)';
 
   static const String _endpoint = 'https://nominatim.openstreetmap.org/reverse';
 
