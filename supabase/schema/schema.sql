@@ -29,7 +29,9 @@ alter table public.profiles add column if not exists mobile_enabled boolean not 
 alter table public.profiles add column if not exists latitude double precision;
 alter table public.profiles add column if not exists longitude double precision;
 alter table public.profiles add column if not exists address text;
-alter table public.profiles add column if not exists updated_at timestamptz;
+-- Named for the location specifically: a bare `updated_at` on an accounts
+-- table invites a future touch-trigger to repoint it. See migration v37.
+alter table public.profiles add column if not exists location_updated_at timestamptz;
 
 -- Auto-populate email on new auth.users (so username→email resolution works)
 create or replace function public.handle_new_user()

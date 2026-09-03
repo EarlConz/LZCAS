@@ -161,6 +161,56 @@ class _CashierLocationSettingsState extends State<CashierLocationSettings> {
     }
   }
 
+  /// Remove the saved location after confirming. Behind a confirmation
+  /// because the consequence is invisible from this screen — the cashier
+  /// simply stops appearing on every member's map.
+  Future<void> _removeLocation() async {
+    final uid = context.read<AuthState>().userId;
+    if (uid == null) {
+      BotToast.showText(text: 'Not signed in.');
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Remove saved location?'),
+        content: const Text(
+          'You will stop appearing in the members’ Nearest Cashiers map '
+          'until you set a location again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: StockpileColors.danger,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _saving = true);
+    try {
+      await repository.clearCashierLocation(userId: uid);
+      if (!mounted) return;
+      BotToast.showText(text: 'Saved location removed');
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      BotToast.showText(text: 'Could not remove location: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Future<void> _searchAddress() async {
     final query = _searchCtrl.text.trim();
     if (query.isEmpty) {
@@ -194,16 +244,15 @@ class _CashierLocationSettingsState extends State<CashierLocationSettings> {
 
     setState(() => _saving = true);
     try {
-      final address = await GeocodingService.reverseGeocode(
-        result.latitude,
-        result.longitude,
-      );
-
+      // Save the name the cashier actually tapped. Reverse-geocoding these
+      // coordinates instead would fire a second Nominatim call within a
+      // second of the search (their policy allows one per second) and could
+      // store an address that reads differently from the row that was picked.
       await repository.updateCashierLocation(
         userId: uid,
         latitude: result.latitude,
         longitude: result.longitude,
-        address: address,
+        address: result.displayName,
       );
       if (!mounted) return;
       BotToast.showText(text: 'Cashier location saved');
@@ -320,6 +369,21 @@ class _CashierLocationSettingsState extends State<CashierLocationSettings> {
                 onPressed: _saving ? null : _useCurrentLocation,
               ),
             ),
+            // Only offered once there is something to remove.
+            if (!_loading && _location != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.location_off_rounded, size: 18),
+                  label: const Text('Remove saved location'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: StockpileColors.danger,
+                  ),
+                  onPressed: _saving ? null : _removeLocation,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -526,10 +590,10 @@ class _CashierLocationSettingsState extends State<CashierLocationSettings> {
             '${loc.longitude.toStringAsFixed(5)}',
             style: StockpileFonts.satoshi(fontSize: 11, color: muted),
           ),
-          if (loc.updatedAt != null) ...[
+          if (loc.locationUpdatedAt != null) ...[
             const SizedBox(height: 2),
             Text(
-              'Last updated ${formatRelativeDate(loc.updatedAt)}',
+              'Last updated ${formatRelativeDate(loc.locationUpdatedAt)}',
               style: StockpileFonts.satoshi(fontSize: 11, color: muted),
             ),
           ],
