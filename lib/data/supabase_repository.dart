@@ -1022,7 +1022,10 @@ class SupabaseRepository {
   Future<List<CashierLocation>> fetchCashierLocations() async {
     final data = await _supabase
         .from('profiles')
-        .select('id, username, role, latitude, longitude, address, updated_at')
+        .select(
+          'id, username, role, latitude, longitude, address, '
+          'location_updated_at',
+        )
         .inFilter('role', ['cashier', 'branch_cashier'])
         .not('latitude', 'is', null)
         .not('longitude', 'is', null)
@@ -1036,7 +1039,10 @@ class SupabaseRepository {
   Future<CashierLocation?> fetchCashierLocation(String userId) async {
     final data = await _supabase
         .from('profiles')
-        .select('id, username, role, latitude, longitude, address, updated_at')
+        .select(
+          'id, username, role, latitude, longitude, address, '
+          'location_updated_at',
+        )
         .eq('id', userId)
         .maybeSingle();
     if (data == null) return null;
@@ -1057,7 +1063,24 @@ class SupabaseRepository {
           'latitude': latitude,
           'longitude': longitude,
           'address': address,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
+          'location_updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', userId);
+    _changes.add('cashier_location_updated');
+  }
+
+  /// Remove the current user's saved location so they stop appearing on the
+  /// member map. Needed because a cashier who relocates or leaves would
+  /// otherwise keep directing members to a stale point with no way to undo it
+  /// short of hand-written SQL.
+  Future<void> clearCashierLocation({required String userId}) async {
+    await _supabase
+        .from('profiles')
+        .update({
+          'latitude': null,
+          'longitude': null,
+          'address': null,
+          'location_updated_at': null,
         })
         .eq('id', userId);
     _changes.add('cashier_location_updated');

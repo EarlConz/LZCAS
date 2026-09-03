@@ -156,8 +156,12 @@ class NominatimGeocodingService {
       final results = <NominatimSearchResult>[];
       for (final item in body) {
         if (item is! Map<String, dynamic>) continue;
-        final lat = (item['lat'] as num?)?.toDouble();
-        final lon = (item['lon'] as num?)?.toDouble();
+        // Nominatim serialises lat/lon as STRINGS ("lat":"17.6509356"), not
+        // numbers. Casting to num throws, which the catch below would swallow
+        // into an empty result list — i.e. every search silently reporting
+        // "no matching places". Parse from text instead.
+        final lat = double.tryParse(item['lat']?.toString() ?? '');
+        final lon = double.tryParse(item['lon']?.toString() ?? '');
         final name = item['display_name'] as String? ?? '';
         if (lat == null || lon == null || name.trim().isEmpty) continue;
         results.add(

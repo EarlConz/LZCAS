@@ -37,6 +37,12 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
   bool _loading = true;
   String? _error;
   LatLng? _myPosition;
+
+  /// True when [_myPosition] came from IP geolocation rather than GPS, so the
+  /// distances are rough. Surfaced in the UI — a member comparing "1.2 km" to
+  /// "8 km" deserves to know the origin point may be off by a town.
+  bool _approximate = false;
+
   List<_NearbyCashier> _cashiers = const [];
   _NearbyCashier? _selected;
 
@@ -50,6 +56,7 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
     setState(() {
       _loading = true;
       _error = null;
+      _approximate = false;
     });
 
     try {
@@ -63,7 +70,20 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
         return;
       }
 
-      final point = await GeocodingService.currentPosition();
+      // GPS first, then IP geolocation. The fallback is what keeps this
+      // screen alive on Windows, where there is no GPS radio — asking for a
+      // fix there just times out.
+      final point = await GeocodingService.resolvePosition();
+      if (!mounted) return;
+      if (point == null) {
+        setState(() {
+          _loading = false;
+          _error =
+              'Could not determine your location. Check that location '
+              'services are turned on, then try again.';
+        });
+        return;
+      }
       final myPos = LatLng(point.latitude, point.longitude);
 
       final locations = await repository.fetchCashierLocations();
@@ -83,6 +103,7 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
       if (!mounted) return;
       setState(() {
         _myPosition = myPos;
+        _approximate = point.isApproximate;
         _cashiers = nearby;
         _loading = false;
       });
@@ -120,13 +141,31 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
     return const LatLng(12.8797, 121.7740);
   }
 
-  double get _mapZoom {
-    if (_myPosition != null && _cashiers.isNotEmpty) {
-      // Zoom out a little when markers are far apart so they all fit.
-      return 12;
-    }
-    return 14;
+  /// Every point the map should show: the member plus each cashier.
+  List<LatLng> get _allPoints => [
+    if (_myPosition != null) _myPosition!,
+    for (final c in _cashiers) c.point,
+  ];
+
+  /// Frame the map so every marker actually fits.
+  ///
+  /// This used to be a fixed zoom of 12, which put a cashier in the next
+  /// province off-screen with nothing to indicate they existed. Returns null
+  /// when there is nothing to fit, in which case the map falls back to
+  /// [_mapCenter] at [_fallbackZoom].
+  CameraFit? get _cameraFit {
+    final points = _allPoints;
+    if (points.length < 2) return null;
+    return CameraFit.bounds(
+      bounds: LatLngBounds.fromPoints(points),
+      padding: const EdgeInsets.all(48),
+      // Without a ceiling, two nearly-identical points fit to maximum zoom
+      // and the map opens on a meaningless close-up of one rooftop.
+      maxZoom: 16,
+    );
   }
+
+  static const double _fallbackZoom = 14;
 
   void _showDetails(_NearbyCashier cashier) {
     setState(() => _selected = cashier);
@@ -218,7 +257,9 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
           child: FlutterMap(
             options: MapOptions(
               initialCenter: _mapCenter,
-              initialZoom: _mapZoom,
+              initialZoom: _fallbackZoom,
+              // Wins over initialCenter/initialZoom when it is non-null.
+              initialCameraFit: _cameraFit,
             ),
             children: [
               TileLayer(
@@ -230,6 +271,29 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
           ),
         ),
         const SizedBox(height: 12),
+
+        // Only shown when GPS was unavailable and the position came from the
+        // device's IP — the distances below are then indicative, not precise.
+        if (_approximate) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 16, color: muted),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Your position is approximate — it was estimated from '
+                    'your internet connection because GPS was unavailable.',
+                    style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
 
         // ── Result count / heading ───────────────────────────────
         Padding(

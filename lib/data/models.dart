@@ -818,7 +818,9 @@ class UserProfile {
   final String? address;
 
   /// When the cashier/branch location was last set (null = never set).
-  final DateTime? updatedAt;
+  /// Deliberately not called `updatedAt` — it tracks the location only, not
+  /// the profile row.
+  final DateTime? locationUpdatedAt;
   final DateTime? createdAt;
 
   const UserProfile({
@@ -831,7 +833,7 @@ class UserProfile {
     this.latitude,
     this.longitude,
     this.address,
-    this.updatedAt,
+    this.locationUpdatedAt,
     this.createdAt,
   });
 
@@ -845,8 +847,8 @@ class UserProfile {
     latitude: (json['latitude'] as num?)?.toDouble(),
     longitude: (json['longitude'] as num?)?.toDouble(),
     address: json['address'] as String?,
-    updatedAt: json['updated_at'] != null
-        ? DateTime.tryParse(json['updated_at'].toString())
+    locationUpdatedAt: json['location_updated_at'] != null
+        ? DateTime.tryParse(json['location_updated_at'].toString())
         : null,
     createdAt: json['created_at'] != null
         ? DateTime.tryParse(json['created_at'].toString())
@@ -863,7 +865,8 @@ class UserProfile {
     if (latitude != null) 'latitude': latitude,
     if (longitude != null) 'longitude': longitude,
     if (address != null) 'address': address,
-    if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
+    if (locationUpdatedAt != null)
+      'location_updated_at': locationUpdatedAt!.toIso8601String(),
     if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
   };
 }
@@ -881,7 +884,7 @@ class CashierLocation {
   final String? address;
 
   /// When this location was last set (null when the row predates this field).
-  final DateTime? updatedAt;
+  final DateTime? locationUpdatedAt;
 
   const CashierLocation({
     required this.id,
@@ -890,7 +893,7 @@ class CashierLocation {
     required this.latitude,
     required this.longitude,
     this.address,
-    this.updatedAt,
+    this.locationUpdatedAt,
   });
 
   bool get isBranchCashier => role == 'branch_cashier';
@@ -905,8 +908,8 @@ class CashierLocation {
         latitude: (json['latitude'] as num).toDouble(),
         longitude: (json['longitude'] as num).toDouble(),
         address: json['address'] as String?,
-        updatedAt: json['updated_at'] != null
-            ? DateTime.tryParse(json['updated_at'].toString())
+        locationUpdatedAt: json['location_updated_at'] != null
+            ? DateTime.tryParse(json['location_updated_at'].toString())
             : null,
       );
 }
@@ -962,8 +965,9 @@ enum EarningsBucket {
   static EarningsBucket fromItemName(String raw) {
     final n = raw.toLowerCase();
     if (n.startsWith('group sales')) return EarningsBucket.groupSales;
-    if (n.startsWith('indirect referral'))
+    if (n.startsWith('indirect referral')) {
       return EarningsBucket.indirectReferral;
+    }
     if (n.startsWith('direct referral')) return EarningsBucket.directReferral;
     if (n.startsWith('chairman bonus')) return EarningsBucket.chairmanBonus;
     if (n.startsWith('upgrade bonus')) return EarningsBucket.upgradeBonus;
