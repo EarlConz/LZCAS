@@ -25,6 +25,7 @@ import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/pages/admin/branch_stock_page.dart';
 import 'package:lzcas/pages/admin/announcements_page.dart';
+import 'package:lzcas/pages/admin/cashier_locations_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/dialogs/adjust_funds_dialog.dart';
 import 'package:lzcas/db/db.dart';
@@ -61,6 +62,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'Package',
     'Branch Stock',
     'Announcements',
+    'Cashier Locations',
     'Settings',
   ];
 
@@ -85,7 +87,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     BranchStockPage(),
     // 9: Announcements — post notices + the automatic birthday greeting
     AdminAnnouncementsPage(),
-    // 10: Settings — Global Config moved here
+    // 10: Cashier Locations — review/remove what members see on their map
+    AdminCashierLocationsPage(),
+    // 11: Settings — Global Config moved here
     _AdminSettingsTab(),
   ];
 
@@ -864,9 +868,15 @@ class _UserManagementTabState extends State<_UserManagementTab>
                               ),
                               const SizedBox(width: 8),
                               SizedBox(
-                                width: 160,
+                                // 160 fitted the old labels but clipped
+                                // "Branch Cashier" by 35px.
+                                width: 200,
                                 child: DropdownButtonFormField<String?>(
                                   value: _userRoleFilter,
+                                  // Lets the selected label ellipsize instead
+                                  // of overflowing, so a longer role name
+                                  // added later degrades rather than throws.
+                                  isExpanded: true,
                                   decoration: const InputDecoration(
                                     labelText: 'Role',
                                     border: OutlineInputBorder(),
@@ -892,6 +902,13 @@ class _UserManagementTabState extends State<_UserManagementTab>
                                     DropdownMenuItem(
                                       value: 'cashier',
                                       child: Text('Cashier'),
+                                    ),
+                                    // Matches profiles.role exactly —
+                                    // UserRole.branchCashier persists as
+                                    // snake_case, not the enum identifier.
+                                    DropdownMenuItem(
+                                      value: 'branch_cashier',
+                                      child: Text('Branch Cashier'),
                                     ),
                                   ],
                                   onChanged: (v) =>
@@ -3574,11 +3591,57 @@ class _AdminSidebar extends StatelessWidget {
     _NavItem(Icons.card_giftcard_rounded, 'Package'),
     _NavItem(Icons.local_shipping_rounded, 'Branch Stock'),
     _NavItem(Icons.campaign_rounded, 'Announcements'),
+    _NavItem(Icons.pin_drop_rounded, 'Cashier Locations'),
+  ];
+
+  /// How the flat `_navItems` list is presented: Dashboard on its own, then
+  /// three groups that follow what an admin is actually doing — running the
+  /// shop, looking after members, and administering staff.
+  ///
+  /// Indices, not items — see [_NavGroup].
+  static const _navGroups = <_NavGroup>[
+    _NavGroup(null, [0]), // Dashboard
+    _NavGroup('Selling & Stock', [4, 2, 8, 3]),
+    _NavGroup('Members', [5, 7, 6, 9]),
+    _NavGroup('Staff', [1, 10]),
   ];
 
   static const _bottomItems = <_NavItem>[
     _NavItem(Icons.settings_rounded, 'Settings'),
   ];
+
+  /// A group heading. The collapsed sidebar has no room for the words, so it
+  /// keeps the grouping as a rule instead — the separation survives, which is
+  /// the part that was doing the work.
+  static Widget _navSectionHeader(String text, bool wide, bool isDark) {
+    final divider = isDark
+        ? StockpileColors.darkDivider
+        : StockpileColors.divider;
+
+    if (!wide) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Divider(height: 1, color: divider),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 12, 8),
+      child: Text(
+        text.toUpperCase(),
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.clip,
+        style: StockpileFonts.satoshi(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+          color: isDark
+              ? StockpileColors.darkTextMuted
+              : StockpileColors.mutedText,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3634,47 +3697,51 @@ class _AdminSidebar extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             children: [
-              ...List.generate(_navItems.length, (i) {
-                final tile = _AdminSidebarTile(
-                  item: _navItems[i],
-                  isSelected: selectedIndex == i,
-                  activeBg: activeBg,
-                  isDark: isDark,
-                  onTap: () => onItemSelected(i),
-                  expanded: wide,
-                );
-                // Show badge on Requests item (index 6)
-                if (i == 6 && pendingCount > 0) {
-                  return Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      tile,
-                      Positioned(
-                        top: 6,
-                        right: wide ? 6 : 4,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: StockpileColors.primary900,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            '$pendingCount',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
+              for (final group in _navGroups) ...[
+                if (group.header != null)
+                  _navSectionHeader(group.header!, wide, isDark),
+                ...group.indices.map((i) {
+                  final tile = _AdminSidebarTile(
+                    item: _navItems[i],
+                    isSelected: selectedIndex == i,
+                    activeBg: activeBg,
+                    isDark: isDark,
+                    onTap: () => onItemSelected(i),
+                    expanded: wide,
+                  );
+                  // Show badge on Requests item (index 6)
+                  if (i == 6 && pendingCount > 0) {
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        tile,
+                        Positioned(
+                          top: 6,
+                          right: wide ? 6 : 4,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: StockpileColors.primary900,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$pendingCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  );
-                }
-                return tile;
-              }),
+                      ],
+                    );
+                  }
+                  return tile;
+                }),
+              ],
               const SizedBox(height: 8),
               Divider(
                 color: isDark
@@ -4374,7 +4441,9 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
                             // rather than disabled for other roles: a cashier
                             // has no business seeing a control for moving
                             // money that was already earned.
-                            if (context.read<AuthState>().userRole
+                            if (context
+                                    .read<AuthState>()
+                                    .userRole
                                     ?.canAdjustFunds ??
                                 false) ...[
                               SizedBox(
@@ -7781,6 +7850,24 @@ class _NavItem {
   final String label;
 
   const _NavItem(this.icon, this.label);
+}
+
+/// A titled run of sidebar tiles.
+///
+/// Holds INDICES into `_navItems` rather than the items themselves, so
+/// grouping stays a purely presentational concern: `_buildPages()`,
+/// `_pageTitles`, the Requests badge at index 6 and the Settings index
+/// (`_navItems.length`) all keep working untouched. Reordering the flat list
+/// instead would have silently repointed every one of them.
+///
+/// Every index in `_navItems` must appear in exactly one group — an omitted
+/// index is a page with no way to reach it.
+class _NavGroup {
+  /// Null renders the tiles with no heading, for the standalone first entry.
+  final String? header;
+  final List<int> indices;
+
+  const _NavGroup(this.header, this.indices);
 }
 
 // ── Referral card for admin member detail modal ──────────────────────────

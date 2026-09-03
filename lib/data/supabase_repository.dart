@@ -1035,6 +1035,28 @@ class SupabaseRepository {
         .toList();
   }
 
+  /// Every cashier / branch cashier, whether or not they have saved a
+  /// location. Drives the admin location page.
+  ///
+  /// Deliberately NOT [fetchCashierLocations], which filters to rows that
+  /// have coordinates: an admin's first question is usually "who hasn't set
+  /// one?", and a list that silently omits them cannot answer it.
+  /// [UserProfile] already carries the nullable location fields, so no
+  /// separate model is needed.
+  Future<List<UserProfile>> fetchCashierProfiles() async {
+    final data = await _supabase
+        .from('profiles')
+        .select(
+          'id, username, email, role, member_id, mobile_enabled, '
+          'latitude, longitude, address, location_updated_at, created_at',
+        )
+        .inFilter('role', ['cashier', 'branch_cashier'])
+        .order('username');
+    return (data as List)
+        .map((j) => UserProfile.fromJson(Map<String, dynamic>.from(j)))
+        .toList();
+  }
+
   /// The saved location for one profile (null when never set).
   Future<CashierLocation?> fetchCashierLocation(String userId) async {
     final data = await _supabase
