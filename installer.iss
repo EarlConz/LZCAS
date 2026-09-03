@@ -30,7 +30,7 @@
 ; Keep in step with `version:` in pubspec.yaml — this only drives the output
 ; filename and the Add/Remove Programs entry. AppId is deliberately NOT
 ; version-derived, so bumping this still upgrades an existing install.
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "LZCAS"
 #define MyAppURL "https://lzcas.app"
 
