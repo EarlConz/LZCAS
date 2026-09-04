@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v38)
+├── migrations/    Ordered, apply-once changes (v2 … v43)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -158,6 +158,38 @@ prod (shipped in v1.3.0). Apply in this exact order:_
   for them. Exposes no transfer audit data. Rollback:
   `rollback_member_cashier_stock_v38.sql`.
 
+**Announcement audiences, unseen popup, server clock (v39–v43)** — _applied to
+staging; not yet applied to prod._ Apply in this exact order; v39 has to widen
+the audience CHECK before anything writes the new values.
+
+- v39 — audiences become `('all','branches','members')`. Existing `'resellers'`
+  rows widen to `'members'` and so become visible to plain members too; the
+  script reports how many it rewrote. Not reversible without knowing which rows
+  were originally reseller-only.
+- v40 — `announcement_reads`, the table behind "unseen notices pop up on open".
+  Keyed on `profile_id`, **not** `members.id`, because a branch cashier has no
+  members row and branches are an audience as of v39. Insert-and-select only:
+  there is deliberately no UPDATE or DELETE policy, so a seen mark cannot be
+  taken back. Backfills every existing (account, announcement) pair as already
+  seen, so nobody gets a wall of history on first launch.
+- v41 — re-keys `member_saved_items` from `member_id` to `profile_id`, which is
+  what lets a branch cashier star an announcement at all. **Aborts** if any
+  saved row has no matching profile rather than dropping it.
+- v42 — `server_now()`: a `stable`, execute-to-`authenticated` RPC returning
+  `now()`. The app was asking the device clock whether an announcement was still
+  running while RLS asked the server's; a machine weeks fast showed "Ended" on a
+  notice it had just created, and members saw nothing. Harmless without the
+  matching build — nothing else calls it.
+- v43 — narrows the announcements SELECT bypass from `is_staff()` to
+  `is_admin()`. v28 put `branch_cashier` inside `is_staff()`, so once v39 made
+  branches an audience the policy's first arm matched every cashier and the
+  audience check never ran — a "Members only" notice appeared in branch
+  terminals. Only admins manage announcements, so nothing else loses access.
+
+> The audience check cannot be verified from the SQL editor: it runs as
+> superuser and bypasses RLS entirely. Log in as an actual branch cashier and an
+> actual member.
+
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
 > build must ship before any `branch_cashier` account exists) → create accounts
@@ -187,6 +219,12 @@ Branch cashier / branch stock undo scripts:
   the v34 sources function. Does **not** reverse adjustments already posted —
   those are real ledger rows; post the opposite adjustment instead. Dropping
   `fund_adjustments` and `earnings_history.note` is deliberately commented out.
+
+Announcement undo scripts (v39–v43) — each is paired with its migration and
+carries the damage it does in its own header. Two are lossy: rolling back v40
+destroys every record of who has seen what (re-applying then treats everything
+as seen again), and rolling back v41 **deletes** saved items belonging to
+accounts with no member row, i.e. every branch cashier's stars.
 
 ## diagnostics/
 
