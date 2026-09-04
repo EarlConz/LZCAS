@@ -757,3 +757,45 @@ grant execute on function public.return_branch_stock(bigint, uuid, integer, text
 grant execute on function public.adjust_branch_stock(bigint, uuid, integer, text) to authenticated;
 grant execute on function public.record_branch_sale(bigint, integer, integer, bigint, text, timestamptz) to authenticated;
 
+-- ===========================================================================
+-- MEMBER CASHIER STOCK DISCOVERY (v38) — SECURITY DEFINER read of branch
+-- stock so a member's "Nearest Cashiers" screen can tell stocked branches
+-- from out-of-stock ones (branch_stock RLS would otherwise hide every
+-- branch from members). Regular cashiers sell from central items.stock,
+-- which members can already read. See migration_v38_member_cashier_stock.sql.
+-- ===========================================================================
+
+create or replace function public.member_branch_stock()
+returns table (
+  owner_id  uuid,
+  item_id   bigint,
+  item_name text,
+  category  text,
+  quantity  integer,
+  status    text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    bs.owner_id,
+    i.id,
+    i.name,
+    i.category,
+    bs.quantity,
+    case
+      when bs.quantity <= 0 then 'Out of Stock'
+      when bs.quantity < coalesce(c.low_stock_threshold, 50) then 'Low Stock'
+      else 'Good'
+    end
+  from public.branch_stock bs
+  join public.items i on i.id = bs.item_id
+  left join public.categories c on c.name = i.category
+  order by i.name;
+$$;
+
+revoke all on function public.member_branch_stock() from public;
+grant execute on function public.member_branch_stock() to authenticated;
+
