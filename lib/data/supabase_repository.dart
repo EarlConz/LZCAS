@@ -1007,6 +1007,18 @@ class SupabaseRepository {
     return List<Map<String, dynamic>>.from(data as List);
   }
 
+  /// Member-facing branch stock rows, read through the SECURITY DEFINER
+  /// `member_branch_stock` RPC. A member cannot query `branch_stock_view`
+  /// directly — its RLS hides every branch from non-staff — so this RPC is
+  /// the only way the discovery screen can tell stocked branches from
+  /// out-of-stock ones. One [CashierStockLine] per on-hand line.
+  Future<List<CashierStockLine>> fetchMemberBranchStock() async {
+    final data = await _supabase.rpc('member_branch_stock');
+    return (data as List)
+        .map((j) => CashierStockLine.fromJson(Map<String, dynamic>.from(j)))
+        .toList();
+  }
+
   /// Branch-cashier accounts (id + username) for the give-out picker.
   Future<List<Map<String, dynamic>>> listBranchCashiers() async {
     final data = await _supabase
@@ -1034,6 +1046,58 @@ class SupabaseRepository {
     return (data as List)
         .map((j) => CashierLocation.fromJson(Map<String, dynamic>.from(j)))
         .toList();
+  }
+
+  /// Every located cashier / branch cashier WITH live stock availability.
+  ///
+  /// Combines [fetchCashierLocations] with two stock sources:
+  ///   • central stock (`public.items`) — regular cashiers all sell from
+  ///     this shared catalog, so their `hasStock` is "any central item
+  ///     with stock > 0" and their inventory is the whole catalog;
+  ///   • branch stock (`member_branch_stock` RPC) — each branch cashier's
+  ///     own allocation decides their `hasStock` and inventory list.
+  ///
+  /// Distance is still computed client-side by the caller; this method
+  /// only resolves stock so the UI can sort + filter to the Top 3.
+  Future<List<CashierWithStock>> fetchCashiersWithStock() async {
+    final locations = await fetchCashierLocations();
+    final central = await fetchItems();
+    final branchRows = await fetchMemberBranchStock();
+
+    final centralHasStock = central.any((i) => i.stock > 0);
+    final centralLines = central
+        .map(
+          (i) => CashierStockLine(
+            ownerId: '',
+            itemId: i.id,
+            name: i.name,
+            category: i.category,
+            quantity: i.stock,
+            status: i.status ?? statusFromStock(i.stock),
+          ),
+        )
+        .toList();
+
+    final branchByOwner = <String, List<CashierStockLine>>{};
+    for (final row in branchRows) {
+      branchByOwner.putIfAbsent(row.ownerId, () => []).add(row);
+    }
+
+    return locations.map((loc) {
+      if (loc.isBranchCashier) {
+        final rows = branchByOwner[loc.id] ?? const <CashierStockLine>[];
+        return CashierWithStock(
+          location: loc,
+          hasStock: rows.any((r) => r.inStock),
+          stock: rows,
+        );
+      }
+      return CashierWithStock(
+        location: loc,
+        hasStock: centralHasStock,
+        stock: centralLines,
+      );
+    }).toList();
   }
 
   /// Every cashier / branch cashier, whether or not they have saved a

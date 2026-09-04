@@ -916,6 +916,63 @@ class CashierLocation {
       );
 }
 
+/// One on-hand inventory line for a located cashier / branch cashier,
+/// exposed to members by the "Nearest Cashiers" discovery screen.
+///
+/// For a branch cashier this is a `branch_stock` row (read through the
+/// SECURITY DEFINER `member_branch_stock` RPC); for a regular
+/// (central-stock) cashier the app derives these from the shared `items`
+/// catalog, in which case [ownerId] is empty.
+class CashierStockLine {
+  final String ownerId; // profiles.id of the branch cashier ('' for central)
+  final int? itemId;
+  final String name;
+  final String? category;
+  final int quantity;
+  final String? status;
+
+  const CashierStockLine({
+    required this.ownerId,
+    this.itemId,
+    required this.name,
+    this.category,
+    this.quantity = 0,
+    this.status,
+  });
+
+  /// A line is only "in stock" when its on-hand quantity is positive.
+  bool get inStock => quantity > 0;
+
+  factory CashierStockLine.fromJson(Map<String, dynamic> json) =>
+      CashierStockLine(
+        ownerId: json['owner_id'] as String? ?? '',
+        itemId: (json['item_id'] as num?)?.toInt(),
+        name: json['item_name'] as String? ?? '',
+        category: json['category'] as String?,
+        quantity: (json['quantity'] as num?)?.toInt() ?? 0,
+        status: json['status'] as String?,
+      );
+}
+
+/// A located cashier / branch cashier plus its live stock availability —
+/// the unit the member "Nearest Cashiers" screen ranks by distance and
+/// filters to its Top 3 stocked locations.
+class CashierWithStock {
+  final CashierLocation location;
+  final bool hasStock;
+
+  /// On-hand inventory (quantity carried in each line) for the inspection
+  /// sheet. Branch cashiers carry their own allocation; regular cashiers
+  /// carry the shared central catalog.
+  final List<CashierStockLine> stock;
+
+  const CashierWithStock({
+    required this.location,
+    required this.hasStock,
+    this.stock = const [],
+  });
+}
+
 /// Small DTO for parsed transaction entries (used in member CSV import).
 class MemberTransactionEntry {
   final int? itemId;

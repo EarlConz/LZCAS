@@ -22,6 +22,8 @@ export '../data/models.dart'
         BirthdayGreeting,
         MemberTransactionEntry,
         CashierLocation,
+        CashierStockLine,
+        CashierWithStock,
         UserProfile,
         inventoryItemsFromRows,
         membersFromRows,
