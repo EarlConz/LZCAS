@@ -7,6 +7,7 @@
 // scheduler, no cron and nothing sent anywhere.
 
 import 'package:lzcas/data/models.dart';
+import 'package:lzcas/utils/app_clock.dart';
 
 /// Whether [birthday] falls inside the [windowDays]-day greeting window
 /// ending at [now], and if so which year's greeting it is.
@@ -35,7 +36,9 @@ BirthdayGreeting? birthdayGreetingFor(
   final parsed = parseBirthday(birthday);
   if (parsed == null) return null;
 
-  final at = _dateOnly(now ?? DateTime.now());
+  // Server-corrected, for the same reason Announcement.isCurrent is: a wrong
+  // device clock would otherwise shift the whole greeting window.
+  final at = _dateOnly(now ?? AppClock.now());
 
   // The most recent occurrence that is not in the future. Checking last year
   // as well is what carries a December birthday across into January.

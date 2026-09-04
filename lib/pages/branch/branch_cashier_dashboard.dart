@@ -7,6 +7,7 @@
 // (The narrow surface is enforced here in the UI; at the DB level the role is
 //  treated as staff — see migration_v28_branch_cashier_role.sql.)
 
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -17,9 +18,12 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/cashier_location_settings.dart';
+import 'package:lzcas/widgets/announcement_widgets.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/updater_service.dart';
 import 'package:lzcas/dialogs/update_dialog.dart';
+import 'package:lzcas/dialogs/unseen_announcements_dialog.dart';
+import 'package:lzcas/dialogs/announcement_detail_dialog.dart';
 
 class BranchCashierDashboard extends StatefulWidget {
   const BranchCashierDashboard({super.key});
@@ -28,14 +32,26 @@ class BranchCashierDashboard extends StatefulWidget {
   State<BranchCashierDashboard> createState() => _BranchCashierDashboardState();
 }
 
-class _BranchCashierDashboardState extends State<BranchCashierDashboard>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+/// The three sections of the branch terminal.
+enum _BranchTab {
+  pos('POS Terminal', Icons.point_of_sale_rounded),
+  stocks('Stocks on Hand', Icons.inventory_2_rounded),
+  announcements('Announcements', Icons.campaign_rounded),
+  location('Location', Icons.location_on_rounded);
+
+  const _BranchTab(this.title, this.icon);
+
+  final String title;
+  final IconData icon;
+}
+
+class _BranchCashierDashboardState extends State<BranchCashierDashboard> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+  _BranchTab _tab = _BranchTab.pos;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
     _triggerUpdateCheck();
   }
 
@@ -44,17 +60,16 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard>
       if (!mounted) return;
       final updater = context.read<UpdaterService>();
       updater.checkForUpdate(silent: true).then((info) {
-        if (info != null && mounted) {
+        if (!mounted) return;
+        if (info != null) {
           UpdateDialog.showIfAvailable(context);
+          // One modal at a time; the announcements stay unseen and come
+          // back on the next open.
+          return;
         }
+        showUnseenAnnouncements(context);
       });
     });
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   @override
@@ -64,118 +79,443 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard>
 
     final auth = context.watch<AuthState>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Same breakpoint the admin and member dashboards use, so all three
+    // switch between inline sidebar and drawer at the same width.
+    final isDesktop = MediaQuery.sizeOf(context).width >= 900;
+
+    final sidebar = _BranchSidebar(
+      selected: _tab,
+      username: auth.username,
+      isDark: isDark,
+      auth: auth,
+      onSelected: (t) {
+        setState(() => _tab = t);
+        if (!isDesktop) Navigator.of(context).maybePop();
+      },
+    );
 
     return Scaffold(
-      body: SafeArea(
+      key: _scaffoldKey,
+      drawer: isDesktop ? null : Drawer(child: sidebar),
+      body: Row(
+        children: [
+          if (isDesktop) ...[
+            SizedBox(width: 260, child: sidebar),
+            const VerticalDivider(width: 1),
+          ],
+          Expanded(
+            child: SafeArea(
+              child: Column(
+                children: [
+                  _buildTopBar(isDark, isDesktop),
+                  Expanded(child: _buildBody(auth)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// No logout here — it lives at the foot of the sidebar, where the other
+  /// dashboards keep theirs.
+  Widget _buildTopBar(bool isDark, bool isDesktop) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark
+                ? StockpileColors.darkDivider
+                : StockpileColors.divider,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          if (!isDesktop)
+            IconButton(
+              icon: const Icon(Icons.menu),
+              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+            ),
+          Expanded(
+            child: Text(
+              _tab.title,
+              overflow: TextOverflow.ellipsis,
+              style: StockpileFonts.satoshi(
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                color: isDark
+                    ? StockpileColors.darkTextPrimary
+                    : StockpileColors.darkText,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBody(AuthState auth) {
+    switch (_tab) {
+      case _BranchTab.pos:
+        // Sells from THIS cashier's allocation.
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: TransactionsTable(branchOwnerId: auth.userId),
+        );
+      case _BranchTab.stocks:
+        // This branch's allocation, read-only.
+        return _StocksOnHandView(ownerId: auth.userId);
+      case _BranchTab.announcements:
+        return const _BranchAnnouncementsView();
+      case _BranchTab.location:
+        return const CashierLocationSettings();
+    }
+  }
+}
+
+// ─── Announcements ──────────────────────────────────────────────────────────
+
+/// Notices from the office addressed to this branch.
+///
+/// Same Current/Saved split the member tab uses. Saved items are keyed on
+/// the ACCOUNT as of v40, so a branch cashier can keep a notice past its end
+/// date exactly as a member can — before that the table keyed on members.id
+/// and staff had nothing to save against.
+class _BranchAnnouncementsView extends StatefulWidget {
+  const _BranchAnnouncementsView();
+
+  @override
+  State<_BranchAnnouncementsView> createState() =>
+      _BranchAnnouncementsViewState();
+}
+
+class _BranchAnnouncementsViewState extends State<_BranchAnnouncementsView> {
+  List<Announcement> _all = const [];
+  bool _loading = true;
+  StreamSubscription<String>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _sub = repository.changes.listen((e) {
+      if (e == 'announcements_changed' && mounted) _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final rows = await repository.fetchAnnouncementsForMe();
+    if (!mounted) return;
+    setState(() {
+      _all = rows;
+      _loading = false;
+    });
+  }
+
+  /// Optimistic, mirroring the member tab: the star flips immediately and
+  /// only rolls back if the write fails.
+  Future<void> _toggle(Announcement a) async {
+    final wanted = !a.saved;
+    setState(() {
+      _all = [
+        for (final x in _all) x.id == a.id ? x.copyWith(saved: wanted) : x,
+      ];
+    });
+
+    final ok = await repository.setAnnouncementSaved(
+      announcementId: a.id,
+      saved: wanted,
+    );
+    if (!ok && mounted) {
+      setState(() {
+        _all = [
+          for (final x in _all) x.id == a.id ? x.copyWith(saved: !wanted) : x,
+        ];
+      });
+    }
+  }
+
+  Future<void> _openDetail(Announcement a) async {
+    final changed = await showAnnouncementDetail(context, announcement: a);
+    if (changed && mounted) _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+
+    if (_loading) return const Center(child: CircularProgressIndicator());
+
+    // Same rule as the member tab: Current holds everything still in its
+    // window, starred or not; Saved holds only what has EXPIRED and is
+    // starred. Nothing appears in both.
+    final current = _all.where((a) => a.isCurrent()).toList();
+    final savedExpired = _all.where((a) => a.saved && !a.isCurrent()).toList();
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          _card(
+            isDark: isDark,
+            icon: Icons.campaign_rounded,
+            title: 'Announcements',
+            subtitle:
+                'News and reminders from the GUTVita office. '
+                'Tap the star to keep one.',
+            emptyText: 'Nothing from the office right now.',
+            items: current,
+          ),
+          if (savedExpired.isNotEmpty) ...[
+            const SizedBox(height: 20),
+            _card(
+              isDark: isDark,
+              icon: Icons.star_rounded,
+              title: 'Saved',
+              trailing: '${savedExpired.length}',
+              subtitle:
+                  'Kept here after they stopped being current. '
+                  'Unstar one to let it go.',
+              emptyText: '',
+              items: savedExpired,
+              asSaved: true,
+            ),
+          ],
+          const SizedBox(height: 8),
+          if (current.isEmpty && savedExpired.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Center(
+                child: Icon(Icons.campaign_outlined, size: 40, color: muted),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _card({
+    required bool isDark,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String emptyText,
+    required List<Announcement> items,
+    String? trailing,
+    bool asSaved = false,
+  }) {
+    final textColor = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final muted = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+    final divider = isDark
+        ? StockpileColors.darkDivider
+        : StockpileColors.divider;
+
+    return Card(
+      elevation: 0,
+      color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: divider),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header ──────────────────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.fromLTRB(24, 16, 16, 0),
+            Row(
+              children: [
+                Icon(icon, size: 20, color: StockpileColors.primary900),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+                if (trailing != null)
+                  Text(
+                    trailing,
+                    style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: StockpileFonts.satoshi(fontSize: 11, color: muted),
+            ),
+            const SizedBox(height: 16),
+            if (items.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  emptyText,
+                  style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+                ),
+              )
+            else
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0) ...[
+                  const SizedBox(height: 16),
+                  Divider(height: 1, color: divider.withAlpha(120)),
+                  const SizedBox(height: 16),
+                ],
+                AnnouncementTile(
+                  announcement: items[i],
+                  asSaved: asSaved,
+                  isDark: isDark,
+                  onToggleSaved: () => _toggle(items[i]),
+                  onTap: () => _openDetail(items[i]),
+                ),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Sidebar ────────────────────────────────────────────────────────────────
+
+/// Inline on desktop, inside a Drawer on mobile.
+///
+/// Replaces a three-item TabBar whose icon+label tabs could not fit a phone
+/// width — the labels were being squeezed to the point of clipping. Matching
+/// the admin and member dashboards also means a branch cashier moving between
+/// devices sees one navigation idiom rather than two.
+class _BranchSidebar extends StatelessWidget {
+  final _BranchTab selected;
+  final String username;
+  final bool isDark;
+  final AuthState auth;
+  final ValueChanged<_BranchTab> onSelected;
+
+  const _BranchSidebar({
+    required this.selected,
+    required this.username,
+    required this.isDark,
+    required this.auth,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = isDark
+        ? StockpileColors.darkTextPrimary
+        : StockpileColors.darkText;
+    final muted = isDark
+        ? StockpileColors.darkTextMuted
+        : StockpileColors.mutedText;
+    final activeBg = isDark
+        ? StockpileColors.darkSidebarActive
+        : StockpileColors.sidebarActive;
+
+    return Container(
+      color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 16, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Branch Terminal',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: textColor,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '$username · Branch Cashier',
+                    overflow: TextOverflow.ellipsis,
+                    style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+                  ),
+                ],
+              ),
+            ),
+            for (final tab in _BranchTab.values)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                child: Material(
+                  color: selected == tab ? activeBg : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => onSelected(tab),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 14,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            tab.icon,
+                            size: 20,
+                            color: selected == tab
+                                ? StockpileColors.primary900
+                                : muted,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              tab.title,
+                              overflow: TextOverflow.ellipsis,
+                              style: StockpileFonts.satoshi(
+                                fontSize: 14,
+                                fontWeight: selected == tab
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color: selected == tab
+                                    ? StockpileColors.primary900
+                                    : textColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            const Spacer(),
+            Padding(
+              padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Branch Terminal',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                            color: isDark
-                                ? StockpileColors.darkTextPrimary
-                                : StockpileColors.darkText,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Welcome, ${auth.username} · Branch Cashier',
-                          style: StockpileFonts.satoshi(
-                            fontSize: 14,
-                            color: isDark
-                                ? StockpileColors.darkTextMuted
-                                : StockpileColors.mutedText,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                   _LogoutButton(auth: auth),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-
-            // ── Tab Bar ─────────────────────────────────────────────────
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? StockpileColors.darkInputBg
-                    : StockpileColors.inputBg,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: TabBar(
-                controller: _tabController,
-                labelColor: StockpileColors.primary900,
-                unselectedLabelColor: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
-                indicator: BoxDecoration(
-                  color: isDark ? StockpileColors.darkSurface : Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                indicatorSize: TabBarIndicatorSize.tab,
-                tabs: const [
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.point_of_sale_rounded, size: 18),
-                        SizedBox(width: 6),
-                        Text('POS Terminal'),
-                      ],
-                    ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Log out',
+                    style: StockpileFonts.satoshi(fontSize: 13, color: muted),
                   ),
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.inventory_2_rounded, size: 18),
-                        SizedBox(width: 6),
-                        Text('Stocks on Hand'),
-                      ],
-                    ),
-                  ),
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.location_on_rounded, size: 18),
-                        SizedBox(width: 6),
-                        Text('Location'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Tab Content ─────────────────────────────────────────────
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // Tab 1: POS terminal — sells from THIS cashier's allocation.
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: TransactionsTable(branchOwnerId: auth.userId),
-                  ),
-                  // Tab 2: Stocks on Hand — this branch's allocation (read-only).
-                  _StocksOnHandView(ownerId: auth.userId),
-                  // Tab 3: Saved cashier location (static GPS point).
-                  const CashierLocationSettings(),
                 ],
               ),
             ),

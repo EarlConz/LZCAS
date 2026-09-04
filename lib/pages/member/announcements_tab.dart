@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/dialogs/announcement_detail_dialog.dart';
 import 'package:lzcas/services/config_service.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/birthday_window.dart';
@@ -52,13 +53,8 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
   }
 
   Future<void> _load() async {
-    final id = widget.member.id;
-    if (id == null) {
-      if (mounted) setState(() => _loading = false);
-      return;
-    }
-    final announcements = await repository.fetchAnnouncementsFor(id);
-    final years = await repository.fetchSavedBirthdayYears(id);
+    final announcements = await repository.fetchAnnouncementsForMe();
+    final years = await repository.fetchSavedBirthdayYears();
     if (!mounted) return;
     setState(() {
       _all = announcements;
@@ -70,8 +66,6 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
   /// Optimistic: the star flips immediately and only rolls back if the write
   /// fails. A round trip before the star moves makes the control feel broken.
   Future<void> _toggleAnnouncement(Announcement a) async {
-    final id = widget.member.id;
-    if (id == null) return;
     final wanted = !a.saved;
 
     setState(() {
@@ -81,7 +75,6 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
     });
 
     final ok = await repository.setAnnouncementSaved(
-      memberId: id,
       announcementId: a.id,
       saved: wanted,
     );
@@ -94,17 +87,19 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
     }
   }
 
+  /// Open one announcement in full. The star lives in there too, so the list
+  /// is reloaded when it reports a change rather than trusting local state.
+  Future<void> _openDetail(Announcement a) async {
+    final changed = await showAnnouncementDetail(context, announcement: a);
+    if (changed && mounted) _load();
+  }
+
   Future<void> _unsaveBirthday(int year) async {
-    final id = widget.member.id;
-    if (id == null) return;
-
-    setState(() => _savedBirthdayYears = {..._savedBirthdayYears}..remove(year));
-
-    final ok = await repository.setBirthdaySaved(
-      memberId: id,
-      year: year,
-      saved: false,
+    setState(
+      () => _savedBirthdayYears = {..._savedBirthdayYears}..remove(year),
     );
+
+    final ok = await repository.setBirthdaySaved(year: year, saved: false);
     if (!ok && mounted) {
       setState(() => _savedBirthdayYears = {..._savedBirthdayYears, year});
     }
@@ -120,9 +115,7 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
     }
 
     final current = _all.where((a) => a.isCurrent()).toList();
-    final savedExpired = _all
-        .where((a) => a.saved && !a.isCurrent())
-        .toList();
+    final savedExpired = _all.where((a) => a.saved && !a.isCurrent()).toList();
 
     // A saved greeting from a year whose window has closed. The one still
     // inside its window lives on the Overview, so listing it here too would
@@ -146,7 +139,8 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
             icon: Icons.campaign_rounded,
             iconColor: StockpileColors.primary900,
             title: 'Announcements',
-            subtitle: 'News and reminders from the GUTVita office. '
+            subtitle:
+                'News and reminders from the GUTVita office. '
                 'Tap the star to keep one.',
             emptyText: 'Nothing new right now.',
             children: [
@@ -155,6 +149,7 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
                   announcement: a,
                   isDark: isDark,
                   onToggleSaved: () => _toggleAnnouncement(a),
+                  onTap: () => _openDetail(a),
                 ),
             ],
           ),
@@ -166,7 +161,8 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
               iconColor: StockpileColors.primary900,
               title: 'Saved',
               trailing: '${savedExpired.length + savedBirthdays.length}',
-              subtitle: 'Kept here after they stopped being current. '
+              subtitle:
+                  'Kept here after they stopped being current. '
                   'Unstar one to let it go.',
               emptyText: '',
               children: [
@@ -176,6 +172,7 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
                     asSaved: true,
                     isDark: isDark,
                     onToggleSaved: () => _toggleAnnouncement(a),
+                    onTap: () => _openDetail(a),
                   ),
                 for (final year in savedBirthdays)
                   SavedBirthdayTile(

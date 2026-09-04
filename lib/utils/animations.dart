@@ -102,24 +102,56 @@ class _ScaleButtonState extends State<ScaleButton>
   }
 }
 
-/// Wraps a dialog call with a spring scale-up entrance animation.
+/// Wraps a dialog call with the app's standard entrance animation.
 /// Usage: showAnimatedDialog(context, builder: (ctx) => MyDialog())
+///
+/// **Wide** fades in with a small settle from 92% — no overshoot. This used to
+/// use `Curves.easeOutBack` scaling from zero, which grows the dialog past
+/// full size and springs back; at 300ms that reads as bouncy rather than
+/// responsive, and the wobble is most obvious on the largest dialogs.
+///
+/// **Narrow slides up from the bottom.** The two admin forms are full-screen
+/// dialogs on a phone, and scaling a full-screen surface out of the middle of
+/// the screen looks wrong however good the curve is — a sheet should arrive
+/// from an edge.
+///
+/// 220ms rather than the previous 300ms — long enough to read as motion,
+/// short enough not to sit between the tap and the content. Dismissal uses
+/// `easeInCubic` so it accelerates away instead of mirroring the entrance.
 Future<T?> showAnimatedDialog<T>(
   BuildContext context, {
   required WidgetBuilder builder,
   bool barrierDismissible = true,
 }) {
+  final narrow = MediaQuery.sizeOf(context).width < 500;
+
   return showGeneralDialog<T>(
     context: context,
     barrierDismissible: barrierDismissible,
     barrierLabel: '',
-    transitionDuration: const Duration(milliseconds: 300),
+    transitionDuration: const Duration(milliseconds: 220),
     pageBuilder: (ctx, anim1, anim2) => builder(ctx),
     transitionBuilder: (ctx, anim, secAnim, child) {
-      final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutBack);
+      final curved = CurvedAnimation(
+        parent: anim,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      final fade = FadeTransition(opacity: curved, child: child);
+
+      if (narrow) {
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.06),
+            end: Offset.zero,
+          ).animate(curved),
+          child: fade,
+        );
+      }
+
       return ScaleTransition(
-        scale: curved,
-        child: FadeTransition(opacity: curved, child: child),
+        scale: Tween<double>(begin: 0.92, end: 1).animate(curved),
+        child: fade,
       );
     },
   );

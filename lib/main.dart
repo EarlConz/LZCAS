@@ -39,6 +39,17 @@ Future<void> main() async {
   // Attempt to restore a previous session from Supabase Auth persistence.
   await authState.tryRestoreSession();
 
+  // ── Match the device clock to the server's ─────────────────────────
+  // Before anything asks whether an announcement or a birthday window is
+  // still open, so those answers agree with the database rather than with
+  // whatever time this machine happens to think it is. Bounded and
+  // swallowed: a slow or missing `server_now()` must not delay startup, and
+  // an unmeasured offset just leaves the old device-clock behaviour.
+  await repository
+      .syncServerClock()
+      .timeout(const Duration(seconds: 4), onTimeout: () {})
+      .catchError((_) {});
+
   // ── Initialize config service ──────────────────────────────────────
   final configService = ConfigService();
   await configService.load();

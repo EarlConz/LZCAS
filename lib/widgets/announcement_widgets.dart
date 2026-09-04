@@ -34,6 +34,50 @@ class _Tones {
         );
 }
 
+/// Who an announcement went to, as a chip.
+///
+/// Public and shared: the member tile, the detail view and the unseen-on-open
+/// popup all show this, and three copies of the same switch is how the two
+/// admin list forms started disagreeing about wording.
+class AnnouncementAudienceChip extends StatelessWidget {
+  final AnnouncementAudience audience;
+  final bool isDark;
+
+  const AnnouncementAudienceChip({
+    super.key,
+    required this.audience,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isBranches = audience == AnnouncementAudience.branches;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isBranches
+            ? StockpileColors.secondary50
+            : (isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg),
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Text(
+        switch (audience) {
+          AnnouncementAudience.all => 'Everyone',
+          AnnouncementAudience.branches => 'Branches only',
+          AnnouncementAudience.members => 'Members only',
+        },
+        style: StockpileFonts.satoshi(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: isBranches
+              ? StockpileColors.secondary500
+              : StockpileColors.bodyText,
+        ),
+      ),
+    );
+  }
+}
+
 /// A megaphone, drawn once and reused.
 class _MegaphoneIcon extends StatelessWidget {
   final double size;
@@ -282,10 +326,7 @@ class BirthdayGreetingCard extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     stamp,
-                    style: StockpileFonts.satoshi(
-                      fontSize: 11,
-                      color: t.muted,
-                    ),
+                    style: StockpileFonts.satoshi(fontSize: 11, color: t.muted),
                   ),
                 ],
               ),
@@ -314,16 +355,40 @@ class AnnouncementTile extends StatelessWidget {
   final VoidCallback? onToggleSaved;
   final bool isDark;
 
+  /// Opens the full announcement. When null the tile is inert and the body
+  /// is NOT clamped — nothing would reveal the rest of it.
+  final VoidCallback? onTap;
+
   const AnnouncementTile({
     super.key,
     required this.announcement,
     required this.onToggleSaved,
     required this.isDark,
     this.asSaved = false,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final row = _buildRow();
+    if (onTap == null) return row;
+
+    // Negative-inset padding so the ripple covers the row's full width
+    // without shifting it away from the neighbouring dividers.
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: row,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRow() {
     final t = _Tones.of(isDark);
 
     return Row(
@@ -372,6 +437,11 @@ class AnnouncementTile extends StatelessWidget {
               const SizedBox(height: 5),
               Text(
                 announcement.body,
+                // Clamped only when there is somewhere to read the rest.
+                // A 400-character notice in every row turns the list into a
+                // wall of text nobody scans.
+                maxLines: onTap == null ? null : 3,
+                overflow: onTap == null ? null : TextOverflow.ellipsis,
                 style: StockpileFonts.satoshi(
                   fontSize: 13,
                   height: 1.5,
@@ -379,9 +449,24 @@ class AnnouncementTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 5),
-              Text(
-                formatRelativeDate(announcement.publishedAt),
-                style: StockpileFonts.satoshi(fontSize: 11, color: t.muted),
+              Row(
+                children: [
+                  Text(
+                    formatRelativeDate(announcement.publishedAt),
+                    style: StockpileFonts.satoshi(fontSize: 11, color: t.muted),
+                  ),
+                  if (onTap != null) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      'Read more',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: StockpileColors.primary900,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),

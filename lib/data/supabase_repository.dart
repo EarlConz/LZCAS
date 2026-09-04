@@ -8,6 +8,7 @@ import 'dart:math';
 import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/app_clock.dart';
 import '../utils/birthday_window.dart' show parseBirthday;
 import 'models.dart';
 
@@ -1595,14 +1596,114 @@ class SupabaseRepository {
 
   // ── Announcements & saved items (v36) ─────────────────────────────
 
-  /// Announcements this member may see, newest first, each carrying whether
-  /// they have saved it.
+  /// Measure this device's clock against the database's and hand the offset
+  /// to [AppClock], so everything that asks "is this still live" agrees with
+  /// the server rather than with the device.
+  ///
+  /// The round trip is halved before comparing: the server read its clock
+  /// somewhere in the middle of the call, not at either end, so charging the
+  /// whole latency to the offset would bias it by the network time.
+  ///
+  /// Never throws and never blocks anything important — if `server_now()` is
+  /// missing (a client running ahead of migration v41) or the call fails, the
+  /// offset stays zero and the app behaves exactly as it did before.
+  Future<void> syncServerClock() async {
+    try {
+      final sentAt = DateTime.now();
+      final result = await _supabase.rpc('server_now');
+      final receivedAt = DateTime.now();
+
+      final serverNow = DateTime.tryParse(result.toString());
+      if (serverNow == null) return;
+
+      final roundTrip = receivedAt.difference(sentAt);
+      final deviceAtRead = sentAt.add(roundTrip ~/ 2);
+      AppClock.setOffset(serverNow.difference(deviceAtRead));
+    } catch (e) {
+      debugPrint('[syncServerClock] failed, using device clock: $e');
+    }
+  }
+
+  /// Current announcements this account has NOT yet seen, oldest first.
+  ///
+  /// Oldest first because they are shown one at a time: reading them in the
+  /// order they were posted is the order they were meant to be read in.
+  ///
+  /// Keyed on `profiles.id` (which is `auth.uid()`), not `members.id`, so
+  /// branch cashiers are covered too — see migration v39. Returns empty for
+  /// a signed-out caller rather than throwing.
+  Future<List<Announcement>> fetchUnseenAnnouncements() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return [];
+
+    try {
+      final rows = await _supabase
+          .from('announcements')
+          .select()
+          .isFilter('archived_at', null)
+          .order('published_at', ascending: true);
+
+      final seen = await _supabase
+          .from('announcement_reads')
+          .select('announcement_id')
+          .eq('profile_id', uid);
+
+      final seenIds = {
+        for (final r in seen as List)
+          ((r as Map)['announcement_id'] as num).toInt(),
+      };
+
+      return (rows as List)
+          .map((j) => Announcement.fromJson(j as Map<String, dynamic>))
+          .where((a) => a.isCurrent() && !seenIds.contains(a.id))
+          .toList();
+    } catch (e) {
+      // A failure here must never block the dashboard — the member simply
+      // gets no popup and the announcement is still on their tab.
+      debugPrint('[fetchUnseenAnnouncements] failed: $e');
+      return [];
+    }
+  }
+
+  /// Record that this account has seen [announcementIds].
+  ///
+  /// Called on dismissal, including "Skip all" — an announcement someone
+  /// chose to skip past has been offered, and offering it again is what
+  /// makes people stop reading these.
+  ///
+  /// Ignores conflicts so a double-tap or a retry cannot fail.
+  Future<void> markAnnouncementsSeen(List<int> announcementIds) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null || announcementIds.isEmpty) return;
+
+    try {
+      await _supabase
+          .from('announcement_reads')
+          .upsert(
+            [
+              for (final id in announcementIds)
+                {'profile_id': uid, 'announcement_id': id},
+            ],
+            onConflict: 'profile_id,announcement_id',
+            ignoreDuplicates: true,
+          );
+    } catch (e) {
+      debugPrint('[markAnnouncementsSeen] failed: $e');
+    }
+  }
+
+  /// Announcements the CURRENT account may see, newest first, each carrying
+  /// whether this account has saved it.
+  ///
+  /// Works for members, resellers and branch cashiers alike: saved items are
+  /// keyed on the ACCOUNT (`profiles.id` = `auth.uid()`) as of v40, so no
+  /// caller needs to supply an id.
   ///
   /// RLS already filters by audience and drops archived ones, so this does
-  /// not re-check either — but it deliberately does NOT filter by `ends_at`
-  /// either. An expired announcement the member saved must still come back;
+  /// not re-check either — but it deliberately does NOT filter by `ends_at`.
+  /// An expired announcement this account saved must still come back;
   /// splitting "current" from "saved" is [Announcement.isCurrent]'s job.
-  Future<List<Announcement>> fetchAnnouncementsFor(int memberId) async {
+  Future<List<Announcement>> fetchAnnouncementsForMe() async {
     try {
       final rows = await _supabase
           .from('announcements')
@@ -1610,7 +1711,7 @@ class SupabaseRepository {
           .isFilter('archived_at', null)
           .order('published_at', ascending: false);
 
-      final savedIds = await _fetchSavedAnnouncementIds(memberId);
+      final savedIds = await _fetchSavedAnnouncementIds();
 
       return (rows as List)
           .map((j) => Announcement.fromJson(j as Map<String, dynamic>))
@@ -1618,16 +1719,19 @@ class SupabaseRepository {
           .where((a) => a.isCurrent() || a.saved)
           .toList();
     } catch (e) {
-      debugPrint('[fetchAnnouncementsFor] failed: $e');
+      debugPrint('[fetchAnnouncementsForMe] failed: $e');
       return [];
     }
   }
 
-  Future<Set<int>> _fetchSavedAnnouncementIds(int memberId) async {
+  Future<Set<int>> _fetchSavedAnnouncementIds() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return {};
+
     final rows = await _supabase
         .from('member_saved_items')
         .select('announcement_id')
-        .eq('member_id', memberId)
+        .eq('profile_id', uid)
         .eq('item_kind', 'announcement');
     return {
       for (final r in rows as List)
@@ -1636,13 +1740,16 @@ class SupabaseRepository {
     };
   }
 
-  /// Years for which this member has saved their birthday greeting.
-  Future<Set<int>> fetchSavedBirthdayYears(int memberId) async {
+  /// Years for which this account has saved its birthday greeting.
+  Future<Set<int>> fetchSavedBirthdayYears() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return {};
+
     try {
       final rows = await _supabase
           .from('member_saved_items')
           .select('birthday_year')
-          .eq('member_id', memberId)
+          .eq('profile_id', uid)
           .eq('item_kind', 'birthday');
       return {
         for (final r in rows as List)
@@ -1655,16 +1762,19 @@ class SupabaseRepository {
     }
   }
 
-  /// Star or unstar an announcement for a member. Returns true on success.
+  /// Star or unstar an announcement for the signed-in account. Returns true
+  /// on success.
   Future<bool> setAnnouncementSaved({
-    required int memberId,
     required int announcementId,
     required bool saved,
   }) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return false;
+
     try {
       if (saved) {
         await _supabase.from('member_saved_items').insert({
-          'member_id': memberId,
+          'profile_id': uid,
           'item_kind': 'announcement',
           'announcement_id': announcementId,
         });
@@ -1672,7 +1782,7 @@ class SupabaseRepository {
         await _supabase
             .from('member_saved_items')
             .delete()
-            .eq('member_id', memberId)
+            .eq('profile_id', uid)
             .eq('item_kind', 'announcement')
             .eq('announcement_id', announcementId);
       }
@@ -1684,16 +1794,18 @@ class SupabaseRepository {
     }
   }
 
-  /// Star or unstar one year's birthday greeting.
+  /// Star or unstar one year's birthday greeting for the signed-in account.
   Future<bool> setBirthdaySaved({
-    required int memberId,
     required int year,
     required bool saved,
   }) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return false;
+
     try {
       if (saved) {
         await _supabase.from('member_saved_items').insert({
-          'member_id': memberId,
+          'profile_id': uid,
           'item_kind': 'birthday',
           'birthday_year': year,
         });
@@ -1701,7 +1813,7 @@ class SupabaseRepository {
         await _supabase
             .from('member_saved_items')
             .delete()
-            .eq('member_id', memberId)
+            .eq('profile_id', uid)
             .eq('item_kind', 'birthday')
             .eq('birthday_year', year);
       }
