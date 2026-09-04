@@ -2,6 +2,8 @@
 // Pure Dart model classes for the cloud-based LZCAS (Stockpile) app.
 // All models use snake_case JSON keys matching Supabase column names.
 
+import '../utils/app_clock.dart';
+
 /// Inventory item in the system.
 class Item {
   final int? id;
@@ -1009,9 +1011,15 @@ class EarningsSource {
 /// Who an announcement is addressed to. The three values are mutually
 /// exclusive: [members] means plain members only, so a reseller does not
 /// receive one sent to "members".
+/// Who an announcement reaches.
+///
+/// The split is staff vs customers: [branches] addresses branch cashier
+/// accounts, [members] addresses members AND resellers together. There is
+/// deliberately no reseller-only option — see migration v38, which widened
+/// the old 'resellers' audience into [members].
 enum AnnouncementAudience {
   all('all', 'Everyone'),
-  resellers('resellers', 'Resellers only'),
+  branches('branches', 'Branches only'),
   members('members', 'Members only');
 
   const AnnouncementAudience(this.wire, this.label);
@@ -1057,9 +1065,15 @@ class Announcement {
 
   /// Still in its window. An announcement with no end date is current
   /// forever; one with an end date stops on the dot.
+  ///
+  /// Defaults to [AppClock], not `DateTime.now()`: this has to give the same
+  /// answer the RLS policy and every server-side query give, and those use
+  /// the database's clock. A device three weeks fast otherwise reads a live
+  /// announcement as ended — labelled "Ended" for staff, and filtered out of
+  /// existence for members.
   bool isCurrent([DateTime? now]) {
     if (isArchived) return false;
-    final at = now ?? DateTime.now();
+    final at = now ?? AppClock.now();
     if (publishedAt != null && publishedAt!.isAfter(at)) return false;
     return endsAt == null || endsAt!.isAfter(at);
   }

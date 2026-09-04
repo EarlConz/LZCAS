@@ -89,9 +89,9 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
                   ? '1 member has saved this and will keep their copy.'
                   : '$savedBy members have saved this and will keep their '
                         'copies.',
-              style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                color: StockpileColors.mutedText,
-              ),
+              style: Theme.of(
+                ctx,
+              ).textTheme.bodySmall?.copyWith(color: StockpileColors.mutedText),
             ),
           ],
         ),
@@ -151,35 +151,48 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
 
   Widget _header(BuildContext context, bool isDark) {
     final theme = Theme.of(context);
-    return Row(
+
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Announcements',
-                style: theme.textTheme.titleLarge,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'Shown on the Announcements screen of every account you '
-                'send them to.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: StockpileColors.mutedText,
-                ),
-              ),
-            ],
+        Text('Announcements', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 2),
+        Text(
+          'Shown on the Announcements screen of every account you send '
+          'them to.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: StockpileColors.mutedText,
           ),
         ),
-        const SizedBox(width: 16),
-        FilledButton.icon(
-          onPressed: () => _compose(),
-          icon: const Icon(Icons.add_rounded, size: 18),
-          label: const Text('New Announcement'),
-        ),
       ],
+    );
+
+    final button = FilledButton.icon(
+      onPressed: () => _compose(),
+      icon: const Icon(Icons.add_rounded, size: 18),
+      label: const Text('New Announcement'),
+    );
+
+    // Side by side there is not enough room on a phone for both the
+    // description and a button whose label is two words long, so the button
+    // drops below and takes the full width.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 560) {
+          return Row(
+            children: [
+              Expanded(child: title),
+              const SizedBox(width: 16),
+              button,
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [title, const SizedBox(height: 14), button],
+        );
+      },
     );
   }
 
@@ -206,15 +219,125 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
       );
     }
 
-    return _shell(
-      isDark,
-      child: Column(
+    // The table form needs 502px of fixed columns before the title gets any
+    // space at all, so on a phone it is replaced by stacked cards rather than
+    // squeezed. The column headings go with it — they label nothing once the
+    // columns are gone.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 720;
+        return _shell(
+          isDark,
+          child: Column(
+            children: [
+              if (wide) _headerRow(isDark),
+              for (var i = 0; i < _announcements.length; i++) ...[
+                if (i > 0) Divider(height: 1, color: divider.withAlpha(120)),
+                wide
+                    ? _row(_announcements[i], isDark)
+                    : _card(_announcements[i], isDark),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Narrow-width form of [_row]: the same information stacked, with the
+  /// chips wrapping instead of sitting in fixed columns.
+  Widget _card(Announcement a, bool isDark) {
+    final live = a.isCurrent();
+    final textColor = live
+        ? (isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText)
+        : StockpileColors.mutedText;
+
+    return Container(
+      color: live
+          ? null
+          : (isDark
+                ? Colors.white.withValues(alpha: 0.02)
+                : const Color(0xFFFCFCFD)),
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _headerRow(isDark),
-          for (var i = 0; i < _announcements.length; i++) ...[
-            if (i > 0) Divider(height: 1, color: divider.withAlpha(120)),
-            _row(_announcements[i], isDark),
-          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  a.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    height: 1.3,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  a.body,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: StockpileColors.mutedText,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _chip(
+                      a.isArchived ? 'Taken down' : (live ? 'Active' : 'Ended'),
+                      bg: live
+                          ? StockpileColors.successBg
+                          : (isDark
+                                ? StockpileColors.darkInputBg
+                                : StockpileColors.inputBg),
+                      fg: live
+                          ? const Color(0xFF16A34A)
+                          : StockpileColors.mutedText,
+                      bold: true,
+                    ),
+                    _audienceChip(a, isDark),
+                    Text(
+                      a.endsAt == null
+                          ? 'No end date'
+                          : 'Until ${formatDayAndMonth(a.endsAt)}',
+                      style: StockpileFonts.satoshi(
+                        fontSize: 12,
+                        color: StockpileColors.mutedText,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Column(
+            children: [
+              IconButton(
+                tooltip: 'Edit',
+                iconSize: 18,
+                onPressed: a.isArchived ? null : () => _compose(existing: a),
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
+                tooltip: 'Take down',
+                iconSize: 18,
+                onPressed: a.isArchived ? null : () => _confirmArchive(a),
+                icon: const Icon(Icons.archive_outlined),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -248,9 +371,7 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
     }
 
     return Container(
-      color: isDark
-          ? StockpileColors.darkInputBg
-          : StockpileColors.tableHead,
+      color: isDark ? StockpileColors.darkInputBg : StockpileColors.tableHead,
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(
         children: [
@@ -312,24 +433,7 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
             ),
           ),
           const SizedBox(width: 16),
-          SizedBox(
-            width: 130,
-            child: _chip(
-              a.audience == AnnouncementAudience.all
-                  ? 'Everyone'
-                  : a.audience == AnnouncementAudience.resellers
-                  ? 'Resellers'
-                  : 'Members',
-              bg: a.audience == AnnouncementAudience.resellers
-                  ? StockpileColors.secondary50
-                  : (isDark
-                        ? StockpileColors.darkInputBg
-                        : StockpileColors.inputBg),
-              fg: a.audience == AnnouncementAudience.resellers
-                  ? StockpileColors.secondary500
-                  : StockpileColors.bodyText,
-            ),
-          ),
+          SizedBox(width: 130, child: _audienceChip(a, isDark)),
           const SizedBox(width: 16),
           SizedBox(
             width: 100,
@@ -348,14 +452,10 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
           SizedBox(
             width: 120,
             child: Text(
-              a.endsAt == null
-                  ? 'No end date'
-                  : formatDayAndMonth(a.endsAt),
+              a.endsAt == null ? 'No end date' : formatDayAndMonth(a.endsAt),
               style: StockpileFonts.satoshi(
                 fontSize: 13,
-                color: a.endsAt == null
-                    ? StockpileColors.mutedText
-                    : textColor,
+                color: a.endsAt == null ? StockpileColors.mutedText : textColor,
               ),
             ),
           ),
@@ -382,6 +482,26 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Audience chip, shared by the wide row and the narrow card so the two
+  /// forms cannot disagree about what an audience is called.
+  ///
+  /// Branches is tinted because it is the one that reaches staff rather than
+  /// customers — the distinction worth catching at a glance before posting.
+  Widget _audienceChip(Announcement a, bool isDark) {
+    final isBranches = a.audience == AnnouncementAudience.branches;
+    return _chip(
+      switch (a.audience) {
+        AnnouncementAudience.all => 'Everyone',
+        AnnouncementAudience.branches => 'Branches',
+        AnnouncementAudience.members => 'Members',
+      },
+      bg: isBranches
+          ? StockpileColors.secondary50
+          : (isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg),
+      fg: isBranches ? StockpileColors.secondary500 : StockpileColors.bodyText,
     );
   }
 
@@ -447,14 +567,18 @@ class _BirthdayPanel extends StatelessWidget {
         color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDark
-              ? StockpileColors.darkDivider
-              : StockpileColors.divider,
+          color: isDark ? StockpileColors.darkDivider : StockpileColors.divider,
         ),
       ),
-      child: Row(
-        children: [
-          Container(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Icon + a paragraph + a button in one row leaves the paragraph
+          // about 120px on a phone, which turns it into a ragged column of
+          // single words. Below the breakpoint the button moves underneath
+          // and the text gets the full width.
+          final wide = constraints.maxWidth >= 520;
+
+          final icon = Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
@@ -467,45 +591,43 @@ class _BirthdayPanel extends StatelessWidget {
               size: 20,
               color: StockpileColors.primary900,
             ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  on ? 'Birthday greetings are on' : 'Birthday greetings are off',
-                  style: StockpileFonts.satoshi(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                  ),
+          );
+
+          final body = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                on ? 'Birthday greetings are on' : 'Birthday greetings are off',
+                style: StockpileFonts.satoshi(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: textColor,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  on
-                      ? 'A reseller sees a greeting on their Overview for '
-                            '$days days after their birthday, so they still '
-                            'get it even if they do not open the app on the '
-                            'day itself.'
-                            '${missing > 0 ? ' $missing '
-                                  '${missing == 1 ? 'reseller has' : 'resellers have'} '
-                                  'no birthday recorded and will not receive one.' : ''}'
-                      : 'No greetings are being shown.',
-                  style: StockpileFonts.satoshi(
-                    fontSize: 13,
-                    height: 1.5,
-                    color: isDark
-                        ? StockpileColors.darkTextBody
-                        : StockpileColors.bodyText,
-                  ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                on
+                    ? 'A reseller sees a greeting on their Overview for '
+                          '$days days after their birthday, so they still '
+                          'get it even if they do not open the app on the '
+                          'day itself.'
+                          '${missing > 0 ? ' $missing '
+                                    '${missing == 1 ? 'reseller has' : 'resellers have'} '
+                                    'no birthday recorded and will not receive one.' : ''}'
+                    : 'No greetings are being shown.',
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: isDark
+                      ? StockpileColors.darkTextBody
+                      : StockpileColors.bodyText,
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          OutlinedButton(
+              ),
+            ],
+          );
+
+          final button = OutlinedButton(
             onPressed: () async {
               final saved = await showBirthdaySettingsDialog(
                 context,
@@ -514,8 +636,35 @@ class _BirthdayPanel extends StatelessWidget {
               if (saved == true) onEdited();
             },
             child: const Text('Edit message'),
-          ),
-        ],
+          );
+
+          if (wide) {
+            return Row(
+              children: [
+                icon,
+                const SizedBox(width: 14),
+                Expanded(child: body),
+                const SizedBox(width: 16),
+                button,
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  icon,
+                  const SizedBox(width: 14),
+                  Expanded(child: body),
+                ],
+              ),
+              const SizedBox(height: 14),
+              button,
+            ],
+          );
+        },
       ),
     );
   }
@@ -579,19 +728,28 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
   void _onChanged() => setState(() {});
 
   Future<void> _loadReach() async {
+    // Members and resellers both live in `members`; branch cashiers are
+    // staff accounts in `profiles`, so the two counts come from different
+    // places and "Everyone" is their sum.
     final members = await repository.fetchMembers();
+    final staff = await repository.fetchCashierProfiles();
     if (!mounted) return;
-    final resellers = members
-        .where((m) => (m.role ?? '') == 'Verified Reseller')
-        .length;
+    final branches = staff.where((p) => p.role == 'branch_cashier').length;
     setState(() {
       _reach = {
-        AnnouncementAudience.all: members.length,
-        AnnouncementAudience.resellers: resellers,
-        AnnouncementAudience.members: members.length - resellers,
+        AnnouncementAudience.all: members.length + branches,
+        AnnouncementAudience.branches: branches,
+        // Members AND resellers — no longer split, see migration v38.
+        AnnouncementAudience.members: members.length,
       };
     });
   }
+
+  /// Stacked, a field should size to its content; side by side it should share
+  /// the row evenly. [Expanded] means "fill the main axis", which is wrong in
+  /// a vertical Flex — it would stretch each field to fill the dialog height.
+  static Widget _flexChild(bool stacked, Widget child) =>
+      stacked ? child : Expanded(child: child);
 
   bool get _canSubmit =>
       !_submitting &&
@@ -648,167 +806,136 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
     final isNarrow = MediaQuery.sizeOf(context).width < 500;
     final reach = _reach[_audience];
 
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
-      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-      title: Row(
+    return _ResponsiveFormDialog(
+      isNarrow: isNarrow,
+      icon: Icons.campaign_rounded,
+      title: _isEdit ? 'Edit Announcement' : 'New Announcement',
+      subtitle: _isEdit
+          ? 'Changes show the next time someone opens the app'
+          : 'Goes live as soon as you post it',
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.campaign_rounded,
-            color: theme.colorScheme.primary,
-            size: 28,
+          TextField(
+            controller: _title,
+            enabled: !_submitting,
+            textCapitalization: TextCapitalization.sentences,
+            inputFormatters: [LengthLimitingTextInputFormatter(90)],
+            decoration: const InputDecoration(
+              labelText: 'Title',
+              // The Overview strip shows one line, so the opening words
+              // have to carry the notice on their own.
+              helperText: 'The first few words are what most people see.',
+            ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _isEdit ? 'Edit Announcement' : 'New Announcement',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+          const SizedBox(height: 16),
+          TextField(
+            controller: _body,
+            enabled: !_submitting,
+            maxLines: 4,
+            maxLength: _bodyMaxLength,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Message',
+              helperText: 'Write it the way you would say it to them.',
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Side by side these two get ~150px each on a phone, which is
+          // not enough for a dropdown value plus the date field's suffix
+          // button. Narrow stacks them.
+          Flex(
+            direction: isNarrow ? Axis.vertical : Axis.horizontal,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _flexChild(
+                isNarrow,
+                DropdownButtonFormField<AnnouncementAudience>(
+                  isExpanded: true,
+                  initialValue: _audience,
+                  decoration: InputDecoration(
+                    labelText: 'Send to',
+                    helperText: reach == null
+                        ? ' '
+                        : '$reach account${reach == 1 ? '' : 's'}',
+                  ),
+                  items: [
+                    for (final a in AnnouncementAudience.values)
+                      DropdownMenuItem(value: a, child: Text(a.label)),
+                  ],
+                  onChanged: _submitting
+                      ? null
+                      : (v) => setState(() => _audience = v ?? _audience),
+                ),
+              ),
+              SizedBox(width: isNarrow ? 0 : 12, height: isNarrow ? 8 : 0),
+              _flexChild(
+                isNarrow,
+                InkWell(
+                  onTap: _submitting ? null : _pickEndDate,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: 'Show until',
+                      helperText: _endsAt == null
+                          ? 'Leave blank to keep it up'
+                          : 'Tap to change',
+                      suffixIcon: _endsAt == null
+                          ? const Icon(Icons.calendar_today_rounded, size: 18)
+                          : IconButton(
+                              iconSize: 18,
+                              tooltip: 'Clear',
+                              onPressed: () => setState(() => _endsAt = null),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                    ),
+                    child: Text(
+                      _endsAt == null
+                          ? 'No end date'
+                          : formatDayAndMonth(_endsAt),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: _endsAt == null
+                            ? StockpileColors.mutedText
+                            : null,
+                      ),
+                    ),
                   ),
                 ),
-                Text(
-                  _isEdit
-                      ? 'Changes show the next time someone opens the app'
-                      : 'Goes live as soon as you post it',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: StockpileColors.mutedText,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: StockpileColors.mutedText.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: StockpileColors.mutedText,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Everyone you send this to sees it the next time they '
+                    'open the app. They can star it to keep it after it '
+                    'ends.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: StockpileColors.mutedText,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
         ],
-      ),
-      content: SizedBox(
-        width: isNarrow ? double.maxFinite : 480,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: _title,
-                enabled: !_submitting,
-                textCapitalization: TextCapitalization.sentences,
-                inputFormatters: [LengthLimitingTextInputFormatter(90)],
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  // The Overview strip shows one line, so the opening words
-                  // have to carry the notice on their own.
-                  helperText: 'The first few words are what most people see.',
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _body,
-                enabled: !_submitting,
-                maxLines: 4,
-                maxLength: _bodyMaxLength,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  labelText: 'Message',
-                  helperText: 'Write it the way you would say it to them.',
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<AnnouncementAudience>(
-                      isExpanded: true,
-                      initialValue: _audience,
-                      decoration: InputDecoration(
-                        labelText: 'Send to',
-                        helperText: reach == null
-                            ? ' '
-                            : '$reach account${reach == 1 ? '' : 's'}',
-                      ),
-                      items: [
-                        for (final a in AnnouncementAudience.values)
-                          DropdownMenuItem(value: a, child: Text(a.label)),
-                      ],
-                      onChanged: _submitting
-                          ? null
-                          : (v) => setState(() => _audience = v ?? _audience),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: InkWell(
-                      onTap: _submitting ? null : _pickEndDate,
-                      borderRadius: BorderRadius.circular(12),
-                      child: InputDecorator(
-                        decoration: InputDecoration(
-                          labelText: 'Show until',
-                          helperText: _endsAt == null
-                              ? 'Leave blank to keep it up'
-                              : 'Tap to change',
-                          suffixIcon: _endsAt == null
-                              ? const Icon(Icons.calendar_today_rounded,
-                                  size: 18)
-                              : IconButton(
-                                  iconSize: 18,
-                                  tooltip: 'Clear',
-                                  onPressed: () =>
-                                      setState(() => _endsAt = null),
-                                  icon: const Icon(Icons.close_rounded),
-                                ),
-                        ),
-                        child: Text(
-                          _endsAt == null
-                              ? 'No end date'
-                              : formatDayAndMonth(_endsAt),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: _endsAt == null
-                                ? StockpileColors.mutedText
-                                : null,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: StockpileColors.mutedText.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(
-                      Icons.info_outline_rounded,
-                      size: 18,
-                      color: StockpileColors.mutedText,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Everyone you send this to sees it the next time they '
-                        'open the app. They can star it to keep it after it '
-                        'ends.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: StockpileColors.mutedText,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
       actions: [
         TextButton(
@@ -840,6 +967,194 @@ Future<bool?> showBirthdaySettingsDialog(
   context,
   builder: (ctx) => _BirthdaySettingsDialog(coverage: coverage),
 );
+
+/// Shell for the two admin forms — the announcement editor and the birthday
+/// settings — so both behave the same at every width.
+///
+/// **Wide** keeps the familiar 480px centred dialog.
+///
+/// **Narrow goes full-screen**, which is the point of this widget. A default
+/// [AlertDialog] on a 360px phone insets 40px each side and pads 24px more,
+/// leaving about 232px for a form containing a multi-line message field, a
+/// dropdown, a date field, a preview card and a row of chips — everything
+/// technically fitted, and all of it cramped. Full-screen gives roughly 320px
+/// of width and the whole height, so the same content simply has room.
+///
+/// Actions sit in a bottom bar on narrow rather than the usual trailing row:
+/// with a scrolling body the buttons need to stay put and stay reachable with
+/// a thumb.
+class _ResponsiveFormDialog extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  /// Optional control in the heading — the birthday dialog's on/off switch.
+  final Widget? trailing;
+  final Widget content;
+  final List<Widget> actions;
+  final bool isNarrow;
+
+  const _ResponsiveFormDialog({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.content,
+    required this.actions,
+    required this.isNarrow,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final divider = isDark
+        ? StockpileColors.darkDivider
+        : StockpileColors.divider;
+
+    final heading = _DialogHeading(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      isNarrow: isNarrow,
+      trailing: trailing,
+    );
+
+    if (!isNarrow) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+        contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+        title: heading,
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(child: content),
+        ),
+        actions: actions,
+      );
+    }
+
+    return Dialog.fullscreen(
+      backgroundColor: isDark
+          ? StockpileColors.darkBg
+          : StockpileColors.scaffoldBg,
+      child: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+              child: heading,
+            ),
+            Divider(height: 1, color: divider),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                child: content,
+              ),
+            ),
+            Divider(height: 1, color: divider),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  for (var i = 0; i < actions.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 8),
+                    actions[i],
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shared dialog heading: icon, title, subtitle and an optional trailing
+/// control.
+///
+/// Wide keeps everything on one row. Narrow drops the subtitle to its own
+/// full-width line and scales the title down to fit rather than overflowing —
+/// an AlertDialog on a phone is about 280px wide, and the icon plus a Switch
+/// take most of the room a headline would need.
+class _DialogHeading extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool isNarrow;
+  final Widget? trailing;
+
+  const _DialogHeading({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.isNarrow,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final titleText = Text(
+      title,
+      maxLines: 1,
+      style: theme.textTheme.headlineSmall?.copyWith(
+        fontWeight: FontWeight.w700,
+      ),
+    );
+    final subtitleText = Text(
+      subtitle,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: StockpileColors.mutedText,
+      ),
+    );
+    final iconWidget = Icon(icon, color: theme.colorScheme.primary, size: 28);
+
+    if (!isNarrow) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          iconWidget,
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [titleText, subtitleText],
+            ),
+          ),
+          if (trailing != null) trailing!,
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            iconWidget,
+            const SizedBox(width: 10),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: titleText,
+              ),
+            ),
+            if (trailing != null) trailing!,
+          ],
+        ),
+        const SizedBox(height: 4),
+        subtitleText,
+      ],
+    );
+  }
+}
 
 class _BirthdaySettingsDialog extends StatefulWidget {
   final ({int total, int withoutBirthday})? coverage;
@@ -928,152 +1243,120 @@ class _BirthdaySettingsDialogState extends State<_BirthdaySettingsDialog> {
     final isDark = theme.brightness == Brightness.dark;
     final isNarrow = MediaQuery.sizeOf(context).width < 500;
 
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
-      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-      title: Row(
+    return _ResponsiveFormDialog(
+      isNarrow: isNarrow,
+      icon: Icons.cake_rounded,
+      title: 'Birthday Greeting',
+      subtitle: 'Goes out on its own. Nobody has to remember.',
+      // In the heading rather than as the first field, so the switch reads as
+      // governing the dialog instead of competing with what it governs.
+      trailing: Switch(
+        value: _enabled,
+        onChanged: _saving ? null : (v) => setState(() => _enabled = v),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.cake_rounded,
-            color: theme.colorScheme.primary,
-            size: 28,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Birthday Greeting',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  'Goes out on its own. Nobody has to remember.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: StockpileColors.mutedText,
-                  ),
-                ),
-              ],
+          if (!_enabled) ...[
+            _banner(
+              theme,
+              icon: Icons.cancel_outlined,
+              color: StockpileColors.mutedText,
+              text:
+                  'No greetings are being shown. Anyone whose birthday '
+                  'passes while this is off will not get one later — it '
+                  'is not held back and sent afterwards.',
             ),
-          ),
-          // In the title row rather than as the first field, so it reads as
-          // governing the dialog instead of competing with what it governs.
-          Switch(
-            value: _enabled,
-            onChanged: _saving ? null : (v) => setState(() => _enabled = v),
-          ),
-        ],
-      ),
-      content: SizedBox(
-        width: isNarrow ? double.maxFinite : 480,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!_enabled) ...[
-                _banner(
-                  theme,
-                  icon: Icons.cancel_outlined,
-                  color: StockpileColors.mutedText,
-                  text:
-                      'No greetings are being shown. Anyone whose birthday '
-                      'passes while this is off will not get one later — it '
-                      'is not held back and sent afterwards.',
-                ),
-                const SizedBox(height: 18),
-              ],
-              // Everything the switch governs dims together rather than
-              // disappearing, so an admin can see what they are turning off
-              // before they commit to it.
-              Opacity(
-                opacity: _enabled ? 1 : 0.4,
-                child: IgnorePointer(
-                  ignoring: !_enabled,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(height: 18),
+          ],
+          // Everything the switch governs dims together rather than
+          // disappearing, so an admin can see what they are turning off
+          // before they commit to it.
+          Opacity(
+            opacity: _enabled ? 1 : 0.4,
+            child: IgnorePointer(
+              ignoring: !_enabled,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _sectionLabel(theme, 'WHAT A RESELLER SEES'),
+                  const SizedBox(height: 8),
+                  // The real widget, not a mock-up of it — a preview that
+                  // can drift from the thing it previews is worse than
+                  // none at all.
+                  BirthdayGreetingCard(
+                    greeting: BirthdayGreeting(
+                      year: _previewBirthday.year,
+                      occurredOn: _previewBirthday,
+                      daysSince: _days - 1,
+                    ),
+                    firstName: _sampleName,
+                    message: _message.text.trim().isEmpty
+                        ? '…'
+                        : _message.text.trim(),
+                    onToggleSaved: null,
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 6),
+                  _hint(
+                    theme,
+                    'Shown at the latest it can appear, so you can see '
+                    'the wording still works weeks after the day.',
+                  ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _message,
+                    enabled: !_saving,
+                    maxLines: 3,
+                    maxLength: 240,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      labelText: 'Message',
+                      helperText: 'Their first name is added for you.',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _sectionLabel(theme, 'KEEP SHOWING IT FOR'),
+                  const SizedBox(height: 8),
+                  // Four chips sharing a phone-width dialog get about
+                  // 52px each, which clips "60 days". Narrow wraps them
+                  // onto as many rows as they need instead.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      _sectionLabel(theme, 'WHAT A RESELLER SEES'),
-                      const SizedBox(height: 8),
-                      // The real widget, not a mock-up of it — a preview that
-                      // can drift from the thing it previews is worse than
-                      // none at all.
-                      BirthdayGreetingCard(
-                        greeting: BirthdayGreeting(
-                          year: _previewBirthday.year,
-                          occurredOn: _previewBirthday,
-                          daysSince: _days - 1,
+                      for (final d in _dayChoices)
+                        SizedBox(
+                          width: isNarrow ? 76 : null,
+                          child: _DayChip(
+                            days: d,
+                            selected: d == _days,
+                            onTap: _saving
+                                ? null
+                                : () => setState(() => _days = d),
+                            isDark: isDark,
+                          ),
                         ),
-                        firstName: _sampleName,
-                        message: _message.text.trim().isEmpty
-                            ? '…'
-                            : _message.text.trim(),
-                        onToggleSaved: null,
-                        isDark: isDark,
-                      ),
-                      const SizedBox(height: 6),
-                      _hint(
-                        theme,
-                        'Shown at the latest it can appear, so you can see '
-                        'the wording still works weeks after the day.',
-                      ),
-                      const SizedBox(height: 20),
-                      TextField(
-                        controller: _message,
-                        enabled: !_saving,
-                        maxLines: 3,
-                        maxLength: 240,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: const InputDecoration(
-                          labelText: 'Message',
-                          helperText: 'Their first name is added for you.',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _sectionLabel(theme, 'KEEP SHOWING IT FOR'),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          for (final d in _dayChoices) ...[
-                            if (d != _dayChoices.first)
-                              const SizedBox(width: 8),
-                            Expanded(
-                              child: _DayChip(
-                                days: d,
-                                selected: d == _days,
-                                onTap: _saving
-                                    ? null
-                                    : () => setState(() => _days = d),
-                                isDark: isDark,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      _hint(
-                        theme,
-                        'A ${formatDayAndMonth(_previewBirthday)} birthday '
-                        'keeps showing until '
-                        '${formatDayAndMonth(DateTime.now())}.',
-                      ),
-                      if (widget.coverage != null) ...[
-                        const SizedBox(height: 18),
-                        _coverageBanner(theme, widget.coverage!),
-                      ],
                     ],
                   ),
-                ),
+                  const SizedBox(height: 6),
+                  _hint(
+                    theme,
+                    'A ${formatDayAndMonth(_previewBirthday)} birthday '
+                    'keeps showing until '
+                    '${formatDayAndMonth(DateTime.now())}.',
+                  ),
+                  if (widget.coverage != null) ...[
+                    const SizedBox(height: 18),
+                    _coverageBanner(theme, widget.coverage!),
+                  ],
+                ],
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
       actions: [
         TextButton(

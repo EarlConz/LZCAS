@@ -15,6 +15,7 @@ import '../../services/config_service.dart';
 import '../../utils/formatters.dart' show formatDisplayDate;
 import '../../services/updater_service.dart';
 import '../../dialogs/update_dialog.dart';
+import '../../dialogs/unseen_announcements_dialog.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../utils/birthday_window.dart';
@@ -52,11 +53,25 @@ class _MemberDashboardState extends State<MemberDashboard> {
       if (!mounted) return;
       final updater = context.read<UpdaterService>();
       updater.checkForUpdate(silent: true).then((info) {
-        if (info != null && mounted) {
+        if (!mounted) return;
+        if (info != null) {
           UpdateDialog.showIfAvailable(context);
+          // An update prompt outranks the news: the announcements wait for
+          // the next open rather than stacking a second modal behind this
+          // one. They are unseen until dismissed, so nothing is lost.
+          return;
         }
+        _showUnseenAnnouncements();
       });
     });
+  }
+
+  /// Raised ONCE, here, from the dashboard's first post-frame callback —
+  /// never from a rebuild and never mid-session. See the dialog's header
+  /// comment for why that matters.
+  Future<void> _showUnseenAnnouncements() async {
+    if (!mounted) return;
+    await showUnseenAnnouncements(context);
   }
 
   Future<void> _loadMemberData() async {
@@ -492,9 +507,7 @@ class _OverviewTabState extends State<_OverviewTab> {
   }
 
   Future<void> _loadAnnouncements() async {
-    final id = widget.member.id;
-    if (id == null) return;
-    final all = await repository.fetchAnnouncementsFor(id);
+    final all = await repository.fetchAnnouncementsForMe();
     if (!mounted) return;
     setState(() {
       _currentAnnouncements = all.where((a) => a.isCurrent()).toList();
@@ -505,8 +518,6 @@ class _OverviewTabState extends State<_OverviewTab> {
   /// no scheduler, no job, nothing sent. It simply is or is not their
   /// birthday window when they open the app.
   Future<void> _loadGreeting() async {
-    final id = widget.member.id;
-    if (id == null) return;
     final config = context.read<ConfigService>();
     if (!config.birthdayGreetingsEnabled) return;
 
@@ -516,7 +527,7 @@ class _OverviewTabState extends State<_OverviewTab> {
     );
     if (greeting == null) return;
 
-    final savedYears = await repository.fetchSavedBirthdayYears(id);
+    final savedYears = await repository.fetchSavedBirthdayYears();
     if (!mounted) return;
     setState(() {
       _greeting = greeting.copyWith(saved: savedYears.contains(greeting.year));
@@ -524,15 +535,13 @@ class _OverviewTabState extends State<_OverviewTab> {
   }
 
   Future<void> _toggleGreetingSaved() async {
-    final id = widget.member.id;
     final greeting = _greeting;
-    if (id == null || greeting == null) return;
+    if (greeting == null) return;
     final wanted = !greeting.saved;
 
     setState(() => _greeting = greeting.copyWith(saved: wanted));
 
     final ok = await repository.setBirthdaySaved(
-      memberId: id,
       year: greeting.year,
       saved: wanted,
     );
@@ -1351,49 +1360,83 @@ class _StatCard extends StatelessWidget {
           color: isDark ? StockpileColors.darkDivider : StockpileColors.divider,
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: color.withAlpha(25),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Icon(icon, size: 22, color: color),
+      // Sizes itself from its OWN width, not the screen's. In the 2×2 phone
+      // grid each card is only about 150px wide — the icon and padding alone
+      // took ~98px of that, leaving too little for "Packages Availed" or a
+      // six-figure peso value, both of which then overflowed. Below the
+      // threshold the icon moves above the text and gets the full width back.
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked = constraints.maxWidth < 190;
+          final pad = stacked
+              ? const EdgeInsets.symmetric(horizontal: 14, vertical: 16)
+              : const EdgeInsets.symmetric(horizontal: 20, vertical: 18);
+
+          final iconBox = Container(
+            width: stacked ? 38 : 44,
+            height: stacked ? 38 : 44,
+            decoration: BoxDecoration(
+              color: color.withAlpha(25),
+              borderRadius: BorderRadius.circular(12),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    style: StockpileFonts.satoshi(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: isDark
-                          ? StockpileColors.darkTextPrimary
-                          : StockpileColors.darkText,
-                    ),
+            alignment: Alignment.center,
+            child: Icon(icon, size: stacked ? 20 : 22, color: color),
+          );
+
+          final text = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // A long value shrinks to fit rather than running past the
+              // card edge — "₱1,234,567" must stay on one line.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  style: StockpileFonts.satoshi(
+                    fontSize: stacked ? 18 : 20,
+                    fontWeight: FontWeight.w800,
+                    color: isDark
+                        ? StockpileColors.darkTextPrimary
+                        : StockpileColors.darkText,
                   ),
-                  Text(
-                    label,
-                    style: StockpileFonts.satoshi(
-                      fontSize: 12,
-                      color: isDark
-                          ? StockpileColors.darkTextMuted
-                          : StockpileColors.mutedText,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
-        ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: StockpileFonts.satoshi(
+                  fontSize: 12,
+                  height: 1.25,
+                  color: isDark
+                      ? StockpileColors.darkTextMuted
+                      : StockpileColors.mutedText,
+                ),
+              ),
+            ],
+          );
+
+          return Padding(
+            padding: pad,
+            child: stacked
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [iconBox, const SizedBox(height: 12), text],
+                  )
+                : Row(
+                    children: [
+                      iconBox,
+                      const SizedBox(width: 14),
+                      Expanded(child: text),
+                    ],
+                  ),
+          );
+        },
       ),
     );
   }
