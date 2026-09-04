@@ -7,14 +7,16 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v36)
+├── migrations/    Ordered, apply-once changes (v2 … v38)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
 ```
 
 ## schema/
+
 Run these first on a brand-new project, in this order:
+
 1. `schema.sql` — tables, packages, withdrawal_requests, core objects.
 2. `enable_rls_staff.sql` — RLS policies + `is_staff()` helper.
 3. `schema_category_delete_guard.sql` — category-delete guard.
@@ -22,12 +24,14 @@ Run these first on a brand-new project, in this order:
 (`schema.sql.bak` is an old snapshot, kept for reference only.)
 
 ## migrations/
+
 Numbered changes applied over time. Each file's header explains what it does
 and whether it supersedes an earlier one. Apply in ascending version order on a
 fresh DB; on an existing DB only the ones not yet applied.
 
 **Earnings / compensation history (the `get_member_earnings` RPC + triggers):**
-- v6  — earnings RPC introduced
+
+- v6 — earnings RPC introduced
 - v19 — Group Sales frozen at purchase time (triggers)
 - v20 — Direct/Indirect Referral frozen; Chairman priced per package-period
 - v21 — Chairman: immediate on availment + weekly Friday
@@ -56,8 +60,9 @@ fresh DB; on an existing DB only the ones not yet applied.
 > the earner's own rate. Referral bonuses crystallize at first availment (with
 > catch-up), frozen thereafter.
 
-**Branch Cashier role + Branch Stock (v28–v33)** — *applied to staging and
-prod (shipped in v1.3.0). Apply in this exact order:*
+**Branch Cashier role + Branch Stock (v28–v33)** — _applied to staging and
+prod (shipped in v1.3.0). Apply in this exact order:_
+
 - v28 — `is_staff()` accepts the new `branch_cashier` role.
 - v29 — `profiles.mobile_enabled` flag (admin-granted mobile login for a branch
   cashier; desktop-only by default). Enforced in-app.
@@ -74,7 +79,7 @@ prod (shipped in v1.3.0). Apply in this exact order:*
   RLS on, SELECT only; admin/main-cashier see all, a branch cashier sees only
   their own rows. All writes stay locked to the SECURITY DEFINER RPCs.
 
-**Itemised earnings sources (v34)** — *needed on BOTH staging and prod.*
+**Itemised earnings sources (v34)** — _needed on BOTH staging and prod._
 
 - v34 — `get_member_earnings_sources(p_member_id)`: the per-credit list behind
   each earnings bucket ("Chairman's Bonus — from Maria Santos"). Must be a
@@ -84,7 +89,7 @@ prod (shipped in v1.3.0). Apply in this exact order:*
   authorization as `get_member_earnings`. Read-only; changes no policies.
   Ship with the app build that adds the breakdown card.
 
-**Admin fund adjustments (v35)** — *not yet applied anywhere.*
+**Admin fund adjustments (v35)** — _not yet applied anywhere._
 
 - v35 — `admin_adjust_member_funds(member, bucket, amount, reason)`: the only
   supported way to correct a member's earned funds. **Append-only** — it
@@ -109,7 +114,7 @@ prod (shipped in v1.3.0). Apply in this exact order:*
   extra column. The reverse is not: **apply v35 before releasing the build
   that adds the Adjust Funds dialog.**
 
-**Announcements + birthday greetings (v36)** — *not yet applied anywhere.*
+**Announcements + birthday greetings (v36)** — _not yet applied anywhere._
 
 - v36 — `announcements`, `member_saved_items`, and three `app_config` keys
   (`birthday_greetings_enabled`, `birthday_greeting_days`,
@@ -135,6 +140,24 @@ prod (shipped in v1.3.0). Apply in this exact order:*
   date arithmetic. Applying v36 without the matching app build is harmless —
   nothing reads the tables.
 
+**Cashier / branch cashier saved location (v37)** — _applied to staging and prod._
+
+- v37 — `profiles` gains `latitude`, `longitude`, `address`,
+  `location_updated_at` so cashiers/branch cashiers can save their physical
+  location. Read by the member "Nearest Cashiers" map. Distance is computed
+  client-side; nothing is stored server-side.
+
+**Member cashier stock discovery (v38)** — _not yet applied anywhere._
+
+- v38 — `member_branch_stock()`: a SECURITY DEFINER, read-only RPC that returns
+  each branch cashier's on-hand lines (item name, category, quantity, status) to
+  **any authenticated caller**. Needed because `branch_stock` RLS (v33) hides
+  every branch from a member, so the member "Nearest Cashiers" screen couldn't
+  tell stocked branches from out-of-stock ones. Regular cashiers sell from the
+  shared central `items` catalog, which members can already read — no RPC needed
+  for them. Exposes no transfer audit data. Rollback:
+  `rollback_member_cashier_stock_v38.sql`.
+
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
 > build must ship before any `branch_cashier` account exists) → create accounts
@@ -142,11 +165,13 @@ prod (shipped in v1.3.0). Apply in this exact order:*
 > target project (staging currently) for admin user-management + the mobile flag.
 
 ## rollbacks/
+
 `rollback_get_member_earnings_vNN.sql` restores the function/behavior as it was
 **before** the next migration (e.g. `…_v24.sql` reverts v24 back to v23). Run
 one only if you need to undo the corresponding migration.
 
 Branch cashier / branch stock undo scripts:
+
 - `rollback_mobile_flag_v29.sql` — drop `profiles.mobile_enabled`.
 - `rollback_branch_stock_v30.sql` — drop the whole branch-stock system.
 - `rollback_branch_transfer_reports_v31.sql` — stop logging transfers to Reports.
@@ -154,7 +179,7 @@ Branch cashier / branch stock undo scripts:
 - `rollback_is_staff_v27.sql` — reverts the `is_staff()` change from v28.
 - `rollback_earnings_sources_v34.sql` — drop the earnings-sources RPC (v34).
 - `rollback_announcements_v36.sql` — ⚠️ **destructive**: drops the tables, and
-  the tables *are* the content (every announcement, everyone's saved list).
+  the tables _are_ the content (every announcement, everyone's saved list).
   The safe alternative is in the script's header — archive everything and
   switch birthday greetings off, which clears the members' screens without
   losing anything.
@@ -164,11 +189,14 @@ Branch cashier / branch stock undo scripts:
   `fund_adjustments` and `earnings_history.note` is deliberately commented out.
 
 ## diagnostics/
+
 Read-only — safe on the live DB, write nothing.
+
 - `diagnose_member_earnings.sql` — itemize one member's earnings (set the id at
   the top). Reconciles every peso to its source.
 - `preview_v21…`, `preview_v22…` — impact previews for those specific migrations.
 
 ## maintenance/
+
 ⚠️ Destructive. `reset_tables.sql` / `deploy_reset.sql` wipe or reset data —
 only for a fresh setup or a deliberate reset, never on live data you're keeping.
