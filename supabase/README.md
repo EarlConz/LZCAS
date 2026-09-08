@@ -55,6 +55,12 @@ Numbered changes applied over time. Each file's header explains what it does
 and whether it supersedes an earlier one. Apply in ascending version order on a
 fresh DB; on an existing DB only the ones not yet applied.
 
+> The _"applied to staging and prod"_ / _"not yet applied anywhere"_ labels
+> below are **historical notes, not current state** — they were accurate when
+> written and go stale the moment someone applies something without editing
+> this file. `public.schema_migrations` is the authority. Read the labels for
+> intent and ordering; read the ledger for what is actually there.
+
 **Earnings / compensation history (the `get_member_earnings` RPC + triggers):**
 
 - v6 — earnings RPC introduced
