@@ -43,6 +43,31 @@
 -- Safe to re-run. Rollback: supabase/rollbacks/rollback_app_config_rls_v46.sql
 -- ═══════════════════════════════════════════════════════════════════
 
+-- ── Clear out dashboard-era policies FIRST ─────────────────────────
+-- Production carries two policies that no migration in this repo created:
+--
+--   app_config_select_auth  SELECT  using is_authenticated()
+--   app_config_write_admin  ALL     using user_has_role(ARRAY['admin'])
+--
+-- They are inert there — RLS is off — so dropping them changes nothing about
+-- current behaviour. They are dropped BEFORE `enable row level security` so
+-- there is never an instant where they are live: both reference helper
+-- functions (`is_authenticated`, `user_has_role`) that exist on that database
+-- and nowhere in version control, and a policy calling a function that is not
+-- there fails every query against the table.
+--
+-- The `ALL` one also grants DELETE, which the policy set below deliberately
+-- withholds — see the note under the UPDATE policy.
+--
+-- If you want that role model back, write it as a migration. The point of
+-- this file is that app_config's protection is declared in one place.
+drop policy if exists "app_config_select_auth"  on public.app_config;
+drop policy if exists "app_config_write_admin"  on public.app_config;
+
+drop policy if exists "app_config_select" on public.app_config;
+drop policy if exists "app_config_insert" on public.app_config;
+drop policy if exists "app_config_update" on public.app_config;
+
 alter table public.app_config enable row level security;
 
 drop policy if exists "app_config_select" on public.app_config;
@@ -86,12 +111,14 @@ on conflict (version) do update
   set applied_at = now(), applied_by = current_user, verified = true;
 
 -- ── Verify ─────────────────────────────────────────────────────────
--- RLS on, and four policies where there were none:
+-- RLS on, and exactly the three policies below — no leftovers:
 --   select relrowsecurity from pg_class
 --    where oid = 'public.app_config'::regclass;              -- expect true
 --   select policyname, cmd from pg_policies
 --    where schemaname = 'public' and tablename = 'app_config'
---    order by policyname;                                     -- expect 3 rows
+--    order by policyname;
+--   -- expect exactly: app_config_insert / app_config_select / app_config_update
+--   -- anything else means a policy was added outside version control again.
 --
 -- Every key is present:
 --   select key, value from public.app_config order by key;
