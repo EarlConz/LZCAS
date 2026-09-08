@@ -1333,6 +1333,13 @@ class _BirthdaySettingsDialogState extends State<_BirthdaySettingsDialog> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
+
+    // Tracked outside the try so the catch can clean it up. Without this a
+    // failed config write leaves the file sitting in the bucket with nothing
+    // pointing at it — the announcement editor already handled this and the
+    // birthday dialog did not.
+    String? uploaded;
+
     try {
       // Upload before writing any config, same order as the announcement
       // editor: a config key pointing at a file that failed to upload would
@@ -1345,6 +1352,7 @@ class _BirthdaySettingsDialogState extends State<_BirthdaySettingsDialog> {
           contentType: _pendingPoster!.contentType,
           folder: 'birthday',
         );
+        uploaded = imagePath;
       }
 
       await repository.updateAppConfig(
@@ -1373,9 +1381,18 @@ class _BirthdaySettingsDialogState extends State<_BirthdaySettingsDialog> {
       showSuccessToast('Birthday greeting saved');
       Navigator.pop(context, true);
     } catch (e) {
+      // Nothing is pointing at it, so it goes. Fire-and-forget: a failed
+      // cleanup is an orphan file, which must not replace the real error.
+      if (uploaded != null) unawaited(repository.deletePoster(uploaded));
+
+      // Say WHICH failure it was. This swallowed the exception entirely and
+      // reported the same sentence whether the poster upload was rejected,
+      // a config write failed, or the config reload threw — which made a
+      // real failure impossible to diagnose from the screen.
+      debugPrint('[BirthdaySettings._save] failed: $e');
       if (!mounted) return;
       setState(() => _saving = false);
-      showErrorToast('Could not save the birthday greeting.');
+      showErrorToast('Could not save the birthday greeting. $e');
     }
   }
 
