@@ -617,6 +617,7 @@ class _OverviewTabState extends State<_OverviewTab> {
               greeting: _greeting!,
               firstName: widget.member.firstName?.trim() ?? '',
               message: context.watch<ConfigService>().birthdayGreetingMessage,
+              imagePath: context.watch<ConfigService>().birthdayGreetingImage,
               onToggleSaved: _toggleGreetingSaved,
               isDark: isDark,
             ),

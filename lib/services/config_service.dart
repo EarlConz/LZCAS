@@ -51,11 +51,29 @@ class ConfigService extends ChangeNotifier {
     return (raw ?? 30).clamp(1, 180);
   }
 
-  String get birthdayGreetingMessage =>
-      (_config['birthday_greeting_message'] ?? '').trim().isNotEmpty
-      ? _config['birthday_greeting_message']!.trim()
-      : 'Everyone at GUTVita wishes you all the best for the year ahead. '
-            'Thank you for being part of the team.';
+  static const String _defaultBirthdayMessage =
+      'Everyone at GUTVita wishes you all the best for the year ahead. '
+      'Thank you for being part of the team.';
+
+  /// The greeting's words.
+  ///
+  /// The built-in wording fills in for a blank message ONLY when there is no
+  /// poster (v44). With one, a blank message is a deliberate choice — the
+  /// poster says it all — and substituting a default would print text over
+  /// an image the client designed to stand alone.
+  String get birthdayGreetingMessage {
+    final raw = (_config['birthday_greeting_message'] ?? '').trim();
+    if (raw.isNotEmpty) return raw;
+    return birthdayGreetingHasImage ? '' : _defaultBirthdayMessage;
+  }
+
+  /// Storage path of the greeting poster, or '' for a text-only greeting.
+  /// One image for everyone, alongside the one message — greetings are
+  /// computed per member, but not authored per member.
+  String get birthdayGreetingImage =>
+      (_config['birthday_greeting_image'] ?? '').trim();
+
+  bool get birthdayGreetingHasImage => birthdayGreetingImage.isNotEmpty;
 
   /// Fetches config once on startup.
   Future<void> load() async {

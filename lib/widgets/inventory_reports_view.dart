@@ -153,10 +153,10 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
         final String typeLabel = isNewProduct
             ? 'New Product'
             : isTransferOut
-                ? 'Branch Out'
-                : isTransferIn
-                    ? 'Branch In'
-                    : (isIn ? 'Stock In' : 'Stock Out');
+            ? 'Branch Out'
+            : isTransferIn
+            ? 'Branch In'
+            : (isIn ? 'Stock In' : 'Stock Out');
 
         String userLabel = '';
         String? reasonLabel;

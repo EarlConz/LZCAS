@@ -816,20 +816,20 @@ class _InventoryTableState extends State<InventoryTable> {
     Widget sep() => Container(width: 1, height: 30, color: divider);
 
     return _summaryShell(theme, divider, [
-          stat('$_skuCount', 'Products', onSurface),
-          sep(),
-          stat(
-            '$_lowCount',
-            'Low',
-            _lowCount > 0 ? Colors.orange.shade800 : onSurface,
-          ),
-          sep(),
-          stat(
-            '$_outCount',
-            'Out',
-            _outCount > 0 ? Colors.red.shade700 : onSurface,
-          ),
-          sep(),
+      stat('$_skuCount', 'Products', onSurface),
+      sep(),
+      stat(
+        '$_lowCount',
+        'Low',
+        _lowCount > 0 ? Colors.orange.shade800 : onSurface,
+      ),
+      sep(),
+      stat(
+        '$_outCount',
+        'Out',
+        _outCount > 0 ? Colors.red.shade700 : onSurface,
+      ),
+      sep(),
       stat(_grouped(_totalUnits), 'Units', onSurface),
     ]);
   }

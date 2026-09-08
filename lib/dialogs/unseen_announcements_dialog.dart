@@ -19,6 +19,7 @@ import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/widgets/announcement_widgets.dart';
+import 'package:lzcas/widgets/poster_image.dart';
 
 /// Fetch this account's unseen announcements and, if there are any, show
 /// them. Marks the whole set seen once the dialog closes, however it closed.
@@ -285,14 +286,35 @@ class _UnseenAnnouncementsDialogState
           ],
         ),
         const SizedBox(height: 14),
-        Text(
-          a.body,
-          style: StockpileFonts.satoshi(
-            fontSize: 15,
-            height: 1.6,
-            color: bodyColor,
+        // Same order as the detail dialog: poster, then words. Someone who
+        // skips this popup and opens the notice later should be looking at
+        // the same thing arranged the same way.
+        if (a.hasImage) ...[
+          SizedBox(
+            width: double.infinity,
+            child: PosterImage(
+              path: a.imagePath,
+              isDark: isDark,
+              fit: BoxFit.contain,
+              borderRadius: 12,
+              // Shorter than the detail view's cap: this dialog also carries
+              // the stepper, the dots and two buttons, and the Next control
+              // must stay reachable without scrolling on a phone.
+              maxHeight: 300,
+              openOnTap: true,
+            ),
           ),
-        ),
+          if (a.hasBody) const SizedBox(height: 14),
+        ],
+        if (a.hasBody)
+          Text(
+            a.body,
+            style: StockpileFonts.satoshi(
+              fontSize: 15,
+              height: 1.6,
+              color: bodyColor,
+            ),
+          ),
         const SizedBox(height: 18),
         _buildSaveRow(isDark),
       ],

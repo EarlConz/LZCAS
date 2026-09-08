@@ -95,12 +95,14 @@ class _UpdateDialogState extends State<UpdateDialog> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
           side: BorderSide(
-            color:
-                isDark ? StockpileColors.darkDivider : StockpileColors.divider,
+            color: isDark
+                ? StockpileColors.darkDivider
+                : StockpileColors.divider,
           ),
         ),
-        backgroundColor:
-            isDark ? StockpileColors.darkSurface : StockpileColors.surface,
+        backgroundColor: isDark
+            ? StockpileColors.darkSurface
+            : StockpileColors.surface,
         surfaceTintColor: Colors.transparent,
         titlePadding: EdgeInsets.zero,
         contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
@@ -354,7 +356,10 @@ class _UpdateDialogState extends State<UpdateDialog> {
   }
 
   List<Widget> _buildActions(
-      UpdaterService updater, bool isDark, bool mandatory) {
+    UpdaterService updater,
+    bool isDark,
+    bool mandatory,
+  ) {
     final status = updater.status;
 
     switch (status) {

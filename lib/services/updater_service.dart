@@ -108,7 +108,8 @@ class UpdaterService extends ChangeNotifier {
       // Declared minimum supported version (floor). When the running app is
       // below it, the update is mandatory. Marker is stripped from the notes.
       final minSupported = _parseMinSupported(rawBody);
-      final mandatory = minSupported != null &&
+      final mandatory =
+          minSupported != null &&
           _compareVersions(currentVersion, minSupported) < 0 &&
           _compareVersions(latestVersion, minSupported) >= 0;
       final changelog = () {
@@ -349,10 +350,13 @@ class UpdaterService extends ChangeNotifier {
   String? _parseMinSupported(String body) {
     final patterns = [
       RegExp(
-          r'min[-_ ]?supported[-_ ]?version\s*[:=]\s*v?(\d+\.\d+(?:\.\d+)?)',
-          caseSensitive: false),
-      RegExp(r'\[\s*min\s*:\s*v?(\d+\.\d+(?:\.\d+)?)\s*\]',
-          caseSensitive: false),
+        r'min[-_ ]?supported[-_ ]?version\s*[:=]\s*v?(\d+\.\d+(?:\.\d+)?)',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'\[\s*min\s*:\s*v?(\d+\.\d+(?:\.\d+)?)\s*\]',
+        caseSensitive: false,
+      ),
     ];
     for (final re in patterns) {
       final m = re.firstMatch(body);
@@ -364,13 +368,20 @@ class UpdaterService extends ChangeNotifier {
   /// Remove the min-version marker so it doesn't show in the changelog.
   String _stripMinMarker(String body) => body
       .replaceAll(
-          RegExp(r'^.*min[-_ ]?supported[-_ ]?version\s*[:=].*$',
-              multiLine: true, caseSensitive: false),
-          '')
+        RegExp(
+          r'^.*min[-_ ]?supported[-_ ]?version\s*[:=].*$',
+          multiLine: true,
+          caseSensitive: false,
+        ),
+        '',
+      )
       .replaceAll(
-          RegExp(r'\[\s*min\s*:\s*v?\d+\.\d+(?:\.\d+)?\s*\]',
-              caseSensitive: false),
-          '')
+        RegExp(
+          r'\[\s*min\s*:\s*v?\d+\.\d+(?:\.\d+)?\s*\]',
+          caseSensitive: false,
+        ),
+        '',
+      )
       .trim();
 
   /// Compare two semantic versions.

@@ -223,133 +223,137 @@ class MembersTableState extends State<MembersTable> {
     // Guard against a double-click creating the member (and its login
     // account / package availment sale) twice.
     return await ActionGuard.run('add_member', () async {
-      // Check username availability BEFORE creating the member.
-    // This ensures nothing is written to the database if the username is taken.
-    if (newMember['createAccount'] == true) {
-      final username = newMember['username']?.toString() ?? '';
-      if (username.isNotEmpty) {
-        final available = await repository.isUsernameAvailable(username);
-        if (!available) {
-          // The username might be held by a soft-deleted member rather than
-          // an active one — in that case offer to restore them instead of a
-          // confusing "already taken" dead-end.
-          final deleted = await repository.findDeletedMemberByUsername(
-            username,
-          );
-          if (deleted != null && deleted.id != null) {
-            if (!mounted) return 0;
-            final doRestore = await _confirmRestoreDeletedMember(deleted);
-            if (doRestore == true) {
-              final ok = await repository.restoreMemberById(deleted.id!);
-              if (ok) {
-                if (mounted) {
-                  showSuccessToast(
-                    'Restored "${_memberDisplayName(deleted)}".',
-                  );
+          // Check username availability BEFORE creating the member.
+          // This ensures nothing is written to the database if the username is taken.
+          if (newMember['createAccount'] == true) {
+            final username = newMember['username']?.toString() ?? '';
+            if (username.isNotEmpty) {
+              final available = await repository.isUsernameAvailable(username);
+              if (!available) {
+                // The username might be held by a soft-deleted member rather than
+                // an active one — in that case offer to restore them instead of a
+                // confusing "already taken" dead-end.
+                final deleted = await repository.findDeletedMemberByUsername(
+                  username,
+                );
+                if (deleted != null && deleted.id != null) {
+                  if (!mounted) return 0;
+                  final doRestore = await _confirmRestoreDeletedMember(deleted);
+                  if (doRestore == true) {
+                    final ok = await repository.restoreMemberById(deleted.id!);
+                    if (ok) {
+                      if (mounted) {
+                        showSuccessToast(
+                          'Restored "${_memberDisplayName(deleted)}".',
+                        );
+                      }
+                      _loadMembers();
+                      // Return the restored id so the add dialog closes; no new
+                      // member is created (we stop here).
+                      return deleted.id!;
+                    }
+                    if (mounted) showErrorToast('Failed to restore member.');
+                    return 0;
+                  }
+                  // Admin declined — they must pick a different username.
+                  if (mounted) {
+                    showErrorToast(
+                      'Username "$username" belongs to a deleted member. '
+                      'Choose a different username.',
+                    );
+                  }
+                  return 0;
                 }
-                _loadMembers();
-                // Return the restored id so the add dialog closes; no new
-                // member is created (we stop here).
-                return deleted.id!;
+                if (mounted) showErrorToast('Username already taken');
+                return 0; // Dialog stays open, nothing was created
               }
-              if (mounted) showErrorToast('Failed to restore member.');
-              return 0;
             }
-            // Admin declined — they must pick a different username.
+          }
+
+          // Reseller status is derived purely from package availment.
+          final hasPackage = (newMember['packageId'] as int?) != null;
+          final role = hasPackage ? 'Verified Reseller' : 'Member';
+
+          // Wrap addMember in its own try/catch — after hot reload the auth session
+          // can briefly be null, which causes _uid to throw uncaught.
+          int memberId;
+          try {
+            memberId = await repository.addMember(
+              lastName: newMember['lastName']?.toString(),
+              firstName: newMember['firstName']?.toString(),
+              middleName: newMember['middleName']?.toString(),
+              role: role,
+              contactNo: newMember['contactNo']?.toString(),
+              birthday: newMember['birthday']?.toString(),
+              address: newMember['address']?.toString(),
+              referrer: newMember['referrer']?.toString(),
+              referrerId: newMember['referrerId'] as int?,
+              packageId: newMember['packageId'] as int?,
+            );
+          } catch (e) {
+            debugPrint('[MembersTable] addMember failed: $e');
             if (mounted) {
-              showErrorToast(
-                'Username "$username" belongs to a deleted member. '
-                'Choose a different username.',
-              );
+              showErrorToast('Failed to add member. Please restart the app.');
             }
             return 0;
           }
-          if (mounted) showErrorToast('Username already taken');
-          return 0; // Dialog stays open, nothing was created
-        }
-      }
-    }
 
-    // Reseller status is derived purely from package availment.
-    final hasPackage = (newMember['packageId'] as int?) != null;
-    final role = hasPackage ? 'Verified Reseller' : 'Member';
-
-    // Wrap addMember in its own try/catch — after hot reload the auth session
-    // can briefly be null, which causes _uid to throw uncaught.
-    int memberId;
-    try {
-      memberId = await repository.addMember(
-        lastName: newMember['lastName']?.toString(),
-        firstName: newMember['firstName']?.toString(),
-        middleName: newMember['middleName']?.toString(),
-        role: role,
-        contactNo: newMember['contactNo']?.toString(),
-        birthday: newMember['birthday']?.toString(),
-        address: newMember['address']?.toString(),
-        referrer: newMember['referrer']?.toString(),
-        referrerId: newMember['referrerId'] as int?,
-        packageId: newMember['packageId'] as int?,
-      );
-    } catch (e) {
-      debugPrint('[MembersTable] addMember failed: $e');
-      if (mounted) {
-        showErrorToast('Failed to add member. Please restart the app.');
-      }
-      return 0;
-    }
-
-    // ── Create the login account FIRST (pre-checked above) ──────────
-    // Do this before the package sale so that, if account creation fails
-    // and the member is rolled back, no orphaned availment sale is left.
-    if (newMember['createAccount'] == true) {
-      final username = newMember['username']?.toString() ?? '';
-      final password = newMember['password']?.toString() ?? '';
-      if (username.isNotEmpty && password.isNotEmpty) {
-        final acct = await repository.createMemberAuthAccount(
-          memberId: memberId,
-          username: username,
-          password: password,
-        );
-        if (acct != null) {
-          final err = acct['error']?.toString();
-          if (err != null) {
-            await repository.deleteMemberById(memberId);
-            if (mounted) showErrorToast(err);
-            return 0; // Rolled back — dialog stays open
+          // ── Create the login account FIRST (pre-checked above) ──────────
+          // Do this before the package sale so that, if account creation fails
+          // and the member is rolled back, no orphaned availment sale is left.
+          if (newMember['createAccount'] == true) {
+            final username = newMember['username']?.toString() ?? '';
+            final password = newMember['password']?.toString() ?? '';
+            if (username.isNotEmpty && password.isNotEmpty) {
+              final acct = await repository.createMemberAuthAccount(
+                memberId: memberId,
+                username: username,
+                password: password,
+              );
+              if (acct != null) {
+                final err = acct['error']?.toString();
+                if (err != null) {
+                  await repository.deleteMemberById(memberId);
+                  if (mounted) showErrorToast(err);
+                  return 0; // Rolled back — dialog stays open
+                }
+              }
+              if (mounted && acct != null && acct['error'] == null) {
+                showSuccessToast(
+                  'Account created!\nEmail: ${acct['email']}\nPassword: ${acct['password']}',
+                );
+              }
+            }
           }
-        }
-        if (mounted && acct != null && acct['error'] == null) {
-          showSuccessToast(
-            'Account created!\nEmail: ${acct['email']}\nPassword: ${acct['password']}',
-          );
-        }
-      }
-    }
 
-    // ── Auto-create sale transaction when a package is selected ──────
-    final pkgId = newMember['packageId'] as int?;
-    if (pkgId != null) {
-      final pkg = await repository.getPackageById(pkgId);
-      if (pkg != null) {
-        final buyerName = [
-          newMember['firstName'],
-          newMember['lastName'],
-        ].where((p) => p != null && p.toString().isNotEmpty).join(' ');
-        await repository.addSale(
-          itemId: 0, // sentinel — package sales use item 0
-          itemName: pkg.name,
-          quantity: 1,
-          price: pkg.price,
-          buyerId: memberId,
-          buyerName: buyerName.isNotEmpty ? buyerName : 'Member #$memberId',
-          packageId: pkgId, // marks this as a package availment, not a product
-        );
-      }
-    }
+          // ── Auto-create sale transaction when a package is selected ──────
+          final pkgId = newMember['packageId'] as int?;
+          if (pkgId != null) {
+            final pkg = await repository.getPackageById(pkgId);
+            if (pkg != null) {
+              final buyerName = [
+                newMember['firstName'],
+                newMember['lastName'],
+              ].where((p) => p != null && p.toString().isNotEmpty).join(' ');
+              await repository.addSale(
+                itemId: 0, // sentinel — package sales use item 0
+                itemName: pkg.name,
+                quantity: 1,
+                price: pkg.price,
+                buyerId: memberId,
+                buyerName: buyerName.isNotEmpty
+                    ? buyerName
+                    : 'Member #$memberId',
+                packageId:
+                    pkgId, // marks this as a package availment, not a product
+              );
+            }
+          }
 
-      _loadMembers();
-      return memberId;
-    }) ?? 0;
+          _loadMembers();
+          return memberId;
+        }) ??
+        0;
   }
 
   String _memberDisplayName(Member m) {
@@ -691,10 +695,9 @@ class MembersTableState extends State<MembersTable> {
                   // pageIndex is the FIRST row index of the new page; ensure we
                   // have loaded through the last visible row of that page, then
                   // quietly prime the following page.
-                  onPageChanged: (pageIndex) =>
-                      _ensureLoadedThrough(
-                        pageIndex + estimated,
-                      ).then((_) => _prefetchNext()),
+                  onPageChanged: (pageIndex) => _ensureLoadedThrough(
+                    pageIndex + estimated,
+                  ).then((_) => _prefetchNext()),
                 ),
               ),
             );

@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v43)
+├── migrations/    Ordered, apply-once changes (v2 … v46)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -15,19 +15,51 @@ supabase/
 
 ## schema/
 
+⚠️ **`schema.sql` is destructive and is for fresh projects only.** It drops
+every member, sale, item and transaction; only `profiles` and auth users
+survive. Never run it on production.
+
 Run these first on a brand-new project, in this order:
 
 1. `schema.sql` — tables, packages, withdrawal_requests, core objects.
 2. `enable_rls_staff.sql` — RLS policies + `is_staff()` helper.
 3. `schema_category_delete_guard.sql` — category-delete guard.
+4. **Then every migration below, in ascending order.**
+
+Step 4 is not optional. `schema.sql` is a starting point, **not a snapshot of
+the current schema** — some migrations were folded into it (branch stock
+v30–v33, `member_branch_stock` v38) and most were not. There is no
+`announcements` table in it at all. A project built from steps 1–3 alone
+starts and then fails on announcements, birthday greetings, saved items and
+posters.
 
 (`schema.sql.bak` is an old snapshot, kept for reference only.)
+
+## Which migrations are applied?
+
+`public.schema_migrations` (v45) answers this. `verified = false` marks rows
+the v45 backfill *assumed* rather than detected — everything predating the
+ledger that leaves no trace in the schema.
+
+```sql
+select version, name, verified, applied_at::date
+from public.schema_migrations order by version;
+```
+
+On a database that predates v45, `diagnostics/check_applied_migrations.sql`
+infers the same thing by checking for the objects each migration creates.
 
 ## migrations/
 
 Numbered changes applied over time. Each file's header explains what it does
 and whether it supersedes an earlier one. Apply in ascending version order on a
 fresh DB; on an existing DB only the ones not yet applied.
+
+> The _"applied to staging and prod"_ / _"not yet applied anywhere"_ labels
+> below are **historical notes, not current state** — they were accurate when
+> written and go stale the moment someone applies something without editing
+> this file. `public.schema_migrations` is the authority. Read the labels for
+> intent and ordering; read the ledger for what is actually there.
 
 **Earnings / compensation history (the `get_member_earnings` RPC + triggers):**
 
@@ -189,6 +221,73 @@ the audience CHECK before anything writes the new values.
 > The audience check cannot be verified from the SQL editor: it runs as
 > superuser and bypasses RLS entirely. Log in as an actual branch cashier and an
 > actual member.
+
+**Posters on announcements and birthday greetings (v44)** — _not yet applied
+anywhere._
+
+- v44 — `announcements.image_path`, `body` becomes nullable behind an
+  `announcement_has_content` CHECK (a row must have text, a poster, or both —
+  never neither), a **private** `announcement-media` bucket, and the
+  `birthday_greeting_image` config key. The title stays required: it labels the
+  list row, the unseen popup and the saved list, none of which can fall back on
+  a picture.
+
+  The bucket's read policy does **not** re-implement the audience rules. It asks
+  whether the caller can see an announcement carrying that path, and that
+  subquery runs under the caller's own RLS — so it inherits whatever
+  `announcements_select` decides, including any later change to it. A public
+  bucket was rejected for the obvious reason: it would hand the poster for a
+  Members-only notice to anyone with the link, undoing v43 one layer down.
+
+  Rows store the object **path**, not a URL, because the app displays these
+  through signed URLs that expire. Applying v44 without the matching app build
+  is harmless — nothing writes `image_path`, and every announcement stays
+  text-only.
+
+**Migration ledger (v45)** — _apply everywhere, and apply it last._
+
+- v45 — `schema_migrations`: one row per applied migration. Backfills itself
+  by detecting what each earlier migration created, so it records the truth
+  on whichever database it is run against rather than a fixed list. Rows it
+  could not detect (the earnings chain, which only redefines functions) are
+  inserted with `verified = false` and say so — a ledger that invents history
+  is worse than none, because it gets believed.
+
+  Read by nothing in the app. From v46 onward, every migration ends by
+  recording itself and every rollback ends by deleting its row; the footer to
+  copy is at the bottom of the v45 file.
+
+**`app_config` RLS (v46)** — _needed everywhere. Check before assuming._
+
+- v46 — declares RLS on `app_config` and writes the policies down: read by
+  anyone, write by admins, no delete. It had been left implicit —
+  `schema.sql` disables RLS and no migration re-enabled it — and staging was
+  found with RLS **on and no policies at all**, almost certainly the
+  dashboard's one-click "Enable RLS".
+
+  Both failure modes matter, and only one of them was visible:
+
+  - Writes failed loudly — `42501 new row violates row-level security policy`
+    when saving the birthday greeting.
+  - **Reads failed silently.** `fetchAppConfig` catches its own exception and
+    returns `{}`, and every `ConfigService` getter falls back to a hardcoded
+    default, so the app ran on built-in values — currency symbol,
+    notifications, all three birthday settings, category low-stock thresholds
+    — with nothing on screen to say the table was not being read. The
+    repository now logs when that fallback happens.
+
+  Reads are open to `anon` deliberately: `ConfigService.load()` runs before
+  sign-in, and restricting SELECT to `authenticated` would leave every
+  pre-auth path on defaults and never re-read afterwards — reintroducing the
+  same silent failure. Nothing in the table is secret, and nothing secret
+  should be put in it.
+
+  v46 also re-inserts the four `birthday_greeting_*` keys with
+  `on conflict do nothing`, since a key a migration meant to create may never
+  have landed while writes were failing.
+
+  **Check prod for the same thing** — the RLS state was never declared, so
+  whatever it is there, it is by accident.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

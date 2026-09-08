@@ -583,9 +583,10 @@ class AdminMembersPageState extends State<AdminMembersPage> {
           quantity: 1,
           price: selected.price,
           buyerId: memberId,
-          buyerName: [member['firstName'], member['lastName']]
-              .where((p) => p != null && p.toString().trim().isNotEmpty)
-              .join(' '),
+          buyerName: [
+            member['firstName'],
+            member['lastName'],
+          ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' '),
           packageId: selected.id,
           timestamp: DateTime.now(),
         );

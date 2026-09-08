@@ -1,5 +1,34 @@
--- Minimal schema. Safe to re-run — preserves existing profiles & auth users.
--- Business data tables are dropped and recreated. Profiles are NOT dropped.
+-- ═══════════════════════════════════════════════════════════════════
+-- Baseline schema — FRESH PROJECTS ONLY.
+--
+-- ⚠️ DESTRUCTIVE. NEVER run this on production, and never on any database
+-- whose data you intend to keep. The `drop table ... cascade` lines below
+-- delete every member, sale, item and transaction in the database. What
+-- survives is `profiles` and the auth users — nothing else.
+--
+-- An earlier header called this "safe to re-run", meaning profiles are
+-- preserved. That is true and badly misleading: the business data is not.
+--
+-- ── This file is NOT a snapshot of the current schema ──────────────
+-- It is the starting point, not the destination. Some later migrations
+-- were folded in (branch stock, v30–v33; member_branch_stock, v38) and
+-- many were not — there is no `announcements` table here at all, though
+-- v36 created one and v39–v44 have been changing it since.
+--
+-- So the only correct way to build a new project is:
+--
+--   1. schema.sql                     (this file)
+--   2. enable_rls_staff.sql
+--   3. schema_category_delete_guard.sql
+--   4. EVERY migration in ascending order — see ../migrations/
+--
+-- Skipping step 4 gives you an app that starts and then fails on
+-- announcements, birthday greetings, saved items and posters.
+--
+-- Whether a given migration is already applied is answered by
+-- `public.schema_migrations` (added in v45), or by
+-- ../diagnostics/check_applied_migrations.sql on a database predating it.
+-- ═══════════════════════════════════════════════════════════════════
 drop table if exists public.member_transactions cascade;
 drop table if exists public.sales cascade;
 drop table if exists public.stock_movements cascade;
@@ -67,6 +96,11 @@ create table if not exists public.app_config (
   key text primary key,
   value text not null
 );
+-- RLS off HERE only because is_admin() does not exist yet at this point in a
+-- fresh build. Migration v46 turns it on and adds the policies (read: anyone;
+-- write: admins only) — do not leave a database in this state. Staging spent
+-- months with RLS switched on from the dashboard and NO policies, which made
+-- every write fail loudly and every read fail silently back to defaults.
 alter table public.app_config disable row level security;
 
 create table public.items (

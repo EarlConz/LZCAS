@@ -168,8 +168,7 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                         const SizedBox(height: 8),
                         _InfoRow(
                           label: 'Package',
-                          value:
-                              (widget.buyerPackage ?? '').trim().isEmpty
+                          value: (widget.buyerPackage ?? '').trim().isEmpty
                               ? 'None'
                               : widget.buyerPackage!.trim(),
                           colorScheme: colorScheme,
