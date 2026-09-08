@@ -482,9 +482,7 @@ class _DashboardPageState extends State<DashboardPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Icon(

@@ -16,6 +16,7 @@ import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/widgets/announcement_widgets.dart';
+import 'package:lzcas/widgets/poster_image.dart';
 
 /// Show [announcement] in full.
 ///
@@ -164,14 +165,35 @@ class _AnnouncementDetailDialogState extends State<_AnnouncementDetailDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          a.body,
-          style: StockpileFonts.satoshi(
-            fontSize: 15,
-            height: 1.6,
-            color: bodyColor,
+        // Poster above the words: this is the full view, so it leads with
+        // whatever the announcement actually is. Tapping opens the zoomable
+        // viewer — posters carry small print a dialog cannot render.
+        if (a.hasImage) ...[
+          SizedBox(
+            width: double.infinity,
+            child: PosterImage(
+              path: a.imagePath,
+              isDark: isDark,
+              fit: BoxFit.contain,
+              borderRadius: 12,
+              // Taller than the list allows, but still bounded: the dialog
+              // scrolls, and a poster that fills the whole viewport hides
+              // the Save control under the fold.
+              maxHeight: isNarrow ? 420 : 360,
+              openOnTap: true,
+            ),
           ),
-        ),
+          if (a.hasBody) const SizedBox(height: 16),
+        ],
+        if (a.hasBody)
+          Text(
+            a.body,
+            style: StockpileFonts.satoshi(
+              fontSize: 15,
+              height: 1.6,
+              color: bodyColor,
+            ),
+          ),
         const SizedBox(height: 18),
         _buildSaveRow(isDark),
       ],

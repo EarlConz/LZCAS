@@ -89,8 +89,9 @@ class _BranchStockPageState extends State<BranchStockPage> {
       final central = await repository.fetchItems();
       final branchRows = await repository.fetchAllBranchStock();
       if (!mounted) return;
-      central
-          .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      central.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
       setState(() {
         _cashiers = cashiers;
         _central = central;
@@ -188,15 +189,20 @@ class _BranchStockPageState extends State<BranchStockPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        backgroundColor:
-            error ? StockpileColors.danger : StockpileColors.success,
+        backgroundColor: error
+            ? StockpileColors.danger
+            : StockpileColors.success,
         content: Row(
           children: [
-            Icon(error ? Icons.error_outline_rounded : Icons.check_circle_outline,
-                color: Colors.white, size: 20),
+            Icon(
+              error ? Icons.error_outline_rounded : Icons.check_circle_outline,
+              color: Colors.white,
+              size: 20,
+            ),
             const SizedBox(width: 10),
             Expanded(
-                child: Text(msg, style: const TextStyle(color: Colors.white))),
+              child: Text(msg, style: const TextStyle(color: Colors.white)),
+            ),
           ],
         ),
       ),
@@ -257,7 +263,8 @@ class _BranchStockPageState extends State<BranchStockPage> {
     final current = (row['stock'] as num?)?.toInt() ?? 0;
     final qty = await _promptQuantity(
       title: 'Adjust branch count',
-      message: '${row['name']} — set the branch\'s on-hand count '
+      message:
+          '${row['name']} — set the branch\'s on-hand count '
           '(currently $current). Central stock is not affected.',
       initial: current,
     );
@@ -285,9 +292,11 @@ class _BranchStockPageState extends State<BranchStockPage> {
     return showDialog<int>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: Text(title, style: StockpileFonts.satoshi(fontWeight: FontWeight.w800)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          title,
+          style: StockpileFonts.satoshi(fontWeight: FontWeight.w800),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -322,8 +331,13 @@ class _BranchStockPageState extends State<BranchStockPage> {
   }
 
   // ── Reusable UI pieces ──────────────────────────────────────────────────────
-  InputDecoration _deco(String label,
-      {String? helper, String? error, Widget? suffix, IconData? prefix}) {
+  InputDecoration _deco(
+    String label, {
+    String? helper,
+    String? error,
+    Widget? suffix,
+    IconData? prefix,
+  }) {
     return InputDecoration(
       labelText: label,
       helperText: helper,
@@ -343,21 +357,23 @@ class _BranchStockPageState extends State<BranchStockPage> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide:
-            const BorderSide(color: StockpileColors.primary900, width: 1.6),
+        borderSide: const BorderSide(
+          color: StockpileColors.primary900,
+          width: 1.6,
+        ),
       ),
     );
   }
 
   Widget _card({required Widget child, EdgeInsets? padding}) => Container(
-        decoration: BoxDecoration(
-          color: _surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _border),
-        ),
-        padding: padding ?? const EdgeInsets.all(18),
-        child: child,
-      );
+    decoration: BoxDecoration(
+      color: _surface,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: _border),
+    ),
+    padding: padding ?? const EdgeInsets.all(18),
+    child: child,
+  );
 
   Widget _cardHeader(IconData icon, Color color, String title, String sub) =>
       Row(
@@ -377,15 +393,22 @@ class _BranchStockPageState extends State<BranchStockPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title,
-                    style: StockpileFonts.satoshi(
-                        fontSize: 16.5,
-                        fontWeight: FontWeight.w800,
-                        color: _textPrimary)),
+                Text(
+                  title,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w800,
+                    color: _textPrimary,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text(sub,
-                    style: StockpileFonts.satoshi(
-                        fontSize: 12.5, color: _textMuted)),
+                Text(
+                  sub,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 12.5,
+                    color: _textMuted,
+                  ),
+                ),
               ],
             ),
           ),
@@ -407,18 +430,25 @@ class _BranchStockPageState extends State<BranchStockPage> {
             children: [
               Icon(Icons.cloud_off_rounded, size: 44, color: _textMuted),
               const SizedBox(height: 12),
-              Text('Could not load branch stock',
-                  style: StockpileFonts.satoshi(
-                      fontWeight: FontWeight.w700, color: _textPrimary)),
+              Text(
+                'Could not load branch stock',
+                style: StockpileFonts.satoshi(
+                  fontWeight: FontWeight.w700,
+                  color: _textPrimary,
+                ),
+              ),
               const SizedBox(height: 6),
-              Text(_loadError!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: _textMuted, fontSize: 12)),
+              Text(
+                _loadError!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: _textMuted, fontSize: 12),
+              ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                  onPressed: _loadAll,
-                  icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('Retry')),
+                onPressed: _loadAll,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Retry'),
+              ),
             ],
           ),
         ),
@@ -437,8 +467,11 @@ class _BranchStockPageState extends State<BranchStockPage> {
                 showSelectedIcon: false,
                 style: ButtonStyle(
                   visualDensity: VisualDensity.compact,
-                  shape: WidgetStatePropertyAll(RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10))),
+                  shape: WidgetStatePropertyAll(
+                    RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                 ),
                 segments: [
                   const ButtonSegment(
@@ -480,9 +513,11 @@ class _BranchStockPageState extends State<BranchStockPage> {
               _allocationsHeader(),
               const SizedBox(height: 12),
               if (_cashiers.isEmpty)
-                _emptyState(Icons.groups_2_rounded,
-                    'No branch cashier accounts yet',
-                    'Create one in User Management to start allocating stock.')
+                _emptyState(
+                  Icons.groups_2_rounded,
+                  'No branch cashier accounts yet',
+                  'Create one in User Management to start allocating stock.',
+                )
               else
                 ..._buildBranchList(),
             ],
@@ -505,21 +540,27 @@ class _BranchStockPageState extends State<BranchStockPage> {
   }
 
   Widget _emptyState(IconData icon, String title, String sub) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 40),
-        child: Column(
-          children: [
-            Icon(icon, size: 42, color: _textMuted),
-            const SizedBox(height: 12),
-            Text(title,
-                style: StockpileFonts.satoshi(
-                    fontWeight: FontWeight.w700, color: _textPrimary)),
-            const SizedBox(height: 4),
-            Text(sub,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: _textMuted, fontSize: 12.5)),
-          ],
+    padding: const EdgeInsets.symmetric(vertical: 40),
+    child: Column(
+      children: [
+        Icon(icon, size: 42, color: _textMuted),
+        const SizedBox(height: 12),
+        Text(
+          title,
+          style: StockpileFonts.satoshi(
+            fontWeight: FontWeight.w700,
+            color: _textPrimary,
+          ),
         ),
-      );
+        const SizedBox(height: 4),
+        Text(
+          sub,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: _textMuted, fontSize: 12.5),
+        ),
+      ],
+    ),
+  );
 
   // ── Give-out ────────────────────────────────────────────────────────────────
   Widget _giveOutCard() {
@@ -527,9 +568,12 @@ class _BranchStockPageState extends State<BranchStockPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _cardHeader(Icons.local_shipping_rounded, StockpileColors.primary900,
-              'Give stock to a branch',
-              'Move central stock into a branch cashier’s allocation.'),
+          _cardHeader(
+            Icons.local_shipping_rounded,
+            StockpileColors.primary900,
+            'Give stock to a branch',
+            'Move central stock into a branch cashier’s allocation.',
+          ),
           const SizedBox(height: 20),
           LayoutBuilder(
             builder: (context, c) {
@@ -537,45 +581,58 @@ class _BranchStockPageState extends State<BranchStockPage> {
               final cashierField = DropdownButtonFormField<String>(
                 initialValue: _giveCashierId,
                 isExpanded: true,
-                decoration: _deco('Branch cashier',
-                    prefix: Icons.person_outline_rounded),
+                decoration: _deco(
+                  'Branch cashier',
+                  prefix: Icons.person_outline_rounded,
+                ),
                 items: _cashiers
-                    .map((c) => DropdownMenuItem(
-                          value: c['id']?.toString(),
-                          child: Text(c['username']?.toString() ?? '—'),
-                        ))
+                    .map(
+                      (c) => DropdownMenuItem(
+                        value: c['id']?.toString(),
+                        child: Text(c['username']?.toString() ?? '—'),
+                      ),
+                    )
                     .toList(),
                 onChanged: (v) => setState(() => _giveCashierId = v),
               );
               final itemField = DropdownButtonFormField<int>(
                 initialValue: _giveItemId,
                 isExpanded: true,
-                decoration: _deco('Item',
-                    prefix: Icons.inventory_2_outlined,
-                    helper: _giveItemId == null
-                        ? 'Pick an item to give'
-                        : 'Central stock available: ${_selectedCentralStock ?? 0}'),
+                decoration: _deco(
+                  'Item',
+                  prefix: Icons.inventory_2_outlined,
+                  helper: _giveItemId == null
+                      ? 'Pick an item to give'
+                      : 'Central stock available: ${_selectedCentralStock ?? 0}',
+                ),
                 selectedItemBuilder: (ctx) => _central
                     .where((i) => i.id != null)
-                    .map((i) => Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(i.name, overflow: TextOverflow.ellipsis),
-                        ))
+                    .map(
+                      (i) => Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(i.name, overflow: TextOverflow.ellipsis),
+                      ),
+                    )
                     .toList(),
                 items: _central
                     .where((i) => i.id != null)
-                    .map((i) => DropdownMenuItem<int>(
-                          value: i.id!,
-                          child: Row(
-                            children: [
-                              Expanded(
-                                  child: Text(i.name,
-                                      overflow: TextOverflow.ellipsis)),
-                              const SizedBox(width: 8),
-                              _StockChip(stock: i.stock),
-                            ],
-                          ),
-                        ))
+                    .map(
+                      (i) => DropdownMenuItem<int>(
+                        value: i.id!,
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                i.name,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _StockChip(stock: i.stock),
+                          ],
+                        ),
+                      ),
+                    )
                     .toList(),
                 onChanged: (v) => setState(() => _giveItemId = v),
               );
@@ -605,25 +662,33 @@ class _BranchStockPageState extends State<BranchStockPage> {
                           controller: _qtyCtrl,
                           keyboardType: TextInputType.number,
                           onChanged: (_) => setState(() {}),
-                          decoration: _deco('Quantity',
-                              error: _qtyError,
-                              helper: _selectedCentralStock != null
-                                  ? 'Max $_selectedCentralStock'
-                                  : null,
-                              suffix: (_selectedCentralStock != null &&
-                                      _qtyError == null &&
-                                      _qtyCtrl.text.trim().isNotEmpty)
-                                  ? const Icon(Icons.check_circle_rounded,
-                                      color: StockpileColors.success, size: 20)
-                                  : null),
+                          decoration: _deco(
+                            'Quantity',
+                            error: _qtyError,
+                            helper: _selectedCentralStock != null
+                                ? 'Max $_selectedCentralStock'
+                                : null,
+                            suffix:
+                                (_selectedCentralStock != null &&
+                                    _qtyError == null &&
+                                    _qtyCtrl.text.trim().isNotEmpty)
+                                ? const Icon(
+                                    Icons.check_circle_rounded,
+                                    color: StockpileColors.success,
+                                    size: 20,
+                                  )
+                                : null,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: TextField(
                           controller: _noteCtrl,
-                          decoration: _deco('Note (optional)',
-                              prefix: Icons.sticky_note_2_outlined),
+                          decoration: _deco(
+                            'Note (optional)',
+                            prefix: Icons.sticky_note_2_outlined,
+                          ),
                         ),
                       ),
                     ],
@@ -644,10 +709,15 @@ class _BranchStockPageState extends State<BranchStockPage> {
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Icon(Icons.send_rounded, size: 18),
-              label: Text(_giving ? 'Giving…' : 'Give Stock',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              label: Text(
+                _giving ? 'Giving…' : 'Give Stock',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
           ),
         ],
@@ -672,28 +742,35 @@ class _BranchStockPageState extends State<BranchStockPage> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.playlist_add_check_circle_rounded,
-                color: StockpileColors.primary900, size: 22),
+            const Icon(
+              Icons.playlist_add_check_circle_rounded,
+              color: StockpileColors.primary900,
+              size: 22,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: RichText(
                 text: TextSpan(
                   style: StockpileFonts.satoshi(
-                      fontSize: 13, color: _textPrimary, height: 1.35),
+                    fontSize: 13,
+                    color: _textPrimary,
+                    height: 1.35,
+                  ),
                   children: [
                     const TextSpan(text: 'Give '),
                     TextSpan(
-                        text: '$qty × ${item.name}',
-                        style:
-                            const TextStyle(fontWeight: FontWeight.w800)),
+                      text: '$qty × ${item.name}',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     const TextSpan(text: ' to '),
                     TextSpan(
-                        text: _usernameFor(_giveCashierId),
-                        style:
-                            const TextStyle(fontWeight: FontWeight.w800)),
+                      text: _usernameFor(_giveCashierId),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     TextSpan(
-                        text: '   ·   central ${item.stock} → $after',
-                        style: TextStyle(color: _textMuted)),
+                      text: '   ·   central ${item.stock} → $after',
+                      style: TextStyle(color: _textMuted),
+                    ),
                   ],
                 ),
               ),
@@ -709,21 +786,28 @@ class _BranchStockPageState extends State<BranchStockPage> {
     return Row(
       children: [
         Expanded(
-          child: Text('Branch allocations',
-              style: StockpileFonts.satoshi(
-                  fontSize: 16, fontWeight: FontWeight.w800, color: _textPrimary)),
+          child: Text(
+            'Branch allocations',
+            style: StockpileFonts.satoshi(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: _textPrimary,
+            ),
+          ),
         ),
         if (_cashiers.length > 1)
           TextButton.icon(
             style: TextButton.styleFrom(
-                foregroundColor: StockpileColors.primary900,
-                visualDensity: VisualDensity.compact),
+              foregroundColor: StockpileColors.primary900,
+              visualDensity: VisualDensity.compact,
+            ),
             onPressed: () => setState(() => _expandAll = !_expandAll),
             icon: Icon(
-                _expandAll
-                    ? Icons.unfold_less_rounded
-                    : Icons.unfold_more_rounded,
-                size: 18),
+              _expandAll
+                  ? Icons.unfold_less_rounded
+                  : Icons.unfold_more_rounded,
+              size: 18,
+            ),
             label: Text(_expandAll ? 'Collapse all' : 'Expand all'),
           ),
       ],
@@ -735,9 +819,12 @@ class _BranchStockPageState extends State<BranchStockPage> {
     final filtered = term.isEmpty
         ? _cashiers
         : _cashiers
-            .where((c) =>
-                (c['username']?.toString().toLowerCase() ?? '').contains(term))
-            .toList();
+              .where(
+                (c) => (c['username']?.toString().toLowerCase() ?? '').contains(
+                  term,
+                ),
+              )
+              .toList();
 
     return [
       if (_cashiers.length > 4)
@@ -746,22 +833,27 @@ class _BranchStockPageState extends State<BranchStockPage> {
           child: TextField(
             controller: _branchSearchCtrl,
             onChanged: (v) => setState(() => _branchSearch = v),
-            decoration: _deco('Search branch cashier…',
-                prefix: Icons.search_rounded,
-                suffix: _branchSearch.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.clear_rounded, size: 18),
-                        onPressed: () {
-                          _branchSearchCtrl.clear();
-                          setState(() => _branchSearch = '');
-                        },
-                      )),
+            decoration: _deco(
+              'Search branch cashier…',
+              prefix: Icons.search_rounded,
+              suffix: _branchSearch.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.clear_rounded, size: 18),
+                      onPressed: () {
+                        _branchSearchCtrl.clear();
+                        setState(() => _branchSearch = '');
+                      },
+                    ),
+            ),
           ),
         ),
       if (filtered.isEmpty)
-        _emptyState(Icons.search_off_rounded, 'No match',
-            'No branch cashier matches “$_branchSearch”.')
+        _emptyState(
+          Icons.search_off_rounded,
+          'No match',
+          'No branch cashier matches “$_branchSearch”.',
+        )
       else
         ...filtered.map(_branchSection),
     ];
@@ -770,19 +862,24 @@ class _BranchStockPageState extends State<BranchStockPage> {
   Widget _branchSection(Map<String, dynamic> cashier) {
     final ownerId = cashier['id']?.toString() ?? '';
     final username = cashier['username']?.toString() ?? '—';
-    final rows = _branchRows
-        .where((r) => r['owner_id']?.toString() == ownerId)
-        .toList()
-      ..sort((a, b) => (a['name']?.toString() ?? '')
-          .toLowerCase()
-          .compareTo((b['name']?.toString() ?? '').toLowerCase()));
+    final rows =
+        _branchRows.where((r) => r['owner_id']?.toString() == ownerId).toList()
+          ..sort(
+            (a, b) => (a['name']?.toString() ?? '').toLowerCase().compareTo(
+              (b['name']?.toString() ?? '').toLowerCase(),
+            ),
+          );
 
-    final totalUnits =
-        rows.fold<int>(0, (s, r) => s + ((r['stock'] as num?)?.toInt() ?? 0));
-    final outCount =
-        rows.where((r) => ((r['stock'] as num?)?.toInt() ?? 0) <= 0).length;
-    final lowCount =
-        rows.where((r) => r['status']?.toString() == 'Low Stock').length;
+    final totalUnits = rows.fold<int>(
+      0,
+      (s, r) => s + ((r['stock'] as num?)?.toInt() ?? 0),
+    );
+    final outCount = rows
+        .where((r) => ((r['stock'] as num?)?.toInt() ?? 0) <= 0)
+        .length;
+    final lowCount = rows
+        .where((r) => r['status']?.toString() == 'Low Stock')
+        .length;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -806,16 +903,20 @@ class _BranchStockPageState extends State<BranchStockPage> {
             child: Text(
               username.isNotEmpty ? username[0].toUpperCase() : '?',
               style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: StockpileColors.primary900),
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: StockpileColors.primary900,
+              ),
             ),
           ),
-          title: Text(username,
-              style: StockpileFonts.satoshi(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                  color: _textPrimary)),
+          title: Text(
+            username,
+            style: StockpileFonts.satoshi(
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              color: _textPrimary,
+            ),
+          ),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Wrap(
@@ -826,7 +927,8 @@ class _BranchStockPageState extends State<BranchStockPage> {
                 _Pill('$totalUnits units', StockpileColors.primary900),
                 if (lowCount > 0)
                   _Pill('$lowCount low', Colors.orange.shade700),
-                if (outCount > 0) _Pill('$outCount out', StockpileColors.danger),
+                if (outCount > 0)
+                  _Pill('$outCount out', StockpileColors.danger),
               ],
             ),
           ),
@@ -837,8 +939,10 @@ class _BranchStockPageState extends State<BranchStockPage> {
                     padding: const EdgeInsets.symmetric(vertical: 10),
                     child: Align(
                       alignment: Alignment.centerLeft,
-                      child: Text('No stock assigned yet.',
-                          style: TextStyle(color: _textMuted, fontSize: 13)),
+                      child: Text(
+                        'No stock assigned yet.',
+                        style: TextStyle(color: _textMuted, fontSize: 13),
+                      ),
                     ),
                   ),
                 ]
@@ -857,7 +961,9 @@ class _BranchStockPageState extends State<BranchStockPage> {
     final status = r['status']?.toString() ?? 'Good';
     final color = status == 'Out of Stock'
         ? StockpileColors.danger
-        : (status == 'Low Stock' ? Colors.orange.shade700 : StockpileColors.success);
+        : (status == 'Low Stock'
+              ? Colors.orange.shade700
+              : StockpileColors.success);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -866,13 +972,18 @@ class _BranchStockPageState extends State<BranchStockPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(r['name']?.toString() ?? '—',
-                    style: StockpileFonts.satoshi(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: _textPrimary)),
-                Text(r['category']?.toString() ?? 'Uncategorized',
-                    style: TextStyle(fontSize: 11.5, color: _textMuted)),
+                Text(
+                  r['name']?.toString() ?? '—',
+                  style: StockpileFonts.satoshi(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                    color: _textPrimary,
+                  ),
+                ),
+                Text(
+                  r['category']?.toString() ?? 'Uncategorized',
+                  style: TextStyle(fontSize: 11.5, color: _textMuted),
+                ),
               ],
             ),
           ),
@@ -885,27 +996,44 @@ class _BranchStockPageState extends State<BranchStockPage> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('$qty',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w800, color: color, fontSize: 14)),
+                Text(
+                  '$qty',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                    fontSize: 14,
+                  ),
+                ),
                 const SizedBox(width: 6),
-                Text(status,
-                    style: TextStyle(
-                        fontSize: 10.5, color: color, fontWeight: FontWeight.w600)),
+                Text(
+                  status,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
           ),
           const SizedBox(width: 6),
-          _actionIcon(Icons.undo_rounded, 'Return to central',
-              () => _return(ownerId, r)),
           _actionIcon(
-              Icons.tune_rounded, 'Adjust count', () => _adjust(ownerId, r)),
+            Icons.undo_rounded,
+            'Return to central',
+            () => _return(ownerId, r),
+          ),
+          _actionIcon(
+            Icons.tune_rounded,
+            'Adjust count',
+            () => _adjust(ownerId, r),
+          ),
         ],
       ),
     );
   }
 
-  Widget _actionIcon(IconData icon, String tip, VoidCallback onTap) => IconButton(
+  Widget _actionIcon(IconData icon, String tip, VoidCallback onTap) =>
+      IconButton(
         tooltip: tip,
         visualDensity: VisualDensity.compact,
         icon: Icon(icon, size: 19, color: _textMuted),
@@ -921,17 +1049,21 @@ class _BranchStockPageState extends State<BranchStockPage> {
       children: [
         Row(
           children: [
-            Text('Recent transfers',
-                style: StockpileFonts.satoshi(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: _textPrimary)),
+            Text(
+              'Recent transfers',
+              style: StockpileFonts.satoshi(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: _textPrimary,
+              ),
+            ),
             const Spacer(),
             if (hasFilter)
               TextButton.icon(
                 style: TextButton.styleFrom(
-                    foregroundColor: StockpileColors.primary900,
-                    visualDensity: VisualDensity.compact),
+                  foregroundColor: StockpileColors.primary900,
+                  visualDensity: VisualDensity.compact,
+                ),
                 onPressed: () {
                   setState(() {
                     _transferFilterOwner = null;
@@ -962,7 +1094,8 @@ class _BranchStockPageState extends State<BranchStockPage> {
                   hasFilter ? 'No matching transfers' : 'No transfers yet',
                   hasFilter
                       ? 'Try clearing the filters.'
-                      : 'Give stock to a branch and it will appear here.')
+                      : 'Give stock to a branch and it will appear here.',
+                )
         else ...[
           _card(
             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -980,16 +1113,17 @@ class _BranchStockPageState extends State<BranchStockPage> {
               padding: const EdgeInsets.only(top: 14),
               child: Center(
                 child: OutlinedButton.icon(
-                  onPressed:
-                      _transfersLoadingMore ? null : () => _loadTransfers(),
+                  onPressed: _transfersLoadingMore
+                      ? null
+                      : () => _loadTransfers(),
                   icon: _transfersLoadingMore
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2))
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
                       : const Icon(Icons.expand_more_rounded, size: 18),
-                  label:
-                      Text(_transfersLoadingMore ? 'Loading…' : 'Load more'),
+                  label: Text(_transfersLoadingMore ? 'Loading…' : 'Load more'),
                 ),
               ),
             ),
@@ -1006,14 +1140,23 @@ class _BranchStockPageState extends State<BranchStockPage> {
       },
       itemBuilder: (_) => [
         const PopupMenuItem<String>(
-            value: '__all__', child: Text('All branches')),
-        ..._cashiers.map((c) => PopupMenuItem<String>(
-              value: c['id']?.toString() ?? '__all__',
-              child: Text(c['username']?.toString() ?? '—'),
-            )),
+          value: '__all__',
+          child: Text('All branches'),
+        ),
+        ..._cashiers.map(
+          (c) => PopupMenuItem<String>(
+            value: c['id']?.toString() ?? '__all__',
+            child: Text(c['username']?.toString() ?? '—'),
+          ),
+        ),
       ],
-      child: _filterPill(Icons.storefront_rounded, 'Branch',
-          _transferFilterOwner == null ? 'All' : _usernameFor(_transferFilterOwner)),
+      child: _filterPill(
+        Icons.storefront_rounded,
+        'Branch',
+        _transferFilterOwner == null
+            ? 'All'
+            : _usernameFor(_transferFilterOwner),
+      ),
     );
   }
 
@@ -1034,35 +1177,40 @@ class _BranchStockPageState extends State<BranchStockPage> {
         PopupMenuItem<String>(value: 'return', child: Text('Return')),
         PopupMenuItem<String>(value: 'adjust', child: Text('Adjust')),
       ],
-      child: _filterPill(Icons.category_rounded, 'Type',
-          labels[_transferFilterType] ?? 'All'),
+      child: _filterPill(
+        Icons.category_rounded,
+        'Type',
+        labels[_transferFilterType] ?? 'All',
+      ),
     );
   }
 
   Widget _filterPill(IconData icon, String label, String value) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        decoration: BoxDecoration(
-          color: _inputFill,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: _border),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+    decoration: BoxDecoration(
+      color: _inputFill,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: _border),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: _textMuted),
+        const SizedBox(width: 7),
+        Text('$label: ', style: TextStyle(color: _textMuted, fontSize: 12.5)),
+        Text(
+          value,
+          style: StockpileFonts.satoshi(
+            fontWeight: FontWeight.w700,
+            fontSize: 12.5,
+            color: _textPrimary,
+          ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: _textMuted),
-            const SizedBox(width: 7),
-            Text('$label: ',
-                style: TextStyle(color: _textMuted, fontSize: 12.5)),
-            Text(value,
-                style: StockpileFonts.satoshi(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12.5,
-                    color: _textPrimary)),
-            const SizedBox(width: 2),
-            Icon(Icons.arrow_drop_down_rounded, size: 18, color: _textMuted),
-          ],
-        ),
-      );
+        const SizedBox(width: 2),
+        Icon(Icons.arrow_drop_down_rounded, size: 18, color: _textMuted),
+      ],
+    ),
+  );
 
   Widget _transferTile(Map<String, dynamic> t) {
     final type = t['transfer_type']?.toString() ?? 'give_out';
@@ -1085,8 +1233,9 @@ class _BranchStockPageState extends State<BranchStockPage> {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-                color: tint.withAlpha(28),
-                borderRadius: BorderRadius.circular(9)),
+              color: tint.withAlpha(28),
+              borderRadius: BorderRadius.circular(9),
+            ),
             child: Icon(icon, color: tint, size: 18),
           ),
           const SizedBox(width: 12),
@@ -1097,23 +1246,32 @@ class _BranchStockPageState extends State<BranchStockPage> {
                 Row(
                   children: [
                     Expanded(
-                      child: Text(t['item_name']?.toString() ?? '—',
-                          style: StockpileFonts.satoshi(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13.5,
-                              color: _textPrimary)),
+                      child: Text(
+                        t['item_name']?.toString() ?? '—',
+                        style: StockpileFonts.satoshi(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13.5,
+                          color: _textPrimary,
+                        ),
+                      ),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
-                          color: tint.withAlpha(24),
-                          borderRadius: BorderRadius.circular(8)),
-                      child: Text(sign,
-                          style: TextStyle(
-                              color: tint,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 12.5)),
+                        color: tint.withAlpha(24),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        sign,
+                        style: TextStyle(
+                          color: tint,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12.5,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1128,7 +1286,9 @@ class _BranchStockPageState extends State<BranchStockPage> {
           ),
           const SizedBox(width: 8),
           Text(
-            when != null ? DateFormat('MMM d\nh:mm a').format(when.toLocal()) : '',
+            when != null
+                ? DateFormat('MMM d\nh:mm a').format(when.toLocal())
+                : '',
             textAlign: TextAlign.right,
             style: TextStyle(fontSize: 10.5, color: _textMuted, height: 1.3),
           ),
@@ -1152,9 +1312,14 @@ class _Pill extends StatelessWidget {
         color: color.withAlpha(26),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(text,
-          style: TextStyle(
-              color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }
@@ -1177,7 +1342,10 @@ class _StockChip extends StatelessWidget {
       child: Text(
         out ? 'Out of stock' : '$stock in stock',
         style: TextStyle(
-            color: color, fontSize: 11, fontWeight: FontWeight.w700),
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

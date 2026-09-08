@@ -454,9 +454,7 @@ class MonthlyRevenueView extends StatelessWidget {
     final headerStyle = StockpileFonts.satoshi(
       fontSize: 11,
       fontWeight: FontWeight.w700,
-      color: isDark
-          ? StockpileColors.darkTextMuted
-          : StockpileColors.mutedText,
+      color: isDark ? StockpileColors.darkTextMuted : StockpileColors.mutedText,
       letterSpacing: 0.5,
     );
 
@@ -471,9 +469,7 @@ class MonthlyRevenueView extends StatelessWidget {
     final mutedStyle = StockpileFonts.satoshi(
       fontSize: 12,
       fontWeight: FontWeight.w500,
-      color: isDark
-          ? StockpileColors.darkTextBody
-          : StockpileColors.bodyText,
+      color: isDark ? StockpileColors.darkTextBody : StockpileColors.bodyText,
     );
 
     final changePos = StockpileFonts.satoshi(
@@ -542,10 +538,7 @@ class MonthlyRevenueView extends StatelessWidget {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 3),
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
               decoration: BoxDecoration(
                 color: bg,
                 borderRadius: BorderRadius.circular(10),
@@ -600,10 +593,7 @@ class MonthlyRevenueView extends StatelessWidget {
                   if (!isMobile) ...[
                     Expanded(
                       flex: 2,
-                      child: Text(
-                        fmt.format(txn),
-                        style: mutedStyle,
-                      ),
+                      child: Text(fmt.format(txn), style: mutedStyle),
                     ),
                     Expanded(
                       flex: 2,

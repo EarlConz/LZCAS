@@ -1092,7 +1092,19 @@ enum AnnouncementAudience {
 class Announcement {
   final int id;
   final String title;
+
+  /// May be empty: as of v44 an announcement can be a poster with no words.
+  /// The title is never empty — that is what the list and the popup header
+  /// show, and an image gives them nothing to fall back on.
   final String body;
+
+  /// Storage object path in the private 'announcement-media' bucket, or null
+  /// for a text-only announcement.
+  ///
+  /// A path, not a URL: the bucket is private, so the URL is signed on
+  /// demand and expires. See `SupabaseRepository.posterUrl`.
+  final String? imagePath;
+
   final AnnouncementAudience audience;
   final DateTime? publishedAt;
 
@@ -1111,6 +1123,7 @@ class Announcement {
     required this.id,
     required this.title,
     required this.body,
+    this.imagePath,
     this.audience = AnnouncementAudience.all,
     this.publishedAt,
     this.endsAt,
@@ -1119,6 +1132,18 @@ class Announcement {
   });
 
   bool get isArchived => archivedAt != null;
+
+  /// Whether there is a poster to show. Drives the adaptive list layout:
+  /// a thumbnail beside the text, or the poster full-width when it IS the
+  /// announcement.
+  bool get hasImage => (imagePath ?? '').trim().isNotEmpty;
+
+  /// Whether there are words to read.
+  bool get hasBody => body.trim().isNotEmpty;
+
+  /// A poster with no words. These get the full-width treatment in lists,
+  /// because a thumbnail of the only content is not much of an announcement.
+  bool get isImageOnly => hasImage && !hasBody;
 
   /// Still in its window. An announcement with no end date is current
   /// forever; one with an end date stops on the dot.
@@ -1138,7 +1163,11 @@ class Announcement {
   factory Announcement.fromJson(Map<String, dynamic> json) => Announcement(
     id: json['id'] as int? ?? 0,
     title: (json['title'] ?? '').toString(),
+    // `body` is nullable as of v44; '' and null mean the same thing here.
     body: (json['body'] ?? '').toString(),
+    imagePath: (json['image_path'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (json['image_path'] as String).trim(),
     audience: AnnouncementAudience.fromWire(json['audience'] as String?),
     publishedAt: DateTime.tryParse((json['published_at'] ?? '').toString()),
     endsAt: DateTime.tryParse((json['ends_at'] ?? '').toString()),
@@ -1149,6 +1178,7 @@ class Announcement {
     id: id,
     title: title,
     body: body,
+    imagePath: imagePath,
     audience: audience,
     publishedAt: publishedAt,
     endsAt: endsAt,

@@ -478,33 +478,35 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
           targetPackageId: selected.id!,
         );
 
-      // ── POS: create a sale record for this upgrade ──
-      await repository.addSale(
-        itemId: 0,
-        itemName: 'Package Upgrade: ${selected.name}',
-        quantity: 1,
-        price: selected.price,
-        buyerId: memberId,
-        buyerName: _memberDisplayName(),
-        packageId: selected.id,
-        timestamp: DateTime.now(),
-      );
+        // ── POS: create a sale record for this upgrade ──
+        await repository.addSale(
+          itemId: 0,
+          itemName: 'Package Upgrade: ${selected.name}',
+          quantity: 1,
+          price: selected.price,
+          buyerId: memberId,
+          buyerName: _memberDisplayName(),
+          packageId: selected.id,
+          timestamp: DateTime.now(),
+        );
 
-      showSuccessToast('${_memberDisplayName()} upgraded to ${selected.name}');
+        showSuccessToast(
+          '${_memberDisplayName()} upgraded to ${selected.name}',
+        );
 
-      // Refresh local state
-      _loadAvailedPackages();
-      if (mounted)
-        setState(() {
-          final selId = selected.id;
-          if (selId != null) {
-            member['packageId'] = selId;
-            _currentPackageName = selected.name;
-            // Holding a package = Verified Reseller (RPC promotes + syncs
-            // the login role server-side; reflect it locally right away).
-            member['role'] = 'Verified Reseller';
-          }
-        });
+        // Refresh local state
+        _loadAvailedPackages();
+        if (mounted)
+          setState(() {
+            final selId = selected.id;
+            if (selId != null) {
+              member['packageId'] = selId;
+              _currentPackageName = selected.name;
+              // Holding a package = Verified Reseller (RPC promotes + syncs
+              // the login role server-side; reflect it locally right away).
+              member['role'] = 'Verified Reseller';
+            }
+          });
       } catch (e) {
         showErrorToast('Failed to upgrade package: $e');
       }

@@ -15,8 +15,11 @@ import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart';
+import 'package:lzcas/services/poster_service.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/announcement_widgets.dart';
+import 'package:lzcas/widgets/poster_image.dart';
+import 'package:lzcas/widgets/poster_picker_field.dart';
 
 class AdminAnnouncementsPage extends StatefulWidget {
   const AdminAnnouncementsPage({super.key});
@@ -262,6 +265,16 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (a.hasImage) ...[
+            PosterImage(
+              path: a.imagePath,
+              isDark: isDark,
+              width: 44,
+              height: 44,
+              borderRadius: 8,
+            ),
+            const SizedBox(width: 12),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -280,14 +293,19 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  a.body,
+                  a.hasBody ? a.body : 'Poster only',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: StockpileFonts.satoshi(
-                    fontSize: 12,
-                    height: 1.4,
-                    color: StockpileColors.mutedText,
-                  ),
+                  style:
+                      StockpileFonts.satoshi(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: StockpileColors.mutedText,
+                      ).copyWith(
+                        fontStyle: a.hasBody
+                            ? FontStyle.normal
+                            : FontStyle.italic,
+                      ),
                 ),
                 const SizedBox(height: 10),
                 Wrap(
@@ -404,6 +422,16 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
         children: [
+          if (a.hasImage) ...[
+            PosterImage(
+              path: a.imagePath,
+              isDark: isDark,
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+            ),
+            const SizedBox(width: 12),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -421,13 +449,20 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  a.body,
+                  // An image-only notice has nothing to preview here, and a
+                  // blank line reads as a row that failed to load.
+                  a.hasBody ? a.body : 'Poster only',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: StockpileFonts.satoshi(
-                    fontSize: 12,
-                    color: StockpileColors.mutedText,
-                  ),
+                  style:
+                      StockpileFonts.satoshi(
+                        fontSize: 12,
+                        color: StockpileColors.mutedText,
+                      ).copyWith(
+                        fontStyle: a.hasBody
+                            ? FontStyle.normal
+                            : FontStyle.italic,
+                      ),
                 ),
               ],
             ),
@@ -699,6 +734,14 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
   DateTime? _endsAt;
   bool _submitting = false;
 
+  // ── Poster state (v44) ────────────────────────────────────────────
+  // Three fields rather than one, because "keep what is there", "replace
+  // it" and "remove it" all have to survive until save — that is when the
+  // upload happens and the old file gets cleaned up.
+  String? _storedImagePath;
+  PreparedPoster? _pendingPoster;
+  bool _posterCleared = false;
+
   /// How many accounts the chosen audience reaches. A number turns an
   /// abstract choice into something an admin notices is wrong before
   /// posting.
@@ -715,6 +758,7 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
     _body = TextEditingController(text: e?.body ?? '')..addListener(_onChanged);
     _audience = e?.audience ?? AnnouncementAudience.all;
     _endsAt = e?.endsAt?.toLocal();
+    _storedImagePath = e?.imagePath;
     _loadReach();
   }
 
@@ -751,10 +795,18 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
   static Widget _flexChild(bool stacked, Widget child) =>
       stacked ? child : Expanded(child: child);
 
+  /// Whether a poster will be attached once this is saved.
+  bool get _willHavePoster =>
+      _pendingPoster != null ||
+      (!_posterCleared && (_storedImagePath ?? '').trim().isNotEmpty);
+
+  /// Title is always required — it labels the row, the popup and the saved
+  /// list, none of which can fall back on a picture. The message is only
+  /// required when there is no poster to carry the announcement (v44).
   bool get _canSubmit =>
       !_submitting &&
       _title.text.trim().length >= 3 &&
-      _body.text.trim().length >= 3;
+      (_willHavePoster || _body.text.trim().length >= 3);
 
   Future<void> _pickEndDate() async {
     final now = DateTime.now();
@@ -775,6 +827,25 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
     if (!_canSubmit) return;
     setState(() => _submitting = true);
 
+    // Upload first. If this fails the row is untouched, which is the right
+    // way round: an announcement pointing at a file that was never stored
+    // would render as a broken poster for everyone.
+    String? imagePath = _posterCleared ? null : _storedImagePath;
+    if (_pendingPoster != null) {
+      try {
+        imagePath = await repository.uploadPoster(
+          _pendingPoster!.bytes,
+          extension: _pendingPoster!.extension,
+          contentType: _pendingPoster!.contentType,
+        );
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _submitting = false);
+        showErrorToast('The poster could not be uploaded. $e');
+        return;
+      }
+    }
+
     final error = _isEdit
         ? await repository.updateAnnouncement(
             id: widget.existing!.id,
@@ -782,20 +853,36 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
             body: _body.text,
             audience: _audience,
             endsAt: _endsAt,
+            imagePath: imagePath,
           )
         : await repository.createAnnouncement(
             title: _title.text,
             body: _body.text,
             audience: _audience,
             endsAt: _endsAt,
+            imagePath: imagePath,
           );
 
     if (!mounted) return;
     if (error != null) {
+      // The row did not change, so a poster we just uploaded is now an
+      // orphan. Remove it rather than leaving it paying for storage.
+      if (_pendingPoster != null && imagePath != null) {
+        unawaited(repository.deletePoster(imagePath));
+      }
       setState(() => _submitting = false);
       showErrorToast(error);
       return;
     }
+
+    // Only now is the old file safe to drop: the row has stopped pointing
+    // at it. Fire-and-forget — a failed cleanup is an orphan, not an error
+    // worth showing an admin who just posted successfully.
+    final replaced = _storedImagePath;
+    if (replaced != null && replaced != imagePath) {
+      unawaited(repository.deletePoster(replaced));
+    }
+
     showSuccessToast(_isEdit ? 'Announcement updated' : 'Announcement posted');
     Navigator.pop(context, true);
   }
@@ -836,10 +923,29 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
             maxLines: 4,
             maxLength: _bodyMaxLength,
             textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(
-              labelText: 'Message',
-              helperText: 'Write it the way you would say it to them.',
+            decoration: InputDecoration(
+              labelText: _willHavePoster ? 'Message (optional)' : 'Message',
+              helperText: _willHavePoster
+                  ? 'The poster can say it all — leave this blank if it does.'
+                  : 'Write it the way you would say it to them.',
             ),
+          ),
+          const SizedBox(height: 16),
+          PosterPickerField(
+            storedPath: _storedImagePath,
+            pending: _pendingPoster,
+            cleared: _posterCleared,
+            enabled: !_submitting,
+            isDark: theme.brightness == Brightness.dark,
+            onPicked: (p) => setState(() {
+              _pendingPoster = p;
+              _posterCleared = false;
+            }),
+            onCleared: () => setState(() {
+              _pendingPoster = null;
+              _posterCleared = true;
+            }),
+            helper: 'Optional. JPG or PNG — resized to 1600px for you.',
           ),
           const SizedBox(height: 8),
           // Side by side these two get ~150px each on a phone, which is
@@ -1180,12 +1286,24 @@ class _BirthdaySettingsDialogState extends State<_BirthdaySettingsDialog> {
   late int _days;
   bool _saving = false;
 
+  // One poster for everyone, alongside the one message (v44).
+  String? _storedImagePath;
+  PreparedPoster? _pendingPoster;
+  bool _posterCleared = false;
+
+  bool get _willHavePoster =>
+      _pendingPoster != null ||
+      (!_posterCleared && (_storedImagePath ?? '').trim().isNotEmpty);
+
   @override
   void initState() {
     super.initState();
     final config = context.read<ConfigService>();
     _enabled = config.birthdayGreetingsEnabled;
     _days = config.birthdayGreetingDays;
+    _storedImagePath = config.birthdayGreetingHasImage
+        ? config.birthdayGreetingImage
+        : null;
     _message = TextEditingController(text: config.birthdayGreetingMessage)
       ..addListener(_onChanged);
   }
@@ -1216,6 +1334,19 @@ class _BirthdaySettingsDialogState extends State<_BirthdaySettingsDialog> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
+      // Upload before writing any config, same order as the announcement
+      // editor: a config key pointing at a file that failed to upload would
+      // show every member a broken greeting.
+      String? imagePath = _posterCleared ? null : _storedImagePath;
+      if (_pendingPoster != null) {
+        imagePath = await repository.uploadPoster(
+          _pendingPoster!.bytes,
+          extension: _pendingPoster!.extension,
+          contentType: _pendingPoster!.contentType,
+          folder: 'birthday',
+        );
+      }
+
       await repository.updateAppConfig(
         'birthday_greetings_enabled',
         _enabled ? 'true' : 'false',
@@ -1225,6 +1356,17 @@ class _BirthdaySettingsDialogState extends State<_BirthdaySettingsDialog> {
         'birthday_greeting_message',
         _message.text.trim(),
       );
+      await repository.updateAppConfig(
+        'birthday_greeting_image',
+        imagePath ?? '',
+      );
+
+      // Safe now that no key points at it.
+      final replaced = _storedImagePath;
+      if (replaced != null && replaced != imagePath) {
+        unawaited(repository.deletePoster(replaced));
+      }
+
       if (!mounted) return;
       await context.read<ConfigService>().refresh();
       if (!mounted) return;
@@ -1293,9 +1435,15 @@ class _BirthdaySettingsDialogState extends State<_BirthdaySettingsDialog> {
                       daysSince: _days - 1,
                     ),
                     firstName: _sampleName,
-                    message: _message.text.trim().isEmpty
+                    // The ellipsis stands in for wording not yet written.
+                    // With a poster attached, blank is a real choice rather
+                    // than an unfinished one, so nothing stands in for it.
+                    message: _message.text.trim().isEmpty && !_willHavePoster
                         ? '…'
                         : _message.text.trim(),
+                    // Previews the stored poster. A newly picked one has not
+                    // been uploaded yet, so the picker below it shows that.
+                    imagePath: _posterCleared ? null : _storedImagePath,
                     onToggleSaved: null,
                     isDark: isDark,
                   ),
@@ -1312,10 +1460,34 @@ class _BirthdaySettingsDialogState extends State<_BirthdaySettingsDialog> {
                     maxLines: 3,
                     maxLength: 240,
                     textCapitalization: TextCapitalization.sentences,
-                    decoration: const InputDecoration(
-                      labelText: 'Message',
-                      helperText: 'Their first name is added for you.',
+                    decoration: InputDecoration(
+                      labelText: _willHavePoster
+                          ? 'Message (optional)'
+                          : 'Message',
+                      helperText: _willHavePoster
+                          ? 'Their first name is still added above the poster.'
+                          : 'Their first name is added for you.',
                     ),
+                  ),
+                  const SizedBox(height: 16),
+                  PosterPickerField(
+                    storedPath: _storedImagePath,
+                    pending: _pendingPoster,
+                    cleared: _posterCleared,
+                    enabled: !_saving,
+                    isDark: isDark,
+                    label: 'Greeting poster',
+                    helper:
+                        'Optional, and the same for everyone. '
+                        'Saved greetings from past years keep their text only.',
+                    onPicked: (p) => setState(() {
+                      _pendingPoster = p;
+                      _posterCleared = false;
+                    }),
+                    onCleared: () => setState(() {
+                      _pendingPoster = null;
+                      _posterCleared = true;
+                    }),
                   ),
                   const SizedBox(height: 12),
                   _sectionLabel(theme, 'KEEP SHOWING IT FOR'),

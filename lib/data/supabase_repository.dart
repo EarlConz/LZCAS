@@ -1653,10 +1653,13 @@ class SupabaseRepository {
           ((r as Map)['announcement_id'] as num).toInt(),
       };
 
-      return (rows as List)
+      final unseen = (rows as List)
           .map((j) => Announcement.fromJson(j as Map<String, dynamic>))
           .where((a) => a.isCurrent() && !seenIds.contains(a.id))
           .toList();
+
+      await _warmPosters(unseen);
+      return unseen;
     } catch (e) {
       // A failure here must never block the dashboard — the member simply
       // gets no popup and the announcement is still on their tab.
@@ -1692,6 +1695,150 @@ class SupabaseRepository {
     }
   }
 
+  // ── Posters (v44) ──────────────────────────────────────────────────
+  //
+  // The 'announcement-media' bucket is PRIVATE, so every image is displayed
+  // through a signed URL. Rows store the object path; the URL is minted here
+  // and cached, because signing costs a round trip and a list of ten
+  // announcements would otherwise make ten of them on every rebuild.
+
+  static const String _posterBucket = 'announcement-media';
+
+  /// Signed URLs live an hour server-side; we drop ours at 50 minutes so a
+  /// URL handed to `Image.network` is never close enough to expiry to die
+  /// mid-download on a slow connection.
+  static const Duration _posterUrlTtl = Duration(minutes: 50);
+  static const int _posterUrlSeconds = 3600;
+
+  final Map<String, ({String url, DateTime expires})> _posterUrls = {};
+
+  /// A displayable URL for a stored poster path, or null when there is no
+  /// poster or it could not be signed.
+  ///
+  /// Never throws: a missing image must degrade to "no picture", never to a
+  /// broken announcement.
+  Future<String?> posterUrl(String? path) async {
+    if (path == null || path.trim().isEmpty) return null;
+    final urls = await posterUrls([path]);
+    return urls[path];
+  }
+
+  /// Signed URLs for several posters at once.
+  ///
+  /// Batched deliberately — the announcements list resolves every image in
+  /// one request rather than one per row. Paths already cached and still
+  /// fresh are answered without touching the network.
+  Future<Map<String, String>> posterUrls(Iterable<String?> paths) async {
+    final now = DateTime.now();
+    final wanted = <String>{
+      for (final p in paths)
+        if (p != null && p.trim().isNotEmpty) p.trim(),
+    };
+    if (wanted.isEmpty) return {};
+
+    final result = <String, String>{};
+    final missing = <String>[];
+
+    for (final path in wanted) {
+      final hit = _posterUrls[path];
+      if (hit != null && hit.expires.isAfter(now)) {
+        result[path] = hit.url;
+      } else {
+        missing.add(path);
+      }
+    }
+    if (missing.isEmpty) return result;
+
+    try {
+      final signed = await _supabase.storage
+          .from(_posterBucket)
+          .createSignedUrls(missing, _posterUrlSeconds);
+
+      final expires = now.add(_posterUrlTtl);
+      for (final item in signed) {
+        // The API returns one entry per requested path even for the ones it
+        // could not sign — a file that was removed, or one this account is
+        // not allowed to read. Those come back with an empty path and a URL
+        // ending in the string 'null', because the client interpolates a
+        // missing signedURL rather than dropping the entry
+        // (storage-api#353). Both are checked; neither is an exception.
+        final url = item.signedUrl;
+        if (item.path.isEmpty || url.isEmpty || url.endsWith('null')) continue;
+        _posterUrls[item.path] = (url: url, expires: expires);
+        result[item.path] = url;
+      }
+    } catch (e) {
+      // Leaves `result` holding whatever was cached. Callers render the text
+      // and skip the picture.
+      debugPrint('[posterUrls] signing failed: $e');
+    }
+
+    return result;
+  }
+
+  /// Sign every poster in [items] in one request, before the widgets ask.
+  ///
+  /// Without this each [PosterImage] resolves its own path and a list of ten
+  /// posters makes ten signing round trips as it scrolls. Called from the
+  /// fetch methods so the cache is already warm by the time anything builds.
+  ///
+  /// Awaited rather than fired off: it is one request, and letting the list
+  /// paint first would just show a row of placeholders that all pop at once.
+  Future<void> _warmPosters(List<Announcement> items) async {
+    final paths = [
+      for (final a in items)
+        if (a.hasImage) a.imagePath,
+    ];
+    if (paths.isEmpty) return;
+    await posterUrls(paths);
+  }
+
+  /// Upload a prepared poster and return the path to store on the row.
+  ///
+  /// [folder] separates announcement posters from the birthday one so the
+  /// bucket stays legible in the Storage UI. The filename is random rather
+  /// than derived from the announcement: paths are the only thing standing
+  /// between a guessed URL and an image, and an id-based name is guessable.
+  /// (v8 made 'member-ids' private over exactly that.)
+  Future<String> uploadPoster(
+    Uint8List bytes, {
+    required String extension,
+    required String contentType,
+    String folder = 'announcements',
+  }) async {
+    final rand = Random.secure();
+    final name = List.generate(
+      16,
+      (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final path = '$folder/$name.$extension';
+
+    await _supabase.storage
+        .from(_posterBucket)
+        .uploadBinary(
+          path,
+          bytes,
+          fileOptions: FileOptions(contentType: contentType, upsert: false),
+        );
+
+    return path;
+  }
+
+  /// Remove a poster's file. Used when an admin replaces or clears one.
+  ///
+  /// Swallows failures on purpose: the row has already stopped pointing at
+  /// this file, so the worst case is an orphan occupying storage — much
+  /// better than an error that blocks saving the announcement.
+  Future<void> deletePoster(String? path) async {
+    if (path == null || path.trim().isEmpty) return;
+    try {
+      await _supabase.storage.from(_posterBucket).remove([path.trim()]);
+      _posterUrls.remove(path.trim());
+    } catch (e) {
+      debugPrint('[deletePoster] failed for $path: $e');
+    }
+  }
+
   /// Announcements the CURRENT account may see, newest first, each carrying
   /// whether this account has saved it.
   ///
@@ -1713,11 +1860,14 @@ class SupabaseRepository {
 
       final savedIds = await _fetchSavedAnnouncementIds();
 
-      return (rows as List)
+      final mine = (rows as List)
           .map((j) => Announcement.fromJson(j as Map<String, dynamic>))
           .map((a) => a.copyWith(saved: savedIds.contains(a.id)))
           .where((a) => a.isCurrent() || a.saved)
           .toList();
+
+      await _warmPosters(mine);
+      return mine;
     } catch (e) {
       debugPrint('[fetchAnnouncementsForMe] failed: $e');
       return [];
@@ -1835,9 +1985,12 @@ class SupabaseRepository {
           .from('announcements')
           .select()
           .order('published_at', ascending: false);
-      return (rows as List)
+      final all = (rows as List)
           .map((j) => Announcement.fromJson(j as Map<String, dynamic>))
           .toList();
+
+      await _warmPosters(all);
+      return all;
     } catch (e) {
       debugPrint('[fetchAllAnnouncements] failed: $e');
       return [];
@@ -1850,11 +2003,16 @@ class SupabaseRepository {
     required String body,
     required AnnouncementAudience audience,
     DateTime? endsAt,
+    String? imagePath,
   }) async {
     try {
       await _supabase.from('announcements').insert({
         'title': title.trim(),
-        'body': body.trim(),
+        // Null rather than '' for an image-only notice: the v44 guard tests
+        // for content, and `Announcement.hasBody` trims anyway, but a null
+        // says "there are no words here" where '' says "the words are empty".
+        'body': body.trim().isEmpty ? null : body.trim(),
+        'image_path': imagePath,
         'audience': audience.wire,
         'ends_at': endsAt?.toUtc().toIso8601String(),
         'created_by': _uid,
@@ -1871,19 +2029,24 @@ class SupabaseRepository {
     }
   }
 
+  /// [imagePath] is written unconditionally, so passing null CLEARS the
+  /// poster. The editor always sends the value it means, which is why there
+  /// is no separate "leave it alone" case to get wrong.
   Future<String?> updateAnnouncement({
     required int id,
     required String title,
     required String body,
     required AnnouncementAudience audience,
     DateTime? endsAt,
+    String? imagePath,
   }) async {
     try {
       await _supabase
           .from('announcements')
           .update({
             'title': title.trim(),
-            'body': body.trim(),
+            'body': body.trim().isEmpty ? null : body.trim(),
+            'image_path': imagePath,
             'audience': audience.wire,
             'ends_at': endsAt?.toUtc().toIso8601String(),
           })

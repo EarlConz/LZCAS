@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v43)
+├── migrations/    Ordered, apply-once changes (v2 … v44)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -189,6 +189,28 @@ the audience CHECK before anything writes the new values.
 > The audience check cannot be verified from the SQL editor: it runs as
 > superuser and bypasses RLS entirely. Log in as an actual branch cashier and an
 > actual member.
+
+**Posters on announcements and birthday greetings (v44)** — _not yet applied
+anywhere._
+
+- v44 — `announcements.image_path`, `body` becomes nullable behind an
+  `announcement_has_content` CHECK (a row must have text, a poster, or both —
+  never neither), a **private** `announcement-media` bucket, and the
+  `birthday_greeting_image` config key. The title stays required: it labels the
+  list row, the unseen popup and the saved list, none of which can fall back on
+  a picture.
+
+  The bucket's read policy does **not** re-implement the audience rules. It asks
+  whether the caller can see an announcement carrying that path, and that
+  subquery runs under the caller's own RLS — so it inherits whatever
+  `announcements_select` decides, including any later change to it. A public
+  bucket was rejected for the obvious reason: it would hand the poster for a
+  Members-only notice to anyone with the link, undoing v43 one layer down.
+
+  Rows store the object **path**, not a URL, because the app displays these
+  through signed URLs that expire. Applying v44 without the matching app build
+  is harmless — nothing writes `image_path`, and every announcement stays
+  text-only.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
