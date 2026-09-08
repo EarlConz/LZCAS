@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v44)
+├── migrations/    Ordered, apply-once changes (v2 … v45)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -15,13 +15,39 @@ supabase/
 
 ## schema/
 
+⚠️ **`schema.sql` is destructive and is for fresh projects only.** It drops
+every member, sale, item and transaction; only `profiles` and auth users
+survive. Never run it on production.
+
 Run these first on a brand-new project, in this order:
 
 1. `schema.sql` — tables, packages, withdrawal_requests, core objects.
 2. `enable_rls_staff.sql` — RLS policies + `is_staff()` helper.
 3. `schema_category_delete_guard.sql` — category-delete guard.
+4. **Then every migration below, in ascending order.**
+
+Step 4 is not optional. `schema.sql` is a starting point, **not a snapshot of
+the current schema** — some migrations were folded into it (branch stock
+v30–v33, `member_branch_stock` v38) and most were not. There is no
+`announcements` table in it at all. A project built from steps 1–3 alone
+starts and then fails on announcements, birthday greetings, saved items and
+posters.
 
 (`schema.sql.bak` is an old snapshot, kept for reference only.)
+
+## Which migrations are applied?
+
+`public.schema_migrations` (v45) answers this. `verified = false` marks rows
+the v45 backfill *assumed* rather than detected — everything predating the
+ledger that leaves no trace in the schema.
+
+```sql
+select version, name, verified, applied_at::date
+from public.schema_migrations order by version;
+```
+
+On a database that predates v45, `diagnostics/check_applied_migrations.sql`
+infers the same thing by checking for the objects each migration creates.
 
 ## migrations/
 
@@ -211,6 +237,19 @@ anywhere._
   through signed URLs that expire. Applying v44 without the matching app build
   is harmless — nothing writes `image_path`, and every announcement stays
   text-only.
+
+**Migration ledger (v45)** — _apply everywhere, and apply it last._
+
+- v45 — `schema_migrations`: one row per applied migration. Backfills itself
+  by detecting what each earlier migration created, so it records the truth
+  on whichever database it is run against rather than a fixed list. Rows it
+  could not detect (the earnings chain, which only redefines functions) are
+  inserted with `verified = false` and say so — a ledger that invents history
+  is worse than none, because it gets believed.
+
+  Read by nothing in the app. From v46 onward, every migration ends by
+  recording itself and every rollback ends by deleting its row; the footer to
+  copy is at the bottom of the v45 file.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

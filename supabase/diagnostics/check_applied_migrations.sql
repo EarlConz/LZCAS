@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which of v38–v44 are actually applied to THIS project?
+-- Which migrations are actually applied to THIS project? (v35 onward)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -11,13 +11,42 @@
 -- ascending version order.
 -- ═══════════════════════════════════════════════════════════════════
 
-select 'v38  member cashier stock'   as migration,
+-- Once v45 is applied, prefer the ledger — it knows about migrations that
+-- leave no detectable trace, which this script cannot see:
+--   select version, name, verified from public.schema_migrations order by version;
+-- This remains useful as an independent check of what is really there.
+
+select 'v35  admin fund adjustments' as migration,
+       case when exists (
+         select 1 from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.proname = 'admin_adjust_member_funds'
+       ) then 'APPLIED' else 'MISSING' end as status,
+       'admin_adjust_member_funds() RPC' as looks_for
+
+union all
+select 'v36  announcements + birthdays',
+       case when to_regclass('public.announcements') is not null
+            then 'APPLIED' else 'MISSING' end,
+       'announcements table'
+
+union all
+select 'v37  cashier location',
+       case when exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'profiles'
+           and column_name = 'location_updated_at'
+       ) then 'APPLIED' else 'MISSING' end,
+       'profiles.location_updated_at'
+
+union all
+select 'v38  member cashier stock',
        case when exists (
          select 1 from pg_proc p
          join pg_namespace n on n.oid = p.pronamespace
          where n.nspname = 'public' and p.proname = 'member_branch_stock'
-       ) then 'APPLIED' else 'MISSING' end as status,
-       'member_branch_stock() RPC' as looks_for
+       ) then 'APPLIED' else 'MISSING' end,
+       'member_branch_stock() RPC'
 
 union all
 select 'v39  announcement audiences',
@@ -89,5 +118,11 @@ select 'v44  posters (body nullable)',
            and column_name = 'body' and is_nullable = 'YES'
        ) then 'APPLIED' else 'MISSING' end,
        'announcements.body accepts null'
+
+union all
+select 'v45  migration ledger',
+       case when to_regclass('public.schema_migrations') is not null
+            then 'APPLIED' else 'MISSING' end,
+       'schema_migrations table'
 
 order by 1;
