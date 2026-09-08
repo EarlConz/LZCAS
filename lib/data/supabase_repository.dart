@@ -662,7 +662,13 @@ class SupabaseRepository {
         map[j['key'] as String] = j['value'] as String? ?? '';
       }
       return map;
-    } catch (_) {
+    } catch (e) {
+      // Returning {} is deliberate — ConfigService falls back to sensible
+      // defaults and the app keeps working. But it is indistinguishable
+      // from an empty table, and that is how staging ran for months on
+      // built-in values after RLS was switched on with no policies (v46).
+      // The log line is the only thing that makes it visible.
+      debugPrint('[fetchAppConfig] failed, falling back to defaults: $e');
       return {};
     }
   }

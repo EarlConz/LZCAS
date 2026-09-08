@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v45)
+├── migrations/    Ordered, apply-once changes (v2 … v46)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -256,6 +256,38 @@ anywhere._
   Read by nothing in the app. From v46 onward, every migration ends by
   recording itself and every rollback ends by deleting its row; the footer to
   copy is at the bottom of the v45 file.
+
+**`app_config` RLS (v46)** — _needed everywhere. Check before assuming._
+
+- v46 — declares RLS on `app_config` and writes the policies down: read by
+  anyone, write by admins, no delete. It had been left implicit —
+  `schema.sql` disables RLS and no migration re-enabled it — and staging was
+  found with RLS **on and no policies at all**, almost certainly the
+  dashboard's one-click "Enable RLS".
+
+  Both failure modes matter, and only one of them was visible:
+
+  - Writes failed loudly — `42501 new row violates row-level security policy`
+    when saving the birthday greeting.
+  - **Reads failed silently.** `fetchAppConfig` catches its own exception and
+    returns `{}`, and every `ConfigService` getter falls back to a hardcoded
+    default, so the app ran on built-in values — currency symbol,
+    notifications, all three birthday settings, category low-stock thresholds
+    — with nothing on screen to say the table was not being read. The
+    repository now logs when that fallback happens.
+
+  Reads are open to `anon` deliberately: `ConfigService.load()` runs before
+  sign-in, and restricting SELECT to `authenticated` would leave every
+  pre-auth path on defaults and never re-read afterwards — reintroducing the
+  same silent failure. Nothing in the table is secret, and nothing secret
+  should be put in it.
+
+  v46 also re-inserts the four `birthday_greeting_*` keys with
+  `on conflict do nothing`, since a key a migration meant to create may never
+  have landed while writes were failing.
+
+  **Check prod for the same thing** — the RLS state was never declared, so
+  whatever it is there, it is by accident.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

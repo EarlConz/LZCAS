@@ -96,6 +96,11 @@ create table if not exists public.app_config (
   key text primary key,
   value text not null
 );
+-- RLS off HERE only because is_admin() does not exist yet at this point in a
+-- fresh build. Migration v46 turns it on and adds the policies (read: anyone;
+-- write: admins only) — do not leave a database in this state. Staging spent
+-- months with RLS switched on from the dashboard and NO policies, which made
+-- every write fail loudly and every read fail silently back to defaults.
 alter table public.app_config disable row level security;
 
 create table public.items (
