@@ -25,9 +25,64 @@ Only files from `migrations/` belong in this run.
 
 ## Before you start
 
-- [ ] **Take a restore point.** Supabase PITR if the plan has it; otherwise
-      confirm today's automatic backup exists and note its timestamp. This is
-      the highest-value step on the page and the easiest to skip.
+- [ ] **Take a restore point.** PITR and scheduled backups are a paid
+      Supabase feature. On the free plan, do the three things below instead —
+      together they cover this rollout's actual exposure, which is narrower
+      than it looks.
+
+      **Why narrower:** eleven of the twelve migrations are purely additive
+      DDL — new tables, columns, functions, policies. None UPDATEs or DELETEs
+      an existing row. The three with data logic (v39, v40, v41) act on tables
+      v36 creates moments earlier, so on prod they run against empty tables.
+      Only v35 goes near financial data, and it is additive too; its real risk
+      is that it *drops and recreates* `get_member_earnings_sources`.
+
+      **1. Snapshot the tables v35 touches, inside the database.** Instant,
+      free, no credentials to hand around. Use today's date in the names:
+
+      ```sql
+      create table backup_member_transactions_20260909 as
+        select * from public.member_transactions;
+      create table backup_earnings_history_20260909 as
+        select * from public.earnings_history;
+
+      -- Confirm the copies match before trusting them
+      select (select count(*) from public.member_transactions)          as live_txn,
+             (select count(*) from backup_member_transactions_20260909) as copy_txn,
+             (select count(*) from public.earnings_history)             as live_hist,
+             (select count(*) from backup_earnings_history_20260909)    as copy_hist;
+      ```
+
+      Drop these once the rollout is verified — they are a safety net, not a
+      permanent second copy of the ledger.
+
+      **2. Save the function v35 replaces**, so you can put the old one back
+      exactly as it was:
+
+      ```sql
+      select pg_get_functiondef(p.oid)
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'get_member_earnings_sources';
+      ```
+
+      Copy the output into a file. This *is* the rollback for v35's riskiest
+      part.
+
+      **3. A full dump, if you can.** From the machine, using the connection
+      string in Dashboard → Settings → Database. Keep the password to
+      yourself — nobody needs it but you:
+
+      ```
+      pg_dump "<connection string>" --no-owner --file prod_backup_20260909.sql
+      ```
+
+      Note `pg_dump` must be at least the server's major version or it refuses
+      to run. If it is not installed, `npx supabase db dump` is the easier
+      route.
+
+      If the client's business data warrants it, one month of Pro for the
+      rollout window is also a legitimate answer — that is their call, not a
+      technical blocker.
 - [ ] **Nobody is mid-transaction.** Pick a window with no cashiers posting
       sales. Most of these migrations are instant, but v35 touches earnings.
 - [ ] **Confirm where prod actually is.** Run
