@@ -1,6 +1,43 @@
 # Production rollout — v35 → v46
 
-Prod is believed to be at **v34**. Staging is at v46. This is the runbook for
+> ## ✅ Completed 2026-09-09 — production is at v46
+>
+> All twelve applied, every check passed. `member_transactions` and
+> `earnings_history` came through with **zero drift** (452 and 101 rows, no
+> changed values). Keep this file: the next rollout starts from v47, and the
+> notes below are what the process actually cost.
+>
+> **What the run turned up, none of it predicted from the repo:**
+>
+> - **`app_config` had two policies made in the dashboard** —
+>   `app_config_select_auth` and `app_config_write_admin` — referencing
+>   `is_authenticated()` and `user_has_role(text[])`, helper functions that
+>   exist on production and in no source file. They were inert (RLS was off)
+>   and would have silently activated the moment v46 enabled it, including an
+>   unintended DELETE grant. v46 now drops them by name first. A sweep
+>   confirmed the drift was confined to this one table; the two functions are
+>   now unused and were deliberately left alone.
+> - **v8 never ran on production, correctly.** The ledger left a hole where it
+>   should be, which looked alarming — v8 is what makes the `member-ids`
+>   bucket private. Production has no storage buckets at all, so there was
+>   nothing to secure and no exposure. `profiles.id_image_path` exists
+>   regardless, so the ID-photo feature has never worked on prod: worth
+>   confirming with the client that nobody expects it to.
+> - **The diagnostic crashed on its first real use.** It used
+>   `'public.announcements'::regclass`, which raises when the table is absent
+>   — exactly the database it was written for. Now `to_regclass`.
+> - **v44 created production's first storage bucket**, and its
+>   `storage.objects` policies applied without the permissions trouble that
+>   was expected.
+> - **The v45 re-run at step 13 is easy to skip** and nothing complains if you
+>   do — v46 self-records, so the ledger looks plausible while missing v35–v44
+>   entirely. Check for gaps, not just for the last row.
+>
+> **Left deliberately undone:** `backup_member_transactions_20260909` and
+> `backup_earnings_history_20260909` are still in the database. Drop them once
+> the release has settled.
+
+Prod was at **v34**. Staging was at v46. This is the runbook for
 closing that gap.
 
 Tick each box as you go. If you stop partway, the ticks plus
