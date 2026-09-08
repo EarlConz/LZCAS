@@ -49,10 +49,13 @@ select 'v38  member cashier stock',
        'member_branch_stock() RPC'
 
 union all
+-- to_regclass, not 'public.announcements'::regclass: the cast RAISES on a
+-- database where the table does not exist yet, which is exactly the database
+-- this script is most needed on. to_regclass returns null instead.
 select 'v39  announcement audiences',
        case when exists (
          select 1 from pg_constraint
-         where conrelid = 'public.announcements'::regclass
+         where conrelid = to_regclass('public.announcements')
            and pg_get_constraintdef(oid) ilike '%branches%'
        ) then 'APPLIED' else 'MISSING' end,
        'audience CHECK allows ''branches'''
