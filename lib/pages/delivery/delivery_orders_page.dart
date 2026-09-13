@@ -13,12 +13,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:bot_toast/bot_toast.dart';
+import 'package:geolocator/geolocator.dart' show Geolocator;
 import '../../auth/auth.dart';
 import '../../db/db.dart';
 import '../../services/config_service.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
-import '../../utils/formatters.dart' show formatMoney, formatRelativeDate;
+import '../../utils/formatters.dart'
+    show formatMoney, formatRelativeDate, formatDistance, formatTimeOfDay;
 import '../../dialogs/delivery_order_receipt_dialog.dart';
 
 class DeliveryOrdersPage extends StatefulWidget {
@@ -95,8 +97,10 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
         _orders
             .where((o) => o.status == DeliveryOrderStatus.cashierPricing)
             .toList(),
+      // Agreed AND everything a rider is carrying, so an order does not
+      // vanish from the cashier's view the moment it is dispatched.
       _Filter.agreed =>
-        _orders.where((o) => o.status == DeliveryOrderStatus.agreed).toList(),
+        _orders.where((o) => o.isAgreed || o.isWithRider).toList(),
       _Filter.completed =>
         _orders
             .where((o) => o.status == DeliveryOrderStatus.completed)
@@ -396,6 +400,146 @@ class _OrderCardState extends State<_OrderCard> {
     } finally {
       if (mounted) widget.onBusyChanged(false);
     }
+  }
+
+  // ── Dispatch (v50) ─────────────────────────────────────────────────
+
+  /// Pick a rider. The list is sorted by distance from THIS cashier's
+  /// saved location, using each rider's last known position — a rider who
+  /// has never pinged sorts last, not first.
+  Future<void> _assignRider() async {
+    // Read before the first await — context must not be used across it.
+    final uid = context.read<AuthState>().userId;
+    widget.onBusyChanged(true);
+    List<UserProfile> riders;
+    CashierLocation? here;
+    try {
+      riders = await repository.fetchRiders();
+      here = uid == null ? null : await repository.fetchCashierLocation(uid);
+    } catch (_) {
+      if (mounted) BotToast.showText(text: 'Could not load riders.');
+      widget.onBusyChanged(false);
+      return;
+    } finally {
+      if (mounted) widget.onBusyChanged(false);
+    }
+    if (!mounted) return;
+    if (riders.isEmpty) {
+      BotToast.showText(
+        text: 'No delivery accounts yet — ask an admin to create one.',
+      );
+      return;
+    }
+
+    final origin = here;
+    double? dist(UserProfile r) {
+      if (origin == null || r.latitude == null || r.longitude == null) {
+        return null;
+      }
+      return Geolocator.distanceBetween(
+        origin.latitude,
+        origin.longitude,
+        r.latitude!,
+        r.longitude!,
+      );
+    }
+
+    final sorted = [...riders]
+      ..sort((a, b) {
+        final da = dist(a), db = dist(b);
+        if (da == null && db == null) return a.username.compareTo(b.username);
+        if (da == null) return 1;
+        if (db == null) return -1;
+        return da.compareTo(db);
+      });
+
+    final chosen = await showDialog<UserProfile>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(
+          widget.order.isAssigned ? 'Reassign rider' : 'Assign a rider',
+        ),
+        children: [
+          for (final r in sorted)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, r),
+              child: Row(
+                children: [
+                  const Icon(Icons.two_wheeler_rounded, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      r.username,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 14,
+                        fontWeight: r.id == widget.order.deliveryId
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    dist(r) == null ? 'no position' : formatDistance(dist(r)!),
+                    style: StockpileFonts.satoshi(
+                      fontSize: 12,
+                      color: StockpileColors.mutedText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null || !mounted) return;
+
+    widget.onBusyChanged(true);
+    try {
+      await repository.assignRider(
+        orderId: widget.order.id,
+        riderId: chosen.id,
+      );
+      if (!mounted) return;
+      BotToast.showText(text: 'Assigned to ${chosen.username}.');
+      widget.onChanged();
+    } catch (e) {
+      if (!mounted) return;
+      BotToast.showText(text: 'Could not assign the rider.');
+    } finally {
+      if (mounted) widget.onBusyChanged(false);
+    }
+  }
+
+  /// The member never confirmed. Closing it is recorded as a cashier
+  /// override, so it stays visible as a judgement call rather than a
+  /// confirmation.
+  Future<void> _closeUnconfirmed() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Close without confirmation?'),
+        content: Text(
+          '${widget.order.deliveryName ?? 'The rider'} marked this delivered '
+          'but the member has not confirmed. Closing it records that you '
+          'overrode the confirmation.',
+          style: Theme.of(ctx).textTheme.bodyMedium,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Wait'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Close order'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _completeSale();
   }
 
   Future<void> _cancel() async {
@@ -781,19 +925,73 @@ class _OrderCardState extends State<_OrderCard> {
           style: StockpileFonts.satoshi(fontSize: 13, color: Colors.grey),
         );
       case DeliveryOrderStatus.agreed:
-        return SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: busy ? null : _completeSale,
-            icon: busy
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.receipt_long_rounded, size: 18),
-            label: const Text('Complete Sale & Print Receipt'),
-          ),
+        // Two ways out of Agreed: hand it to a rider, or hand it over at
+        // the counter yourself. Both stay available — the rider is optional.
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FilledButton.icon(
+              onPressed: busy ? null : _assignRider,
+              icon: busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.two_wheeler_rounded, size: 18),
+              label: const Text('Assign a Rider'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: busy ? null : _completeSale,
+              icon: const Icon(Icons.receipt_long_rounded, size: 18),
+              label: const Text('Complete at Counter & Print Receipt'),
+            ),
+          ],
+        );
+      case DeliveryOrderStatus.assigned:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Waiting for ${widget.order.deliveryName ?? 'the rider'} to pick up.',
+              style: StockpileFonts.satoshi(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: busy ? null : _assignRider,
+              icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+              label: const Text('Reassign Rider'),
+            ),
+            TextButton(
+              onPressed: busy ? null : _cancel,
+              child: const Text('Cancel Order'),
+            ),
+          ],
+        );
+      case DeliveryOrderStatus.pickedUp:
+        final eta = widget.order.etaAt;
+        return Text(
+          'On its way with ${widget.order.deliveryName ?? 'the rider'}'
+          '${eta == null ? '' : ' · ETA ${formatTimeOfDay(eta)}'}.',
+          style: StockpileFonts.satoshi(fontSize: 13, color: Colors.grey),
+        );
+      case DeliveryOrderStatus.delivered:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Delivered by ${widget.order.deliveryName ?? 'the rider'} — '
+              'waiting for the member to confirm.',
+              style: StockpileFonts.satoshi(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: busy ? null : _closeUnconfirmed,
+              icon: const Icon(Icons.task_alt_rounded, size: 18),
+              label: const Text('Close Without Confirmation'),
+            ),
+          ],
         );
       case DeliveryOrderStatus.completed:
       case DeliveryOrderStatus.cancelled:
@@ -836,6 +1034,13 @@ class _StatusBadge extends StatelessWidget {
       DeliveryOrderStatus.cashierPricing => (
         StockpileColors.primary900,
         StockpileColors.primary900.withAlpha(25),
+      ),
+      // Rider states: blue while it is out of the cashier's hands.
+      DeliveryOrderStatus.assigned ||
+      DeliveryOrderStatus.pickedUp ||
+      DeliveryOrderStatus.delivered => (
+        StockpileColors.secondary500,
+        StockpileColors.secondary500.withAlpha(30),
       ),
       _ => (
         StockpileColors.primary900,

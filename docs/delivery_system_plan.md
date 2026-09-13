@@ -392,13 +392,32 @@ Each step is shippable on its own and useful without the next.
 
 | # | Migration | App | Why this order |
 |---|---|---|---|
-| 1 | **v49** orders authorization: RLS on `orders`/`order_items`, caller checks in all six RPCs, ledger rows for v47/v48 | — | Prerequisite. Adding a rider to unauthorized RPCs makes the hole bigger. |
-| 2 | **v50** `delivery` role, `is_delivery()`, order columns (§1), new statuses, dispatch/pickup/deliver RPCs, receiver fields, ETA | `UserRole.delivery`, rider screens, cashier dispatch, member sees rider + ETA | **Ship the app before the first rider account exists.** |
+| 1 | ✅ **v49** orders authorization: RLS on `orders`/`order_items`, caller checks in all six RPCs, ledger rows for v47/v48 | — | Prerequisite. Adding a rider to unauthorized RPCs makes the hole bigger. |
+| 2 | ✅ **v50** `delivery` role, `is_delivery()`, order columns (§1), new statuses, dispatch/pickup/deliver RPCs, receiver fields, ETA | ✅ `UserRole.delivery`, rider screens, cashier dispatch, member sees rider + ETA, admin filter/colour/Riders chip | **Ship the app before the first rider account exists.** |
 | 3 | **v51** payment: `pay_order_with_funds`, `cod_nonce`, `confirm_cod_delivery`, `sales` gets `payment_method` | payment choice at Agreed, member QR screen, rider scanner, confirmation | Depends on the rider existing. |
 | 4 | **v52** `order_messages` + Realtime + RLS | chat sheet on order detail, all three roles | Independent; could go earlier, but riders make it worth having. |
 | 5 | `app_config` fee keys (no migration — `insert … on conflict do nothing` can ride on v52) | settings fields, quote pre-fill | Small. |
 
 Every migration from v49 on carries the ledger footer.
+
+**Built 2026-09-14 (v49 + v50 + app), on branch `delivery-account` from
+`origin/Delivery-System`.** What was NOT built, and why:
+
+- **Receiver fields at checkout.** The columns exist and the rider's screens
+  read them, but the member's cart does not yet ask "who is receiving?" — that
+  is the teammate's marketplace code, and it defaults to the member correctly
+  until it does.
+- **Handover QR scan.** The rider's Handover is a plain "Mark delivered" with a
+  confirmation dialog. The scanner is v51's — it only means something once
+  there is a payment to confirm with it, and a fake scanner that always
+  succeeds is worse than a button that says what it does.
+- **`sales` on member confirmation.** See the README's v50 note. Until v51, an
+  order the member confirms is Completed but has no `sales` rows; the cashier
+  override path records them client-side as v48 did.
+- **Delivery notifications.** The teammate's `delivery_notification_service`
+  chimes on order events; it does not yet know the rider states. Realtime
+  still refreshes every screen — the rider just does not get a sound when
+  assigned. Small; do it with v52's chat, which needs the same plumbing.
 
 ---
 

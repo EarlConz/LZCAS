@@ -3534,13 +3534,132 @@ class SupabaseRepository {
       ..sort((a, b) => a.name.compareTo(b.name));
   }
 
-  /// Delivery orders for the Cashier/Admin module (all orders), or scoped to
-  /// one member for the member-facing Active Orders screen.
-  Future<List<DeliveryOrder>> fetchDeliveryOrders({int? memberId}) async {
+  /// Delivery orders. Unscoped for the Cashier/Admin module; scoped to one
+  /// member for Active Orders; scoped to one rider for My Deliveries.
+  ///
+  /// As of v49 RLS does the real filtering — a member only ever receives
+  /// their own rows, a rider only the orders assigned to them — so these
+  /// parameters narrow a set that is already safe, not the other way round.
+  Future<List<DeliveryOrder>> fetchDeliveryOrders({
+    int? memberId,
+    String? deliveryId,
+  }) async {
     var query = _supabase.from('orders').select('*, order_items(*)');
     if (memberId != null) query = query.eq('member_id', memberId);
+    if (deliveryId != null) query = query.eq('delivery_id', deliveryId);
     final data = await query.order('created_at', ascending: false);
     return _hydrateDeliveryOrders(data as List);
+  }
+
+  // ── Delivery riders (v50) ──────────────────────────────────────────
+
+  /// Every delivery account, with their last known position, for the
+  /// cashier's dispatch picker and the admin location map.
+  Future<List<UserProfile>> fetchRiders() async {
+    final data = await _supabase
+        .from('profiles')
+        .select(
+          'id, username, email, role, member_id, mobile_enabled, '
+          'latitude, longitude, address, location_updated_at, created_at',
+        )
+        .eq('role', 'delivery')
+        .order('username');
+    return (data as List)
+        .map((j) => UserProfile.fromJson(Map<String, dynamic>.from(j)))
+        .toList();
+  }
+
+  /// Cashier dispatches an agreed order to a rider (`Agreed → Assigned`).
+  /// Re-dispatch from Assigned is allowed; from Picked Up it is not.
+  Future<void> assignRider({
+    required String orderId,
+    required String riderId,
+  }) async {
+    await _supabase.rpc(
+      'cashier_assign_rider',
+      params: {'p_order_id': orderId, 'p_rider_id': riderId},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Rider has the goods. The ETA is the rider's own estimate — there is
+  /// no routing engine — and must be in the future.
+  Future<void> deliveryPickup({
+    required String orderId,
+    required DateTime etaAt,
+  }) async {
+    await _supabase.rpc(
+      'delivery_pickup',
+      params: {
+        'p_order_id': orderId,
+        'p_eta_at': etaAt.toUtc().toIso8601String(),
+      },
+    );
+    _changes.add('order_updated');
+  }
+
+  Future<void> deliveryUpdateEta({
+    required String orderId,
+    required DateTime etaAt,
+  }) async {
+    await _supabase.rpc(
+      'delivery_update_eta',
+      params: {
+        'p_order_id': orderId,
+        'p_eta_at': etaAt.toUtc().toIso8601String(),
+      },
+    );
+    _changes.add('order_updated');
+  }
+
+  /// The rider's claim that it is handed over. The member's confirmation
+  /// (`memberConfirmReceived`) is a separate step, on purpose.
+  Future<void> deliveryMarkDelivered(String orderId) async {
+    await _supabase.rpc(
+      'delivery_mark_delivered',
+      params: {'p_order_id': orderId},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// The rider's current position, written to their own profile row.
+  /// Called on a timer only while an order is Picked Up — never
+  /// off-shift. Swallows failures: a missed ping is not worth a toast
+  /// on a phone that is being used to navigate.
+  Future<void> deliveryUpdatePosition({
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      await _supabase.rpc(
+        'delivery_update_position',
+        params: {'p_latitude': latitude, 'p_longitude': longitude},
+      );
+    } catch (e) {
+      debugPrint('[deliveryUpdatePosition] failed: $e');
+    }
+  }
+
+  /// Member confirms receipt (`Delivered → Completed`, method member_tap).
+  Future<void> memberConfirmReceived(String orderId) async {
+    await _supabase.rpc(
+      'member_confirm_received',
+      params: {'p_order_id': orderId},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Cancel with a reason. Required when a rider cancels; recorded for
+  /// everyone else so the cashier knows why an order came back.
+  Future<void> cancelDeliveryOrderWithReason({
+    required String orderId,
+    required String reason,
+  }) async {
+    await _supabase.rpc(
+      'cancel_delivery_order',
+      params: {'p_order_id': orderId, 'p_reason': reason},
+    );
+    _changes.add('order_updated');
   }
 
   /// Resolves display names (product / member / cashier) client-side so the
@@ -3583,6 +3702,10 @@ class SupabaseRepository {
         cashierName: order.cashierId == null
             ? null
             : cashierNames[order.cashierId],
+        // Same map: riders are profiles too.
+        deliveryName: order.deliveryId == null
+            ? null
+            : cashierNames[order.deliveryId],
       );
     }).toList();
   }

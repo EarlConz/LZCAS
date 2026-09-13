@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v46)
+├── migrations/    Ordered, apply-once changes (v2 … v50)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -288,6 +288,50 @@ anywhere._
 
   **Check prod for the same thing** — the RLS state was never declared, so
   whatever it is there, it is by accident.
+
+**Member location + delivery orders (v47–v48)** — _on the `Delivery-System`
+branch; not yet applied anywhere._
+
+- v47 — `members.latitude/longitude/location_updated_at`.
+- v48 — `orders`, `order_items`, Realtime on `orders`, and six SECURITY
+  DEFINER RPCs for the cashier ⇄ member fee negotiation. **Shipped with RLS
+  off and no caller checks** — see v49. Do not apply v48 without v49.
+
+**Orders authorization (v49)** — _prerequisite for v50. Not yet applied._
+
+- v49 — RLS on `orders` and `order_items` (member: own; cashier: theirs plus
+  unassigned; rider: theirs; admin: all), and a caller check in every v48
+  RPC. Without this, every member can read every other member's home
+  coordinates and anyone can cancel or complete any order. Also defines
+  `is_delivery()`, `my_member_id()` and `order_rider_is_me()`, and records
+  v47/v48 in the ledger. Signatures unchanged — no Dart caller breaks.
+
+  Cannot be verified in the SQL editor (superuser). In the app: a member must
+  not see another member's order; a non-owner calling `cancel_delivery_order`
+  must fail.
+
+**Delivery rider (v50)** — _not yet applied. Ship the app FIRST._
+
+- v50 — `profiles.role = 'delivery'`; `orders` gains `delivery_id`, the
+  pickup / ETA / delivered timestamps, receiver fields, confirmation fields,
+  `cancel_reason`, and `payment_method` / `payment_status` (nullable — nothing
+  sets them until v51). Status set widens to add Assigned / Picked Up /
+  Delivered. RPCs: `cashier_assign_rider`, `delivery_pickup`,
+  `delivery_update_eta`, `delivery_mark_delivered`,
+  `delivery_update_position`, `member_confirm_received`; redefines
+  `complete_delivery_order` (Agreed → counter handover, Delivered → cashier
+  override) and `cancel_delivery_order` (rider states, with a reason).
+
+  `UserRole.fromString` **throws** on an unknown role, so the build that knows
+  `delivery` must be installed before the first rider account is created —
+  the v28 rule. The rider is optional per order: an Agreed order can still be
+  completed at the counter exactly as v48 intended.
+
+  Known gap, deliberately left for v51: an order the **member** confirms
+  (`member_confirm_received`) is not recorded in `sales`. The cashier's
+  counter path writes `sales` client-side before completing; the member's
+  path has no client to do that. v51 moves sale recording into the
+  completion RPCs, where payment lives too.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

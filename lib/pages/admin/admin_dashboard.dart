@@ -914,6 +914,10 @@ class _UserManagementTabState extends State<_UserManagementTab>
                                       value: 'branch_cashier',
                                       child: Text('Branch Cashier'),
                                     ),
+                                    DropdownMenuItem(
+                                      value: 'delivery',
+                                      child: Text('Delivery'),
+                                    ),
                                   ],
                                   onChanged: (v) =>
                                       setState(() => _userRoleFilter = v),
@@ -1444,6 +1448,8 @@ class _UserManagementTabState extends State<_UserManagementTab>
         return Colors.amber.shade700;
       case 'branch_cashier':
         return Colors.teal.shade700;
+      case 'delivery':
+        return Colors.deepOrange.shade700;
       default:
         return Colors.grey;
     }

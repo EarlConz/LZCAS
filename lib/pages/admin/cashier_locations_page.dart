@@ -30,7 +30,11 @@ import 'package:lzcas/utils/toast_utils.dart';
 enum _RoleFilter {
   all('All'),
   cashier('Cashiers', 'cashier'),
-  branchCashier('Branch Cashiers', 'branch_cashier');
+  branchCashier('Branch Cashiers', 'branch_cashier'),
+
+  /// Riders write their position here every 60 s while on a delivery
+  /// (v50), so this is the admin's "where are my riders now" view.
+  rider('Riders', 'delivery');
 
   const _RoleFilter(this.label, [this.dbValue]);
 
@@ -38,7 +42,17 @@ enum _RoleFilter {
 
   /// The exact `profiles.role` string, or null for [all].
   final String? dbValue;
+}
 
+/// One glyph per role, shared by the map marker and the roster avatar so
+/// the two never disagree.
+IconData _iconForRole(String role) => switch (role) {
+  'branch_cashier' => Icons.storefront_rounded,
+  'delivery' => Icons.two_wheeler_rounded,
+  _ => Icons.point_of_sale_rounded,
+};
+
+extension on _RoleFilter {
   bool matches(UserProfile p) => dbValue == null || p.role == dbValue;
 }
 
@@ -75,10 +89,15 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
 
   Future<void> _load() async {
     try {
-      final rows = await repository.fetchCashierProfiles();
+      // Cashiers and riders come from two queries because the cashier one
+      // predates riders and other screens depend on its exact filter.
+      final results = await Future.wait([
+        repository.fetchCashierProfiles(),
+        repository.fetchRiders(),
+      ]);
       if (!mounted) return;
       setState(() {
-        _profiles = rows;
+        _profiles = [...results[0], ...results[1]];
         _loading = false;
       });
     } catch (e) {
@@ -295,9 +314,7 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
                     child: Tooltip(
                       message: p.username,
                       child: Icon(
-                        p.role == 'branch_cashier'
-                            ? Icons.storefront_rounded
-                            : Icons.point_of_sale_rounded,
+                        _iconForRole(p.role),
                         size: 34,
                         color: StockpileColors.primary900,
                         shadows: const [
@@ -459,7 +476,6 @@ class _CashierRow extends StatelessWidget {
   });
 
   bool get _hasLocation => onClear != null;
-  bool get _isBranch => profile.role == 'branch_cashier';
 
   @override
   Widget build(BuildContext context) {
@@ -477,9 +493,7 @@ class _CashierRow extends StatelessWidget {
                     : StockpileColors.inputBg),
           child: Icon(
             _hasLocation
-                ? (_isBranch
-                      ? Icons.storefront_rounded
-                      : Icons.point_of_sale_rounded)
+                ? _iconForRole(profile.role)
                 : Icons.location_off_rounded,
             size: 20,
             color: _hasLocation ? StockpileColors.primary900 : muted,
@@ -504,7 +518,7 @@ class _CashierRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  _RoleChip(isBranch: _isBranch, isDark: isDark),
+                  _RoleChip(role: profile.role, isDark: isDark),
                 ],
               ),
               const SizedBox(height: 4),
@@ -558,28 +572,38 @@ class _CashierRow extends StatelessWidget {
 }
 
 class _RoleChip extends StatelessWidget {
-  final bool isBranch;
+  final String role;
   final bool isDark;
 
-  const _RoleChip({required this.isBranch, required this.isDark});
+  const _RoleChip({required this.role, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
-    final bg = isBranch
-        ? StockpileColors.secondary50
-        : (isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg);
-    final fg = isBranch
-        ? StockpileColors.secondary500
-        : StockpileColors.mutedText;
+    final neutralBg = isDark
+        ? StockpileColors.darkInputBg
+        : StockpileColors.inputBg;
+    final (bg, fg, label) = switch (role) {
+      'branch_cashier' => (
+        StockpileColors.secondary50,
+        StockpileColors.secondary500,
+        'Branch Cashier',
+      ),
+      'delivery' => (
+        StockpileColors.primary50,
+        const Color(0xFFB24800),
+        'Rider',
+      ),
+      _ => (neutralBg, StockpileColors.mutedText, 'Cashier'),
+    };
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: isDark && !isBranch ? StockpileColors.darkInputBg : bg,
+        color: bg,
         borderRadius: BorderRadius.circular(100),
       ),
       child: Text(
-        isBranch ? 'Branch Cashier' : 'Cashier',
+        label,
         style: StockpileFonts.satoshi(
           fontSize: 11,
           fontWeight: FontWeight.w700,

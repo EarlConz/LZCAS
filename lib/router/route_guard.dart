@@ -46,6 +46,9 @@ abstract class AppRoutes {
   static const String memberDashboard = '/member/dashboard';
   static const String memberNearestCashiers = '/member/nearest-cashiers';
 
+  // Delivery rider (v50)
+  static const String deliveryDashboard = '/delivery/dashboard';
+
   /// All role-based route prefixes for quick matching.
   static const _rolePrefixes = {
     UserRole.admin: '/admin',
@@ -54,6 +57,7 @@ abstract class AppRoutes {
     UserRole.branchCashier: '/branch',
     UserRole.member: '/member',
     UserRole.reseller: '/member',
+    UserRole.delivery: '/delivery',
   };
 
   /// Returns the default landing route for a given [role].
@@ -70,6 +74,8 @@ abstract class AppRoutes {
       case UserRole.member:
       case UserRole.reseller:
         return memberDashboard;
+      case UserRole.delivery:
+        return deliveryDashboard;
     }
   }
 

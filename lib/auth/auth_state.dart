@@ -17,7 +17,12 @@ enum UserRole {
   cashier('Cashier', 'cashier'),
   branchCashier('Branch Cashier', 'branch_cashier'),
   member('Member', 'member'),
-  reseller('Reseller', 'reseller');
+  reseller('Reseller', 'reseller'),
+
+  /// A delivery rider (v50). Not staff: `is_staff()` grants POS and
+  /// inventory, and a rider needs neither. Mobile-capable with no
+  /// `mobile_enabled` grant — see [AuthState._mobileBlocked].
+  delivery('Delivery', 'delivery');
 
   final String displayName;
 
@@ -41,6 +46,8 @@ enum UserRole {
         return UserRole.member;
       case 'reseller':
         return UserRole.reseller;
+      case 'delivery':
+        return UserRole.delivery;
       default:
         throw ArgumentError('Unknown role: $raw');
     }

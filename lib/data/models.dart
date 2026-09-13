@@ -1395,8 +1395,23 @@ abstract class DeliveryOrderStatus {
   static const cashierPricing = 'Cashier Pricing & Negotiating';
   static const memberNegotiating = 'Member Negotiating';
   static const agreed = 'Agreed';
+
+  // Rider states (v50). Delivered and Completed are deliberately distinct:
+  // the rider's claim and the member's confirmation are different facts.
+  static const assigned = 'Assigned';
+  static const pickedUp = 'Picked Up';
+  static const delivered = 'Delivered';
+
   static const completed = 'Completed';
   static const cancelled = 'Cancelled';
+}
+
+/// How an order was confirmed complete (`orders.confirmation_method`).
+abstract class OrderConfirmation {
+  OrderConfirmation._();
+  static const memberTap = 'member_tap';
+  static const qr = 'qr';
+  static const cashierOverride = 'cashier_override';
 }
 
 /// One requested line on a delivery order (`order_items`).
@@ -1470,9 +1485,38 @@ class DeliveryOrder {
   final DateTime? updatedAt;
   final List<DeliveryOrderItem> items;
 
+  // ── Rider stage (v50) ─────────────────────────────────────────────
+  /// `profiles.id` of the rider, once the cashier has dispatched one.
+  final String? deliveryId;
+  final DateTime? assignedAt;
+  final DateTime? pickedUpAt;
+
+  /// The rider's own estimate, entered at pickup and updatable while on
+  /// the way. Not computed — there is no routing engine (plan §3).
+  final DateTime? etaAt;
+  final DateTime? deliveredAt;
+
+  /// Who receives it, which may not be the member. Defaults to the member
+  /// at checkout; stored on the order because it can differ per order.
+  final String? receiverName;
+  final String? receiverContact;
+
+  final String? confirmedBy;
+  final DateTime? confirmedAt;
+
+  /// One of [OrderConfirmation]; null until Completed.
+  final String? confirmationMethod;
+  final String? cancelReason;
+
+  /// 'funds' or 'cod'. Nothing sets these until v51 — they exist so the
+  /// rider's screens have a stable shape. Null reads as "not set".
+  final String? paymentMethod;
+  final String paymentStatus;
+
   /// Resolved client-side (not stored on `orders`).
   final String? memberName;
   final String? cashierName;
+  final String? deliveryName;
 
   const DeliveryOrder({
     required this.id,
@@ -1488,8 +1532,22 @@ class DeliveryOrder {
     this.createdAt,
     this.updatedAt,
     this.items = const [],
+    this.deliveryId,
+    this.assignedAt,
+    this.pickedUpAt,
+    this.etaAt,
+    this.deliveredAt,
+    this.receiverName,
+    this.receiverContact,
+    this.confirmedBy,
+    this.confirmedAt,
+    this.confirmationMethod,
+    this.cancelReason,
+    this.paymentMethod,
+    this.paymentStatus = 'unpaid',
     this.memberName,
     this.cashierName,
+    this.deliveryName,
   });
 
   factory DeliveryOrder.fromJson(Map<String, dynamic> json) => DeliveryOrder(
@@ -1512,7 +1570,23 @@ class DeliveryOrder {
     items: (json['order_items'] as List? ?? const [])
         .map((j) => DeliveryOrderItem.fromJson(j as Map<String, dynamic>))
         .toList(),
+    deliveryId: json['delivery_id'] as String?,
+    assignedAt: _ts(json['assigned_at']),
+    pickedUpAt: _ts(json['picked_up_at']),
+    etaAt: _ts(json['eta_at']),
+    deliveredAt: _ts(json['delivered_at']),
+    receiverName: json['receiver_name'] as String?,
+    receiverContact: json['receiver_contact'] as String?,
+    confirmedBy: json['confirmed_by'] as String?,
+    confirmedAt: _ts(json['confirmed_at']),
+    confirmationMethod: json['confirmation_method'] as String?,
+    cancelReason: json['cancel_reason'] as String?,
+    paymentMethod: json['payment_method'] as String?,
+    paymentStatus: json['payment_status'] as String? ?? 'unpaid',
   );
+
+  static DateTime? _ts(Object? v) =>
+      v == null ? null : DateTime.tryParse(v.toString());
 
   /// Whether this order is still in an active negotiation state.
   bool get isOpen =>
@@ -1523,6 +1597,33 @@ class DeliveryOrder {
   /// True once both sides agreed and the final total is locked.
   bool get isAgreed => status == DeliveryOrderStatus.agreed;
 
+  /// A rider has it, in some stage: Assigned, Picked Up or Delivered.
+  bool get isWithRider =>
+      status == DeliveryOrderStatus.assigned ||
+      status == DeliveryOrderStatus.pickedUp ||
+      status == DeliveryOrderStatus.delivered;
+
+  bool get isAssigned => status == DeliveryOrderStatus.assigned;
+  bool get isPickedUp => status == DeliveryOrderStatus.pickedUp;
+  bool get isDelivered => status == DeliveryOrderStatus.delivered;
+  bool get isCompleted => status == DeliveryOrderStatus.completed;
+  bool get isCancelled => status == DeliveryOrderStatus.cancelled;
+
+  bool get isCod => paymentMethod == 'cod';
+  bool get isFunds => paymentMethod == 'funds';
+  bool get isPaid => paymentStatus == 'paid';
+
+  /// Who the rider hands it to. Falls back to the member — the receiver
+  /// fields are optional at checkout.
+  String get receiverDisplayName => (receiverName ?? '').trim().isNotEmpty
+      ? receiverName!.trim()
+      : (memberName ?? 'Member #$memberId');
+
+  /// Short, human-sized order reference: the first block of the UUID,
+  /// upper-cased. Enough to read out over the phone; not unique in
+  /// theory, unique enough in a few hundred orders.
+  String get shortId => id.split('-').first.toUpperCase();
+
   DeliveryOrder copyWith({
     String? status,
     String? cashierId,
@@ -1532,6 +1633,8 @@ class DeliveryOrder {
     List<DeliveryOrderItem>? items,
     String? memberName,
     String? cashierName,
+    String? deliveryName,
+    DateTime? etaAt,
   }) => DeliveryOrder(
     id: id,
     memberId: memberId,
@@ -1546,8 +1649,22 @@ class DeliveryOrder {
     createdAt: createdAt,
     updatedAt: updatedAt,
     items: items ?? this.items,
+    deliveryId: deliveryId,
+    assignedAt: assignedAt,
+    pickedUpAt: pickedUpAt,
+    etaAt: etaAt ?? this.etaAt,
+    deliveredAt: deliveredAt,
+    receiverName: receiverName,
+    receiverContact: receiverContact,
+    confirmedBy: confirmedBy,
+    confirmedAt: confirmedAt,
+    confirmationMethod: confirmationMethod,
+    cancelReason: cancelReason,
+    paymentMethod: paymentMethod,
+    paymentStatus: paymentStatus,
     memberName: memberName ?? this.memberName,
     cashierName: cashierName ?? this.cashierName,
+    deliveryName: deliveryName ?? this.deliveryName,
   );
 }
 

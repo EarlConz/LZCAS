@@ -31,6 +31,11 @@ String formatRelativeDate(DateTime? dt) {
 String formatDayAndMonth(DateTime? dt) =>
     dt == null ? '' : DateFormat('d MMMM').format(dt.toLocal());
 
+/// "4:30 PM" — a clock time on its own. Used for a rider's ETA, which is
+/// always today or in the next few hours, so the date would be noise.
+String formatTimeOfDay(DateTime? dt) =>
+    dt == null ? '' : DateFormat('h:mm a').format(dt.toLocal());
+
 /// Formats a distance in metres as "850 m" or "1.2 km" / "12 km away".
 ///
 /// Used by the Nearest Cashiers map. Keeps one decimal for kilometres under
