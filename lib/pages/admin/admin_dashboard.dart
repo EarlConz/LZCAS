@@ -26,6 +26,7 @@ import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/pages/admin/branch_stock_page.dart';
 import 'package:lzcas/pages/admin/announcements_page.dart';
 import 'package:lzcas/pages/admin/cashier_locations_page.dart';
+import 'package:lzcas/pages/delivery/delivery_orders_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/dialogs/adjust_funds_dialog.dart';
 import 'package:lzcas/db/db.dart';
@@ -63,6 +64,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'Branch Stock',
     'Announcements',
     'Cashier Locations',
+    'Delivery Orders',
     'Settings',
   ];
 
@@ -89,7 +91,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
     AdminAnnouncementsPage(),
     // 10: Cashier Locations — review/remove what members see on their map
     AdminCashierLocationsPage(),
-    // 11: Settings — Global Config moved here
+    // 11: Delivery Orders — price member orders + negotiate delivery fees
+    DeliveryOrdersPage(),
+    // 12: Settings — Global Config moved here
     _AdminSettingsTab(),
   ];
 
@@ -3592,6 +3596,7 @@ class _AdminSidebar extends StatelessWidget {
     _NavItem(Icons.local_shipping_rounded, 'Branch Stock'),
     _NavItem(Icons.campaign_rounded, 'Announcements'),
     _NavItem(Icons.pin_drop_rounded, 'Cashier Locations'),
+    _NavItem(Icons.delivery_dining_rounded, 'Delivery Orders'),
   ];
 
   /// How the flat `_navItems` list is presented: Dashboard on its own, then
@@ -3601,7 +3606,7 @@ class _AdminSidebar extends StatelessWidget {
   /// Indices, not items — see [_NavGroup].
   static const _navGroups = <_NavGroup>[
     _NavGroup(null, [0]), // Dashboard
-    _NavGroup('Selling & Stock', [4, 2, 8, 3]),
+    _NavGroup('Selling & Stock', [4, 2, 8, 11, 3]),
     _NavGroup('Members', [5, 7, 6, 9]),
     _NavGroup('Staff', [1, 10]),
   ];

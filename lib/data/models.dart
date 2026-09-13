@@ -82,6 +82,16 @@ class Member {
   final int? packageId;
   final String? packageName; // joined via Supabase FK -> packages(name)
 
+  /// Saved physical location (Member/Buyer role). Null means "not set yet".
+  /// Mirrors the cashier / branch-cashier location fields on `profiles`
+  /// (migration v37); `address` above is reused for the reverse-geocoded
+  /// string, exactly as `profiles.address` is for cashiers.
+  final double? latitude;
+  final double? longitude;
+
+  /// When the member's location was last set (null = never set).
+  final DateTime? locationUpdatedAt;
+
   /// Soft-delete flag: deleted members are hidden from lists but stay in
   /// the referral tree so previously earned bonuses are never deducted.
   final bool isDeleted;
@@ -102,6 +112,9 @@ class Member {
     this.userId,
     this.packageId,
     this.packageName,
+    this.latitude,
+    this.longitude,
+    this.locationUpdatedAt,
     this.isDeleted = false,
   });
 
@@ -121,6 +134,11 @@ class Member {
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
     packageName: _extractPackageName(json['packages']),
+    latitude: (json['latitude'] as num?)?.toDouble(),
+    longitude: (json['longitude'] as num?)?.toDouble(),
+    locationUpdatedAt: json['location_updated_at'] != null
+        ? DateTime.tryParse(json['location_updated_at'].toString())
+        : null,
     isDeleted: json['is_deleted'] as bool? ?? false,
   );
 
@@ -142,6 +160,10 @@ class Member {
     // above is omit-when-null so a partial update never wipes an unrelated
     // field; package_id is deliberately different because null is meaningful.
     'package_id': packageId,
+    if (latitude != null) 'latitude': latitude,
+    if (longitude != null) 'longitude': longitude,
+    if (locationUpdatedAt != null)
+      'location_updated_at': locationUpdatedAt!.toIso8601String(),
   };
 
   /// Sentinel so [copyWith] can distinguish "leave packageId unchanged" from
@@ -165,6 +187,9 @@ class Member {
     String? userId,
     Object? packageId = _unsetPackage,
     String? packageName,
+    double? latitude,
+    double? longitude,
+    DateTime? locationUpdatedAt,
     bool? isDeleted,
   }) => Member(
     id: id ?? this.id,
@@ -184,6 +209,9 @@ class Member {
         ? this.packageId
         : packageId as int?,
     packageName: packageName ?? this.packageName,
+    latitude: latitude ?? this.latitude,
+    longitude: longitude ?? this.longitude,
+    locationUpdatedAt: locationUpdatedAt ?? this.locationUpdatedAt,
     isDeleted: isDeleted ?? this.isDeleted,
   );
 }
@@ -1355,4 +1383,181 @@ class AppConfigEntry {
   );
 
   Map<String, dynamic> toJson() => {'key': key, 'value': value};
+}
+
+// ── Member Ordering & Delivery Negotiation (v48) ──────────────────────────
+
+/// Valid `orders.status` values, as one source of truth for the UI.
+abstract class DeliveryOrderStatus {
+  DeliveryOrderStatus._();
+
+  static const orderPlaced = 'Order Placed';
+  static const cashierPricing = 'Cashier Pricing & Negotiating';
+  static const memberNegotiating = 'Member Negotiating';
+  static const agreed = 'Agreed';
+  static const completed = 'Completed';
+  static const cancelled = 'Cancelled';
+}
+
+/// One requested line on a delivery order (`order_items`).
+///
+/// [unitPrice] and [subtotal] are null until the Cashier prices them — they
+/// are fixed from that moment on and never renegotiated.
+class DeliveryOrderItem {
+  final int? id;
+  final String? orderId;
+  final int productId;
+  final int quantity;
+  final double? unitPrice;
+  final double? subtotal;
+
+  /// Resolved client-side from the `items` catalog (not stored on
+  /// `order_items`) so history survives item renames/deletion.
+  final String? productName;
+
+  const DeliveryOrderItem({
+    this.id,
+    this.orderId,
+    required this.productId,
+    this.quantity = 1,
+    this.unitPrice,
+    this.subtotal,
+    this.productName,
+  });
+
+  factory DeliveryOrderItem.fromJson(Map<String, dynamic> json) =>
+      DeliveryOrderItem(
+        id: (json['id'] as num?)?.toInt(),
+        orderId: json['order_id'] as String?,
+        productId: (json['product_id'] as num?)?.toInt() ?? 0,
+        quantity: (json['quantity'] as num?)?.toInt() ?? 1,
+        unitPrice: (json['unit_price'] as num?)?.toDouble(),
+        subtotal: (json['subtotal'] as num?)?.toDouble(),
+      );
+
+  DeliveryOrderItem copyWith({
+    String? productName,
+    double? unitPrice,
+    double? subtotal,
+  }) => DeliveryOrderItem(
+    id: id,
+    orderId: orderId,
+    productId: productId,
+    quantity: quantity,
+    unitPrice: unitPrice ?? this.unitPrice,
+    subtotal: subtotal ?? this.subtotal,
+    productName: productName ?? this.productName,
+  );
+}
+
+/// A member delivery order (`orders`) plus its lines.
+///
+/// [itemsTotal] / [deliveryFee] / [finalTotal] are nullable until their
+/// stage of the negotiation sets them. [deliveryFee] is the only field the
+/// member may renegotiate.
+class DeliveryOrder {
+  final String id;
+  final int? memberId;
+  final String? cashierId;
+  final String? deliveryAddress;
+  final double? deliveryLatitude;
+  final double? deliveryLongitude;
+  final String status;
+  final double? itemsTotal;
+  final double? deliveryFee;
+  final double? finalTotal;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final List<DeliveryOrderItem> items;
+
+  /// Resolved client-side (not stored on `orders`).
+  final String? memberName;
+  final String? cashierName;
+
+  const DeliveryOrder({
+    required this.id,
+    this.memberId,
+    this.cashierId,
+    this.deliveryAddress,
+    this.deliveryLatitude,
+    this.deliveryLongitude,
+    this.status = DeliveryOrderStatus.orderPlaced,
+    this.itemsTotal,
+    this.deliveryFee,
+    this.finalTotal,
+    this.createdAt,
+    this.updatedAt,
+    this.items = const [],
+    this.memberName,
+    this.cashierName,
+  });
+
+  factory DeliveryOrder.fromJson(Map<String, dynamic> json) => DeliveryOrder(
+    id: json['id'] as String? ?? '',
+    memberId: (json['member_id'] as num?)?.toInt(),
+    cashierId: json['cashier_id'] as String?,
+    deliveryAddress: json['delivery_address'] as String?,
+    deliveryLatitude: (json['delivery_latitude'] as num?)?.toDouble(),
+    deliveryLongitude: (json['delivery_longitude'] as num?)?.toDouble(),
+    status: json['status'] as String? ?? DeliveryOrderStatus.orderPlaced,
+    itemsTotal: (json['items_total'] as num?)?.toDouble(),
+    deliveryFee: (json['delivery_fee'] as num?)?.toDouble(),
+    finalTotal: (json['final_total'] as num?)?.toDouble(),
+    createdAt: json['created_at'] != null
+        ? DateTime.tryParse(json['created_at'].toString())
+        : null,
+    updatedAt: json['updated_at'] != null
+        ? DateTime.tryParse(json['updated_at'].toString())
+        : null,
+    items: (json['order_items'] as List? ?? const [])
+        .map((j) => DeliveryOrderItem.fromJson(j as Map<String, dynamic>))
+        .toList(),
+  );
+
+  /// Whether this order is still in an active negotiation state.
+  bool get isOpen =>
+      status == DeliveryOrderStatus.orderPlaced ||
+      status == DeliveryOrderStatus.cashierPricing ||
+      status == DeliveryOrderStatus.memberNegotiating;
+
+  /// True once both sides agreed and the final total is locked.
+  bool get isAgreed => status == DeliveryOrderStatus.agreed;
+
+  DeliveryOrder copyWith({
+    String? status,
+    String? cashierId,
+    double? itemsTotal,
+    double? deliveryFee,
+    double? finalTotal,
+    List<DeliveryOrderItem>? items,
+    String? memberName,
+    String? cashierName,
+  }) => DeliveryOrder(
+    id: id,
+    memberId: memberId,
+    cashierId: cashierId ?? this.cashierId,
+    deliveryAddress: deliveryAddress,
+    deliveryLatitude: deliveryLatitude,
+    deliveryLongitude: deliveryLongitude,
+    status: status ?? this.status,
+    itemsTotal: itemsTotal ?? this.itemsTotal,
+    deliveryFee: deliveryFee ?? this.deliveryFee,
+    finalTotal: finalTotal ?? this.finalTotal,
+    createdAt: createdAt,
+    updatedAt: updatedAt,
+    items: items ?? this.items,
+    memberName: memberName ?? this.memberName,
+    cashierName: cashierName ?? this.cashierName,
+  );
+}
+
+/// A single realtime change on the `orders` table, pushed to the delivery
+/// notification service so it can toast + chime on the right transition.
+class DeliveryOrderRealtimeEvent {
+  final DeliveryOrder order;
+
+  /// 'added', 'updated' or 'deleted'.
+  final String type;
+
+  const DeliveryOrderRealtimeEvent({required this.order, required this.type});
 }

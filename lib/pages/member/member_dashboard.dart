@@ -12,6 +12,7 @@ import '../../auth/auth.dart';
 import '../../db/db.dart';
 import '../../router/route_guard.dart';
 import '../../services/config_service.dart';
+import '../../config/feature_flags.dart';
 import '../../utils/formatters.dart' show formatDisplayDate;
 import '../../services/updater_service.dart';
 import '../../dialogs/update_dialog.dart';
@@ -20,9 +21,12 @@ import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../utils/birthday_window.dart';
 import '../../widgets/announcement_widgets.dart';
+import '../../widgets/location_selection_widget.dart';
 import '../../widgets/member_sidebar.dart';
 import '../../widgets/memberqr.dart';
 import 'announcements_tab.dart';
+import 'member_marketplace_tab.dart';
+import 'active_orders_tab.dart';
 
 class MemberDashboard extends StatefulWidget {
   const MemberDashboard({super.key});
@@ -113,6 +117,8 @@ class _MemberDashboardState extends State<MemberDashboard> {
 
   List<_MemberTab> get _tabs => [
     _MemberTab.overview,
+    _MemberTab.marketplace,
+    _MemberTab.orders,
     _MemberTab.purchases,
     _MemberTab.announcements,
     if (_isReseller) _MemberTab.earnings,
@@ -274,6 +280,10 @@ class _MemberDashboardState extends State<MemberDashboard> {
           isReseller: _isReseller,
           onViewAnnouncements: _openAnnouncements,
         );
+      case _MemberTab.marketplace:
+        return MemberMarketplaceTab(member: _member!);
+      case _MemberTab.orders:
+        return ActiveOrdersTab(member: _member!);
       case _MemberTab.purchases:
         return _PurchasesTab(member: _member!);
       case _MemberTab.announcements:
@@ -305,6 +315,8 @@ class _MemberDashboardState extends State<MemberDashboard> {
 /// ever a position within the list built for that member.
 enum _MemberTab {
   overview('Overview'),
+  marketplace('Marketplace'),
+  orders('Active Orders'),
   purchases('My Purchases'),
   announcements('Announcements'),
   earnings('Earnings'),
@@ -3342,6 +3354,11 @@ class _ProfileTabState extends State<_ProfileTab> {
                 const SizedBox(height: 16),
                 _buildDangerZone(isDark, mutedColor),
               ],
+              // ── Member Location (feature-gated) ──────────────
+              if (enableMemberLocationSetup) ...[
+                const SizedBox(height: 16),
+                _buildMemberLocationCard(),
+              ],
             ],
           ),
         ),
@@ -3651,6 +3668,53 @@ class _ProfileTabState extends State<_ProfileTab> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Member Location setting — feature-gated behind [enableMemberLocationSetup]
+  /// so it stays completely invisible in production until the major update
+  /// launches. Reuses the same cross-platform GPS / geocoding pipeline as the
+  /// Cashier and Branch Cashier roles via [LocationSelectionWidget].
+  Widget _buildMemberLocationCard() {
+    final memberId = widget.member.id;
+    if (memberId == null) return const SizedBox.shrink();
+
+    return LocationSelectionWidget(
+      scrollable: false,
+      title: 'Member Location',
+      description:
+          'Save your default location so nearby cashiers can still be found '
+          'when live GPS is unavailable. It is a static point — no live '
+          'tracking.',
+      actionLabel: 'Do you want to set your default Member Location?',
+      savedToast: 'Member location saved',
+      approximateToast:
+          'Location saved (approximate, based on your IP address)',
+      removeDialogTitle: 'Remove saved location?',
+      removeDialogBody:
+          'Your default member location will be cleared. You can set it '
+          'again at any time.',
+      onLoad: () async {
+        final member = await repository.getMemberById(memberId);
+        if (member == null ||
+            member.latitude == null ||
+            member.longitude == null) {
+          return null;
+        }
+        return SavedLocation(
+          latitude: member.latitude!,
+          longitude: member.longitude!,
+          address: member.address,
+          updatedAt: member.locationUpdatedAt,
+        );
+      },
+      onSave: (lat, lng, address) => repository.updateMemberLocation(
+        memberId: memberId,
+        latitude: lat,
+        longitude: lng,
+        address: address,
+      ),
+      onClear: () => repository.clearMemberLocation(memberId: memberId),
     );
   }
 

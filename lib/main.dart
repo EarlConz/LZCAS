@@ -12,6 +12,7 @@ import 'auth/auth.dart';
 import 'router/app_router.dart';
 import 'router/route_guard.dart';
 import 'services/notification_service.dart';
+import 'services/delivery_notification_service.dart';
 import 'services/config_service.dart';
 import 'services/updater_service.dart';
 
@@ -61,10 +62,17 @@ Future<void> main() async {
   // ── Initialize updater service ──────────────────────────────────────
   final updaterService = UpdaterService();
 
+  // ── Initialize delivery negotiation notifications ───────────────────
+  final deliveryNotificationService = DeliveryNotificationService();
+  deliveryNotificationService.start(authState);
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider<AuthState>.value(value: authState),
+        ChangeNotifierProvider<DeliveryNotificationService>.value(
+          value: deliveryNotificationService,
+        ),
         ChangeNotifierProvider<NotificationService>.value(
           value: notificationService,
         ),

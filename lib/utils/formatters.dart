@@ -42,6 +42,16 @@ String formatDistance(double meters) {
   return '${km.round()} km';
 }
 
+/// Formats a numeric money value with a currency symbol, trimming trailing
+/// zeros: 50 → "₱50", 50.5 → "₱50.5", 50.25 → "₱50.25".
+String formatMoney(num? value, {String symbol = '₱'}) {
+  if (value == null) return '${symbol}0';
+  final fixed = value.toDouble();
+  if (fixed == fixed.roundToDouble()) return '$symbol${fixed.round()}';
+  final trimmed = fixed.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+  return '$symbol$trimmed';
+}
+
 String formatDisplayDate(DateTime? dt) {
   if (dt == null) return '';
   try {
