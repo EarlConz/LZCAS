@@ -13,14 +13,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:bot_toast/bot_toast.dart';
-import 'package:geolocator/geolocator.dart' show Geolocator;
 import '../../auth/auth.dart';
 import '../../db/db.dart';
 import '../../services/config_service.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../utils/formatters.dart'
-    show formatMoney, formatRelativeDate, formatDistance, formatTimeOfDay;
+    show formatMoney, formatRelativeDate, formatTimeOfDay;
+import '../../dialogs/assign_rider_dialog.dart';
 import '../../dialogs/delivery_order_receipt_dialog.dart';
 
 class DeliveryOrdersPage extends StatefulWidget {
@@ -205,6 +205,13 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
         return _OrderCard(
           order: order,
           busy: _busyOrderId == order.id,
+          // Riders already carrying one of this cashier's other orders,
+          // so the assign dialog can mark them busy.
+          busyRiderIds: {
+            for (final o in _orders)
+              if (o.id != order.id && o.isWithRider && o.deliveryId != null)
+                o.deliveryId!,
+          },
           onBusyChanged: (b) =>
               setState(() => _busyOrderId = b ? order.id : null),
           onChanged: _load,
@@ -217,6 +224,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
 class _OrderCard extends StatefulWidget {
   final DeliveryOrder order;
   final bool busy;
+  final Set<String> busyRiderIds;
   final ValueChanged<bool> onBusyChanged;
   final VoidCallback onChanged;
 
@@ -225,6 +233,7 @@ class _OrderCard extends StatefulWidget {
     required this.busy,
     required this.onBusyChanged,
     required this.onChanged,
+    this.busyRiderIds = const {},
   });
 
   @override
@@ -431,66 +440,13 @@ class _OrderCardState extends State<_OrderCard> {
       return;
     }
 
-    final origin = here;
-    double? dist(UserProfile r) {
-      if (origin == null || r.latitude == null || r.longitude == null) {
-        return null;
-      }
-      return Geolocator.distanceBetween(
-        origin.latitude,
-        origin.longitude,
-        r.latitude!,
-        r.longitude!,
-      );
-    }
-
-    final sorted = [...riders]
-      ..sort((a, b) {
-        final da = dist(a), db = dist(b);
-        if (da == null && db == null) return a.username.compareTo(b.username);
-        if (da == null) return 1;
-        if (db == null) return -1;
-        return da.compareTo(db);
-      });
-
-    final chosen = await showDialog<UserProfile>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: Text(
-          widget.order.isAssigned ? 'Reassign rider' : 'Assign a rider',
-        ),
-        children: [
-          for (final r in sorted)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, r),
-              child: Row(
-                children: [
-                  const Icon(Icons.two_wheeler_rounded, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      r.username,
-                      style: StockpileFonts.satoshi(
-                        fontSize: 14,
-                        fontWeight: r.id == widget.order.deliveryId
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    dist(r) == null ? 'no position' : formatDistance(dist(r)!),
-                    style: StockpileFonts.satoshi(
-                      fontSize: 12,
-                      color: StockpileColors.mutedText,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
+    // Sorting, the map and the busy/live states live in the dialog.
+    final chosen = await showAssignRiderDialog(
+      context,
+      order: widget.order,
+      riders: riders,
+      pickup: here,
+      busyRiderIds: widget.busyRiderIds,
     );
     if (chosen == null || !mounted) return;
 

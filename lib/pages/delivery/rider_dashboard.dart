@@ -17,6 +17,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import 'package:lzcas/auth/auth.dart';
@@ -151,6 +152,9 @@ class _RiderDashboardState extends State<RiderDashboard> {
           orderId: o.id,
           initial: o,
           metersAway: _metersTo(o),
+          myPosition: _me == null
+              ? null
+              : LatLng(_me!.latitude, _me!.longitude),
         ),
       ),
     );

@@ -27,6 +27,7 @@ import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/widgets/map_kit.dart';
 
 class RiderOrderDetailPage extends StatefulWidget {
   final String orderId;
@@ -36,11 +37,16 @@ class RiderOrderDetailPage extends StatefulWidget {
   final DeliveryOrder initial;
   final double? metersAway;
 
+  /// The rider's own last fix, from the dashboard's pinger — drawn as the
+  /// blue dot so the preview shows "me and the door", not just the door.
+  final LatLng? myPosition;
+
   const RiderOrderDetailPage({
     super.key,
     required this.orderId,
     required this.initial,
     this.metersAway,
+    this.myPosition,
   });
 
   @override
@@ -308,7 +314,7 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
                   children: [
-                    _mapCard(isDark, body),
+                    _mapCard(isDark, body, muted),
                     const SizedBox(height: 12),
                     _receiverCard(isDark, text, muted),
                     const SizedBox(height: 12),
@@ -330,61 +336,110 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
     );
   }
 
-  Widget _mapCard(bool isDark, Color body) {
+  LatLng? get _destination {
     final o = _order;
-    final hasPin = o.deliveryLatitude != null && o.deliveryLongitude != null;
+    return o.deliveryLatitude == null || o.deliveryLongitude == null
+        ? null
+        : LatLng(o.deliveryLatitude!, o.deliveryLongitude!);
+  }
+
+  /// Destination, the rider's own dot, and a dashed straight line between
+  /// them — drawn dashed so nobody mistakes it for a route.
+  List<Marker> _mapMarkers({bool labelled = false}) {
+    final dest = _destination;
+    final me = widget.myPosition;
+    return [
+      if (me != null) mapMarker(point: me, kind: MapPinKind.you),
+      if (dest != null)
+        mapMarker(
+          point: dest,
+          kind: MapPinKind.destination,
+          label: labelled ? _order.receiverDisplayName : null,
+        ),
+    ];
+  }
+
+  List<Polyline> _mapLines() {
+    final dest = _destination, me = widget.myPosition;
+    return dest != null && me != null ? [straightLine(me, dest)] : const [];
+  }
+
+  List<LatLng> get _mapPoints => [
+    if (widget.myPosition != null) widget.myPosition!,
+    if (_destination != null) _destination!,
+  ];
+
+  String? get _distanceLine =>
+      widget.metersAway == null ? null : '${formatDistance(widget.metersAway!)} to go';
+
+  Future<void> _expandMap() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => FullscreenMapPage(
+        title: 'Order ${_order.shortId}',
+        markers: _mapMarkers(labelled: true),
+        polylines: _mapLines(),
+        fitTo: _mapPoints,
+        statusChip: _distanceLine == null
+            ? null
+            : MapStatusChip(icon: Icons.navigation_rounded, text: _distanceLine!),
+      ),
+    ),
+  );
+
+  Widget _mapCard(bool isDark, Color body, Color muted) {
+    final o = _order;
+    final dest = _destination;
+    final points = _mapPoints;
 
     return _card(
       isDark,
       padding: EdgeInsets.zero,
       child: Column(
         children: [
-          if (hasPin)
+          if (dest != null)
             ClipRRect(
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(16),
               ),
               child: SizedBox(
-                height: 140,
-                child: IgnorePointer(
-                  // A preview, not a map to fumble with. Tapping Navigate
-                  // opens the real thing.
-                  child: FlutterMap(
-                    options: MapOptions(
-                      initialCenter: LatLng(
-                        o.deliveryLatitude!,
-                        o.deliveryLongitude!,
-                      ),
-                      initialZoom: 15,
-                      interactionOptions: const InteractionOptions(
-                        flags: InteractiveFlag.none,
-                      ),
-                    ),
-                    children: [
-                      TileLayer(
-                        urlTemplate:
-                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.lzcas.app',
-                      ),
-                      MarkerLayer(
-                        markers: [
-                          Marker(
-                            point: LatLng(
-                              o.deliveryLatitude!,
-                              o.deliveryLongitude!,
-                            ),
-                            width: 36,
-                            height: 36,
-                            child: const Icon(
-                              Icons.location_on,
-                              color: StockpileColors.primary900,
-                              size: 36,
-                            ),
+                height: 180,
+                child: MapOverlay(
+                  // A preview, not a map to fumble with: tapping anywhere
+                  // opens the full-screen one.
+                  map: GestureDetector(
+                    onTap: _expandMap,
+                    child: IgnorePointer(
+                      child: FlutterMap(
+                        options: MapOptions(
+                          initialCenter: dest,
+                          initialZoom: 15,
+                          initialCameraFit: fitPoints(points, padding: 40),
+                          interactionOptions: const InteractionOptions(
+                            flags: InteractiveFlag.none,
                           ),
+                        ),
+                        children: [
+                          osmTileLayer(),
+                          if (_mapLines().isNotEmpty)
+                            PolylineLayer(polylines: _mapLines()),
+                          MarkerLayer(markers: _mapMarkers()),
                         ],
                       ),
-                    ],
+                    ),
                   ),
+                  topRight: [
+                    MapControlButton(
+                      icon: Icons.open_in_full_rounded,
+                      tooltip: 'Expand map',
+                      onTap: _expandMap,
+                    ),
+                  ],
+                  bottomRight: _distanceLine == null
+                      ? null
+                      : MapStatusChip(
+                          icon: Icons.navigation_rounded,
+                          text: _distanceLine!,
+                        ),
                 ),
               ),
             ),
@@ -393,17 +448,32 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    o.deliveryAddress ?? 'No address on this order',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 13,
-                      height: 1.45,
-                      color: body,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        o.deliveryAddress ?? 'No address on this order',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 13,
+                          height: 1.45,
+                          color: body,
+                        ),
+                      ),
+                      if (widget.metersAway != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Straight-line distance from your last fix',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 11,
+                            color: muted,
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 const SizedBox(width: 12),
-                OutlinedButton.icon(
+                FilledButton.icon(
                   onPressed: _navigate,
                   icon: const Icon(Icons.navigation_rounded, size: 16),
                   label: const Text('Navigate'),
