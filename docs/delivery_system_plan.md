@@ -81,9 +81,30 @@ collects payment and later remits it.
 needs none of it and must not have it. New helper `is_delivery()`, and the
 existing `is_staff()` is left alone.
 
-**Mobile by default.** Riders work from a phone. Reuse `profiles.mobile_enabled`
-(v29) but default it `true` for this role — the v29 default of `false` was
-about branch cashiers being desktop-first, and the opposite is true here.
+**Mobile-capable with no flag needed.** `AuthState._mobileBlocked` only
+restricts `cashier`, `inventory` and un-granted `branch_cashier`; every other
+role falls to `default: return false` and may use a phone. A rider therefore
+needs no `mobile_enabled` grant, and the mobile toggle in the admin user
+dialog correctly stays hidden for the role. (An earlier draft of this plan
+said to default the flag `true` — unnecessary.)
+
+### Admin integration
+
+The Users screen is mostly enum-driven, so `UserRole.delivery` does most of the
+work: the create dropdown is `UserRole.values` minus member/reseller, labels go
+through `fromString`, and the `create-user` edge function passes `role`
+through with no allowlist — nothing to redeploy. Three hand edits remain:
+
+- the **role filter** dropdown (`admin_dashboard.dart` ~L905) is a hardcoded
+  list — add Delivery;
+- **`_roleColor`** (~L1438) is a hardcoded switch — give delivery a colour;
+- **Cashier Locations** — add a **Riders** chip. Riders write their position
+  to the same `profiles` columns while on a delivery, so this is the admin's
+  "where are my riders now" view for free.
+
+Announcements with audience `all` already reach riders through RLS (the policy
+only needs a profile row). The reach count in the editor won't include them
+and the rider app has no announcements screen — both fine to leave for v1.
 
 ### How an order reaches a rider
 
