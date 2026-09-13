@@ -3536,17 +3536,64 @@ class SupabaseRepository {
 
   /// Delivery orders for the Cashier/Admin module (all orders), or scoped to
   /// one member for the member-facing Active Orders screen.
-  Future<List<DeliveryOrder>> fetchDeliveryOrders({int? memberId}) async {
-    var query = _supabase.from('orders').select('*, order_items(*)');
+  ///
+  /// [memberId] is the numeric `members.id` bigint — NOT the Supabase auth
+  /// UUID. [statuses] optionally narrows the result server-side (e.g. the
+  /// non-terminal statuses for the Cashier/Admin panel).
+  ///
+  /// `order_items` are fetched as a SEPARATE query and joined client-side.
+  /// PostgREST's nested `order_items(*)` select only works when the
+  /// `order_items.order_id → orders.id` foreign key exists; databases
+  /// migrated before that FK was added would otherwise fail the whole query
+  /// with a "could not find a relationship" error. This two-step read never
+  /// depends on any FK.
+  Future<List<DeliveryOrder>> fetchDeliveryOrders({
+    int? memberId,
+    List<String>? statuses,
+  }) async {
+    var query = _supabase.from('orders').select();
     if (memberId != null) query = query.eq('member_id', memberId);
-    final data = await query.order('created_at', ascending: false);
-    return _hydrateDeliveryOrders(data as List);
+    if (statuses != null && statuses.isNotEmpty) {
+      query = query.inFilter('status', statuses);
+    }
+    final orderRows = await query.order('created_at', ascending: false);
+
+    // Debug the raw query result so an empty UI can be traced to either an
+    // empty result set or a deserialization problem.
+    final rows = (orderRows as List);
+    debugPrint(
+      'fetchDeliveryOrders(memberId=$memberId, statuses=$statuses) '
+      '→ ${rows.length} order row(s)',
+    );
+    if (rows.isNotEmpty) {
+      debugPrint('fetchDeliveryOrders first row: ${rows.first}');
+    }
+
+    // Fetch the lines for exactly the returned orders, then join in memory.
+    final orderIds = rows
+        .map((j) => (j as Map<String, dynamic>)['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+    final itemRows = <Map<String, dynamic>>[];
+    if (orderIds.isNotEmpty) {
+      final data = await _supabase
+          .from('order_items')
+          .select()
+          .inFilter('order_id', orderIds);
+      itemRows.addAll((data as List).cast<Map<String, dynamic>>());
+      debugPrint('fetchDeliveryOrders → ${itemRows.length} order_item row(s)');
+    }
+
+    return _hydrateDeliveryOrders(rows, itemRows: itemRows);
   }
 
-  /// Resolves display names (product / member / cashier) client-side so the
-  /// order rows survive renames and deletions, matching how `sales` snapshots
-  /// names without foreign keys.
-  Future<List<DeliveryOrder>> _hydrateDeliveryOrders(List<dynamic> rows) async {
+  /// Resolves display names (product / member / cashier) client-side and
+  /// attaches [itemRows] to their orders — no reliance on PostgREST nested
+  /// selects or foreign keys.
+  Future<List<DeliveryOrder>> _hydrateDeliveryOrders(
+    List<dynamic> rows, {
+    List<Map<String, dynamic>> itemRows = const [],
+  }) async {
     final itemNames = <int, String>{};
     final memberNames = <int, String>{};
     var cashierNames = <String, String>{};
@@ -3568,9 +3615,19 @@ class SupabaseRepository {
       cashierNames = await fetchProfilesMap();
     } catch (_) {}
 
+    // Group lines by order_id, then attach each order's lines in memory.
+    final itemsByOrder = <String, List<DeliveryOrderItem>>{};
+    for (final row in itemRows) {
+      final orderId = row['order_id']?.toString() ?? '';
+      if (orderId.isEmpty) continue;
+      itemsByOrder
+          .putIfAbsent(orderId, () => [])
+          .add(DeliveryOrderItem.fromJson(row));
+    }
+
     return rows.map((j) {
       final order = DeliveryOrder.fromJson(j as Map<String, dynamic>);
-      final hydratedItems = order.items
+      final lines = (itemsByOrder[order.id] ?? const <DeliveryOrderItem>[])
           .map(
             (it) => it.copyWith(
               productName: itemNames[it.productId] ?? 'Item #${it.productId}',
@@ -3578,7 +3635,7 @@ class SupabaseRepository {
           )
           .toList();
       return order.copyWith(
-        items: hydratedItems,
+        items: lines,
         memberName: memberNames[order.memberId],
         cashierName: order.cashierId == null
             ? null
@@ -3589,6 +3646,10 @@ class SupabaseRepository {
 
   /// Member checkout — atomically creates the order + its lines via the
   /// `create_delivery_order` RPC. Returns the new order id.
+  ///
+  /// `memberId` must be the numeric `members.id` bigint — NOT the Supabase
+  /// auth UUID. `items` is a `List<Map<String, dynamic>>` of
+  /// `{"product_id": int, "quantity": int}` lines.
   Future<String> createDeliveryOrder({
     required int memberId,
     String? deliveryAddress,
@@ -3596,18 +3657,42 @@ class SupabaseRepository {
     double? deliveryLongitude,
     required List<Map<String, dynamic>> items,
   }) async {
-    final id = await _supabase.rpc(
-      'create_delivery_order',
-      params: {
-        'p_member_id': memberId,
-        'p_delivery_address': deliveryAddress,
-        'p_delivery_latitude': deliveryLatitude,
-        'p_delivery_longitude': deliveryLongitude,
-        'p_items': items,
-      },
-    );
-    _changes.add('order_added');
-    return id.toString();
+    assert(memberId > 0, 'p_member_id must be the numeric members.id bigint');
+
+    // Parameter keys MUST match the SQL signature of
+    // public.create_delivery_order(p_member_id bigint,
+    //   p_delivery_address text, p_delivery_latitude double precision,
+    //   p_delivery_longitude double precision, p_items jsonb) exactly —
+    // PostgREST resolves the function from these named arguments, and a
+    // missing/mistyped key yields PGRST202 ("function not found").
+    final params = <String, dynamic>{
+      'p_member_id': memberId, // int / bigint
+      'p_delivery_address': deliveryAddress, // String?
+      'p_delivery_latitude': deliveryLatitude, // double?
+      'p_delivery_longitude': deliveryLongitude, // double?
+      'p_items': items, // List<Map<String, dynamic>>
+    };
+
+    try {
+      final id = await _supabase.rpc('create_delivery_order', params: params);
+      _changes.add('order_added');
+      return id.toString();
+    } on PostgrestException catch (e) {
+      debugPrint(
+        'create_delivery_order RPC failed: ${e.message} '
+        '(code=${e.code}, hint=${e.hint})',
+      );
+      debugPrint('create_delivery_order details: ${e.details}');
+      if (e.code == 'PGRST202') {
+        debugPrint(
+          'PGRST202: public.create_delivery_order was not found in the '
+          'PostgREST schema cache. Apply '
+          'supabase/migrations/migration_v48_delivery_orders.sql, then '
+          "reload the cache: NOTIFY pgrst, 'reload schema';",
+        );
+      }
+      rethrow;
+    }
   }
 
   /// Cashier "Send Quote" — fixes every item price and proposes the initial

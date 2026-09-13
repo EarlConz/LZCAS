@@ -65,6 +65,8 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
 
   Future<void> _load() async {
     try {
+      // Fetch ALL orders (no server-side status filter) so 'Order Placed' is
+      // never accidentally hidden; the filter chips narrow the view locally.
       final orders = await repository.fetchDeliveryOrders();
       if (!mounted) return;
       setState(() {

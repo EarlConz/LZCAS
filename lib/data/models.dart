@@ -1399,6 +1399,23 @@ abstract class DeliveryOrderStatus {
   static const cancelled = 'Cancelled';
 }
 
+/// Coerce a JSON scalar into an int, tolerating PostgREST returning bigint
+/// columns either as a JSON number or as a JSON string (it can emit `int8`
+/// as a string to avoid JavaScript precision loss). Never throws.
+int? _intFromJson(Object? value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value.toString());
+}
+
+/// Coerce a JSON scalar into a double, tolerating both number and string.
+double? _doubleFromJson(Object? value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
+}
+
 /// One requested line on a delivery order (`order_items`).
 ///
 /// [unitPrice] and [subtotal] are null until the Cashier prices them — they
@@ -1427,12 +1444,12 @@ class DeliveryOrderItem {
 
   factory DeliveryOrderItem.fromJson(Map<String, dynamic> json) =>
       DeliveryOrderItem(
-        id: (json['id'] as num?)?.toInt(),
-        orderId: json['order_id'] as String?,
-        productId: (json['product_id'] as num?)?.toInt() ?? 0,
-        quantity: (json['quantity'] as num?)?.toInt() ?? 1,
-        unitPrice: (json['unit_price'] as num?)?.toDouble(),
-        subtotal: (json['subtotal'] as num?)?.toDouble(),
+        id: _intFromJson(json['id']),
+        orderId: json['order_id']?.toString(),
+        productId: _intFromJson(json['product_id']) ?? 0,
+        quantity: _intFromJson(json['quantity']) ?? 1,
+        unitPrice: _doubleFromJson(json['unit_price']),
+        subtotal: _doubleFromJson(json['subtotal']),
       );
 
   DeliveryOrderItem copyWith({
@@ -1493,16 +1510,16 @@ class DeliveryOrder {
   });
 
   factory DeliveryOrder.fromJson(Map<String, dynamic> json) => DeliveryOrder(
-    id: json['id'] as String? ?? '',
-    memberId: (json['member_id'] as num?)?.toInt(),
-    cashierId: json['cashier_id'] as String?,
+    id: json['id']?.toString() ?? '',
+    memberId: _intFromJson(json['member_id']),
+    cashierId: json['cashier_id']?.toString(),
     deliveryAddress: json['delivery_address'] as String?,
-    deliveryLatitude: (json['delivery_latitude'] as num?)?.toDouble(),
-    deliveryLongitude: (json['delivery_longitude'] as num?)?.toDouble(),
+    deliveryLatitude: _doubleFromJson(json['delivery_latitude']),
+    deliveryLongitude: _doubleFromJson(json['delivery_longitude']),
     status: json['status'] as String? ?? DeliveryOrderStatus.orderPlaced,
-    itemsTotal: (json['items_total'] as num?)?.toDouble(),
-    deliveryFee: (json['delivery_fee'] as num?)?.toDouble(),
-    finalTotal: (json['final_total'] as num?)?.toDouble(),
+    itemsTotal: _doubleFromJson(json['items_total']),
+    deliveryFee: _doubleFromJson(json['delivery_fee']),
+    finalTotal: _doubleFromJson(json['final_total']),
     createdAt: json['created_at'] != null
         ? DateTime.tryParse(json['created_at'].toString())
         : null,

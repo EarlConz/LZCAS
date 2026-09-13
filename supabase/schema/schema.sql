@@ -1089,3 +1089,6 @@ grant execute on function public.cashier_resolve_delivery_order(uuid, text, nume
 grant execute on function public.complete_delivery_order(uuid) to authenticated;
 grant execute on function public.cancel_delivery_order(uuid) to authenticated;
 
+-- Refresh the PostgREST schema cache so the new RPCs resolve immediately.
+notify pgrst, 'reload schema';
+

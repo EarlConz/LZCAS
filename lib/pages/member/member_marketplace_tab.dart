@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:bot_toast/bot_toast.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../../db/db.dart';
 import '../../services/config_service.dart';
 import '../../theme.dart';
@@ -20,7 +21,15 @@ import '../../widgets/location_selection_widget.dart';
 class MemberMarketplaceTab extends StatefulWidget {
   final Member member;
 
-  const MemberMarketplaceTab({super.key, required this.member});
+  /// Invoked right after an order is placed — lets the parent navigate to
+  /// (and refresh) the Active Orders screen.
+  final VoidCallback? onOrderPlaced;
+
+  const MemberMarketplaceTab({
+    super.key,
+    required this.member,
+    this.onOrderPlaced,
+  });
 
   @override
   State<MemberMarketplaceTab> createState() => _MemberMarketplaceTabState();
@@ -169,6 +178,8 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
       if (!mounted) return;
       setState(_cart.clear);
       BotToast.showText(text: 'Order placed — the cashier will send a quote.');
+      // Jump to Active Orders so the member sees the new order immediately.
+      widget.onOrderPlaced?.call();
     }
   }
 
@@ -561,31 +572,71 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
 
   Future<void> _placeOrder() async {
     if (_submitting) return;
-    if (_member.latitude == null || _member.longitude == null) {
-      BotToast.showText(text: 'Set a delivery location to continue.');
+
+    final memberId = _member.id;
+    final address = (_member.address ?? '').trim();
+    if (memberId == null ||
+        address.isEmpty ||
+        _member.latitude == null ||
+        _member.longitude == null) {
+      BotToast.showText(
+        text: 'Please set your delivery location before checking out.',
+      );
       return;
     }
+
+    // Build the line payload with explicit int keys — dropping any line whose
+    // product id is somehow missing so the RPC never receives a null bigint.
+    final items = <Map<String, dynamic>>[];
+    for (final line in widget.lines) {
+      final productId = line.item.id;
+      if (productId == null) {
+        debugPrint('Skipping line with missing product id: ${line.item.name}');
+        continue;
+      }
+      items.add({'product_id': productId, 'quantity': line.quantity});
+    }
+    if (items.isEmpty) {
+      BotToast.showText(text: 'Your cart is empty.');
+      return;
+    }
+
     setState(() => _submitting = true);
     try {
-      final memberId = _member.id;
-      if (memberId == null) throw Exception('Member id missing');
       await repository.createDeliveryOrder(
         memberId: memberId,
-        deliveryAddress: _member.address,
+        deliveryAddress: address,
         deliveryLatitude: _member.latitude,
         deliveryLongitude: _member.longitude,
-        items: [
-          for (final line in widget.lines)
-            {'product_id': line.item.id, 'quantity': line.quantity},
-        ],
+        items: items,
       );
       if (!mounted) return;
       Navigator.pop(context, true);
-    } catch (_) {
+    } on PostgrestException catch (e) {
+      debugPrint('Place order RPC failed: ${e.message}');
+      debugPrint('Place order RPC details: ${e.details}');
+      if (!mounted) return;
+      BotToast.showText(text: _friendlyOrderError(e.message));
+      setState(() => _submitting = false);
+    } catch (e) {
+      debugPrint('Place order failed unexpectedly: $e');
       if (!mounted) return;
       BotToast.showText(text: 'Could not place the order. Please try again.');
       setState(() => _submitting = false);
     }
+  }
+
+  /// Translate a raw PostgREST message into something the member can act on.
+  String _friendlyOrderError(String raw) {
+    final msg = raw.toLowerCase();
+    if (msg.contains('check constraint') || msg.contains('null value')) {
+      return 'Some order details are invalid. Please review your cart and '
+          'delivery address, then try again.';
+    }
+    if (msg.contains('permission') || msg.contains('rls')) {
+      return 'You are not allowed to place this order.';
+    }
+    return 'Could not place the order. Please try again.';
   }
 
   Future<void> _editLocation() async {
