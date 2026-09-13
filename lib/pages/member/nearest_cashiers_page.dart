@@ -57,6 +57,11 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
   /// "8 km" deserves to know the origin point may be off by a town.
   bool _approximate = false;
 
+  /// True when [_myPosition] came from the member's saved default location
+  /// (set in their Profile) rather than GPS/IP, because live positioning was
+  /// unavailable. Surfaced in the UI for the same reason as [_approximate].
+  bool _usingSavedLocation = false;
+
   List<_NearbyCashier> _all = const []; // every located cashier, nearest first.
   List<_NearbyCashier> _topThree = const []; // nearest stocked (≤ 3).
   List<_NearbyCashier> _grayed = const []; // out-of-stock within radius.
@@ -94,34 +99,48 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
       _loading = true;
       _error = null;
       _approximate = false;
+      _usingSavedLocation = false;
     });
 
     try {
       final access = await GeocodingService.ensureAccess();
       if (!mounted) return;
-      if (access != LocationAccess.granted) {
-        setState(() {
-          _loading = false;
-          _error = _messageFor(access);
-        });
-        return;
-      }
 
       // GPS first, then IP geolocation. The fallback is what keeps this
       // screen alive on Windows, where there is no GPS radio — asking for a
       // fix there just times out.
-      final point = await GeocodingService.resolvePosition();
+      final point = access == LocationAccess.granted
+          ? await GeocodingService.resolvePosition()
+          : null;
       if (!mounted) return;
-      if (point == null) {
-        setState(() {
-          _loading = false;
-          _error =
-              'Could not determine your location. Check that location '
-              'services are turned on, then try again.';
-        });
-        return;
+
+      var myPos = point == null
+          ? null
+          : LatLng(point.latitude, point.longitude);
+      var usingSaved = false;
+
+      if (myPos == null) {
+        // Last resort: the member's saved default location (set in their
+        // Profile). Lets a desktop — or a member who denied the permission —
+        // still see nearby cashiers from a point they chose themselves.
+        myPos = await _savedMemberPosition();
+        if (!mounted) return;
+        if (myPos != null) {
+          usingSaved = true;
+        } else {
+          setState(() {
+            _loading = false;
+            _error = access != LocationAccess.granted
+                ? _messageFor(access)
+                : 'Could not determine your location. Check that location '
+                      'services are turned on, then try again.';
+          });
+          return;
+        }
       }
-      final myPos = LatLng(point.latitude, point.longitude);
+
+      final resolvedPos = myPos;
+      final approximate = point?.isApproximate ?? false;
 
       // Proximity + live stock in one pass: every located cashier with its
       // current on-hand inventory (see fetchCashiersWithStock).
@@ -130,8 +149,8 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
       final nearby = <_NearbyCashier>[];
       for (final c in cashiers) {
         final meters = Geolocator.distanceBetween(
-          myPos.latitude,
-          myPos.longitude,
+          resolvedPos.latitude,
+          resolvedPos.longitude,
           c.location.latitude,
           c.location.longitude,
         );
@@ -156,8 +175,9 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
 
       if (!mounted) return;
       setState(() {
-        _myPosition = myPos;
-        _approximate = point.isApproximate;
+        _myPosition = resolvedPos;
+        _approximate = approximate;
+        _usingSavedLocation = usingSaved;
         _all = nearby;
         _topThree = top;
         _grayed = grayed;
@@ -191,6 +211,24 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
         return 'Could not determine your location. Try again.';
       case LocationAccess.granted:
         return '';
+    }
+  }
+
+  /// The member's own saved default location, if they set one in their
+  /// Profile. Used as a fallback origin when live positioning fails so the
+  /// map still has a point to measure distances from. Returns null when the
+  /// member has no saved coordinates.
+  Future<LatLng?> _savedMemberPosition() async {
+    try {
+      final member = await repository.fetchMyMember();
+      if (member == null ||
+          member.latitude == null ||
+          member.longitude == null) {
+        return null;
+      }
+      return LatLng(member.latitude!, member.longitude!);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -351,6 +389,13 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
             left: 12,
             right: 12,
             child: _ApproximateBanner(muted: _muted, surface: _surface),
+          ),
+        if (_usingSavedLocation)
+          Positioned(
+            top: 12,
+            left: 12,
+            right: 12,
+            child: _SavedLocationBanner(muted: _muted, surface: _surface),
           ),
       ],
     );
@@ -709,6 +754,39 @@ class _ApproximateBanner extends StatelessWidget {
             child: Text(
               'Your position is approximate — it was estimated from your '
               'internet connection because GPS was unavailable.',
+              style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Small translucent banner shown when the member's position came from their
+/// saved default location (Profile → Member Location) instead of live GPS/IP.
+class _SavedLocationBanner extends StatelessWidget {
+  final Color muted;
+  final Color surface;
+
+  const _SavedLocationBanner({required this.muted, required this.surface});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: surface.withAlpha(235),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.bookmark_rounded, size: 16, color: muted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Using your saved member location — live GPS was unavailable.',
               style: StockpileFonts.satoshi(fontSize: 12, color: muted),
             ),
           ),

@@ -40,6 +40,11 @@ class SupabaseRepository {
   final StreamController<String> _changes =
       StreamController<String>.broadcast();
 
+  /// Parsed realtime changes on the `orders` table, for the delivery
+  /// notification service (toast + chime on status transitions).
+  final StreamController<DeliveryOrderRealtimeEvent> _orderEvents =
+      StreamController<DeliveryOrderRealtimeEvent>.broadcast();
+
   /// Active Realtime channels, tracked so they can be severed cleanly on
   /// logout / dispose (see [_teardownRealtime]) — this is what keeps the
   /// free-tier connection count from leaking.
@@ -86,6 +91,9 @@ class SupabaseRepository {
 
   Stream<String> get changes => _changes.stream;
 
+  /// Realtime delivery-order events (parsed `orders` rows) for toasts/chimes.
+  Stream<DeliveryOrderRealtimeEvent> get orderEvents => _orderEvents.stream;
+
   /// Maps a realtime table name to the singular prefix of the granular change
   /// events the UI already listens for (e.g. `items` → `item_added`).
   static const Map<String, String> _tableSingular = {
@@ -128,6 +136,55 @@ class SupabaseRepository {
           .subscribe();
       _channels.add(channel);
     }
+
+    // Delivery orders — emit both the granular change name (so order lists
+    // refresh) and a parsed event (so the notification service can toast on
+    // the right status transition).
+    final ordersChannel = _supabase
+        .channel('public:orders')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'orders',
+          callback: (payload) => _emitOrderEvent(payload),
+        )
+        .subscribe();
+    _channels.add(ordersChannel);
+  }
+
+  /// Translates an `orders` realtime payload into the granular `order_*`
+  /// change name plus a parsed [DeliveryOrderRealtimeEvent].
+  void _emitOrderEvent(PostgresChangePayload payload) {
+    // `newRecord` is an empty map for DELETE events (never null), so a
+    // deleted row parses to an order with an empty id — the notification
+    // service and UI treat that as "no order".
+    final order = DeliveryOrder.fromJson(payload.newRecord);
+    switch (payload.eventType) {
+      case PostgresChangeEvent.insert:
+        _changes.add('order_added');
+        _orderEvents.add(
+          DeliveryOrderRealtimeEvent(order: order, type: 'added'),
+        );
+        break;
+      case PostgresChangeEvent.update:
+        _changes.add('order_updated');
+        _orderEvents.add(
+          DeliveryOrderRealtimeEvent(order: order, type: 'updated'),
+        );
+        break;
+      case PostgresChangeEvent.delete:
+        _changes.add('order_deleted');
+        _orderEvents.add(
+          DeliveryOrderRealtimeEvent(order: order, type: 'deleted'),
+        );
+        break;
+      default:
+        _changes.add('order_updated');
+        _orderEvents.add(
+          DeliveryOrderRealtimeEvent(order: order, type: 'updated'),
+        );
+    }
+    _changes.add('orders_changed');
   }
 
   /// Translates a realtime payload into the same granular event names the local
@@ -208,6 +265,18 @@ class SupabaseRepository {
     // Soft-deleted members must not be able to log in to a dashboard.
     if (member != null && member.isDeleted) return null;
     return member;
+  }
+
+  /// The signed-in member's own record, including any saved location fields
+  /// (`latitude` / `longitude` / `address` / `locationUpdatedAt`), without
+  /// the caller needing the auth user id. Returns null when unauthenticated
+  /// or the member has no linked `members` row.
+  Future<Member?> fetchMyMember() async {
+    try {
+      return await fetchMemberByAuthUserId(_uid);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<List<Sale>> fetchSales() async {
@@ -1177,6 +1246,46 @@ class SupabaseRepository {
         })
         .eq('id', userId);
     _changes.add('cashier_location_updated');
+  }
+
+  /// Save (or overwrite) a member's default location. Stored on the
+  /// `members` row (see migration v47) so the member's own map can fall back
+  /// to it when live GPS is disabled or unavailable. `address` doubles as the
+  /// location's reverse-geocoded string — the same way `profiles.address` does
+  /// for cashiers — so the member's address in their profile and the saved
+  /// location stay one concept.
+  Future<void> updateMemberLocation({
+    required int memberId,
+    required double latitude,
+    required double longitude,
+    required String address,
+  }) async {
+    await _supabase
+        .from('members')
+        .update({
+          'latitude': latitude,
+          'longitude': longitude,
+          'address': address,
+          'location_updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', memberId);
+    _changes.add('member_location_updated');
+  }
+
+  /// Remove a member's saved default location. Mirrors
+  /// [clearCashierLocation]: nulls every location column, including `address`
+  /// (which holds the saved location's string), so no stale point survives.
+  Future<void> clearMemberLocation({required int memberId}) async {
+    await _supabase
+        .from('members')
+        .update({
+          'latitude': null,
+          'longitude': null,
+          'address': null,
+          'location_updated_at': null,
+        })
+        .eq('id', memberId);
+    _changes.add('member_location_updated');
   }
 
   /// Give central stock to a branch cashier (admin / main cashier only).
@@ -3414,6 +3523,248 @@ class SupabaseRepository {
 
   Future<String> exportSalesCsv() => exportSalesCsvString();
 
+  // ── Member Ordering & Delivery Negotiation (v48) ─────────────────────────
+
+  /// Items shown in the Member Marketplace. Products carry NO fixed price —
+  /// they are listed "Price set upon order" and the Cashier prices each line
+  /// when the order arrives. Only in-stock items are offered.
+  Future<List<Item>> fetchMarketplaceItems() async {
+    final items = await fetchItems();
+    return items.where((i) => i.stock > 0).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  /// Delivery orders for the Cashier/Admin module (all orders), or scoped to
+  /// one member for the member-facing Active Orders screen.
+  ///
+  /// [memberId] is the numeric `members.id` bigint — NOT the Supabase auth
+  /// UUID. [statuses] optionally narrows the result server-side (e.g. the
+  /// non-terminal statuses for the Cashier/Admin panel).
+  ///
+  /// `order_items` are fetched as a SEPARATE query and joined client-side.
+  /// PostgREST's nested `order_items(*)` select only works when the
+  /// `order_items.order_id → orders.id` foreign key exists; databases
+  /// migrated before that FK was added would otherwise fail the whole query
+  /// with a "could not find a relationship" error. This two-step read never
+  /// depends on any FK.
+  Future<List<DeliveryOrder>> fetchDeliveryOrders({
+    int? memberId,
+    List<String>? statuses,
+  }) async {
+    var query = _supabase.from('orders').select();
+    if (memberId != null) query = query.eq('member_id', memberId);
+    if (statuses != null && statuses.isNotEmpty) {
+      query = query.inFilter('status', statuses);
+    }
+    final orderRows = await query.order('created_at', ascending: false);
+
+    // Debug the raw query result so an empty UI can be traced to either an
+    // empty result set or a deserialization problem.
+    final rows = (orderRows as List);
+    debugPrint(
+      'fetchDeliveryOrders(memberId=$memberId, statuses=$statuses) '
+      '→ ${rows.length} order row(s)',
+    );
+    if (rows.isNotEmpty) {
+      debugPrint('fetchDeliveryOrders first row: ${rows.first}');
+    }
+
+    // Fetch the lines for exactly the returned orders, then join in memory.
+    final orderIds = rows
+        .map((j) => (j as Map<String, dynamic>)['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toList();
+    final itemRows = <Map<String, dynamic>>[];
+    if (orderIds.isNotEmpty) {
+      final data = await _supabase
+          .from('order_items')
+          .select()
+          .inFilter('order_id', orderIds);
+      itemRows.addAll((data as List).cast<Map<String, dynamic>>());
+      debugPrint('fetchDeliveryOrders → ${itemRows.length} order_item row(s)');
+    }
+
+    return _hydrateDeliveryOrders(rows, itemRows: itemRows);
+  }
+
+  /// Resolves display names (product / member / cashier) client-side and
+  /// attaches [itemRows] to their orders — no reliance on PostgREST nested
+  /// selects or foreign keys.
+  Future<List<DeliveryOrder>> _hydrateDeliveryOrders(
+    List<dynamic> rows, {
+    List<Map<String, dynamic>> itemRows = const [],
+  }) async {
+    final itemNames = <int, String>{};
+    final memberNames = <int, String>{};
+    var cashierNames = <String, String>{};
+    try {
+      final items = await fetchItems();
+      for (final i in items) {
+        if (i.id != null) itemNames[i.id!] = i.name;
+      }
+    } catch (_) {}
+    try {
+      final members = await fetchMembers(includeDeleted: true);
+      for (final m in members) {
+        if (m.id == null) continue;
+        final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
+        memberNames[m.id!] = name.isEmpty ? 'Member #${m.id}' : name;
+      }
+    } catch (_) {}
+    try {
+      cashierNames = await fetchProfilesMap();
+    } catch (_) {}
+
+    // Group lines by order_id, then attach each order's lines in memory.
+    final itemsByOrder = <String, List<DeliveryOrderItem>>{};
+    for (final row in itemRows) {
+      final orderId = row['order_id']?.toString() ?? '';
+      if (orderId.isEmpty) continue;
+      itemsByOrder
+          .putIfAbsent(orderId, () => [])
+          .add(DeliveryOrderItem.fromJson(row));
+    }
+
+    return rows.map((j) {
+      final order = DeliveryOrder.fromJson(j as Map<String, dynamic>);
+      final lines = (itemsByOrder[order.id] ?? const <DeliveryOrderItem>[])
+          .map(
+            (it) => it.copyWith(
+              productName: itemNames[it.productId] ?? 'Item #${it.productId}',
+            ),
+          )
+          .toList();
+      return order.copyWith(
+        items: lines,
+        memberName: memberNames[order.memberId],
+        cashierName: order.cashierId == null
+            ? null
+            : cashierNames[order.cashierId],
+      );
+    }).toList();
+  }
+
+  /// Member checkout — atomically creates the order + its lines via the
+  /// `create_delivery_order` RPC. Returns the new order id.
+  ///
+  /// `memberId` must be the numeric `members.id` bigint — NOT the Supabase
+  /// auth UUID. `items` is a `List<Map<String, dynamic>>` of
+  /// `{"product_id": int, "quantity": int}` lines.
+  Future<String> createDeliveryOrder({
+    required int memberId,
+    String? deliveryAddress,
+    double? deliveryLatitude,
+    double? deliveryLongitude,
+    required List<Map<String, dynamic>> items,
+  }) async {
+    assert(memberId > 0, 'p_member_id must be the numeric members.id bigint');
+
+    // Parameter keys MUST match the SQL signature of
+    // public.create_delivery_order(p_member_id bigint,
+    //   p_delivery_address text, p_delivery_latitude double precision,
+    //   p_delivery_longitude double precision, p_items jsonb) exactly —
+    // PostgREST resolves the function from these named arguments, and a
+    // missing/mistyped key yields PGRST202 ("function not found").
+    final params = <String, dynamic>{
+      'p_member_id': memberId, // int / bigint
+      'p_delivery_address': deliveryAddress, // String?
+      'p_delivery_latitude': deliveryLatitude, // double?
+      'p_delivery_longitude': deliveryLongitude, // double?
+      'p_items': items, // List<Map<String, dynamic>>
+    };
+
+    try {
+      final id = await _supabase.rpc('create_delivery_order', params: params);
+      _changes.add('order_added');
+      return id.toString();
+    } on PostgrestException catch (e) {
+      debugPrint(
+        'create_delivery_order RPC failed: ${e.message} '
+        '(code=${e.code}, hint=${e.hint})',
+      );
+      debugPrint('create_delivery_order details: ${e.details}');
+      if (e.code == 'PGRST202') {
+        debugPrint(
+          'PGRST202: public.create_delivery_order was not found in the '
+          'PostgREST schema cache. Apply '
+          'supabase/migrations/migration_v48_delivery_orders.sql, then '
+          "reload the cache: NOTIFY pgrst, 'reload schema';",
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Cashier "Send Quote" — fixes every item price and proposes the initial
+  /// delivery fee via `cashier_send_quote`.
+  Future<void> sendDeliveryQuote({
+    required String orderId,
+    required String cashierId,
+    required double itemsTotal,
+    required double deliveryFee,
+    required List<Map<String, dynamic>> lines,
+  }) async {
+    await _supabase.rpc(
+      'cashier_send_quote',
+      params: {
+        'p_order_id': orderId,
+        'p_cashier_id': cashierId,
+        'p_items_total': itemsTotal,
+        'p_delivery_fee': deliveryFee,
+        'p_lines': lines,
+      },
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Member response: `action` = 'agree' or 'counter'.
+  Future<void> memberRespondDeliveryOrder({
+    required String orderId,
+    required String action,
+    double? counterFee,
+  }) async {
+    await _supabase.rpc(
+      'member_respond_delivery_order',
+      params: {
+        'p_order_id': orderId,
+        'p_action': action,
+        'p_counter_fee': counterFee,
+      },
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Cashier response to a counter: `action` = 'accept' or 'repropose'.
+  Future<void> cashierResolveDeliveryOrder({
+    required String orderId,
+    required String action,
+    double? newFee,
+  }) async {
+    await _supabase.rpc(
+      'cashier_resolve_delivery_order',
+      params: {'p_order_id': orderId, 'p_action': action, 'p_new_fee': newFee},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Mark the order completed after the POS sale is recorded + printed.
+  Future<void> completeDeliveryOrder(String orderId) async {
+    await _supabase.rpc(
+      'complete_delivery_order',
+      params: {'p_order_id': orderId},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Cancel an open order from either side.
+  Future<void> cancelDeliveryOrder(String orderId) async {
+    await _supabase.rpc(
+      'cancel_delivery_order',
+      params: {'p_order_id': orderId},
+    );
+    _changes.add('order_updated');
+  }
+
   // ── Private Helpers ──────────────────────────────────────────────────────
 
   /// Converts a raw exception into a user-friendly error message.
@@ -3437,5 +3788,6 @@ class SupabaseRepository {
     _supabase.removeAllChannels();
     _authSub?.cancel();
     _changes.close();
+    _orderEvents.close();
   }
 }

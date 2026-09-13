@@ -2,9 +2,11 @@
 // Cashier Dashboard — restricted to Cashier role only.
 // Tabs:
 //   1. Transaction — POS terminal for processing sales.
-//   2. Members — Read-only member lookup.
-//   3. Request Member Deletion — POST-based deletion request for Admin approval.
-//   4. My Requests — Track status of submitted requests.
+//   2. Delivery Orders — price member orders + negotiate delivery fees.
+//   3. Members — Read-only member lookup.
+//   4. Request Member Deletion — POST-based deletion request for Admin approval.
+//   5. My Requests — Track status of submitted requests.
+//   6. Location — saved cashier location.
 // Cashier role CANNOT see: inventory CRUD, reports, admin panels, or user mgmt.
 
 import 'package:flutter/material.dart';
@@ -18,6 +20,7 @@ import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/admin_members_page.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/cashier_location_settings.dart';
+import 'package:lzcas/pages/delivery/delivery_orders_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/updater_service.dart';
@@ -37,7 +40,7 @@ class _CashierDashboardState extends State<CashierDashboard>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     _triggerUpdateCheck();
   }
 
@@ -152,6 +155,16 @@ class _CashierDashboardState extends State<CashierDashboard>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        Icon(Icons.local_shipping_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text('Delivery Orders'),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         Icon(Icons.people_alt_rounded, size: 18),
                         SizedBox(width: 6),
                         Text('Members'),
@@ -198,19 +211,22 @@ class _CashierDashboardState extends State<CashierDashboard>
                 controller: _tabController,
                 children: [
                   // Tab 1: Transaction (POS)
-
-                  // Tab 5: Saved cashier location (static GPS point).
-                  const CashierLocationSettings(),
                   const _TransactionTab(),
 
-                  // Tab 2: Members (read-only)
+                  // Tab 2: Delivery Orders (member pricing + negotiation)
+                  const DeliveryOrdersPage(),
+
+                  // Tab 3: Members (read-only)
                   const _MembersLookupTab(),
 
-                  // Tab 3: Request Member Deletion
+                  // Tab 4: Request Member Deletion
                   _RequestDeletionTab(isDark: isDark),
 
-                  // Tab 4: My Requests
+                  // Tab 5: My Requests
                   _MyRequestsTab(isDark: isDark),
+
+                  // Tab 6: Saved cashier location (static GPS point).
+                  const CashierLocationSettings(),
                 ],
               ),
             ),
