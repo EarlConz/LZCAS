@@ -20,6 +20,7 @@ import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/admin_members_page.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/cashier_location_settings.dart';
+import 'package:lzcas/config/feature_flags.dart';
 import 'package:lzcas/pages/delivery/delivery_orders_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
@@ -40,7 +41,11 @@ class _CashierDashboardState extends State<CashierDashboard>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    // Delivery Orders is the second tab only while the delivery system ships.
+    _tabController = TabController(
+      length: enableDeliverySystem ? 6 : 5,
+      vsync: this,
+    );
     _triggerUpdateCheck();
   }
 
@@ -140,8 +145,8 @@ class _CashierDashboardState extends State<CashierDashboard>
                 unselectedLabelColor: isDark
                     ? StockpileColors.darkTextMuted
                     : StockpileColors.mutedText,
-                tabs: const [
-                  Tab(
+                tabs: [
+                  const Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -151,17 +156,18 @@ class _CashierDashboardState extends State<CashierDashboard>
                       ],
                     ),
                   ),
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.local_shipping_rounded, size: 18),
-                        SizedBox(width: 6),
-                        Text('Delivery Orders'),
-                      ],
+                  if (enableDeliverySystem)
+                    const Tab(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.local_shipping_rounded, size: 18),
+                          SizedBox(width: 6),
+                          Text('Delivery Orders'),
+                        ],
+                      ),
                     ),
-                  ),
-                  Tab(
+                  const Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -171,7 +177,7 @@ class _CashierDashboardState extends State<CashierDashboard>
                       ],
                     ),
                   ),
-                  Tab(
+                  const Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -181,7 +187,7 @@ class _CashierDashboardState extends State<CashierDashboard>
                       ],
                     ),
                   ),
-                  Tab(
+                  const Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -191,7 +197,7 @@ class _CashierDashboardState extends State<CashierDashboard>
                       ],
                     ),
                   ),
-                  Tab(
+                  const Tab(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -214,7 +220,7 @@ class _CashierDashboardState extends State<CashierDashboard>
                   const _TransactionTab(),
 
                   // Tab 2: Delivery Orders (member pricing + negotiation)
-                  const DeliveryOrdersPage(),
+                  if (enableDeliverySystem) const DeliveryOrdersPage(),
 
                   // Tab 3: Members (read-only)
                   const _MembersLookupTab(),

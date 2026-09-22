@@ -8,6 +8,7 @@ import 'dart:math';
 import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/feature_flags.dart';
 import '../utils/app_clock.dart';
 import '../utils/birthday_window.dart' show parseBirthday;
 import 'models.dart';
@@ -140,6 +141,9 @@ class SupabaseRepository {
     // Delivery orders — emit both the granular change name (so order lists
     // refresh) and a parsed event (so the notification service can toast on
     // the right status transition).
+    // The table only exists once v48 is applied, which goes with the delivery
+    // release; subscribing to a missing table just errors the channel.
+    if (!enableDeliverySystem) return;
     final ordersChannel = _supabase
         .channel('public:orders')
         .onPostgresChanges(
@@ -1191,6 +1195,24 @@ class SupabaseRepository {
           'latitude, longitude, address, location_updated_at, created_at',
         )
         .inFilter('role', ['cashier', 'branch_cashier'])
+        .order('username');
+    return (data as List)
+        .map((j) => UserProfile.fromJson(Map<String, dynamic>.from(j)))
+        .toList();
+  }
+
+  /// Every delivery account with their last known position. Delivery
+  /// accounts only exist once the delivery system ships (`profiles.role =
+  /// 'delivery'`, v50); until then this returns an empty list, and callers
+  /// behind [enableDeliverySystem] never ask.
+  Future<List<UserProfile>> fetchRiders() async {
+    final data = await _supabase
+        .from('profiles')
+        .select(
+          'id, username, email, role, member_id, mobile_enabled, '
+          'latitude, longitude, address, location_updated_at, created_at',
+        )
+        .eq('role', 'delivery')
         .order('username');
     return (data as List)
         .map((j) => UserProfile.fromJson(Map<String, dynamic>.from(j)))

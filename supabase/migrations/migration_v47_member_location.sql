@@ -19,3 +19,12 @@
 alter table public.members add column if not exists latitude double precision;
 alter table public.members add column if not exists longitude double precision;
 alter table public.members add column if not exists location_updated_at timestamptz;
+
+-- ── Ledger ─────────────────────────────────────────────────────────
+-- Added after the fact (this file shipped without one). Re-running the
+-- whole file is safe; on a database where the columns are already present
+-- only this row changes.
+insert into public.schema_migrations (version, name)
+values (47, 'member_location')
+on conflict (version) do update
+  set applied_at = now(), applied_by = current_user, verified = true;

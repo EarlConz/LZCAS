@@ -22,6 +22,7 @@ import '../../utils/fonts.dart';
 import '../../utils/birthday_window.dart';
 import '../../widgets/announcement_widgets.dart';
 import '../../widgets/location_selection_widget.dart';
+import '../../widgets/map_kit.dart';
 import '../../widgets/member_sidebar.dart';
 import '../../widgets/memberqr.dart';
 import 'announcements_tab.dart';
@@ -117,8 +118,8 @@ class _MemberDashboardState extends State<MemberDashboard> {
 
   List<_MemberTab> get _tabs => [
     _MemberTab.overview,
-    _MemberTab.marketplace,
-    _MemberTab.orders,
+    // Shopping and delivery ship in the next major release.
+    if (enableDeliverySystem) ...[_MemberTab.marketplace, _MemberTab.orders],
     _MemberTab.purchases,
     _MemberTab.announcements,
     if (_isReseller) _MemberTab.earnings,
@@ -3687,6 +3688,7 @@ class _ProfileTabState extends State<_ProfileTab> {
 
     return LocationSelectionWidget(
       scrollable: false,
+      pinKind: MapPinKind.destination,
       title: 'Member Location',
       description:
           'Save your default location so nearby cashiers can still be found '

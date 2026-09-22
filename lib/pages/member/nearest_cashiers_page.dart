@@ -19,6 +19,7 @@ import '../../services/geocoding_service.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../utils/formatters.dart' show formatDistance;
+import '../../widgets/map_kit.dart';
 
 class NearestCashiersPage extends StatefulWidget {
   const NearestCashiersPage({super.key});
@@ -40,6 +41,10 @@ class _NearbyCashier {
 
   bool get hasStock => data.hasStock;
   List<CashierStockLine> get stock => data.stock;
+  int get inStockCount => stock.where((l) => l.inStock).length;
+
+  MapPinKind get kind =>
+      location.isBranchCashier ? MapPinKind.branch : MapPinKind.cashier;
 }
 
 class _NearestCashiersPageState extends State<NearestCashiersPage> {
@@ -61,6 +66,17 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
   /// (set in their Profile) rather than GPS/IP, because live positioning was
   /// unavailable. Surfaced in the UI for the same reason as [_approximate].
   bool _usingSavedLocation = false;
+
+  /// Android 12+ / iOS 14+: the app only has "Approximate location".
+  bool _reducedAccuracy = false;
+
+  /// Device-reported radius of [_myPosition], drawn as a circle when it is
+  /// wide enough to matter.
+  double? _myAccuracyMeters;
+
+  /// Why the last load failed, so the error screen can offer the right
+  /// settings shortcut.
+  LocationAccess? _access;
 
   List<_NearbyCashier> _all = const []; // every located cashier, nearest first.
   List<_NearbyCashier> _topThree = const []; // nearest stocked (≤ 3).
@@ -100,47 +116,58 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
       _error = null;
       _approximate = false;
       _usingSavedLocation = false;
+      _reducedAccuracy = false;
+      _myAccuracyMeters = null;
     });
 
     try {
       final access = await GeocodingService.ensureAccess();
       if (!mounted) return;
 
-      // GPS first, then IP geolocation. The fallback is what keeps this
-      // screen alive on Windows, where there is no GPS radio — asking for a
-      // fix there just times out.
+      // The member's saved default location (Profile → Member Location).
+      // It beats the IP guess: a point they chose is better than the ISP's
+      // exchange, and it is what keeps this screen alive on a desktop or
+      // after a denied permission.
+      final savedPos = await _savedMemberPosition();
+      if (!mounted) return;
+      final saved = savedPos == null
+          ? null
+          : LocatedPoint(
+              latitude: savedPos.latitude,
+              longitude: savedPos.longitude,
+              source: PositionSource.saved,
+            );
+
+      // Fresh fix → recent cached fix → saved → IP guess (last, labelled).
+      // 12 s is the ceiling, not the wait: the stream returns as soon as a
+      // fix under 100 m arrives, usually within a couple of seconds.
       final point = access == LocationAccess.granted
-          ? await GeocodingService.resolvePosition()
-          : null;
+          ? await GeocodingService.resolvePosition(
+              gpsTimeout: const Duration(seconds: 12),
+              saved: saved,
+            )
+          : saved;
       if (!mounted) return;
 
-      var myPos = point == null
-          ? null
-          : LatLng(point.latitude, point.longitude);
-      var usingSaved = false;
-
-      if (myPos == null) {
-        // Last resort: the member's saved default location (set in their
-        // Profile). Lets a desktop — or a member who denied the permission —
-        // still see nearby cashiers from a point they chose themselves.
-        myPos = await _savedMemberPosition();
-        if (!mounted) return;
-        if (myPos != null) {
-          usingSaved = true;
-        } else {
-          setState(() {
-            _loading = false;
-            _error = access != LocationAccess.granted
-                ? _messageFor(access)
-                : 'Could not determine your location. Check that location '
-                      'services are turned on, then try again.';
-          });
-          return;
-        }
+      if (point == null) {
+        setState(() {
+          _loading = false;
+          _access = access;
+          _error = access != LocationAccess.granted
+              ? _messageFor(access)
+              : 'Could not determine your location. Check that location '
+                    'services are turned on, then try again.';
+        });
+        return;
       }
 
-      final resolvedPos = myPos;
-      final approximate = point?.isApproximate ?? false;
+      final resolvedPos = LatLng(point.latitude, point.longitude);
+      final usingSaved = point.source == PositionSource.saved;
+      final approximate = point.isApproximate;
+      final reduced =
+          access == LocationAccess.granted &&
+          await GeocodingService.isReducedAccuracy();
+      if (!mounted) return;
 
       // Proximity + live stock in one pass: every located cashier with its
       // current on-hand inventory (see fetchCashiersWithStock).
@@ -178,6 +205,8 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
         _myPosition = resolvedPos;
         _approximate = approximate;
         _usingSavedLocation = usingSaved;
+        _reducedAccuracy = reduced;
+        _myAccuracyMeters = point.accuracyMeters;
         _all = nearby;
         _topThree = top;
         _grayed = grayed;
@@ -285,8 +314,36 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
     }
   }
 
+  void _focusMe() {
+    final me = _myPosition;
+    if (me == null) return;
+    try {
+      _mapController.move(me, 15);
+    } catch (_) {}
+  }
+
+  /// A pin tap: highlight it, and bring its card into view — on the phone
+  /// that means swiping the card strip to it. Tapping the same pin again
+  /// opens the details, so a member never needs to find the card.
+  void _selectFromPin(_NearbyCashier cashier) {
+    if (_selected?.location.id == cashier.location.id) {
+      _showDetails(cashier);
+      return;
+    }
+    setState(() => _selected = cashier);
+    final i = _topThree.indexWhere((c) => c.location.id == cashier.location.id);
+    if (i >= 0 && _cardController.hasClients) {
+      _cardController.animateToPage(
+        i,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   void _showDetails(_NearbyCashier cashier) {
     setState(() => _selected = cashier);
+    _focusCashier(cashier);
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -346,6 +403,17 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
               label: const Text('Try again'),
               onPressed: _load,
             ),
+            if (_access == LocationAccess.serviceDisabled ||
+                _access == LocationAccess.deniedForever) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                icon: const Icon(Icons.settings_rounded, size: 18),
+                label: const Text('Open settings'),
+                onPressed: _access == LocationAccess.serviceDisabled
+                    ? GeocodingService.openLocationSettings
+                    : GeocodingService.openAppSettings,
+              ),
+            ],
           ],
         ),
       ),
@@ -365,39 +433,92 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
 
   // ── Map ────────────────────────────────────────────────────────────────
   Widget _buildMap() {
-    return Stack(
-      children: [
-        FlutterMap(
-          mapController: _mapController,
-          options: MapOptions(
-            initialCenter: _mapCenter,
-            initialZoom: _fallbackZoom,
-            // Wins over initialCenter/initialZoom when it is non-null.
-            initialCameraFit: _cameraFit,
-          ),
-          children: [
-            TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'com.lzcas.app',
-            ),
-            MarkerLayer(markers: _buildMarkers()),
-          ],
+    return MapOverlay(
+      map: FlutterMap(
+        mapController: _mapController,
+        options: MapOptions(
+          initialCenter: _mapCenter,
+          initialZoom: _fallbackZoom,
+          // Wins over initialCenter/initialZoom when it is non-null.
+          initialCameraFit: _cameraFit,
+          onTap: (_, _) => setState(() => _selected = null),
         ),
-        if (_approximate)
-          Positioned(
-            top: 12,
-            left: 12,
-            right: 12,
-            child: _ApproximateBanner(muted: _muted, surface: _surface),
-          ),
-        if (_usingSavedLocation)
-          Positioned(
-            top: 12,
-            left: 12,
-            right: 12,
-            child: _SavedLocationBanner(muted: _muted, surface: _surface),
+        children: [
+          osmTileLayer(),
+          // How sure the device is about "you". Only worth drawing when the
+          // radius is wide enough to change which cashier is nearest.
+          if (_myPosition != null &&
+              (_myAccuracyMeters ?? 0) >
+                  GeocodingService.approximateAccuracyMeters)
+            CircleLayer(
+              circles: [
+                CircleMarker(
+                  point: _myPosition!,
+                  radius: _myAccuracyMeters!,
+                  useRadiusInMeter: true,
+                  color: MapPinKind.you.color.withAlpha(24),
+                  borderColor: MapPinKind.you.color.withAlpha(90),
+                  borderStrokeWidth: 1.5,
+                ),
+              ],
+            ),
+          MarkerLayer(markers: _buildMarkers()),
+        ],
+      ),
+      // One banner at a time, most actionable first.
+      topLeft: _reducedAccuracy
+          ? GestureDetector(
+              onTap: GeocodingService.openAppSettings,
+              child: const MapBanner(
+                icon: Icons.gps_off_rounded,
+                iconColor: StockpileColors.primary900,
+                text:
+                    'Precise location is off for this app, so distances are '
+                    'a few km out. Tap to open settings and turn it on.',
+              ),
+            )
+          : _usingSavedLocation
+          ? const MapBanner(
+              icon: Icons.bookmark_rounded,
+              text:
+                  'Using your saved member location — no live fix was '
+                  'available.',
+            )
+          : _approximate
+          ? MapBanner(
+              text: _myAccuracyMeters != null
+                  ? 'Your position is only accurate to about '
+                        '${formatDistance(_myAccuracyMeters!)} right now.'
+                  : 'Your position is approximate — estimated from your '
+                        'internet connection because no fix was available.',
+            )
+          : null,
+      topRight: [
+        MapControlButton(
+          icon: Icons.fit_screen_rounded,
+          tooltip: 'Show everything nearby',
+          onTap: _fitCamera,
+        ),
+        if (_myPosition != null)
+          MapControlButton(
+            icon: Icons.my_location_rounded,
+            tooltip: 'Back to me',
+            tint: MapPinKind.you.color,
+            onTap: _focusMe,
           ),
       ],
+      bottomLeft: MapLegend(
+        items: [
+          const MapLegendItem(StockpileColors.primary900, 'In stock'),
+          if (_grayed.isNotEmpty)
+            const MapLegendItem(
+              StockpileColors.mutedText,
+              'Out of stock',
+              muted: true,
+            ),
+          if (_myPosition != null) MapLegendItem(MapPinKind.you.color, 'You'),
+        ],
+      ),
     );
   }
 
@@ -493,7 +614,15 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
                   child: PageView.builder(
                     controller: _cardController,
                     itemCount: _topThree.length,
-                    onPageChanged: (i) => setState(() => _cardIndex = i),
+                    // Swiping the strip is selecting: the map follows.
+                    onPageChanged: (i) {
+                      final c = _topThree[i];
+                      setState(() {
+                        _cardIndex = i;
+                        _selected = c;
+                      });
+                      _focusCashier(c);
+                    },
                     itemBuilder: (context, index) {
                       final c = _topThree[index];
                       return Padding(
@@ -504,7 +633,7 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
                           border: _divider,
                           textPrimary: _textPrimary,
                           muted: _muted,
-                          selected: false,
+                          selected: _selected?.location.id == c.location.id,
                           onTap: () => _showDetails(c),
                         ),
                       );
@@ -596,201 +725,90 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
   }
 
   List<Marker> _buildMarkers() {
-    final markers = <Marker>[];
-
-    if (_myPosition != null) {
-      markers.add(
-        Marker(
-          point: _myPosition!,
-          width: 48,
-          height: 48,
-          child: const Icon(
-            Icons.my_location_rounded,
-            size: 36,
-            color: Color(0xFF1D4ED8),
-            shadows: [Shadow(color: Colors.white, blurRadius: 4)],
+    final selId = _selected?.location.id;
+    return [
+      // Out-of-stock first so anything live paints over them. No tap: a
+      // buyer can't navigate to an empty branch.
+      for (final c in _grayed)
+        mapMarker(
+          key: ValueKey('gray-${c.location.id}'),
+          point: c.point,
+          kind: c.kind,
+          muted: true,
+        ),
+      if (_myPosition != null)
+        mapMarker(point: _myPosition!, kind: MapPinKind.you),
+      for (final c in _topThree)
+        if (c.location.id != selId)
+          mapMarker(
+            key: ValueKey(c.location.id),
+            point: c.point,
+            kind: c.kind,
+            label: c.distanceLabel,
+            onTap: () => _selectFromPin(c),
           ),
+      // Selected last: on top, bigger, with its name floating above.
+      if (_selected case final s?) ...[
+        mapMarker(
+          key: ValueKey('sel-${s.location.id}'),
+          point: s.point,
+          kind: s.kind,
+          selected: true,
+          onTap: () => _selectFromPin(s),
         ),
-      );
-    }
-
-    for (final c in _topThree) {
-      markers.add(
-        Marker(
-          point: c.point,
-          width: 72,
-          height: 76,
-          child: _ActiveCashierPin(cashier: c, onTap: () => _showDetails(c)),
-        ),
-      );
-    }
-
-    for (final c in _grayed) {
-      markers.add(
-        Marker(
-          point: c.point,
-          width: 48,
-          height: 48,
-          child: _GrayedCashierPin(cashier: c),
-        ),
-      );
-    }
-
-    return markers;
+        _callout(s),
+      ],
+    ];
   }
-}
 
-// ─── Map pins ──────────────────────────────────────────────────────────────
-
-/// Interactive, in-stock pin: a colored circle with a distance label.
-/// 48dp touch target on the circle itself.
-class _ActiveCashierPin extends StatelessWidget {
-  final _NearbyCashier cashier;
-  final VoidCallback onTap;
-
-  const _ActiveCashierPin({required this.cashier, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final isBranch = cashier.location.isBranchCashier;
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
+  Marker _callout(_NearbyCashier c) {
+    const w = 200.0, h = 46.0;
+    return Marker(
+      point: c.point,
+      width: w,
+      height: h,
+      alignment: Marker.computePixelAlignment(
+        width: w,
+        height: h,
+        left: w / 2,
+        top: h + 30,
+      ),
+      child: IgnorePointer(
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(color: StockpileColors.primary900, width: 3),
-              boxShadow: const [
-                BoxShadow(color: Colors.black26, blurRadius: 4),
+              color: _surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: _divider),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withAlpha(30), blurRadius: 12),
               ],
             ),
-            child: Icon(
-              isBranch ? Icons.storefront_rounded : Icons.point_of_sale_rounded,
-              size: 24,
-              color: StockpileColors.primary900,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  c.location.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _textPrimary,
+                  ),
+                ),
+                Text(
+                  '${c.distanceLabel} · '
+                  '${c.hasStock ? 'In stock · ${c.inStockCount} items' : 'Out of stock'}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: StockpileFonts.satoshi(fontSize: 10, color: _muted),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 2),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: StockpileColors.primary900,
-              borderRadius: BorderRadius.circular(100),
-            ),
-            child: Text(
-              cashier.distanceLabel,
-              style: StockpileFonts.satoshi(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Grayed-out, non-interactive pin for an out-of-stock location within the
-/// gray-pin radius. Disabled so a buyer can't navigate to an empty branch.
-class _GrayedCashierPin extends StatelessWidget {
-  final _NearbyCashier cashier;
-
-  const _GrayedCashierPin({required this.cashier});
-
-  @override
-  Widget build(BuildContext context) {
-    final isBranch = cashier.location.isBranchCashier;
-    return IgnorePointer(
-      child: Opacity(
-        opacity: 0.55,
-        child: Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.grey.shade400, width: 2),
-          ),
-          child: Icon(
-            isBranch ? Icons.storefront_rounded : Icons.point_of_sale_rounded,
-            size: 24,
-            color: Colors.grey.shade500,
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Small translucent banner shown when the member's position is IP-derived.
-class _ApproximateBanner extends StatelessWidget {
-  final Color muted;
-  final Color surface;
-
-  const _ApproximateBanner({required this.muted, required this.surface});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: surface.withAlpha(235),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.info_outline_rounded, size: 16, color: muted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Your position is approximate — it was estimated from your '
-              'internet connection because GPS was unavailable.',
-              style: StockpileFonts.satoshi(fontSize: 12, color: muted),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Small translucent banner shown when the member's position came from their
-/// saved default location (Profile → Member Location) instead of live GPS/IP.
-class _SavedLocationBanner extends StatelessWidget {
-  final Color muted;
-  final Color surface;
-
-  const _SavedLocationBanner({required this.muted, required this.surface});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: surface.withAlpha(235),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.bookmark_rounded, size: 16, color: muted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Using your saved member location — live GPS was unavailable.',
-              style: StockpileFonts.satoshi(fontSize: 12, color: muted),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -821,14 +839,32 @@ class _CashierCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final loc = cashier.location;
     final inStock = cashier.hasStock;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final kind = cashier.kind;
+    final address = loc.address?.trim() ?? '';
+
+    // Same avatar tints as the admin roster, so a branch looks like a
+    // branch on every screen.
+    final avatarBg = !inStock
+        ? (isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg)
+        : isDark
+        ? kind.color.withAlpha(40)
+        : kind == MapPinKind.branch
+        ? StockpileColors.secondary50
+        : const Color(0xFFFFE8D6);
+
     return Material(
-      color: surface,
+      color: selected
+          ? (isDark
+                ? StockpileColors.primary900.withAlpha(30)
+                : StockpileColors.primary50)
+          : surface,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.all(14),
+          padding: EdgeInsets.all(selected ? 12 : 13),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
@@ -838,19 +874,17 @@ class _CashierCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 22,
-                backgroundColor:
-                    (inStock ? StockpileColors.primary900 : Colors.grey)
-                        .withAlpha(25),
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: avatarBg,
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(
-                  loc.isBranchCashier
-                      ? Icons.storefront_rounded
-                      : Icons.point_of_sale_rounded,
+                  kind.glyph,
                   size: 22,
-                  color: inStock
-                      ? StockpileColors.primary900
-                      : Colors.grey.shade600,
+                  color: inStock ? kind.color : StockpileColors.mutedText,
                 ),
               ),
               const SizedBox(width: 12),
@@ -869,19 +903,36 @@ class _CashierCard extends StatelessWidget {
                         color: textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      loc.roleLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: StockpileFonts.satoshi(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: muted,
-                      ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        _pill(
+                          loc.roleLabel,
+                          bg: kind == MapPinKind.branch
+                              ? StockpileColors.secondary50
+                              : (isDark
+                                    ? StockpileColors.darkInputBg
+                                    : StockpileColors.inputBg),
+                          fg: kind == MapPinKind.branch
+                              ? StockpileColors.secondary500
+                              : StockpileColors.mutedText,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(child: _stockBadge(inStock)),
+                      ],
                     ),
-                    const SizedBox(height: 6),
-                    _stockBadge(inStock),
+                    if (address.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        address,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: StockpileFonts.satoshi(
+                          fontSize: 11,
+                          color: muted,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -896,19 +947,23 @@ class _CashierCard extends StatelessWidget {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: StockpileColors.primary900.withAlpha(25),
+                      color: selected
+                          ? StockpileColors.primary900
+                          : StockpileColors.primary900.withAlpha(25),
                       borderRadius: BorderRadius.circular(100),
                     ),
                     child: Text(
-                      '${cashier.distanceLabel} away',
+                      cashier.distanceLabel,
                       style: StockpileFonts.satoshi(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: StockpileColors.primary900,
+                        color: selected
+                            ? Colors.white
+                            : StockpileColors.primary900,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Icon(Icons.chevron_right_rounded, size: 20, color: muted),
                 ],
               ),
@@ -919,9 +974,28 @@ class _CashierCard extends StatelessWidget {
     );
   }
 
+  Widget _pill(String text, {required Color bg, required Color fg}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Text(
+        text,
+        style: StockpileFonts.satoshi(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: fg,
+        ),
+      ),
+    );
+  }
+
   Widget _stockBadge(bool inStock) {
     final color = inStock ? StockpileColors.success : StockpileColors.danger;
     final bg = inStock ? StockpileColors.successBg : StockpileColors.dangerBg;
+    final n = cashier.inStockCount;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -937,12 +1011,16 @@ class _CashierCard extends StatelessWidget {
             decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 5),
-          Text(
-            inStock ? 'In stock' : 'Out of stock',
-            style: StockpileFonts.satoshi(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: color,
+          Flexible(
+            child: Text(
+              inStock ? 'In stock${n > 0 ? ' · $n' : ''}' : 'Out of stock',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: StockpileFonts.satoshi(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
             ),
           ),
         ],

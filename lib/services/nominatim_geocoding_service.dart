@@ -38,13 +38,16 @@ class NominatimGeocodingService {
   /// Convert coordinates into a human-readable address, e.g.
   /// "Poblacion, Solana, Cagayan".
   ///
-  /// Never throws. Falls back to `display_name`, and only uses a raw
-  /// "Lat X, Lng Y" string when the HTTP request times out or fails.
+  /// Never throws. Falls back to `display_name`, and returns '' when the
+  /// request fails or names nothing — callers show "no readable address"
+  /// rather than saving a coordinate string as if it were one (1.5.0 did,
+  /// which is where addresses like "House 12 (Lat 7.09, Lng 125.61)" on the
+  /// members' map came from).
   static Future<String> reverseGeocode(
     double latitude,
     double longitude,
   ) async {
-    final fallback = _fallback(latitude, longitude);
+    const fallback = '';
 
     try {
       final uri = Uri.parse(_endpoint).replace(
@@ -124,8 +127,10 @@ class NominatimGeocodingService {
   }
 
   /// Forward geocode a free-text query (e.g. "Solana, Cagayan") into
-  /// candidate coordinates for the manual address picker. Returns an empty
-  /// list on failure.
+  /// candidate coordinates for the manual address picker. Restricted to the
+  /// Philippines: without `countrycodes` "Solana" came back as Solana,
+  /// Italy first and "San Jose" as California. Returns an empty list on
+  /// failure.
   static Future<List<NominatimSearchResult>> search(
     String query, {
     int limit = 6,
@@ -141,6 +146,7 @@ class NominatimGeocodingService {
               'q': trimmed,
               'limit': limit.toString(),
               'addressdetails': '1',
+              'countrycodes': 'ph',
             },
           );
 
@@ -193,7 +199,4 @@ class NominatimGeocodingService {
     if (parts.any((p) => p.toLowerCase() == lower)) return;
     parts.add(value);
   }
-
-  static String _fallback(double latitude, double longitude) =>
-      'Lat ${latitude.toStringAsFixed(5)}, Lng ${longitude.toStringAsFixed(5)}';
 }

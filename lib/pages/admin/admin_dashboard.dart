@@ -9,6 +9,7 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:lzcas/config/feature_flags.dart';
 import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
@@ -3606,7 +3607,8 @@ class _AdminSidebar extends StatelessWidget {
   /// Indices, not items — see [_NavGroup].
   static const _navGroups = <_NavGroup>[
     _NavGroup(null, [0]), // Dashboard
-    _NavGroup('Selling & Stock', [4, 2, 8, 11, 3]),
+    // 11 (Delivery Orders) only once the delivery system ships.
+    _NavGroup('Selling & Stock', [4, 2, 8, if (enableDeliverySystem) 11, 3]),
     _NavGroup('Members', [5, 7, 6, 9]),
     _NavGroup('Staff', [1, 10]),
   ];
