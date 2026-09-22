@@ -6294,7 +6294,10 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
               'Withdrawal (${req.sourceLabel} ₱${req.requestedAmount}) — approved',
         );
       } else {
-        BotToast.showText(text: 'Failed to approve withdrawal: $err');
+        // The repository returns a whole sentence, including the overdraft
+        // refusal — which is a decision, not a crash, and reads wrong
+        // behind a "Failed to..." prefix.
+        BotToast.showText(text: err, duration: const Duration(seconds: 6));
       }
       _loadWithdrawals();
     });

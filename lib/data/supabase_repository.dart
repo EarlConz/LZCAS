@@ -3051,6 +3051,36 @@ class SupabaseRepository {
       final currentTotalEarnings = breakdown['totalEarnings'] ?? 0;
       final currentBalance = breakdown['balance'] ?? 0;
 
+      // ── Overdraft guard ───────────────────────────────────────────
+      // Nothing reserves a pending request: the member's dialog validates
+      // against the balance as it stands, so ₱200 awaiting approval and a
+      // second request of ₱101 against ₱300 are both accepted, and each
+      // one looks affordable on its own.
+      //
+      // Approval is where that becomes money. It has to be caught here
+      // because it cannot be seen anywhere else: `get_member_earnings`
+      // (v24) returns `greatest(0, earned - approved)`, so an overdrawn
+      // account reads ₱0 — identical to a member who withdrew exactly
+      // what they had. The app has no screen that shows the difference.
+      //
+      // Left pending rather than auto-rejected: the amount may well be
+      // legitimate and simply out of date, and rejecting needs a reason
+      // the admin writes, not one this method invents.
+      //
+      // This closes the hole for one approver at a time. Two admins
+      // approving at the same instant can still slip between the check
+      // and the write — that needs a database-level constraint, which
+      // belongs with the full fix.
+      final available = req.sourceBucket == 'total_earnings'
+          ? currentTotalEarnings
+          : currentBalance;
+      if (req.requestedAmount > available) {
+        return 'Cannot approve: ₱${req.requestedAmount} requested but only '
+            '₱$available available in ${req.sourceLabel}. The member has '
+            'other approved or pending withdrawals. Reject this one and ask '
+            'them to submit a new request.';
+      }
+
       // Deduct the requested amount from the appropriate pool
       int newTotalEarnings = currentTotalEarnings;
       int newBalance = currentBalance;
@@ -3082,7 +3112,9 @@ class SupabaseRepository {
       });
     } catch (e) {
       debugPrint('[approveWithdrawalRequest] deduction failed: $e');
-      return 'Failed to process deduction: $_friendlyError(e)';
+      // `$_friendlyError(e)` interpolated the method itself and printed
+      // "Closure: (Object) => String(e)" at the admin. Braces call it.
+      return 'Failed to process deduction: ${_friendlyError(e)}';
     }
 
     // Mark as approved
