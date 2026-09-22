@@ -89,7 +89,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     // 8: Branch Stock — give/return/adjust + all-branches overview
     BranchStockPage(),
     // 9: Announcements — post notices + the automatic birthday greeting
-    AdminAnnouncementsPage(),
+    AnnouncementsPage(),
     // 10: Cashier Locations — review/remove what members see on their map
     AdminCashierLocationsPage(),
     // 11: Delivery Orders — price member orders + negotiate delivery fees

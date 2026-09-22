@@ -6,7 +6,8 @@
 //   3. Members — Read-only member lookup.
 //   4. Request Member Deletion — POST-based deletion request for Admin approval.
 //   5. My Requests — Track status of submitted requests.
-//   6. Location — saved cashier location.
+//   6. Announcements — post notices; manage the ones this account posted.
+//   7. Location — saved cashier location.
 // Cashier role CANNOT see: inventory CRUD, reports, admin panels, or user mgmt.
 
 import 'package:flutter/material.dart';
@@ -19,6 +20,7 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/memberstable.dart';
 import 'package:lzcas/widgets/admin_members_page.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
+import 'package:lzcas/pages/admin/announcements_page.dart';
 import 'package:lzcas/widgets/cashier_location_settings.dart';
 import 'package:lzcas/config/feature_flags.dart';
 import 'package:lzcas/pages/delivery/delivery_orders_page.dart';
@@ -43,7 +45,7 @@ class _CashierDashboardState extends State<CashierDashboard>
     super.initState();
     // Delivery Orders is the second tab only while the delivery system ships.
     _tabController = TabController(
-      length: enableDeliverySystem ? 6 : 5,
+      length: enableDeliverySystem ? 7 : 6,
       vsync: this,
     );
     _triggerUpdateCheck();
@@ -201,6 +203,16 @@ class _CashierDashboardState extends State<CashierDashboard>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        Icon(Icons.campaign_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text('Announcements'),
+                      ],
+                    ),
+                  ),
+                  const Tab(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         Icon(Icons.location_on_rounded, size: 18),
                         SizedBox(width: 6),
                         Text('Location'),
@@ -231,7 +243,12 @@ class _CashierDashboardState extends State<CashierDashboard>
                   // Tab 5: My Requests
                   _MyRequestsTab(isDark: isDark),
 
-                  // Tab 6: Saved cashier location (static GPS point).
+                  // Tab 6: Announcements. The same screen the admin uses —
+                  // it reads the signed-in role and lets a cashier manage
+                  // only what they posted (migration v51).
+                  const AnnouncementsPage(),
+
+                  // Tab 7: Saved cashier location (static GPS point).
                   const CashierLocationSettings(),
                 ],
               ),

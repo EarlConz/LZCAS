@@ -2134,6 +2134,27 @@ class SupabaseRepository {
     }
   }
 
+  /// `profiles.id` → username for everyone who may post an announcement
+  /// (v51: admins and main cashiers). Used to name the author on the
+  /// management list, so a shared board says who wrote what.
+  ///
+  /// Failure is not worth surfacing: the list falls back to no name.
+  Future<Map<String, String>> fetchAnnouncementAuthors() async {
+    try {
+      final rows = await _supabase
+          .from('profiles')
+          .select('id, username')
+          .inFilter('role', ['admin', 'cashier']);
+      return {
+        for (final r in rows as List)
+          (r as Map)['id'] as String: ((r['username'] ?? '') as String).trim(),
+      }..removeWhere((_, name) => name.isEmpty);
+    } catch (e) {
+      debugPrint('[fetchAnnouncementAuthors] failed: $e');
+      return const {};
+    }
+  }
+
   /// Post a new announcement. Returns null on success, else a message.
   Future<String?> createAnnouncement({
     required String title,
