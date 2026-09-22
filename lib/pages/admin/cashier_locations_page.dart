@@ -394,7 +394,7 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _header(),
+          _header(wide: true),
           const SizedBox(height: 16),
           _statTiles(),
           const SizedBox(height: 16),
@@ -421,7 +421,7 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _header(),
+        _header(wide: false),
         const SizedBox(height: 12),
         _statTiles(scrollable: true),
         const SizedBox(height: 12),
@@ -434,7 +434,7 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
     );
   }
 
-  Widget _header() {
+  Widget _header({required bool wide}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final text = isDark
         ? StockpileColors.darkTextPrimary
@@ -442,66 +442,84 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
     final muted = isDark
         ? StockpileColors.darkTextMuted
         : StockpileColors.mutedText;
+    final freshness = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: const BoxDecoration(
+            color: StockpileColors.success,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          'Updated ${formatAgo(_loadedAt)}',
+          style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+        ),
+      ],
+    );
+    final refresh = IconButton(
+      tooltip: 'Refresh',
+      icon: const Icon(Icons.refresh_rounded),
+      onPressed: _load,
+    );
+    final description = Text(
+      'Where each cashier and rider appears on the members’ map. '
+      'They set their own location — you can review it and remove '
+      'one that is wrong.',
+      style: StockpileFonts.satoshi(fontSize: 13, height: 1.4, color: muted),
+    );
+    final title = Text(
+      'Cashier Locations',
+      style: StockpileFonts.satoshi(
+        fontSize: 22,
+        fontWeight: FontWeight.w700,
+        color: text,
+      ),
+    );
+    const glyph = Padding(
+      padding: EdgeInsets.only(top: 3),
+      child: Icon(Icons.pin_drop_rounded, color: StockpileColors.primary900),
+    );
+
+    // Phone: the title owns the row, the description gets the full width,
+    // and the freshness stamp drops under it. Side by side they were
+    // squeezing the title onto two lines and the copy into a column.
+    if (!wide) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              glyph,
+              const SizedBox(width: 10),
+              Expanded(child: title),
+              refresh,
+            ],
+          ),
+          const SizedBox(height: 2),
+          description,
+          const SizedBox(height: 6),
+          freshness,
+        ],
+      );
+    }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.only(top: 3),
-          child: Icon(
-            Icons.pin_drop_rounded,
-            color: StockpileColors.primary900,
-          ),
-        ),
+        glyph,
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Cashier Locations',
-                style: StockpileFonts.satoshi(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: text,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Where each cashier and rider appears on the members’ map. '
-                'They set their own location — you can review it and remove '
-                'one that is wrong.',
-                style: StockpileFonts.satoshi(
-                  fontSize: 13,
-                  height: 1.4,
-                  color: muted,
-                ),
-              ),
-            ],
+            children: [title, const SizedBox(height: 4), description],
           ),
         ),
         const SizedBox(width: 12),
-        Row(
-          children: [
-            Container(
-              width: 7,
-              height: 7,
-              decoration: const BoxDecoration(
-                color: StockpileColors.success,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Updated ${formatAgo(_loadedAt)}',
-              style: StockpileFonts.satoshi(fontSize: 12, color: muted),
-            ),
-            IconButton(
-              tooltip: 'Refresh',
-              icon: const Icon(Icons.refresh_rounded),
-              onPressed: _load,
-            ),
-          ],
-        ),
+        freshness,
+        refresh,
       ],
     );
   }
@@ -704,30 +722,53 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
         ],
       );
     }
+    // Phone: sort collapses to an icon beside the search box, and the chip
+    // row gets the whole width, scrolling edge to edge. (Sharing a row with
+    // the full sort button left the chips painting underneath it.)
+    final sortIcon = PopupMenuButton<_Sort>(
+      tooltip: 'Sort · ${_sort.label}',
+      initialValue: _sort,
+      onSelected: (s) => setState(() => _sort = s),
+      itemBuilder: (_) => [
+        for (final s in _Sort.values)
+          PopupMenuItem(value: s, child: Text(s.label)),
+      ],
+      child: Container(
+        width: 44,
+        height: 40,
+        decoration: BoxDecoration(
+          color: isDark ? StockpileColors.darkSurface : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isDark
+                ? StockpileColors.darkDivider
+                : StockpileColors.divider,
+          ),
+        ),
+        child: Icon(Icons.sort_rounded, size: 20, color: muted),
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        search,
-        const SizedBox(height: 10),
         Row(
           children: [
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                clipBehavior: Clip.none,
-                child: Row(
-                  children: [
-                    for (var i = 0; i < chips.length; i++) ...[
-                      if (i > 0) const SizedBox(width: 8),
-                      chips[i],
-                    ],
-                  ],
-                ),
-              ),
-            ),
+            Expanded(child: search),
             const SizedBox(width: 8),
-            sort,
+            sortIcon,
           ],
+        ),
+        const SizedBox(height: 10),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (var i = 0; i < chips.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                chips[i],
+              ],
+            ],
+          ),
         ),
       ],
     );
