@@ -10,9 +10,10 @@
 // come from the device or the user, never from the ISP. A fix the device
 // itself calls rough (> 250 m) is shown but cannot be saved until adjusted.
 //
-// The detected locality (barangay/city/province) is shown as a reference and
-// appended to the user's typed "Detailed / Complete Address" when they tap
-// "Save Location" (e.g. "House #12, Green St. (Poblacion, Solana, Cagayan)").
+// The map writes the address: whenever the pin lands somewhere the Complete
+// Address field is rewritten with the geocoder's answer, and the user can
+// add a unit, floor or landmark before saving. What is in the field is what
+// is saved — no locality is appended behind their back.
 //
 // The GPS/geocoding logic itself lives in `GeocodingService` and
 // `NominatimGeocodingService` — this widget only orchestrates it and renders
@@ -179,19 +180,12 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
   @override
   void initState() {
     super.initState();
-    // The "will be saved as" line under the field follows every keystroke.
-    _detailCtrl.addListener(_onDetailChanged);
     _load();
-  }
-
-  void _onDetailChanged() {
-    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _searchCtrl.dispose();
-    _detailCtrl.removeListener(_onDetailChanged);
     _detailCtrl.dispose();
     super.dispose();
   }
@@ -209,13 +203,10 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
         _detectedLng = loc?.longitude;
         _source = loc == null ? _PinSource.none : _PinSource.saved;
         _accuracyMeters = null;
-        // Pre-fill the detailed field with what the user typed last time —
-        // NOT the locality we appended on save. That stays with the pin, so
-        // moving the pin visibly changes the address instead of leaving
-        // "(Poblacion, Solana, Cagayan)" glued to a point in Davao.
-        final (detail, area) = _splitSaved(loc?.address);
-        _detailCtrl.text = detail;
-        _detectedArea = area;
+        // The field holds the saved address as-is. It is rewritten from the
+        // map whenever the pin moves; the user may edit it before saving.
+        _detailCtrl.text = (loc?.address ?? '').trim();
+        _detectedArea = null;
       });
     } catch (_) {
       if (!mounted) return;
@@ -311,6 +302,7 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
         _detectedLat = point.latitude;
         _detectedLng = point.longitude;
         _detectedArea = address.trim().isEmpty ? null : address.trim();
+        _writeAddress(_detectedArea);
         _detectedApproximate = point.isApproximate;
         _accuracyMeters = point.accuracyMeters;
         _source = point.isApproximate
@@ -446,6 +438,7 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
       _detectedLat = result.latitude;
       _detectedLng = result.longitude;
       _detectedArea = result.displayName;
+      _writeAddress(result.displayName);
       _detectedApproximate = false;
       _source = _PinSource.search;
       _accuracyMeters = null;
@@ -473,14 +466,30 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
     setState(() {
       _detectedLat = result.point.latitude;
       _detectedLng = result.point.longitude;
-      if (result.area != null) _detectedArea = result.area;
+      if (result.area != null) {
+        _detectedArea = result.area;
+        _writeAddress(result.area);
+      }
       _detectedApproximate = false;
       _source = _PinSource.adjusted;
       _accuracyMeters = null;
     });
   }
 
-  /// Persist the detected coordinates plus the combined address string.
+  /// The map decides the address: every time the pin lands somewhere the
+  /// field is rewritten with what the geocoder says is there. The user can
+  /// then add a floor, unit or landmark before saving. When the geocoder
+  /// has nothing, the field is left alone so a typed address survives.
+  void _writeAddress(String? geocoded) {
+    final a = (geocoded ?? '').trim();
+    if (a.isEmpty) return;
+    _detailCtrl.value = TextEditingValue(
+      text: a,
+      selection: TextSelection.collapsed(offset: a.length),
+    );
+  }
+
+  /// Persist the pin and whatever is in the address field.
   Future<void> _saveLocation() async {
     if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
@@ -501,8 +510,7 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
 
     setState(() => _saving = true);
     try {
-      final combined = _combineAddress(_detailCtrl.text, _detectedArea);
-      await widget.onSave(lat, lng, combined);
+      await widget.onSave(lat, lng, _detailCtrl.text.trim());
       if (!mounted) return;
       BotToast.showText(
         text: _detectedApproximate
@@ -516,40 +524,6 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  /// Join the typed street detail with the auto-resolved locality, e.g.
-  /// "House #12, Green St. (Poblacion, Solana, Cagayan)". Dedupes when the
-  /// detail already contains the locality.
-  String _combineAddress(String detailed, String? area) {
-    // If the user pasted or kept an old "(locality)" tail, drop it — the
-    // pin decides the locality now.
-    final d = _splitSaved(detailed).$1;
-    final a = (area ?? '').trim();
-    if (a.isEmpty) return d;
-    if (d.isEmpty) return a;
-    if (d.toLowerCase().contains(a.toLowerCase())) return d;
-    return '$d ($a)';
-  }
-
-  /// Undo [_combineAddress]: "House 12, Green St (Poblacion, Solana)" →
-  /// ("House 12, Green St", "Poblacion, Solana"). An address with no
-  /// trailing parenthesised locality comes back whole, with a null area.
-  static (String, String?) _splitSaved(String? address) {
-    final s = (address ?? '').trim();
-    final m = RegExp(r'^(.*?)\s*\(([^()]+)\)$').firstMatch(s);
-    if (m == null) return (s, null);
-    final detail = m.group(1)!.trim();
-    final area = m.group(2)!.trim();
-    // "(Poblacion)" alone, with nothing typed: keep it as the detail so the
-    // required field is not emptied by the split.
-    if (detail.isEmpty) return (area, null);
-    // 1.5.0 appended "(Lat 7.09218, Lng 125.61240)" when geocoding failed.
-    // That is not a locality; drop it so the pin's real one takes over.
-    if (RegExp(r'^Lat -?[\d.]+, Lng -?[\d.]+$').hasMatch(area)) {
-      return (detail, null);
-    }
-    return (detail, area);
   }
 
   @override
@@ -707,49 +681,30 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
         ? StockpileColors.darkInputBg
         : StockpileColors.inputBg;
 
-    final preview = _combineAddress(_detailCtrl.text, _detectedArea);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Form(
-          key: _formKey,
-          child: TextFormField(
-            controller: _detailCtrl,
-            maxLines: 3,
-            validator: (v) => (v == null || v.trim().isEmpty)
-                ? 'Enter your detailed address'
-                : null,
-            decoration: InputDecoration(
-              labelText: 'Detailed / Complete Address *',
-              hintText:
-                  'e.g., House/Block/Lot No., Street Name, Floor, Landmark',
-              alignLabelWithHint: true,
-              filled: true,
-              fillColor: inputFill,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: divider),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: divider),
-              ),
-            ),
+    return Form(
+      key: _formKey,
+      child: TextFormField(
+        controller: _detailCtrl,
+        maxLines: 3,
+        validator: (v) => (v == null || v.trim().isEmpty)
+            ? 'Enter your detailed address'
+            : null,
+        decoration: InputDecoration(
+          labelText: 'Complete Address *',
+          hintText: 'e.g., House/Block/Lot No., Street Name, Floor, Landmark',
+          alignLabelWithHint: true,
+          filled: true,
+          fillColor: inputFill,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: divider),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: divider),
           ),
         ),
-        if (preview.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          Text(
-            'Will be saved as: $preview',
-            style: StockpileFonts.satoshi(
-              fontSize: 11,
-              height: 1.4,
-              color: muted,
-            ),
-          ),
-        ],
-      ],
+      ),
     );
   }
 

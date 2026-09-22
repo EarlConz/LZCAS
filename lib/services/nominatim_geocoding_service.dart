@@ -93,7 +93,13 @@ class NominatimGeocodingService {
   /// Returns '' when nothing useful is present so the caller can fall back to
   /// `display_name`.
   static String formatAddress(Map<String, dynamic> address) {
-    final street = _first(address, const ['road', 'pedestrian', 'footway']);
+    final number = _first(address, const ['house_number']);
+    final road = _first(address, const ['road', 'pedestrian', 'footway']);
+    // "12 Green St" when Nominatim knows the number; the address field is
+    // written from this now, so every part it can give us counts.
+    final street = number.isNotEmpty && road.isNotEmpty
+        ? '$number $road'
+        : road;
     final district = _first(address, const [
       'barangay',
       'neighbourhood',
