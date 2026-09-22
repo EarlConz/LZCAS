@@ -1,7 +1,17 @@
 // lib/pages/admin/announcements_page.dart
 //
-// Admin: post and manage announcements, and control the automatic birthday
-// greeting.
+// Post and manage announcements, and (admins only) control the automatic
+// birthday greeting.
+//
+// Shared by the Admin dashboard and the Cashier Terminal since v51. The two
+// differ in what the signed-in account may do, not in what the screen is:
+//
+//   admin    — edits and takes down anything; sees the birthday panel.
+//   cashier  — posts; edits and takes down only what they posted.
+//
+// The rules live in the database (migration v51). Everything here is the
+// polite half of that: disabled buttons and a reason, instead of a request
+// that comes back rejected.
 
 import 'dart:async';
 
@@ -9,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/config_service.dart';
 import 'package:lzcas/theme.dart';
@@ -21,22 +32,34 @@ import 'package:lzcas/widgets/announcement_widgets.dart';
 import 'package:lzcas/widgets/poster_image.dart';
 import 'package:lzcas/widgets/poster_picker_field.dart';
 
-class AdminAnnouncementsPage extends StatefulWidget {
-  const AdminAnnouncementsPage({super.key});
+class AnnouncementsPage extends StatefulWidget {
+  const AnnouncementsPage({super.key});
 
   @override
-  State<AdminAnnouncementsPage> createState() => _AdminAnnouncementsPageState();
+  State<AnnouncementsPage> createState() => _AnnouncementsPageState();
 }
 
-class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
+class _AnnouncementsPageState extends State<AnnouncementsPage> {
   List<Announcement> _announcements = const [];
   ({int total, int withoutBirthday})? _coverage;
+
+  /// `profiles.id` → username, so a shared board can say who posted what.
+  Map<String, String> _authors = const {};
+
   bool _loading = true;
   StreamSubscription<String>? _sub;
+
+  /// Read once in [initState] rather than watched: a dashboard never changes
+  /// the role of the account rendering it without rebuilding from scratch.
+  bool _isAdmin = true;
+  String? _myId;
 
   @override
   void initState() {
     super.initState();
+    final auth = context.read<AuthState>();
+    _isAdmin = auth.userRole == UserRole.admin;
+    _myId = auth.userId;
     _load();
     _sub = repository.changes.listen((e) {
       if (e == 'announcements_changed' && mounted) _load();
@@ -51,13 +74,33 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
 
   Future<void> _load() async {
     final rows = await repository.fetchAllAnnouncements();
-    final coverage = await repository.birthdayCoverage();
+    final authors = await repository.fetchAnnouncementAuthors();
+    // Only the birthday panel needs the coverage, and only an admin sees it.
+    final coverage = _isAdmin ? await repository.birthdayCoverage() : null;
     if (!mounted) return;
     setState(() {
       _announcements = rows;
+      _authors = authors;
       _coverage = coverage;
       _loading = false;
     });
+  }
+
+  /// Whether this account may edit or take [a] down. An admin may touch
+  /// anything; anyone else only what they posted. Rows with no author
+  /// (posted before `created_by` was populated) belong to nobody.
+  ///
+  /// Mirrors migration v51 — the database refuses the write either way, but
+  /// a button that does nothing is worse than one that is plainly disabled.
+  bool _canManage(Announcement a) =>
+      _isAdmin || (a.createdBy != null && a.createdBy == _myId);
+
+  /// The author's username, or null when it is this account or unknown.
+  /// "Posted by me" is noise on a board that is mostly mine.
+  String? _authorName(Announcement a) {
+    final id = a.createdBy;
+    if (id == null || id == _myId) return null;
+    return _authors[id];
   }
 
   Future<void> _compose({Announcement? existing}) async {
@@ -140,12 +183,16 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
             )
           else ...[
             _list(isDark),
-            const SizedBox(height: 20),
-            _BirthdayPanel(
-              coverage: _coverage,
-              isDark: isDark,
-              onEdited: _load,
-            ),
+            // The automatic greeting is an account-wide setting, not a
+            // notice: it stays with the admin who configures it.
+            if (_isAdmin) ...[
+              const SizedBox(height: 20),
+              _BirthdayPanel(
+                coverage: _coverage,
+                isDark: isDark,
+                onEdited: _load,
+              ),
+            ],
           ],
         ],
       ),
@@ -162,8 +209,14 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
         Text('Announcements', style: theme.textTheme.titleLarge),
         const SizedBox(height: 2),
         Text(
-          'Shown on the Announcements screen of every account you send '
-          'them to.',
+          _isAdmin
+              ? 'Shown on the Announcements screen of every account you '
+                    'send them to.'
+              // A cashier shares the board with the office, so the line that
+              // matters to them is which ones are theirs to change.
+              : 'Shown on the Announcements screen of every account you '
+                    'send them to. You can edit or take down the ones you '
+                    'posted.',
           style: theme.textTheme.bodySmall?.copyWith(
             color: StockpileColors.mutedText,
           ),
@@ -222,13 +275,16 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
       );
     }
 
-    // The table form needs 502px of fixed columns before the title gets any
+    // The table form needs 628px of fixed columns before the title gets any
     // space at all, so on a phone it is replaced by stacked cards rather than
     // squeezed. The column headings go with it — they label nothing once the
     // columns are gone.
+    //
+    // 720 until v51 added the "Posted by" column; the threshold moved with
+    // it so the title never loses its share of the row.
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 720;
+        final wide = constraints.maxWidth >= 850;
         return _shell(
           isDark,
           child: Column(
@@ -335,27 +391,20 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
                         color: StockpileColors.mutedText,
                       ),
                     ),
+                    if (_authorName(a) case final author?)
+                      Text(
+                        'by $author',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 12,
+                          color: StockpileColors.mutedText,
+                        ),
+                      ),
                   ],
                 ),
               ],
             ),
           ),
-          Column(
-            children: [
-              IconButton(
-                tooltip: 'Edit',
-                iconSize: 18,
-                onPressed: a.isArchived ? null : () => _compose(existing: a),
-                icon: const Icon(Icons.edit_outlined),
-              ),
-              IconButton(
-                tooltip: 'Take down',
-                iconSize: 18,
-                onPressed: a.isArchived ? null : () => _confirmArchive(a),
-                icon: const Icon(Icons.archive_outlined),
-              ),
-            ],
-          ),
+          Column(children: _actions(a)),
         ],
       ),
     );
@@ -394,6 +443,8 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
       child: Row(
         children: [
           h('Announcement', grow: true),
+          const SizedBox(width: 16),
+          h('Posted by', width: 110),
           const SizedBox(width: 16),
           h('Audience', width: 130),
           const SizedBox(width: 16),
@@ -468,6 +519,19 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
             ),
           ),
           const SizedBox(width: 16),
+          SizedBox(
+            width: 110,
+            child: Text(
+              _authorName(a) ?? (a.createdBy == null ? '—' : 'You'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: StockpileFonts.satoshi(
+                fontSize: 13,
+                color: StockpileColors.mutedText,
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
           SizedBox(width: 130, child: _audienceChip(a, isDark)),
           const SizedBox(width: 16),
           SizedBox(
@@ -499,25 +563,39 @@ class _AdminAnnouncementsPageState extends State<AdminAnnouncementsPage> {
             width: 88,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                IconButton(
-                  tooltip: 'Edit',
-                  iconSize: 18,
-                  onPressed: a.isArchived ? null : () => _compose(existing: a),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                IconButton(
-                  tooltip: 'Take down',
-                  iconSize: 18,
-                  onPressed: a.isArchived ? null : () => _confirmArchive(a),
-                  icon: const Icon(Icons.archive_outlined),
-                ),
-              ],
+              children: _actions(a),
             ),
           ),
         ],
       ),
     );
+  }
+
+  /// Edit and take-down, shared by both forms so a permission can only be
+  /// got wrong in one place.
+  ///
+  /// A disabled button says why in its tooltip: "nothing happens" and "you
+  /// may not do this" look identical otherwise.
+  List<Widget> _actions(Announcement a) {
+    final mine = _canManage(a);
+    final reason = a.isArchived
+        ? 'Already taken down'
+        : 'Only ${_authorName(a) ?? 'the author'} or an admin can change this';
+
+    return [
+      IconButton(
+        tooltip: a.isArchived || !mine ? reason : 'Edit',
+        iconSize: 18,
+        onPressed: a.isArchived || !mine ? null : () => _compose(existing: a),
+        icon: const Icon(Icons.edit_outlined),
+      ),
+      IconButton(
+        tooltip: a.isArchived || !mine ? reason : 'Take down',
+        iconSize: 18,
+        onPressed: a.isArchived || !mine ? null : () => _confirmArchive(a),
+        icon: const Icon(Icons.archive_outlined),
+      ),
+    ];
   }
 
   /// Audience chip, shared by the wide row and the narrow card so the two

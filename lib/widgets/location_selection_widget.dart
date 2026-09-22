@@ -2,13 +2,18 @@
 // Reusable "set my location" panel shared by Cashier, Branch Cashier and
 // Member roles. It owns the cross-platform location pipeline:
 //
-//   1. GPS (strict 5s timeout)  → reverse geocode → fills the detected area
-//   2. IP geolocation fallback  → reverse geocode → fills the detected area
-//   3. Manual address search    → forward geocode → fills the detected area
+//   1. Device fix (up to 20 s, early exit under 100 m) → reverse geocode
+//   2. Manual address search (PH only)                → forward geocode
+//   3. Adjust pin: drag the map under a fixed pin      → reverse geocode
 //
-// The detected locality (barangay/city/province) is shown as a reference and
-// appended to the user's typed "Detailed / Complete Address" when they tap
-// "Save Location" (e.g. "House #12, Green St. (Poblacion, Solana, Cagayan)").
+// No IP fallback here any more: a point that will be saved as a shop must
+// come from the device or the user, never from the ISP. A fix the device
+// itself calls rough (> 250 m) is shown but cannot be saved until adjusted.
+//
+// The map writes the address: whenever the pin lands somewhere the Complete
+// Address field is rewritten with the geocoder's answer, and the user can
+// add a unit, floor or landmark before saving. What is in the field is what
+// is saved — no locality is appended behind their back.
 //
 // The GPS/geocoding logic itself lives in `GeocodingService` and
 // `NominatimGeocodingService` — this widget only orchestrates it and renders
@@ -17,11 +22,16 @@
 
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart' show Geolocator;
+import 'package:latlong2/latlong.dart';
 import '../services/geocoding_service.dart';
 import '../services/nominatim_geocoding_service.dart';
 import '../theme.dart';
 import '../utils/fonts.dart';
-import '../utils/formatters.dart' show formatRelativeDate;
+import '../utils/formatters.dart' show formatDistance, formatRelativeDate;
+import 'adjust_pin_page.dart';
+import 'map_kit.dart';
 
 /// A saved coordinate pair plus the fields the UI renders. Deliberately a
 /// plain, role-agnostic value type so callers can map any repository model
@@ -38,6 +48,21 @@ class SavedLocation {
     this.address,
     this.updatedAt,
   });
+}
+
+/// Where the pin on the preview came from — shown as a chip so the user
+/// knows how much to trust it before saving.
+enum _PinSource {
+  none(''),
+  saved('Saved'),
+  gps('GPS'),
+  recent('Recent fix'),
+  approximate('Approximate'),
+  search('From search'),
+  adjusted('Adjusted by hand');
+
+  const _PinSource(this.label);
+  final String label;
 }
 
 /// Reusable location settings panel.
@@ -79,6 +104,11 @@ class LocationSelectionWidget extends StatefulWidget {
   /// full-height tab body (Cashier / Branch Cashier).
   final bool scrollable;
 
+  /// How the preview draws the pin — the same colour the caller's role has
+  /// on every other map, so a branch cashier sees the blue storefront they
+  /// will become for members.
+  final MapPinKind pinKind;
+
   const LocationSelectionWidget({
     super.key,
     required this.title,
@@ -92,6 +122,7 @@ class LocationSelectionWidget extends StatefulWidget {
     required this.onSave,
     required this.onClear,
     this.scrollable = true,
+    this.pinKind = MapPinKind.cashier,
   });
 
   @override
@@ -115,6 +146,36 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
   double? _detectedLng;
   String? _detectedArea;
   bool _detectedApproximate = false;
+
+  /// Where the detected point came from, for the chip on the preview.
+  _PinSource _source = _PinSource.none;
+
+  /// Device-reported accuracy of the detected point, for the chip.
+  double? _accuracyMeters;
+
+  /// An approximate fix must be adjusted or replaced before it is saved.
+  bool get _needsAdjustment => _source == _PinSource.approximate;
+
+  /// The device's live fix, kept only so the adjuster can offer "jump to
+  /// me". Null on desktops and when permission was refused.
+  LatLng? _livePosition;
+
+  LatLng? get _detectedPoint => _detectedLat == null || _detectedLng == null
+      ? null
+      : LatLng(_detectedLat!, _detectedLng!);
+
+  /// Metres between the pin about to be saved and the one already saved;
+  /// null when either is missing. Zero means "nothing changed".
+  double? get _driftFromSaved {
+    final d = _detectedPoint, s = _location;
+    if (d == null || s == null) return null;
+    return Geolocator.distanceBetween(
+      s.latitude,
+      s.longitude,
+      d.latitude,
+      d.longitude,
+    );
+  }
 
   @override
   void initState() {
@@ -140,10 +201,12 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
         // can simply refine the address and re-save without re-detecting.
         _detectedLat = loc?.latitude;
         _detectedLng = loc?.longitude;
-        // Pre-fill the detailed field with the existing saved address.
-        if (loc?.address?.trim().isNotEmpty == true) {
-          _detailCtrl.text = loc!.address!.trim();
-        }
+        _source = loc == null ? _PinSource.none : _PinSource.saved;
+        _accuracyMeters = null;
+        // The field holds the saved address as-is. It is rewritten from the
+        // map whenever the pin moves; the user may edit it before saving.
+        _detailCtrl.text = (loc?.address ?? '').trim();
+        _detectedArea = null;
       });
     } catch (_) {
       if (!mounted) return;
@@ -161,10 +224,11 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
       if (!mounted) return;
       switch (access) {
         case LocationAccess.serviceDisabled:
-          BotToast.showText(
-            text:
-                'Location services are turned off. Enable them in Settings, '
-                'or use the address search below.',
+          await _explain(
+            'Location is turned off',
+            'Turn on location services, then try again — or search for '
+                'your address below.',
+            openLocationSettings: true,
           );
           return;
         case LocationAccess.denied:
@@ -175,10 +239,11 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
           );
           return;
         case LocationAccess.deniedForever:
-          BotToast.showText(
-            text:
-                'Location permission is permanently denied. Enable it in your '
-                'device settings, or use the address search below.',
+          await _explain(
+            'Location permission is blocked',
+            'Allow location for this app in your device settings, then try '
+                'again — or search for your address below.',
+            openAppSettings: true,
           );
           return;
         case LocationAccess.unableToDetermine:
@@ -192,18 +257,35 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
           break;
       }
 
-      // GPS first (strict 5s timeout), then IP geolocation for desktops
-      // without a GPS chip.
+      // "Approximate location" (Android 12+ / iOS 14+) fuzzes every fix to
+      // a couple of kilometres. Say so before spending 20 s on a fix that
+      // cannot be right.
+      if (await GeocodingService.isReducedAccuracy()) {
+        if (!mounted) return;
+        await _explain(
+          'Precise location is off',
+          'This app only has approximate location, which is a couple of '
+              'kilometres out. Turn on "Precise location" for it in your '
+              'device settings, then try again.',
+          openAppSettings: true,
+        );
+        return;
+      }
+
+      // Wait for a real fix (up to 20 s, stopping early under 100 m). No
+      // IP guess here: nothing that came from the ISP's address should end
+      // up saved as a shop's location.
       final point = await GeocodingService.resolvePosition(
-        gpsTimeout: const Duration(seconds: 5),
+        gpsTimeout: const Duration(seconds: 20),
+        allowIp: false,
       );
       if (!mounted) return;
 
       if (point == null) {
         BotToast.showText(
           text:
-              "Couldn't detect your location. Use the address search below "
-              'to set it manually.',
+              "Couldn't get a fix. Move somewhere with a clearer view of the "
+              'sky, or search for your address below.',
         );
         return;
       }
@@ -220,10 +302,22 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
         _detectedLat = point.latitude;
         _detectedLng = point.longitude;
         _detectedArea = address.trim().isEmpty ? null : address.trim();
+        _writeAddress(_detectedArea);
         _detectedApproximate = point.isApproximate;
+        _accuracyMeters = point.accuracyMeters;
+        _source = point.isApproximate
+            ? _PinSource.approximate
+            : point.source == PositionSource.lastKnown
+            ? _PinSource.recent
+            : _PinSource.gps;
+        _livePosition = LatLng(point.latitude, point.longitude);
       });
       BotToast.showText(
-        text: 'Location detected — enter your detailed address, then Save.',
+        text: point.isApproximate
+            ? 'Only a rough position — use Adjust pin to place it exactly '
+                  'before saving.'
+            : 'Location detected — check the pin, enter your detailed '
+                  'address, then Save.',
       );
     } catch (e) {
       if (!mounted) return;
@@ -231,6 +325,43 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// A problem the user has to fix outside the app, with the button that
+  /// takes them there. Toasts were the old way; they vanish before anyone
+  /// reads where to go.
+  Future<void> _explain(
+    String title,
+    String body, {
+    bool openAppSettings = false,
+    bool openLocationSettings = false,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Not now'),
+          ),
+          if (openAppSettings || openLocationSettings)
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                if (openLocationSettings) {
+                  GeocodingService.openLocationSettings();
+                } else {
+                  GeocodingService.openAppSettings();
+                }
+              },
+              child: const Text('Open settings'),
+            ),
+        ],
+      ),
+    );
   }
 
   /// Remove the saved location after confirming. Behind a confirmation
@@ -307,13 +438,58 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
       _detectedLat = result.latitude;
       _detectedLng = result.longitude;
       _detectedArea = result.displayName;
+      _writeAddress(result.displayName);
       _detectedApproximate = false;
+      _source = _PinSource.search;
+      _accuracyMeters = null;
       _searchResults = const [];
     });
     _searchCtrl.clear();
   }
 
-  /// Persist the detected coordinates plus the combined address string.
+  /// Full-screen map with a fixed centre pin: drag the map until the pin
+  /// is on the door. Only the point (and its locality) come back; saving
+  /// is still the Save button.
+  Future<void> _adjustPin() async {
+    final start = _detectedPoint;
+    if (start == null) {
+      BotToast.showText(text: 'Detect your location or pick a place first.');
+      return;
+    }
+    final result = await showAdjustPinPage(
+      context,
+      start: start,
+      pinKind: widget.pinKind,
+      myPosition: _livePosition,
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _detectedLat = result.point.latitude;
+      _detectedLng = result.point.longitude;
+      if (result.area != null) {
+        _detectedArea = result.area;
+        _writeAddress(result.area);
+      }
+      _detectedApproximate = false;
+      _source = _PinSource.adjusted;
+      _accuracyMeters = null;
+    });
+  }
+
+  /// The map decides the address: every time the pin lands somewhere the
+  /// field is rewritten with what the geocoder says is there. The user can
+  /// then add a floor, unit or landmark before saving. When the geocoder
+  /// has nothing, the field is left alone so a typed address survives.
+  void _writeAddress(String? geocoded) {
+    final a = (geocoded ?? '').trim();
+    if (a.isEmpty) return;
+    _detailCtrl.value = TextEditingValue(
+      text: a,
+      selection: TextSelection.collapsed(offset: a.length),
+    );
+  }
+
+  /// Persist the pin and whatever is in the address field.
   Future<void> _saveLocation() async {
     if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
@@ -323,11 +499,18 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
       BotToast.showText(text: 'Detect your location or pick a place first.');
       return;
     }
+    if (_needsAdjustment) {
+      BotToast.showText(
+        text:
+            'This point is only approximate. Tap Adjust pin and place it '
+            'exactly, or pick a search result, then save.',
+      );
+      return;
+    }
 
     setState(() => _saving = true);
     try {
-      final combined = _combineAddress(_detailCtrl.text, _detectedArea);
-      await widget.onSave(lat, lng, combined);
+      await widget.onSave(lat, lng, _detailCtrl.text.trim());
       if (!mounted) return;
       BotToast.showText(
         text: _detectedApproximate
@@ -341,18 +524,6 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  /// Join the typed street detail with the auto-resolved locality, e.g.
-  /// "House #12, Green St. (Poblacion, Solana, Cagayan)". Dedupes when the
-  /// detail already contains the locality.
-  String _combineAddress(String detailed, String? area) {
-    final d = detailed.trim();
-    final a = (area ?? '').trim();
-    if (a.isEmpty) return d;
-    if (d.isEmpty) return a;
-    if (d.toLowerCase().contains(a.toLowerCase())) return d;
-    return '$d ($a)';
   }
 
   @override
@@ -435,11 +606,9 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
               style: StockpileFonts.satoshi(fontSize: 13, color: muted),
             ),
             const SizedBox(height: 20),
-            _buildSavedLocation(isDark, muted, textPrimary, divider),
+            _buildPreview(isDark, muted, textPrimary, divider),
             const SizedBox(height: 20),
             _buildDetailedAddressField(isDark, muted, textPrimary, divider),
-            const SizedBox(height: 12),
-            _buildDetectedAreaCard(isDark, muted, textPrimary, divider),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -521,7 +690,7 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
             ? 'Enter your detailed address'
             : null,
         decoration: InputDecoration(
-          labelText: 'Detailed / Complete Address *',
+          labelText: 'Complete Address *',
           hintText: 'e.g., House/Block/Lot No., Street Name, Floor, Landmark',
           alignLabelWithHint: true,
           filled: true,
@@ -539,9 +708,10 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
     );
   }
 
-  /// Reference card for the auto-resolved locality (barangay/city/province)
-  /// and the detected coordinates.
-  Widget _buildDetectedAreaCard(
+  /// The pin about to be saved, on a map, with where it came from and how
+  /// far it is from what is saved now. Replaces two text blocks that showed
+  /// coordinates the user could never picture.
+  Widget _buildPreview(
     bool isDark,
     Color muted,
     Color textPrimary,
@@ -550,55 +720,188 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
     final inputFill = isDark
         ? StockpileColors.darkInputBg
         : StockpileColors.inputBg;
-    final hasArea = (_detectedArea ?? '').trim().isNotEmpty;
-    final hasCoords = _detectedLat != null && _detectedLng != null;
+
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final point = _detectedPoint;
+    final saved = _location;
+    final drift = _driftFromSaved;
+    final unsaved = point != null && (saved == null || (drift ?? 0) >= 1);
+
+    // Status line: what state the pin is in.
+    final (
+      IconData statusIcon,
+      Color statusColor,
+      String statusText,
+    ) = point == null
+        ? (
+            Icons.info_outline_rounded,
+            muted,
+            'No location yet — detect it or search below.',
+          )
+        : unsaved
+        ? (
+            Icons.check_circle_rounded,
+            StockpileColors.success,
+            'Pin placed — not saved yet',
+          )
+        : (
+            Icons.check_circle_rounded,
+            StockpileColors.success,
+            'Current saved location',
+          );
+
+    final area = (_detectedArea ?? '').trim();
+    final savedLine = saved == null
+        ? null
+        : unsaved
+        ? 'currently saved: '
+              '${saved.updatedAt != null ? formatRelativeDate(saved.updatedAt).toLowerCase() : 'earlier'}'
+              '${drift != null ? ', ${formatDistance(drift)} from here' : ''}'
+        : saved.updatedAt != null
+        ? 'saved ${formatRelativeDate(saved.updatedAt).toLowerCase()}'
+        : null;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: inputFill,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: divider),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.my_location_rounded,
-                size: 20,
-                color: StockpileColors.primary900,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Detected area',
-                style: StockpileFonts.satoshi(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: textPrimary,
+          SizedBox(
+            height: 180,
+            child: point == null
+                ? Container(
+                    color: inputFill,
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.map_outlined, size: 32, color: muted),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Your pin will appear here',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 13,
+                            color: muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : MapOverlay(
+                    map: GestureDetector(
+                      onTap: _saving ? null : _adjustPin,
+                      child: IgnorePointer(
+                        child: FlutterMap(
+                          // Re-centre when the point changes; a static
+                          // preview has no controller to move.
+                          key: ValueKey(point),
+                          options: MapOptions(
+                            initialCenter: point,
+                            initialZoom: 16,
+                            interactionOptions: const InteractionOptions(
+                              flags: InteractiveFlag.none,
+                            ),
+                          ),
+                          children: [
+                            osmTileLayer(),
+                            MarkerLayer(
+                              markers: [
+                                mapMarker(
+                                  point: point,
+                                  kind: widget.pinKind,
+                                  selected: true,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    topRight: [
+                      MapControlButton(
+                        icon: Icons.my_location_rounded,
+                        label: 'Adjust pin',
+                        tooltip: 'Fine-tune the point on a bigger map',
+                        onTap: _saving ? null : _adjustPin,
+                      ),
+                    ],
+                    bottomLeft: _source == _PinSource.none
+                        ? null
+                        : MapStatusChip(
+                            leading: Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: _needsAdjustment
+                                    ? StockpileColors.primary600
+                                    : StockpileColors.success,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            text: _accuracyMeters == null
+                                ? _source.label
+                                : '${_source.label} · ±${formatDistance(_accuracyMeters!)}',
+                          ),
+                  ),
+          ),
+          Container(
+            color: inputFill,
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(statusIcon, size: 16, color: statusColor),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        statusText,
+                        style: StockpileFonts.satoshi(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: textPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            hasArea
-                ? _detectedArea!
-                : (hasCoords
-                      ? 'Coordinates detected — no locality resolved.'
-                      : 'No location detected yet.'),
-            style: StockpileFonts.satoshi(fontSize: 13, color: muted),
-          ),
-          if (hasCoords) ...[
-            const SizedBox(height: 4),
-            Text(
-              '${_detectedLat!.toStringAsFixed(5)}, '
-              '${_detectedLng!.toStringAsFixed(5)}',
-              style: StockpileFonts.satoshi(fontSize: 11, color: muted),
+                if (point != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    area.isNotEmpty
+                        ? area
+                        : (saved?.address?.trim().isNotEmpty == true && !unsaved
+                              ? saved!.address!
+                              : 'No readable address for this point.'),
+                    style: StockpileFonts.satoshi(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: area.isNotEmpty ? textPrimary : muted,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${point.latitude.toStringAsFixed(5)}, '
+                    '${point.longitude.toStringAsFixed(5)}'
+                    '${savedLine != null ? ' · $savedLine' : ''}',
+                    style: StockpileFonts.satoshi(fontSize: 11, color: muted),
+                  ),
+                ],
+              ],
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -721,97 +1024,6 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
             ],
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildSavedLocation(
-    bool isDark,
-    Color muted,
-    Color textPrimary,
-    Color divider,
-  ) {
-    if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    final loc = _location;
-    if (loc == null) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline_rounded, size: 20, color: muted),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'No location saved yet.',
-                style: StockpileFonts.satoshi(fontSize: 13, color: muted),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.check_circle_rounded,
-                size: 20,
-                color: StockpileColors.success,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Current saved location',
-                style: StockpileFonts.satoshi(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: textPrimary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            loc.address?.trim().isNotEmpty == true
-                ? loc.address!
-                : 'Address unavailable',
-            style: StockpileFonts.satoshi(fontSize: 13, color: muted),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${loc.latitude.toStringAsFixed(5)}, '
-            '${loc.longitude.toStringAsFixed(5)}',
-            style: StockpileFonts.satoshi(fontSize: 11, color: muted),
-          ),
-          if (loc.updatedAt != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              'Last updated ${formatRelativeDate(loc.updatedAt)}',
-              style: StockpileFonts.satoshi(fontSize: 11, color: muted),
-            ),
-          ],
-        ],
       ),
     );
   }

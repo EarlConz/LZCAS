@@ -9,6 +9,7 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:lzcas/config/feature_flags.dart';
 import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
@@ -88,7 +89,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     // 8: Branch Stock — give/return/adjust + all-branches overview
     BranchStockPage(),
     // 9: Announcements — post notices + the automatic birthday greeting
-    AdminAnnouncementsPage(),
+    AnnouncementsPage(),
     // 10: Cashier Locations — review/remove what members see on their map
     AdminCashierLocationsPage(),
     // 11: Delivery Orders — price member orders + negotiate delivery fees
@@ -3606,7 +3607,8 @@ class _AdminSidebar extends StatelessWidget {
   /// Indices, not items — see [_NavGroup].
   static const _navGroups = <_NavGroup>[
     _NavGroup(null, [0]), // Dashboard
-    _NavGroup('Selling & Stock', [4, 2, 8, 11, 3]),
+    // 11 (Delivery Orders) only once the delivery system ships.
+    _NavGroup('Selling & Stock', [4, 2, 8, if (enableDeliverySystem) 11, 3]),
     _NavGroup('Members', [5, 7, 6, 9]),
     _NavGroup('Staff', [1, 10]),
   ];
@@ -6292,7 +6294,10 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
               'Withdrawal (${req.sourceLabel} ₱${req.requestedAmount}) — approved',
         );
       } else {
-        BotToast.showText(text: 'Failed to approve withdrawal: $err');
+        // The repository returns a whole sentence, including the overdraft
+        // refusal — which is a decision, not a crash, and reads wrong
+        // behind a "Failed to..." prefix.
+        BotToast.showText(text: err, duration: const Duration(seconds: 6));
       }
       _loadWithdrawals();
     });

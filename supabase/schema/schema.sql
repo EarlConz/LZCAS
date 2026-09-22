@@ -593,7 +593,22 @@ alter table public.withdrawal_requests enable row level security;
 -- Admins have full read/write access via is_admin() bypass.
 
 -- Helper: resolve the authenticated user's numeric member ID.
--- SECURITY DEFINER so it bypasses any RLS on public.members.
+-- SECURITY DEFINER so it bypasses any RLS on public.profiles.
+--
+-- Maps through `profiles.member_id`, NOT `members.user_id`. This file used
+-- to do the latter, and it is wrong: `members.user_id` holds the id of the
+-- STAFF ACCOUNT THAT CREATED the member, never the member's own. For a
+-- logged-in member it returned NULL, both withdrawal_requests policies
+-- failed closed, and the member could neither submit a withdrawal nor see
+-- their own — a 42501 on insert with no other symptom.
+--
+-- Migration v9 fixed it in 2026; this file kept the broken version, so
+-- every rebuild from schema.sql quietly reverted v9 and broke withdrawals
+-- again. Found on staging 2026-09-23. `profiles.member_id` is the same
+-- auth.uid() -> member link the rest of the app uses (fetchMemberByAuthUserId,
+-- the members/earnings_history self policies, get_member_earnings).
+--
+-- Keep this in step with migrations/migration_v9_fix_member_identity.sql.
 create or replace function public.get_current_member_id()
 returns bigint
 language sql
@@ -601,8 +616,9 @@ stable
 security definer
 set search_path = public
 as $$
-  select id from public.members
-  where user_id = auth.uid()
+  select member_id
+  from public.profiles
+  where id = auth.uid()
   limit 1;
 $$;
 

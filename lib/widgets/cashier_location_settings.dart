@@ -9,16 +9,22 @@ import 'package:provider/provider.dart';
 import '../auth/auth.dart';
 import '../db/db.dart';
 import 'location_selection_widget.dart';
+import 'map_kit.dart';
 
 class CashierLocationSettings extends StatelessWidget {
   const CashierLocationSettings({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final uid = context.read<AuthState>().userId;
+    final auth = context.read<AuthState>();
+    final uid = auth.userId;
     if (uid == null) return const SizedBox.shrink();
 
     return LocationSelectionWidget(
+      // The pin previews in the colour members will see this account as.
+      pinKind: auth.userRole == UserRole.branchCashier
+          ? MapPinKind.branch
+          : MapPinKind.cashier,
       title: 'Cashier Location',
       description:
           'Members use this location to find you in the Nearest Cashiers '

@@ -17,6 +17,7 @@ import '../../utils/fonts.dart';
 import '../../utils/formatters.dart' show formatMoney;
 import '../../widgets/marketplace_search_bar.dart';
 import '../../widgets/location_selection_widget.dart';
+import '../../widgets/map_kit.dart';
 
 class MemberMarketplaceTab extends StatefulWidget {
   final Member member;
@@ -924,6 +925,7 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
             Expanded(
               child: LocationSelectionWidget(
                 scrollable: true,
+                pinKind: MapPinKind.destination,
                 title: 'Delivery Location',
                 description:
                     'This is where your order will be delivered. The cashier '

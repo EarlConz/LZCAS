@@ -8,6 +8,7 @@ import 'dart:math';
 import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/feature_flags.dart';
 import '../utils/app_clock.dart';
 import '../utils/birthday_window.dart' show parseBirthday;
 import 'models.dart';
@@ -140,6 +141,9 @@ class SupabaseRepository {
     // Delivery orders — emit both the granular change name (so order lists
     // refresh) and a parsed event (so the notification service can toast on
     // the right status transition).
+    // The table only exists once v48 is applied, which goes with the delivery
+    // release; subscribing to a missing table just errors the channel.
+    if (!enableDeliverySystem) return;
     final ordersChannel = _supabase
         .channel('public:orders')
         .onPostgresChanges(
@@ -1197,6 +1201,24 @@ class SupabaseRepository {
         .toList();
   }
 
+  /// Every delivery account with their last known position. Delivery
+  /// accounts only exist once the delivery system ships (`profiles.role =
+  /// 'delivery'`, v50); until then this returns an empty list, and callers
+  /// behind [enableDeliverySystem] never ask.
+  Future<List<UserProfile>> fetchRiders() async {
+    final data = await _supabase
+        .from('profiles')
+        .select(
+          'id, username, email, role, member_id, mobile_enabled, '
+          'latitude, longitude, address, location_updated_at, created_at',
+        )
+        .eq('role', 'delivery')
+        .order('username');
+    return (data as List)
+        .map((j) => UserProfile.fromJson(Map<String, dynamic>.from(j)))
+        .toList();
+  }
+
   /// The saved location for one profile (null when never set).
   Future<CashierLocation?> fetchCashierLocation(String userId) async {
     final data = await _supabase
@@ -2112,6 +2134,27 @@ class SupabaseRepository {
     }
   }
 
+  /// `profiles.id` → username for everyone who may post an announcement
+  /// (v51: admins and main cashiers). Used to name the author on the
+  /// management list, so a shared board says who wrote what.
+  ///
+  /// Failure is not worth surfacing: the list falls back to no name.
+  Future<Map<String, String>> fetchAnnouncementAuthors() async {
+    try {
+      final rows = await _supabase
+          .from('profiles')
+          .select('id, username')
+          .inFilter('role', ['admin', 'cashier']);
+      return {
+        for (final r in rows as List)
+          (r as Map)['id'] as String: ((r['username'] ?? '') as String).trim(),
+      }..removeWhere((_, name) => name.isEmpty);
+    } catch (e) {
+      debugPrint('[fetchAnnouncementAuthors] failed: $e');
+      return const {};
+    }
+  }
+
   /// Post a new announcement. Returns null on success, else a message.
   Future<String?> createAnnouncement({
     required String title,
@@ -3008,6 +3051,36 @@ class SupabaseRepository {
       final currentTotalEarnings = breakdown['totalEarnings'] ?? 0;
       final currentBalance = breakdown['balance'] ?? 0;
 
+      // ── Overdraft guard ───────────────────────────────────────────
+      // Nothing reserves a pending request: the member's dialog validates
+      // against the balance as it stands, so ₱200 awaiting approval and a
+      // second request of ₱101 against ₱300 are both accepted, and each
+      // one looks affordable on its own.
+      //
+      // Approval is where that becomes money. It has to be caught here
+      // because it cannot be seen anywhere else: `get_member_earnings`
+      // (v24) returns `greatest(0, earned - approved)`, so an overdrawn
+      // account reads ₱0 — identical to a member who withdrew exactly
+      // what they had. The app has no screen that shows the difference.
+      //
+      // Left pending rather than auto-rejected: the amount may well be
+      // legitimate and simply out of date, and rejecting needs a reason
+      // the admin writes, not one this method invents.
+      //
+      // This closes the hole for one approver at a time. Two admins
+      // approving at the same instant can still slip between the check
+      // and the write — that needs a database-level constraint, which
+      // belongs with the full fix.
+      final available = req.sourceBucket == 'total_earnings'
+          ? currentTotalEarnings
+          : currentBalance;
+      if (req.requestedAmount > available) {
+        return 'Cannot approve: ₱${req.requestedAmount} requested but only '
+            '₱$available available in ${req.sourceLabel}. The member has '
+            'other approved or pending withdrawals. Reject this one and ask '
+            'them to submit a new request.';
+      }
+
       // Deduct the requested amount from the appropriate pool
       int newTotalEarnings = currentTotalEarnings;
       int newBalance = currentBalance;
@@ -3039,7 +3112,9 @@ class SupabaseRepository {
       });
     } catch (e) {
       debugPrint('[approveWithdrawalRequest] deduction failed: $e');
-      return 'Failed to process deduction: $_friendlyError(e)';
+      // `$_friendlyError(e)` interpolated the method itself and printed
+      // "Closure: (Object) => String(e)" at the admin. Braces call it.
+      return 'Failed to process deduction: ${_friendlyError(e)}';
     }
 
     // Mark as approved

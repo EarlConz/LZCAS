@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v46)
+├── migrations/    Ordered, apply-once changes (v2 … v51)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -288,6 +288,42 @@ anywhere._
 
   **Check prod for the same thing** — the RLS state was never declared, so
   whatever it is there, it is by accident.
+
+**Member saved location (v47)** — _needed everywhere._
+
+- v47 — `members.latitude`, `members.longitude`, `members.location_updated_at`,
+  mirroring the cashier columns from v37 so a member can save a default
+  location. All nullable; rows without one keep working. Applied to production
+  on 2026-09-22, ahead of the 1.5.1 GPS release, which reads a saved member
+  point before it will fall back to an IP guess.
+
+**Cashier announcements (v51)** — _apply before the app build that shows the tab._
+
+- v51 — widens the announcement write side from admins to
+  `role in ('admin','cashier')` via `can_post_announcements()`, and draws the
+  line at **ownership**: an admin edits and archives anything, a cashier only
+  rows whose `created_by` is theirs. `created_by = auth.uid()` in the INSERT
+  and UPDATE checks stops a cashier posting as, or taking a row from, someone
+  else. Rows with a null `created_by` belong to nobody and stay admin-only.
+
+  The v43 admin read bypass becomes an **author** bypass — an author has to
+  see their own archived rows and the notices already on the board. Branch
+  cashiers are untouched: v43 settled that they are an audience, not managers,
+  and they still go through the audience check.
+
+  The poster bucket follows, with `owns_announcement_media()` guarding UPDATE
+  and DELETE so a cashier can clear an orphan or their own poster but never
+  another author's file, and never the birthday greeting.
+
+  **Numbering:** v48–v50 are the delivery system and are not on production.
+  v51 touches only announcement objects (v36/v43/v44), all of which production
+  has at v47, so it applies on its own and the ledger reads 47, 51 until
+  delivery ships.
+
+  **Order matters here.** Applying v51 without the app build is harmless —
+  nothing changes on screen. Shipping the app build without v51 is not: the
+  Cashier Terminal grows an Announcements tab whose every post is rejected by
+  the database.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

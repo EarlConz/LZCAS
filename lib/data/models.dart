@@ -1147,6 +1147,14 @@ class Announcement {
   /// the member's saved list, not by the announcements query.
   final bool saved;
 
+  /// `profiles.id` of whoever posted it, or null for rows written before
+  /// the column was populated.
+  ///
+  /// Since v51 this decides who may edit or take an announcement down: an
+  /// admin may touch anything, a cashier only their own. The UI reads it to
+  /// disable the buttons; the database enforces it either way.
+  final String? createdBy;
+
   const Announcement({
     required this.id,
     required this.title,
@@ -1157,6 +1165,7 @@ class Announcement {
     this.endsAt,
     this.archivedAt,
     this.saved = false,
+    this.createdBy,
   });
 
   bool get isArchived => archivedAt != null;
@@ -1200,6 +1209,9 @@ class Announcement {
     publishedAt: DateTime.tryParse((json['published_at'] ?? '').toString()),
     endsAt: DateTime.tryParse((json['ends_at'] ?? '').toString()),
     archivedAt: DateTime.tryParse((json['archived_at'] ?? '').toString()),
+    createdBy: (json['created_by'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (json['created_by'] as String).trim(),
   );
 
   Announcement copyWith({bool? saved}) => Announcement(
@@ -1212,6 +1224,7 @@ class Announcement {
     endsAt: endsAt,
     archivedAt: archivedAt,
     saved: saved ?? this.saved,
+    createdBy: createdBy,
   );
 }
 
