@@ -3,6 +3,7 @@
 // Reseller-only items are hidden for basic members.
 
 import 'package:flutter/material.dart';
+import '../config/feature_flags.dart';
 import '../utils/fonts.dart';
 import 'app_logo.dart';
 import '../theme.dart';
@@ -10,6 +11,11 @@ import '../theme.dart';
 class MemberSidebar extends StatelessWidget {
   final int selectedIndex;
   final bool isReseller;
+
+  /// Tab positions, mirroring `_tabs` in member_dashboard.dart: Overview,
+  /// [Marketplace, Active Orders], My Purchases, Announcements,
+  /// [Earnings], Profile. Optional entries shift everything after them.
+  _TabIndex get _ix => _TabIndex(isReseller: isReseller);
   final ValueChanged<int> onItemSelected;
   final VoidCallback? onLogout;
 
@@ -64,7 +70,11 @@ class MemberSidebar extends StatelessWidget {
             ),
           ),
 
-          // Navigation Items
+          // Navigation Items. The indices are positions in `_tabs` over in
+          // member_dashboard.dart, so they are counted here in the same
+          // order with the same conditions — never written as literals.
+          // (Hiding the delivery tabs with literal indices sent every
+          // reseller tile to the wrong page.)
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -78,41 +88,43 @@ class MemberSidebar extends StatelessWidget {
                   isDark: isDark,
                   onTap: () => onItemSelected(0),
                 ),
-                _SidebarTile(
-                  icon: Icons.storefront_rounded,
-                  label: 'Marketplace',
-                  index: 1,
-                  selectedIndex: selectedIndex,
-                  activeBg: activeBg,
-                  isDark: isDark,
-                  onTap: () => onItemSelected(1),
-                ),
-                _SidebarTile(
-                  icon: Icons.local_shipping_rounded,
-                  label: 'Active Orders',
-                  index: 2,
-                  selectedIndex: selectedIndex,
-                  activeBg: activeBg,
-                  isDark: isDark,
-                  onTap: () => onItemSelected(2),
-                ),
+                if (enableDeliverySystem) ...[
+                  _SidebarTile(
+                    icon: Icons.storefront_rounded,
+                    label: 'Marketplace',
+                    index: _ix.marketplace,
+                    selectedIndex: selectedIndex,
+                    activeBg: activeBg,
+                    isDark: isDark,
+                    onTap: () => onItemSelected(_ix.marketplace),
+                  ),
+                  _SidebarTile(
+                    icon: Icons.local_shipping_rounded,
+                    label: 'Active Orders',
+                    index: _ix.orders,
+                    selectedIndex: selectedIndex,
+                    activeBg: activeBg,
+                    isDark: isDark,
+                    onTap: () => onItemSelected(_ix.orders),
+                  ),
+                ],
                 _SidebarTile(
                   icon: Icons.receipt_long_rounded,
                   label: 'My Purchases',
-                  index: 3,
+                  index: _ix.purchases,
                   selectedIndex: selectedIndex,
                   activeBg: activeBg,
                   isDark: isDark,
-                  onTap: () => onItemSelected(3),
+                  onTap: () => onItemSelected(_ix.purchases),
                 ),
                 _SidebarTile(
                   icon: Icons.campaign_rounded,
                   label: 'Announcements',
-                  index: 4,
+                  index: _ix.announcements,
                   selectedIndex: selectedIndex,
                   activeBg: activeBg,
                   isDark: isDark,
-                  onTap: () => onItemSelected(4),
+                  onTap: () => onItemSelected(_ix.announcements),
                 ),
                 // Nearest Cashiers opens a dedicated map screen (no tab index).
                 _SidebarTile(
@@ -155,11 +167,11 @@ class MemberSidebar extends StatelessWidget {
                   _SidebarTile(
                     icon: Icons.account_balance_wallet_rounded,
                     label: 'Earnings',
-                    index: 5,
+                    index: _ix.earnings,
                     selectedIndex: selectedIndex,
                     activeBg: activeBg,
                     isDark: isDark,
-                    onTap: () => onItemSelected(5),
+                    onTap: () => onItemSelected(_ix.earnings),
                   ),
                   const SizedBox(height: 12),
                   Divider(
@@ -171,18 +183,14 @@ class MemberSidebar extends StatelessWidget {
                   ),
                 ],
                 const SizedBox(height: 4),
-                // Profile is last, so its index depends on whether the
-                // reseller-only Earnings tile is present. These indices are
-                // positions in `_tabs` over in member_dashboard.dart —
-                // change one and change the other.
                 _SidebarTile(
                   icon: Icons.person_rounded,
                   label: 'Profile',
-                  index: isReseller ? 6 : 5,
+                  index: _ix.profile,
                   selectedIndex: selectedIndex,
                   activeBg: activeBg,
                   isDark: isDark,
-                  onTap: () => onItemSelected(isReseller ? 6 : 5),
+                  onTap: () => onItemSelected(_ix.profile),
                 ),
               ],
             ),
@@ -282,4 +290,22 @@ class _SidebarTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Positions of the member tabs, counted in the same order and under the
+/// same conditions as `_tabs` in member_dashboard.dart.
+class _TabIndex {
+  final bool isReseller;
+
+  const _TabIndex({required this.isReseller});
+
+  static const int _delivery = enableDeliverySystem ? 2 : 0;
+
+  int get overview => 0;
+  int get marketplace => 1;
+  int get orders => 2;
+  int get purchases => 1 + _delivery;
+  int get announcements => 2 + _delivery;
+  int get earnings => 3 + _delivery;
+  int get profile => (isReseller ? 4 : 3) + _delivery;
 }

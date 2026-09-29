@@ -303,3 +303,7 @@ grant execute on function public.member_respond_delivery_order(uuid, text, numer
 grant execute on function public.cashier_resolve_delivery_order(uuid, text, numeric) to authenticated;
 grant execute on function public.complete_delivery_order(uuid) to authenticated;
 grant execute on function public.cancel_delivery_order(uuid) to authenticated;
+
+-- Refresh the PostgREST schema cache so the new RPCs resolve immediately.
+-- (No-op when PostgREST is not running; harmless on plain PostgreSQL.)
+notify pgrst, 'reload schema';

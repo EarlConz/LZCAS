@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v50)
+├── migrations/    Ordered, apply-once changes (v2 … v51)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -289,10 +289,43 @@ anywhere._
   **Check prod for the same thing** — the RLS state was never declared, so
   whatever it is there, it is by accident.
 
-**Member location + delivery orders (v47–v48)** — _on the `Delivery-System`
-branch; not yet applied anywhere._
+**Member saved location (v47)** — _needed everywhere._
 
-- v47 — `members.latitude/longitude/location_updated_at`.
+- v47 — `members.latitude`, `members.longitude`, `members.location_updated_at`,
+  mirroring the cashier columns from v37 so a member can save a default
+  location. All nullable; rows without one keep working. Applied to production
+  on 2026-09-22, ahead of the 1.5.1 GPS release, which reads a saved member
+  point before it will fall back to an IP guess.
+
+**Cashier announcements (v51)** — _apply before the app build that shows the tab._
+
+- v51 — widens the announcement write side from admins to
+  `role in ('admin','cashier')` via `can_post_announcements()`, and draws the
+  line at **ownership**: an admin edits and archives anything, a cashier only
+  rows whose `created_by` is theirs. `created_by = auth.uid()` in the INSERT
+  and UPDATE checks stops a cashier posting as, or taking a row from, someone
+  else. Rows with a null `created_by` belong to nobody and stay admin-only.
+
+  The v43 admin read bypass becomes an **author** bypass — an author has to
+  see their own archived rows and the notices already on the board. Branch
+  cashiers are untouched: v43 settled that they are an audience, not managers,
+  and they still go through the audience check.
+
+  The poster bucket follows, with `owns_announcement_media()` guarding UPDATE
+  and DELETE so a cashier can clear an orphan or their own poster but never
+  another author's file, and never the birthday greeting.
+
+  **Numbering:** v48–v50 are the delivery system and are not on production.
+  v51 touches only announcement objects (v36/v43/v44), all of which production
+  has at v47, so it applies on its own and the ledger reads 47, 51 until
+  delivery ships.
+
+  **Order matters here.** Applying v51 without the app build is harmless —
+  nothing changes on screen. Shipping the app build without v51 is not: the
+  Cashier Terminal grows an Announcements tab whose every post is rejected by
+  the database.
+**Delivery orders (v48)** — _on the delivery branch; not applied to production._
+
 - v48 — `orders`, `order_items`, Realtime on `orders`, and six SECURITY
   DEFINER RPCs for the cashier ⇄ member fee negotiation. **Shipped with RLS
   off and no caller checks** — see v49. Do not apply v48 without v49.
@@ -315,7 +348,7 @@ branch; not yet applied anywhere._
 - v50 — `profiles.role = 'delivery'`; `orders` gains `delivery_id`, the
   pickup / ETA / delivered timestamps, receiver fields, confirmation fields,
   `cancel_reason`, and `payment_method` / `payment_status` (nullable — nothing
-  sets them until v51). Status set widens to add Assigned / Picked Up /
+  sets them until v52). Status set widens to add Assigned / Picked Up /
   Delivered. RPCs: `cashier_assign_rider`, `delivery_pickup`,
   `delivery_update_eta`, `delivery_mark_delivered`,
   `delivery_update_position`, `member_confirm_received`; redefines
@@ -327,11 +360,20 @@ branch; not yet applied anywhere._
   the v28 rule. The rider is optional per order: an Agreed order can still be
   completed at the counter exactly as v48 intended.
 
-  Known gap, deliberately left for v51: an order the **member** confirms
+  Known gap, deliberately left for v52: an order the **member** confirms
   (`member_confirm_received`) is not recorded in `sales`. The cashier's
   counter path writes `sales` client-side before completing; the member's
-  path has no client to do that. v51 moves sale recording into the
+  path has no client to do that. v52 moves sale recording into the
   completion RPCs, where payment lives too.
+
+**A note on the numbering.** v51 was originally reserved, in the delivery
+plan above, for payment and for moving sale recording into the completion
+RPCs. It was taken instead by `cashier_announcements`, which shipped to
+production on 2026-09-22 with the 1.5.1 release, while v48–v50 were still
+unapplied. The delivery payment work is therefore **v52**, and production
+will apply 48, 49 and 50 *after* 51. The ledger will read out of order and
+that is correct — v51 deliberately depends on nothing in the delivery
+chain, and the delivery migrations depend on nothing in v51.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

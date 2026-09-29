@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart'
 import 'package:bot_toast/bot_toast.dart';
 import 'theme.dart';
 import 'config/build_flavor.dart';
+import 'config/feature_flags.dart';
 import 'widgets/staging_badge.dart';
 import 'data/supabase_config.dart';
 import 'db/db.dart';
@@ -64,7 +65,8 @@ Future<void> main() async {
 
   // ── Initialize delivery negotiation notifications ───────────────────
   final deliveryNotificationService = DeliveryNotificationService();
-  deliveryNotificationService.start(authState);
+  // Off until the delivery release: nothing to listen to, nothing to chime.
+  if (enableDeliverySystem) deliveryNotificationService.start(authState);
 
   runApp(
     MultiProvider(

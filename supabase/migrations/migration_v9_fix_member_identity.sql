@@ -26,3 +26,29 @@ as $$
   where id = auth.uid()
   limit 1;
 $$;
+
+-- ── Ledger ─────────────────────────────────────────────────────────
+-- Added 2026-09-23. v45 could only ASSUME this file had run (its backfill
+-- row is verified = false), and staging was later found serving the old
+-- definition because schema.sql still carried it — a combination that
+-- reads as "applied" while withdrawals are broken. Re-running this file
+-- now records itself as verified, so the ledger stops being optimistic.
+-- Guarded for a database that predates the ledger.
+do $$
+begin
+  if to_regclass('public.schema_migrations') is not null then
+    insert into public.schema_migrations (version, name)
+    values (9, 'fix_member_identity')
+    on conflict (version) do update
+      set applied_at = now(), applied_by = current_user, verified = true;
+  end if;
+end $$;
+
+-- ── Verify ─────────────────────────────────────────────────────────
+-- The body must read profiles.member_id, never members.user_id:
+--   select pg_get_functiondef(p.oid)
+--     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'public' and p.proname = 'get_current_member_id';
+--
+-- Then in the app: as a member with a balance, submit a withdrawal. It
+-- succeeds, and the request appears in the admin's pending list.

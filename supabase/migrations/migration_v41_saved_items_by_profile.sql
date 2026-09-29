@@ -22,7 +22,16 @@
 -- exactly one profile. If ANY row cannot be mapped this migration
 -- ABORTS rather than dropping data — investigate before re-running.
 --
--- Safe to re-run. Rollback: supabase/rollbacks/rollback_saved_items_by_profile_v41.sql
+-- NOT safe to re-run once it has succeeded. (This line previously said it
+-- was.) Step 2 backfills `from public.profiles p where p.member_id =
+-- s.member_id` and step 6 drops `member_id`, so a second run aborts with
+--   ERROR: column s.member_id does not exist
+-- before it reaches the policies. Nothing is damaged — it fails early —
+-- but it does not repair anything either. To reassert the policies on a
+-- database that has already run this file, use
+-- migration_v52_saved_items_policy_repair.sql.
+--
+-- Rollback: supabase/rollbacks/rollback_saved_items_by_profile_v41.sql
 -- ═══════════════════════════════════════════════════════════════════
 
 -- ── 1. Add the new key ─────────────────────────────────────────────

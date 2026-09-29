@@ -118,8 +118,8 @@ class _MemberDashboardState extends State<MemberDashboard> {
 
   List<_MemberTab> get _tabs => [
     _MemberTab.overview,
-    _MemberTab.marketplace,
-    _MemberTab.orders,
+    // Shopping and delivery ship in the next major release.
+    if (enableDeliverySystem) ...[_MemberTab.marketplace, _MemberTab.orders],
     _MemberTab.purchases,
     _MemberTab.announcements,
     if (_isReseller) _MemberTab.earnings,
@@ -282,7 +282,10 @@ class _MemberDashboardState extends State<MemberDashboard> {
           onViewAnnouncements: _openAnnouncements,
         );
       case _MemberTab.marketplace:
-        return MemberMarketplaceTab(member: _member!);
+        return MemberMarketplaceTab(
+          member: _member!,
+          onOrderPlaced: () => _openTab(_MemberTab.orders),
+        );
       case _MemberTab.orders:
         return ActiveOrdersTab(member: _member!);
       case _MemberTab.purchases:
@@ -297,8 +300,11 @@ class _MemberDashboardState extends State<MemberDashboard> {
   }
 
   /// Jump to the Announcements tab — used by the Overview strip's "View all".
-  void _openAnnouncements() {
-    final index = _tabs.indexOf(_MemberTab.announcements);
+  void _openAnnouncements() => _openTab(_MemberTab.announcements);
+
+  /// Switch the dashboard to [tab] (e.g. Active Orders after checkout).
+  void _openTab(_MemberTab tab) {
+    final index = _tabs.indexOf(tab);
     if (index >= 0) setState(() => _selectedIndex = index);
   }
 

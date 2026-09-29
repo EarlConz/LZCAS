@@ -67,6 +67,17 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
   /// unavailable. Surfaced in the UI for the same reason as [_approximate].
   bool _usingSavedLocation = false;
 
+  /// Android 12+ / iOS 14+: the app only has "Approximate location".
+  bool _reducedAccuracy = false;
+
+  /// Device-reported radius of [_myPosition], drawn as a circle when it is
+  /// wide enough to matter.
+  double? _myAccuracyMeters;
+
+  /// Why the last load failed, so the error screen can offer the right
+  /// settings shortcut.
+  LocationAccess? _access;
+
   List<_NearbyCashier> _all = const []; // every located cashier, nearest first.
   List<_NearbyCashier> _topThree = const []; // nearest stocked (≤ 3).
   List<_NearbyCashier> _grayed = const []; // out-of-stock within radius.
@@ -105,47 +116,58 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
       _error = null;
       _approximate = false;
       _usingSavedLocation = false;
+      _reducedAccuracy = false;
+      _myAccuracyMeters = null;
     });
 
     try {
       final access = await GeocodingService.ensureAccess();
       if (!mounted) return;
 
-      // GPS first, then IP geolocation. The fallback is what keeps this
-      // screen alive on Windows, where there is no GPS radio — asking for a
-      // fix there just times out.
+      // The member's saved default location (Profile → Member Location).
+      // It beats the IP guess: a point they chose is better than the ISP's
+      // exchange, and it is what keeps this screen alive on a desktop or
+      // after a denied permission.
+      final savedPos = await _savedMemberPosition();
+      if (!mounted) return;
+      final saved = savedPos == null
+          ? null
+          : LocatedPoint(
+              latitude: savedPos.latitude,
+              longitude: savedPos.longitude,
+              source: PositionSource.saved,
+            );
+
+      // Fresh fix → recent cached fix → saved → IP guess (last, labelled).
+      // 12 s is the ceiling, not the wait: the stream returns as soon as a
+      // fix under 100 m arrives, usually within a couple of seconds.
       final point = access == LocationAccess.granted
-          ? await GeocodingService.resolvePosition()
-          : null;
+          ? await GeocodingService.resolvePosition(
+              gpsTimeout: const Duration(seconds: 12),
+              saved: saved,
+            )
+          : saved;
       if (!mounted) return;
 
-      var myPos = point == null
-          ? null
-          : LatLng(point.latitude, point.longitude);
-      var usingSaved = false;
-
-      if (myPos == null) {
-        // Last resort: the member's saved default location (set in their
-        // Profile). Lets a desktop — or a member who denied the permission —
-        // still see nearby cashiers from a point they chose themselves.
-        myPos = await _savedMemberPosition();
-        if (!mounted) return;
-        if (myPos != null) {
-          usingSaved = true;
-        } else {
-          setState(() {
-            _loading = false;
-            _error = access != LocationAccess.granted
-                ? _messageFor(access)
-                : 'Could not determine your location. Check that location '
-                      'services are turned on, then try again.';
-          });
-          return;
-        }
+      if (point == null) {
+        setState(() {
+          _loading = false;
+          _access = access;
+          _error = access != LocationAccess.granted
+              ? _messageFor(access)
+              : 'Could not determine your location. Check that location '
+                    'services are turned on, then try again.';
+        });
+        return;
       }
 
-      final resolvedPos = myPos;
-      final approximate = point?.isApproximate ?? false;
+      final resolvedPos = LatLng(point.latitude, point.longitude);
+      final usingSaved = point.source == PositionSource.saved;
+      final approximate = point.isApproximate;
+      final reduced =
+          access == LocationAccess.granted &&
+          await GeocodingService.isReducedAccuracy();
+      if (!mounted) return;
 
       // Proximity + live stock in one pass: every located cashier with its
       // current on-hand inventory (see fetchCashiersWithStock).
@@ -183,6 +205,8 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
         _myPosition = resolvedPos;
         _approximate = approximate;
         _usingSavedLocation = usingSaved;
+        _reducedAccuracy = reduced;
+        _myAccuracyMeters = point.accuracyMeters;
         _all = nearby;
         _topThree = top;
         _grayed = grayed;
@@ -379,6 +403,17 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
               label: const Text('Try again'),
               onPressed: _load,
             ),
+            if (_access == LocationAccess.serviceDisabled ||
+                _access == LocationAccess.deniedForever) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                icon: const Icon(Icons.settings_rounded, size: 18),
+                label: const Text('Open settings'),
+                onPressed: _access == LocationAccess.serviceDisabled
+                    ? GeocodingService.openLocationSettings
+                    : GeocodingService.openAppSettings,
+              ),
+            ],
           ],
         ),
       ),
@@ -408,21 +443,54 @@ class _NearestCashiersPageState extends State<NearestCashiersPage> {
           initialCameraFit: _cameraFit,
           onTap: (_, _) => setState(() => _selected = null),
         ),
-        children: [osmTileLayer(), MarkerLayer(markers: _buildMarkers())],
+        children: [
+          osmTileLayer(),
+          // How sure the device is about "you". Only worth drawing when the
+          // radius is wide enough to change which cashier is nearest.
+          if (_myPosition != null &&
+              (_myAccuracyMeters ?? 0) >
+                  GeocodingService.approximateAccuracyMeters)
+            CircleLayer(
+              circles: [
+                CircleMarker(
+                  point: _myPosition!,
+                  radius: _myAccuracyMeters!,
+                  useRadiusInMeter: true,
+                  color: MapPinKind.you.color.withAlpha(24),
+                  borderColor: MapPinKind.you.color.withAlpha(90),
+                  borderStrokeWidth: 1.5,
+                ),
+              ],
+            ),
+          MarkerLayer(markers: _buildMarkers()),
+        ],
       ),
-      // One banner at a time; "saved location" is the more surprising fact.
-      topLeft: _usingSavedLocation
+      // One banner at a time, most actionable first.
+      topLeft: _reducedAccuracy
+          ? GestureDetector(
+              onTap: GeocodingService.openAppSettings,
+              child: const MapBanner(
+                icon: Icons.gps_off_rounded,
+                iconColor: StockpileColors.primary900,
+                text:
+                    'Precise location is off for this app, so distances are '
+                    'a few km out. Tap to open settings and turn it on.',
+              ),
+            )
+          : _usingSavedLocation
           ? const MapBanner(
               icon: Icons.bookmark_rounded,
               text:
-                  'Using your saved member location — live GPS was '
-                  'unavailable.',
+                  'Using your saved member location — no live fix was '
+                  'available.',
             )
           : _approximate
-          ? const MapBanner(
-              text:
-                  'Your position is approximate — estimated from your '
-                  'internet connection because GPS was unavailable.',
+          ? MapBanner(
+              text: _myAccuracyMeters != null
+                  ? 'Your position is only accurate to about '
+                        '${formatDistance(_myAccuracyMeters!)} right now.'
+                  : 'Your position is approximate — estimated from your '
+                        'internet connection because no fix was available.',
             )
           : null,
       topRight: [
@@ -809,7 +877,10 @@ class _CashierCard extends StatelessWidget {
               Container(
                 width: 44,
                 height: 44,
-                decoration: BoxDecoration(color: avatarBg, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: avatarBg,
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(
                   kind.glyph,
                   size: 22,

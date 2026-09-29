@@ -31,6 +31,7 @@ import 'package:geolocator/geolocator.dart' show Geolocator;
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:lzcas/config/feature_flags.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
@@ -78,8 +79,7 @@ class _Entry {
 
   const _Entry(this.profile, {this.sharedWith});
 
-  bool get hasLocation =>
-      profile.latitude != null && profile.longitude != null;
+  bool get hasLocation => profile.latitude != null && profile.longitude != null;
   LatLng get point => LatLng(profile.latitude!, profile.longitude!);
   bool get isRider => profile.role == 'delivery';
 
@@ -95,8 +95,7 @@ class _Entry {
         DateTime.now().difference(at.toLocal()) < const Duration(minutes: 5);
   }
 
-  bool get needsAttention =>
-      !hasLocation || outsidePh || sharedWith != null;
+  bool get needsAttention => !hasLocation || outsidePh || sharedWith != null;
 
   MapPinKind get kind => MapPinKind.forRole(profile.role);
 }
@@ -162,7 +161,10 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
       // predates riders and other screens depend on its exact filter.
       final results = await Future.wait([
         repository.fetchCashierProfiles(),
-        repository.fetchRiders(),
+        if (enableDeliverySystem)
+          repository.fetchRiders()
+        else
+          Future.value(const <UserProfile>[]),
       ]);
       if (!mounted) return;
       setState(() {
@@ -220,23 +222,28 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
   }
 
   List<_Entry> get _visible {
-    final rows = _inRole.where((e) => switch (_status) {
-      _StatusFilter.all => true,
-      _StatusFilter.located => e.hasLocation,
-      _StatusFilter.missing => !e.hasLocation,
-      _StatusFilter.attention => e.needsAttention,
-      _StatusFilter.live => e.isLive,
-    }).toList();
+    final rows = _inRole
+        .where(
+          (e) => switch (_status) {
+            _StatusFilter.all => true,
+            _StatusFilter.located => e.hasLocation,
+            _StatusFilter.missing => !e.hasLocation,
+            _StatusFilter.attention => e.needsAttention,
+            _StatusFilter.live => e.isLive,
+          },
+        )
+        .toList();
 
-    int byName(_Entry a, _Entry b) => a.profile.username.toLowerCase().compareTo(
-      b.profile.username.toLowerCase(),
-    );
+    int byName(_Entry a, _Entry b) => a.profile.username
+        .toLowerCase()
+        .compareTo(b.profile.username.toLowerCase());
     switch (_sort) {
       case _Sort.name:
         rows.sort(byName);
       case _Sort.recent:
         rows.sort((a, b) {
-          final ta = a.profile.locationUpdatedAt, tb = b.profile.locationUpdatedAt;
+          final ta = a.profile.locationUpdatedAt,
+              tb = b.profile.locationUpdatedAt;
           if (ta == null && tb == null) return byName(a, b);
           if (ta == null) return 1;
           if (tb == null) return -1;
@@ -281,7 +288,9 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
   }
 
   void _selectFromRow(_Entry e) {
-    setState(() => _selectedId = _selectedId == e.profile.id ? null : e.profile.id);
+    setState(
+      () => _selectedId = _selectedId == e.profile.id ? null : e.profile.id,
+    );
     if (_selectedId != null && e.hasLocation) {
       try {
         _mapController.move(e.point, 15);
@@ -289,10 +298,8 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
     }
   }
 
-  void _fitAll() => fitCameraTo(
-    _mapController,
-    [for (final e in _located) e.point],
-  );
+  void _fitAll() =>
+      fitCameraTo(_mapController, [for (final e in _located) e.point]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -387,7 +394,7 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _header(),
+          _header(wide: true),
           const SizedBox(height: 16),
           _statTiles(),
           const SizedBox(height: 16),
@@ -414,7 +421,7 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _header(),
+        _header(wide: false),
         const SizedBox(height: 12),
         _statTiles(scrollable: true),
         const SizedBox(height: 12),
@@ -427,7 +434,7 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
     );
   }
 
-  Widget _header() {
+  Widget _header({required bool wide}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final text = isDark
         ? StockpileColors.darkTextPrimary
@@ -435,63 +442,84 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
     final muted = isDark
         ? StockpileColors.darkTextMuted
         : StockpileColors.mutedText;
+    final freshness = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: const BoxDecoration(
+            color: StockpileColors.success,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          'Updated ${formatAgo(_loadedAt)}',
+          style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+        ),
+      ],
+    );
+    final refresh = IconButton(
+      tooltip: 'Refresh',
+      icon: const Icon(Icons.refresh_rounded),
+      onPressed: _load,
+    );
+    final description = Text(
+      'Where each cashier and rider appears on the members’ map. '
+      'They set their own location — you can review it and remove '
+      'one that is wrong.',
+      style: StockpileFonts.satoshi(fontSize: 13, height: 1.4, color: muted),
+    );
+    final title = Text(
+      'Cashier Locations',
+      style: StockpileFonts.satoshi(
+        fontSize: 22,
+        fontWeight: FontWeight.w700,
+        color: text,
+      ),
+    );
+    const glyph = Padding(
+      padding: EdgeInsets.only(top: 3),
+      child: Icon(Icons.pin_drop_rounded, color: StockpileColors.primary900),
+    );
+
+    // Phone: the title owns the row, the description gets the full width,
+    // and the freshness stamp drops under it. Side by side they were
+    // squeezing the title onto two lines and the copy into a column.
+    if (!wide) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              glyph,
+              const SizedBox(width: 10),
+              Expanded(child: title),
+              refresh,
+            ],
+          ),
+          const SizedBox(height: 2),
+          description,
+          const SizedBox(height: 6),
+          freshness,
+        ],
+      );
+    }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.only(top: 3),
-          child: Icon(Icons.pin_drop_rounded, color: StockpileColors.primary900),
-        ),
+        glyph,
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Cashier Locations',
-                style: StockpileFonts.satoshi(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: text,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Where each cashier and rider appears on the members’ map. '
-                'They set their own location — you can review it and remove '
-                'one that is wrong.',
-                style: StockpileFonts.satoshi(
-                  fontSize: 13,
-                  height: 1.4,
-                  color: muted,
-                ),
-              ),
-            ],
+            children: [title, const SizedBox(height: 4), description],
           ),
         ),
         const SizedBox(width: 12),
-        Row(
-          children: [
-            Container(
-              width: 7,
-              height: 7,
-              decoration: const BoxDecoration(
-                color: StockpileColors.success,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Updated ${formatAgo(_loadedAt)}',
-              style: StockpileFonts.satoshi(fontSize: 12, color: muted),
-            ),
-            IconButton(
-              tooltip: 'Refresh',
-              icon: const Icon(Icons.refresh_rounded),
-              onPressed: _load,
-            ),
-          ],
-        ),
+        freshness,
+        refresh,
       ],
     );
   }
@@ -524,14 +552,15 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
         active: _status == _StatusFilter.attention,
         onTap: () => _toggleStatus(_StatusFilter.attention),
       ),
-      _StatTile(
-        value: '$live',
-        suffix: 'of $_riderTotal',
-        label: 'RIDERS LIVE NOW',
-        liveDot: true,
-        active: _status == _StatusFilter.live,
-        onTap: () => _toggleStatus(_StatusFilter.live),
-      ),
+      if (enableDeliverySystem)
+        _StatTile(
+          value: '$live',
+          suffix: 'of $_riderTotal',
+          label: 'RIDERS LIVE NOW',
+          liveDot: true,
+          active: _status == _StatusFilter.live,
+          onTap: () => _toggleStatus(_StatusFilter.live),
+        ),
     ];
 
     if (scrollable) {
@@ -613,28 +642,31 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
 
     final chips = [
       for (final f in _RoleFilter.values)
-        ChoiceChip(
-          label: Text('${f.label} · ${_entries.where((e) => f.matches(e.profile)).length}'),
-          selected: _role == f,
-          onSelected: (_) => setState(() => _role = f),
-          showCheckmark: false,
-          labelStyle: StockpileFonts.satoshi(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: _role == f ? StockpileColors.primary900 : muted,
+        if (f != _RoleFilter.rider || enableDeliverySystem)
+          ChoiceChip(
+            label: Text(
+              '${f.label} · ${_entries.where((e) => f.matches(e.profile)).length}',
+            ),
+            selected: _role == f,
+            onSelected: (_) => setState(() => _role = f),
+            showCheckmark: false,
+            labelStyle: StockpileFonts.satoshi(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: _role == f ? StockpileColors.primary900 : muted,
+            ),
+            selectedColor: StockpileColors.primary900.withAlpha(30),
+            backgroundColor: isDark
+                ? StockpileColors.darkInputBg
+                : StockpileColors.inputBg,
+            side: BorderSide(
+              color: _role == f
+                  ? StockpileColors.primary900
+                  : (isDark
+                        ? StockpileColors.darkDivider
+                        : StockpileColors.divider),
+            ),
           ),
-          selectedColor: StockpileColors.primary900.withAlpha(30),
-          backgroundColor: isDark
-              ? StockpileColors.darkInputBg
-              : StockpileColors.inputBg,
-          side: BorderSide(
-            color: _role == f
-                ? StockpileColors.primary900
-                : (isDark
-                      ? StockpileColors.darkDivider
-                      : StockpileColors.divider),
-          ),
-        ),
     ];
 
     final sort = PopupMenuButton<_Sort>(
@@ -690,30 +722,53 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
         ],
       );
     }
+    // Phone: sort collapses to an icon beside the search box, and the chip
+    // row gets the whole width, scrolling edge to edge. (Sharing a row with
+    // the full sort button left the chips painting underneath it.)
+    final sortIcon = PopupMenuButton<_Sort>(
+      tooltip: 'Sort · ${_sort.label}',
+      initialValue: _sort,
+      onSelected: (s) => setState(() => _sort = s),
+      itemBuilder: (_) => [
+        for (final s in _Sort.values)
+          PopupMenuItem(value: s, child: Text(s.label)),
+      ],
+      child: Container(
+        width: 44,
+        height: 40,
+        decoration: BoxDecoration(
+          color: isDark ? StockpileColors.darkSurface : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isDark
+                ? StockpileColors.darkDivider
+                : StockpileColors.divider,
+          ),
+        ),
+        child: Icon(Icons.sort_rounded, size: 20, color: muted),
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        search,
-        const SizedBox(height: 10),
         Row(
           children: [
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                clipBehavior: Clip.none,
-                child: Row(
-                  children: [
-                    for (var i = 0; i < chips.length; i++) ...[
-                      if (i > 0) const SizedBox(width: 8),
-                      chips[i],
-                    ],
-                  ],
-                ),
-              ),
-            ),
+            Expanded(child: search),
             const SizedBox(width: 8),
-            sort,
+            sortIcon,
           ],
+        ),
+        const SizedBox(height: 10),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (var i = 0; i < chips.length; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                chips[i],
+              ],
+            ],
+          ),
         ),
       ],
     );
@@ -837,7 +892,10 @@ class _AdminCashierLocationsPageState extends State<AdminCashierLocationsPage> {
           initialCameraFit: fitPoints(points),
           onTap: (_, _) => setState(() => _selectedId = null),
         ),
-        children: [osmTileLayer(), MarkerLayer(markers: _markers())],
+        children: [
+          osmTileLayer(),
+          MarkerLayer(markers: _markers()),
+        ],
       ),
       topRight: [
         if (compact)
@@ -1031,7 +1089,9 @@ class _StatTile extends StatelessWidget {
     final muted = isDark
         ? StockpileColors.darkTextMuted
         : StockpileColors.mutedText;
-    final warnColor = isDark ? StockpileColors.primary400 : const Color(0xFFB45309);
+    final warnColor = isDark
+        ? StockpileColors.primary400
+        : const Color(0xFFB45309);
 
     final highlighted = active || warn;
     return Material(
@@ -1089,7 +1149,11 @@ class _StatTile extends StatelessWidget {
                   ],
                   if (warn) ...[
                     const SizedBox(width: 8),
-                    Icon(Icons.warning_amber_rounded, size: 16, color: warnColor),
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: warnColor,
+                    ),
                   ],
                   if (liveDot) ...[
                     const SizedBox(width: 8),
@@ -1173,11 +1237,13 @@ class _RosterRowState extends State<_RosterRow> {
     final has = e.hasLocation;
     final address = p.address?.trim() ?? '';
 
-    final showInline = has && widget.hoverActions && (_hover || widget.selected);
+    final showInline =
+        has && widget.hoverActions && (_hover || widget.selected);
     final showStrip = has && !widget.hoverActions && widget.selected;
 
     final meta = [
-      if (has) '${p.latitude!.toStringAsFixed(5)}, ${p.longitude!.toStringAsFixed(5)}',
+      if (has)
+        '${p.latitude!.toStringAsFixed(5)}, ${p.longitude!.toStringAsFixed(5)}',
       if (has) _whenLine(e),
       if (e.isLive) 'on a delivery',
       if (e.sharedWith != null) 'same point as ${e.sharedWith}',

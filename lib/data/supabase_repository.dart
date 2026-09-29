@@ -8,6 +8,7 @@ import 'dart:math';
 import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../config/feature_flags.dart';
 import '../utils/app_clock.dart';
 import '../utils/birthday_window.dart' show parseBirthday;
 import 'models.dart';
@@ -140,6 +141,9 @@ class SupabaseRepository {
     // Delivery orders — emit both the granular change name (so order lists
     // refresh) and a parsed event (so the notification service can toast on
     // the right status transition).
+    // The table only exists once v48 is applied, which goes with the delivery
+    // release; subscribing to a missing table just errors the channel.
+    if (!enableDeliverySystem) return;
     final ordersChannel = _supabase
         .channel('public:orders')
         .onPostgresChanges(
@@ -1197,6 +1201,24 @@ class SupabaseRepository {
         .toList();
   }
 
+  /// Every delivery account with their last known position. Delivery
+  /// accounts only exist once the delivery system ships (`profiles.role =
+  /// 'delivery'`, v50); until then this returns an empty list, and callers
+  /// behind [enableDeliverySystem] never ask.
+  Future<List<UserProfile>> fetchRiders() async {
+    final data = await _supabase
+        .from('profiles')
+        .select(
+          'id, username, email, role, member_id, mobile_enabled, '
+          'latitude, longitude, address, location_updated_at, created_at',
+        )
+        .eq('role', 'delivery')
+        .order('username');
+    return (data as List)
+        .map((j) => UserProfile.fromJson(Map<String, dynamic>.from(j)))
+        .toList();
+  }
+
   /// The saved location for one profile (null when never set).
   Future<CashierLocation?> fetchCashierLocation(String userId) async {
     final data = await _supabase
@@ -2112,6 +2134,27 @@ class SupabaseRepository {
     }
   }
 
+  /// `profiles.id` → username for everyone who may post an announcement
+  /// (v51: admins and main cashiers). Used to name the author on the
+  /// management list, so a shared board says who wrote what.
+  ///
+  /// Failure is not worth surfacing: the list falls back to no name.
+  Future<Map<String, String>> fetchAnnouncementAuthors() async {
+    try {
+      final rows = await _supabase
+          .from('profiles')
+          .select('id, username')
+          .inFilter('role', ['admin', 'cashier']);
+      return {
+        for (final r in rows as List)
+          (r as Map)['id'] as String: ((r['username'] ?? '') as String).trim(),
+      }..removeWhere((_, name) => name.isEmpty);
+    } catch (e) {
+      debugPrint('[fetchAnnouncementAuthors] failed: $e');
+      return const {};
+    }
+  }
+
   /// Post a new announcement. Returns null on success, else a message.
   Future<String?> createAnnouncement({
     required String title,
@@ -3008,6 +3051,36 @@ class SupabaseRepository {
       final currentTotalEarnings = breakdown['totalEarnings'] ?? 0;
       final currentBalance = breakdown['balance'] ?? 0;
 
+      // ── Overdraft guard ───────────────────────────────────────────
+      // Nothing reserves a pending request: the member's dialog validates
+      // against the balance as it stands, so ₱200 awaiting approval and a
+      // second request of ₱101 against ₱300 are both accepted, and each
+      // one looks affordable on its own.
+      //
+      // Approval is where that becomes money. It has to be caught here
+      // because it cannot be seen anywhere else: `get_member_earnings`
+      // (v24) returns `greatest(0, earned - approved)`, so an overdrawn
+      // account reads ₱0 — identical to a member who withdrew exactly
+      // what they had. The app has no screen that shows the difference.
+      //
+      // Left pending rather than auto-rejected: the amount may well be
+      // legitimate and simply out of date, and rejecting needs a reason
+      // the admin writes, not one this method invents.
+      //
+      // This closes the hole for one approver at a time. Two admins
+      // approving at the same instant can still slip between the check
+      // and the write — that needs a database-level constraint, which
+      // belongs with the full fix.
+      final available = req.sourceBucket == 'total_earnings'
+          ? currentTotalEarnings
+          : currentBalance;
+      if (req.requestedAmount > available) {
+        return 'Cannot approve: ₱${req.requestedAmount} requested but only '
+            '₱$available available in ${req.sourceLabel}. The member has '
+            'other approved or pending withdrawals. Reject this one and ask '
+            'them to submit a new request.';
+      }
+
       // Deduct the requested amount from the appropriate pool
       int newTotalEarnings = currentTotalEarnings;
       int newBalance = currentBalance;
@@ -3039,7 +3112,9 @@ class SupabaseRepository {
       });
     } catch (e) {
       debugPrint('[approveWithdrawalRequest] deduction failed: $e');
-      return 'Failed to process deduction: $_friendlyError(e)';
+      // `$_friendlyError(e)` interpolated the method itself and printed
+      // "Closure: (Object) => String(e)" at the admin. Braces call it.
+      return 'Failed to process deduction: ${_friendlyError(e)}';
     }
 
     // Mark as approved
@@ -3540,34 +3615,61 @@ class SupabaseRepository {
   /// As of v49 RLS does the real filtering — a member only ever receives
   /// their own rows, a rider only the orders assigned to them — so these
   /// parameters narrow a set that is already safe, not the other way round.
+  ///
+  /// [memberId] is the numeric `members.id` bigint — NOT the Supabase auth
+  /// UUID. [statuses] optionally narrows the result server-side (e.g. the
+  /// non-terminal statuses for the Cashier/Admin panel).
+  ///
+  /// `order_items` are fetched as a SEPARATE query and joined client-side.
+  /// PostgREST's nested `order_items(*)` select only works when the
+  /// `order_items.order_id → orders.id` foreign key exists; databases
+  /// migrated before that FK was added would otherwise fail the whole query
+  /// with a "could not find a relationship" error. This two-step read never
+  /// depends on any FK.
   Future<List<DeliveryOrder>> fetchDeliveryOrders({
     int? memberId,
     String? deliveryId,
+    List<String>? statuses,
   }) async {
-    var query = _supabase.from('orders').select('*, order_items(*)');
+    var query = _supabase.from('orders').select();
     if (memberId != null) query = query.eq('member_id', memberId);
     if (deliveryId != null) query = query.eq('delivery_id', deliveryId);
-    final data = await query.order('created_at', ascending: false);
-    return _hydrateDeliveryOrders(data as List);
-  }
+    if (statuses != null && statuses.isNotEmpty) {
+      query = query.inFilter('status', statuses);
+    }
+    final orderRows = await query.order('created_at', ascending: false);
 
-  // ── Delivery riders (v50) ──────────────────────────────────────────
+    // Debug the raw query result so an empty UI can be traced to either an
+    // empty result set or a deserialization problem.
+    final rows = (orderRows as List);
+    debugPrint(
+      'fetchDeliveryOrders(memberId=$memberId, deliveryId=$deliveryId, '
+      'statuses=$statuses) → ${rows.length} order row(s)',
+    );
+    if (rows.isNotEmpty) {
+      debugPrint('fetchDeliveryOrders first row: ${rows.first}');
+    }
 
-  /// Every delivery account, with their last known position, for the
-  /// cashier's dispatch picker and the admin location map.
-  Future<List<UserProfile>> fetchRiders() async {
-    final data = await _supabase
-        .from('profiles')
-        .select(
-          'id, username, email, role, member_id, mobile_enabled, '
-          'latitude, longitude, address, location_updated_at, created_at',
-        )
-        .eq('role', 'delivery')
-        .order('username');
-    return (data as List)
-        .map((j) => UserProfile.fromJson(Map<String, dynamic>.from(j)))
+    // Fetch the lines for exactly the returned orders, then join in memory.
+    final orderIds = rows
+        .map((j) => (j as Map<String, dynamic>)['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
         .toList();
+    final itemRows = <Map<String, dynamic>>[];
+    if (orderIds.isNotEmpty) {
+      final data = await _supabase
+          .from('order_items')
+          .select()
+          .inFilter('order_id', orderIds);
+      itemRows.addAll((data as List).cast<Map<String, dynamic>>());
+      debugPrint('fetchDeliveryOrders → ${itemRows.length} order_item row(s)');
+    }
+
+    return _hydrateDeliveryOrders(rows, itemRows: itemRows);
   }
+
+  // ── Delivery dispatch (v50) ────────────────────────────────────────
+  // `fetchRiders()` lives with the other profile queries, above.
 
   /// Cashier dispatches an agreed order to a rider (`Agreed → Assigned`).
   /// Re-dispatch from Assigned is allowed; from Picked Up it is not.
@@ -3662,10 +3764,13 @@ class SupabaseRepository {
     _changes.add('order_updated');
   }
 
-  /// Resolves display names (product / member / cashier) client-side so the
-  /// order rows survive renames and deletions, matching how `sales` snapshots
-  /// names without foreign keys.
-  Future<List<DeliveryOrder>> _hydrateDeliveryOrders(List<dynamic> rows) async {
+  /// Resolves display names (product / member / cashier / rider) client-side
+  /// and attaches [itemRows] to their orders — no reliance on PostgREST
+  /// nested selects or foreign keys.
+  Future<List<DeliveryOrder>> _hydrateDeliveryOrders(
+    List<dynamic> rows, {
+    List<Map<String, dynamic>> itemRows = const [],
+  }) async {
     final itemNames = <int, String>{};
     final memberNames = <int, String>{};
     var cashierNames = <String, String>{};
@@ -3687,9 +3792,19 @@ class SupabaseRepository {
       cashierNames = await fetchProfilesMap();
     } catch (_) {}
 
+    // Group lines by order_id, then attach each order's lines in memory.
+    final itemsByOrder = <String, List<DeliveryOrderItem>>{};
+    for (final row in itemRows) {
+      final orderId = row['order_id']?.toString() ?? '';
+      if (orderId.isEmpty) continue;
+      itemsByOrder
+          .putIfAbsent(orderId, () => [])
+          .add(DeliveryOrderItem.fromJson(row));
+    }
+
     return rows.map((j) {
       final order = DeliveryOrder.fromJson(j as Map<String, dynamic>);
-      final hydratedItems = order.items
+      final lines = (itemsByOrder[order.id] ?? const <DeliveryOrderItem>[])
           .map(
             (it) => it.copyWith(
               productName: itemNames[it.productId] ?? 'Item #${it.productId}',
@@ -3697,7 +3812,7 @@ class SupabaseRepository {
           )
           .toList();
       return order.copyWith(
-        items: hydratedItems,
+        items: lines,
         memberName: memberNames[order.memberId],
         cashierName: order.cashierId == null
             ? null
@@ -3712,6 +3827,10 @@ class SupabaseRepository {
 
   /// Member checkout — atomically creates the order + its lines via the
   /// `create_delivery_order` RPC. Returns the new order id.
+  ///
+  /// `memberId` must be the numeric `members.id` bigint — NOT the Supabase
+  /// auth UUID. `items` is a `List<Map<String, dynamic>>` of
+  /// `{"product_id": int, "quantity": int}` lines.
   Future<String> createDeliveryOrder({
     required int memberId,
     String? deliveryAddress,
@@ -3719,18 +3838,42 @@ class SupabaseRepository {
     double? deliveryLongitude,
     required List<Map<String, dynamic>> items,
   }) async {
-    final id = await _supabase.rpc(
-      'create_delivery_order',
-      params: {
-        'p_member_id': memberId,
-        'p_delivery_address': deliveryAddress,
-        'p_delivery_latitude': deliveryLatitude,
-        'p_delivery_longitude': deliveryLongitude,
-        'p_items': items,
-      },
-    );
-    _changes.add('order_added');
-    return id.toString();
+    assert(memberId > 0, 'p_member_id must be the numeric members.id bigint');
+
+    // Parameter keys MUST match the SQL signature of
+    // public.create_delivery_order(p_member_id bigint,
+    //   p_delivery_address text, p_delivery_latitude double precision,
+    //   p_delivery_longitude double precision, p_items jsonb) exactly —
+    // PostgREST resolves the function from these named arguments, and a
+    // missing/mistyped key yields PGRST202 ("function not found").
+    final params = <String, dynamic>{
+      'p_member_id': memberId, // int / bigint
+      'p_delivery_address': deliveryAddress, // String?
+      'p_delivery_latitude': deliveryLatitude, // double?
+      'p_delivery_longitude': deliveryLongitude, // double?
+      'p_items': items, // List<Map<String, dynamic>>
+    };
+
+    try {
+      final id = await _supabase.rpc('create_delivery_order', params: params);
+      _changes.add('order_added');
+      return id.toString();
+    } on PostgrestException catch (e) {
+      debugPrint(
+        'create_delivery_order RPC failed: ${e.message} '
+        '(code=${e.code}, hint=${e.hint})',
+      );
+      debugPrint('create_delivery_order details: ${e.details}');
+      if (e.code == 'PGRST202') {
+        debugPrint(
+          'PGRST202: public.create_delivery_order was not found in the '
+          'PostgREST schema cache. Apply '
+          'supabase/migrations/migration_v48_delivery_orders.sql, then '
+          "reload the cache: NOTIFY pgrst, 'reload schema';",
+        );
+      }
+      rethrow;
+    }
   }
 
   /// Cashier "Send Quote" — fixes every item price and proposes the initial
