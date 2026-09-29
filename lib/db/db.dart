@@ -28,6 +28,8 @@ export '../data/models.dart'
         DeliveryOrderItem,
         DeliveryOrderStatus,
         DeliveryOrderRealtimeEvent,
+        DeliveryFeeOffer,
+        OrderConfirmation,
         UserProfile,
         inventoryItemsFromRows,
         membersFromRows,
