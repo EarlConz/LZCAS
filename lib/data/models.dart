@@ -1559,6 +1559,24 @@ class DeliveryOrder {
   final DateTime? codRemittedAt;
   final String? codRemittedTo;
 
+  // ── Road route (v53) ──────────────────────────────────────────────
+  /// Branch to member along the roads, `[lat, lng]` pairs in travel order.
+  /// Written once by the `order-route` Edge Function and never by the app;
+  /// null until then, or when the route could not be found.
+  ///
+  /// Plain pairs rather than map types, to keep this file free of the map
+  /// package: the map code converts them where it draws them.
+  final List<List<double>>? routePoints;
+  final int? routeDistanceM;
+  final int? routeDurationS;
+
+  /// 'ok', 'unroutable', 'failed', or null (never attempted). See v53.
+  final String? routeStatus;
+
+  /// Where the route starts: the branch's saved location when it was made.
+  final double? routeOriginLat;
+  final double? routeOriginLng;
+
   /// Resolved client-side (not stored on `orders`).
   final String? memberName;
   final String? cashierName;
@@ -1595,6 +1613,12 @@ class DeliveryOrder {
     this.salesRecordedAt,
     this.codRemittedAt,
     this.codRemittedTo,
+    this.routePoints,
+    this.routeDistanceM,
+    this.routeDurationS,
+    this.routeStatus,
+    this.routeOriginLat,
+    this.routeOriginLng,
     this.memberName,
     this.cashierName,
     this.deliveryName,
@@ -1637,7 +1661,38 @@ class DeliveryOrder {
     salesRecordedAt: _ts(json['sales_recorded_at']),
     codRemittedAt: _ts(json['cod_remitted_at']),
     codRemittedTo: json['cod_remitted_to'] as String?,
+    routePoints: _routePoints(json['route_points']),
+    routeDistanceM: _intFromJson(json['route_distance_m']),
+    routeDurationS: _intFromJson(json['route_duration_s']),
+    routeStatus: json['route_status'] as String?,
+    routeOriginLat: _doubleFromJson(json['route_origin_lat']),
+    routeOriginLng: _doubleFromJson(json['route_origin_lng']),
   );
+
+  /// Tolerant of anything malformed: a route that cannot be read is drawn
+  /// as no route (the straight-line fallback), never as a crash.
+  static List<List<double>>? _routePoints(Object? raw) {
+    if (raw is! List) return null;
+    final out = <List<double>>[];
+    for (final p in raw) {
+      if (p is List && p.length >= 2 && p[0] is num && p[1] is num) {
+        out.add([(p[0] as num).toDouble(), (p[1] as num).toDouble()]);
+      }
+    }
+    return out.length >= 2 ? out : null;
+  }
+
+  /// Whether there is a road path to draw.
+  bool get hasRoute => routeStatus == 'ok' && routePoints != null;
+
+  /// Whether asking the Edge Function could still produce a route. Once
+  /// it is 'ok' or 'unroutable' nothing will change without a `force`, so
+  /// screens do not keep asking. 'failed' is retried by the function
+  /// itself after its cool-down.
+  bool get routeWorthRequesting =>
+      deliveryLatitude != null &&
+      deliveryLongitude != null &&
+      (routeStatus == null || routeStatus == 'failed');
 
   static DateTime? _ts(Object? v) =>
       v == null ? null : DateTime.tryParse(v.toString());
@@ -1748,6 +1803,12 @@ class DeliveryOrder {
     salesRecordedAt: salesRecordedAt,
     codRemittedAt: codRemittedAt,
     codRemittedTo: codRemittedTo,
+    routePoints: routePoints,
+    routeDistanceM: routeDistanceM,
+    routeDurationS: routeDurationS,
+    routeStatus: routeStatus,
+    routeOriginLat: routeOriginLat,
+    routeOriginLng: routeOriginLng,
     memberName: memberName ?? this.memberName,
     cashierName: cashierName ?? this.cashierName,
     deliveryName: deliveryName ?? this.deliveryName,

@@ -3764,6 +3764,37 @@ class SupabaseRepository {
     _changes.add('order_updated');
   }
 
+  // ── Road route (v53) ───────────────────────────────────────────────
+
+  /// Makes sure [orderId] has its road route stored, asking the
+  /// `order-route` Edge Function to fetch it if it has none. Returns true
+  /// when a route is now stored.
+  ///
+  /// Cheap to call and safe to repeat: the function answers from the
+  /// stored copy whenever it has one, so only the first caller for an
+  /// order costs a routing request. Callers still check
+  /// [DeliveryOrder.routeWorthRequesting] first, so a screen that is
+  /// refreshed every minute does not make even the free call every minute.
+  ///
+  /// Never throws: a route is decoration on top of a working order, and
+  /// the maps fall back to a straight line without one.
+  Future<bool> ensureOrderRoute(String orderId, {bool force = false}) async {
+    try {
+      final res = await _supabase.functions.invoke(
+        'order-route',
+        body: {'order_id': orderId, if (force) 'force': true},
+      );
+      final data = res.data;
+      final ok = data is Map && data['status'] == 'ok';
+      // The function wrote the order; tell the screens showing it.
+      if (ok) _changes.add('order_updated');
+      return ok;
+    } catch (e) {
+      debugPrint('[ensureOrderRoute] failed: $e');
+      return false;
+    }
+  }
+
   // ── Payment (v52) ──────────────────────────────────────────────────
   //
   // Sale recording lives in the completion RPCs now, not in any caller.

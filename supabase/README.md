@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v51)
+├── migrations/    Ordered, apply-once changes (v2 … v53)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -374,6 +374,37 @@ unapplied. The delivery payment work is therefore **v52**, and production
 will apply 48, 49 and 50 *after* 51. The ledger will read out of order and
 that is correct — v51 deliberately depends on nothing in the delivery
 chain, and the delivery migrations depend on nothing in v51.
+
+**Order payment and sale recording (v52)** — _applied to staging. Ships with
+the build that stops recording sales client-side._
+
+- v52 — `pay_order_with_funds`, the cash-on-delivery code and scan,
+  `cashier_remit_cod`, and `order_record_sales`, which every completion path
+  now calls. Redefines `get_member_earnings` so order payments are actually
+  subtracted. Full reasoning in the file's header.
+
+**Road route (v53)** — _needs the `order-route` Edge Function and its key._
+
+- v53 — `orders.route_points` and friends: the road route from the branch to
+  the member, fetched from OpenRouteService once per order and stored, so
+  every screen reads one copy instead of paying for its own. Failures are
+  stored too (`unroutable` never retried, `failed` retried after 30 minutes),
+  or an order pinned where no road reaches would spend the daily allowance
+  one view at a time. Only the Edge Function writes these columns.
+
+  To turn it on in an environment:
+
+  1. Create a free key at openrouteservice.org (about 2,000 routes a day).
+  2. `supabase secrets set ORS_API_KEY=<key> --project-ref <ref>` — the key
+     lives only in the function, never in the app.
+  3. `supabase functions deploy order-route --project-ref <ref>`
+  4. Apply v53.
+
+  Any order in any order: without the function, the key or the columns, the
+  maps fall back to the straight line they drew before.
+
+  The payment hardening noted with v52 — recording a counter payment, and
+  refusing to mark an unpaid order delivered — is **v54**, not yet written.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

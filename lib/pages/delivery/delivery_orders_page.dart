@@ -456,6 +456,13 @@ class _OrderCardState extends State<_OrderCard> {
         orderId: widget.order.id,
         riderId: chosen.id,
       );
+      // Store the road route now, while the rider is still getting ready,
+      // so their map has it the first time they open the order. Not
+      // awaited: the assignment has already succeeded, and a route that
+      // fails to fetch leaves the rider's straight-line map working.
+      if (widget.order.routeWorthRequesting) {
+        unawaited(repository.ensureOrderRoute(widget.order.id));
+      }
       if (!mounted) return;
       BotToast.showText(text: 'Assigned to ${chosen.username}.');
       widget.onChanged();

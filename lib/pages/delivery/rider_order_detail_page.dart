@@ -62,6 +62,23 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
   late DeliveryOrder _order = widget.initial;
   bool _busy = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _ensureRoute();
+  }
+
+  /// The road route is normally stored when the cashier assigns the rider.
+  /// An order dispatched before v53, or whose first attempt failed, gets it
+  /// here — once: the Edge Function answers from the stored copy on every
+  /// later open, and [DeliveryOrder.routeWorthRequesting] stops even that
+  /// call once a route exists or is known not to.
+  Future<void> _ensureRoute() async {
+    if (!_order.routeWorthRequesting) return;
+    final ok = await repository.ensureOrderRoute(_order.id);
+    if (ok && mounted) await _refresh();
+  }
+
   Future<void> _refresh() async {
     try {
       final rows = await repository.fetchDeliveryOrders(
@@ -485,12 +502,36 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
         : LatLng(o.deliveryLatitude!, o.deliveryLongitude!);
   }
 
-  /// Destination, the rider's own dot, and a dashed straight line between
-  /// them — drawn dashed so nobody mistakes it for a route.
+  /// The stored road route, branch to member (v53). Empty until the
+  /// `order-route` function has stored one, or when none could be found.
+  List<LatLng> get _route =>
+      _order.hasRoute ? routePoints(_order.routePoints) : const [];
+
+  LatLng? get _branch => _order.routeOriginLat == null ||
+          _order.routeOriginLng == null
+      ? null
+      : LatLng(_order.routeOriginLat!, _order.routeOriginLng!);
+
+  /// How far is left along the road from the rider's last fix, including
+  /// the dashed stretch from where the road ends to the door. Null when
+  /// there is no route, no fix, or the rider is off it — then the page
+  /// says straight-line, rather than implying a road they are not on.
+  double? get _metersAlongRoad {
+    final route = _route, me = widget.myPosition, dest = _destination;
+    if (route.length < 2 || me == null || dest == null) return null;
+    final along = remainingAlongRoute(route, me);
+    if (along == null) return null;
+    return along + const Distance().as(LengthUnit.Meter, route.last, dest);
+  }
+
+  /// The branch it left from, the rider's own dot, and the destination.
   List<Marker> _mapMarkers({bool labelled = false}) {
     final dest = _destination;
     final me = widget.myPosition;
+    final branch = _branch;
     return [
+      if (branch != null && _route.isNotEmpty)
+        mapMarker(point: branch, kind: MapPinKind.cashier, muted: true),
       if (me != null) mapMarker(point: me, kind: MapPinKind.you),
       if (dest != null)
         mapMarker(
@@ -501,18 +542,45 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
     ];
   }
 
+  /// The road when it is known, solid; the dashed gaps at either end where
+  /// the pin sits off the nearest mapped road. Without a route, today's
+  /// dashed straight line from the rider to the door — dashed so it is
+  /// never mistaken for a way to drive.
   List<Polyline> _mapLines() {
-    final dest = _destination, me = widget.myPosition;
+    final dest = _destination, me = widget.myPosition, route = _route;
+    if (route.length >= 2 && dest != null) {
+      final branch = _branch;
+      return [
+        roadRoute(route),
+        ?lastStretch(route.last, dest),
+        if (branch != null) ?lastStretch(branch, route.first),
+      ];
+    }
     return dest != null && me != null ? [straightLine(me, dest)] : const [];
   }
 
   List<LatLng> get _mapPoints => [
+    ..._route,
     if (widget.myPosition != null) widget.myPosition!,
     if (_destination != null) _destination!,
   ];
 
-  String? get _distanceLine =>
-      widget.metersAway == null ? null : '${formatDistance(widget.metersAway!)} to go';
+  String? get _distanceLine {
+    final road = _metersAlongRoad;
+    if (road != null) return '${formatDistance(road)} to go by road';
+    return widget.metersAway == null
+        ? null
+        : '${formatDistance(widget.metersAway!)} to go';
+  }
+
+  /// The caption under the address: which kind of distance the chip shows.
+  String? get _distanceCaption {
+    if (_metersAlongRoad != null) return 'Along the road from your last fix';
+    if (widget.metersAway == null) return null;
+    return _route.isNotEmpty
+        ? 'Straight line — you are off the planned road'
+        : 'Straight-line distance from your last fix';
+  }
 
   Future<void> _expandMap() => Navigator.of(context).push(
     MaterialPageRoute<void>(
@@ -601,10 +669,10 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
                           color: body,
                         ),
                       ),
-                      if (widget.metersAway != null) ...[
+                      if (_distanceCaption != null) ...[
                         const SizedBox(height: 2),
                         Text(
-                          'Straight-line distance from your last fix',
+                          _distanceCaption!,
                           style: StockpileFonts.satoshi(
                             fontSize: 11,
                             color: muted,
