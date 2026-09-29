@@ -1538,10 +1538,26 @@ class DeliveryOrder {
   final String? confirmationMethod;
   final String? cancelReason;
 
-  /// 'funds' or 'cod'. Nothing sets these until v51 — they exist so the
-  /// rider's screens have a stable shape. Null reads as "not set".
+  /// 'funds' or 'cod'; null reads as "not chosen yet". Set by
+  /// `pay_order_with_funds` or by the member asking for their CoD code
+  /// (v52).
   final String? paymentMethod;
   final String paymentStatus;
+
+  /// When the money actually moved: the funds deduction, or the rider's
+  /// scan for cash on delivery.
+  final DateTime? paidAt;
+
+  /// Set once `order_record_sales` has written this order's `sales` rows
+  /// and decremented stock. The app never writes it and never writes
+  /// those rows — it is here so a screen can say whether an order has hit
+  /// the books yet.
+  final DateTime? salesRecordedAt;
+
+  /// Cash handed back to a cashier. Only ever set for CoD orders, and it
+  /// settles nothing — it is what makes collected-vs-remitted countable.
+  final DateTime? codRemittedAt;
+  final String? codRemittedTo;
 
   /// Resolved client-side (not stored on `orders`).
   final String? memberName;
@@ -1575,6 +1591,10 @@ class DeliveryOrder {
     this.cancelReason,
     this.paymentMethod,
     this.paymentStatus = 'unpaid',
+    this.paidAt,
+    this.salesRecordedAt,
+    this.codRemittedAt,
+    this.codRemittedTo,
     this.memberName,
     this.cashierName,
     this.deliveryName,
@@ -1613,6 +1633,10 @@ class DeliveryOrder {
     cancelReason: json['cancel_reason'] as String?,
     paymentMethod: json['payment_method'] as String?,
     paymentStatus: json['payment_status'] as String? ?? 'unpaid',
+    paidAt: _ts(json['paid_at']),
+    salesRecordedAt: _ts(json['sales_recorded_at']),
+    codRemittedAt: _ts(json['cod_remitted_at']),
+    codRemittedTo: json['cod_remitted_to'] as String?,
   );
 
   static DateTime? _ts(Object? v) =>
@@ -1692,6 +1716,10 @@ class DeliveryOrder {
     cancelReason: cancelReason,
     paymentMethod: paymentMethod,
     paymentStatus: paymentStatus,
+    paidAt: paidAt,
+    salesRecordedAt: salesRecordedAt,
+    codRemittedAt: codRemittedAt,
+    codRemittedTo: codRemittedTo,
     memberName: memberName ?? this.memberName,
     cashierName: cashierName ?? this.cashierName,
     deliveryName: deliveryName ?? this.deliveryName,

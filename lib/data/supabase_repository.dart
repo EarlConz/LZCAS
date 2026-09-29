@@ -3764,6 +3764,100 @@ class SupabaseRepository {
     _changes.add('order_updated');
   }
 
+  // ── Payment (v52) ──────────────────────────────────────────────────
+  //
+  // Sale recording lives in the completion RPCs now, not in any caller.
+  // Nothing on this side writes `sales` for a delivery order — see
+  // `order_record_sales` and the note in delivery_orders_page.
+
+  /// Member pays an Agreed order out of their own funds.
+  ///
+  /// [sourceBucket] is 'balance' or 'total_earnings', the same choice
+  /// withdrawals already offer, so the member's mental model is unchanged.
+  /// The database refuses if the bucket does not cover the total; the
+  /// message it returns names both figures and is worth showing verbatim.
+  Future<String?> payOrderWithFunds({
+    required String orderId,
+    required String sourceBucket,
+  }) async {
+    try {
+      await _supabase.rpc(
+        'pay_order_with_funds',
+        params: {'p_order_id': orderId, 'p_source_bucket': sourceBucket},
+      );
+      _changes.add('order_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[payOrderWithFunds] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'The payment did not go through.' : msg;
+    } catch (e) {
+      debugPrint('[payOrderWithFunds] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// The member's single-use cash-on-delivery code for one order, created
+  /// on first ask. Rendered as a QR for the rider to scan; choosing to see
+  /// it is what marks the order as CoD.
+  ///
+  /// Deliberately NOT `members.qr` — that one is a persistent identifier
+  /// printed on things, so anyone who had seen it could confirm someone
+  /// else's delivery.
+  Future<String?> memberOrderCodCode(String orderId) async {
+    try {
+      final code = await _supabase.rpc(
+        'member_order_cod_code',
+        params: {'p_order_id': orderId},
+      );
+      _changes.add('order_updated');
+      return code as String?;
+    } catch (e) {
+      debugPrint('[memberOrderCodCode] failed: $e');
+      return null;
+    }
+  }
+
+  /// Rider scans the member's code: one gesture that is both the receipt
+  /// confirmation and the payment record. Returns null on success.
+  Future<String?> confirmCodDelivery({
+    required String orderId,
+    required String nonce,
+  }) async {
+    try {
+      await _supabase.rpc(
+        'confirm_cod_delivery',
+        params: {'p_order_id': orderId, 'p_nonce': nonce},
+      );
+      _changes.add('order_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[confirmCodDelivery] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'That code was not accepted.' : msg;
+    } catch (e) {
+      debugPrint('[confirmCodDelivery] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// Cashier records cash handed back by the rider. Settles no balances —
+  /// it is what makes "collected vs remitted" countable.
+  Future<String?> remitCod(String orderId) async {
+    try {
+      await _supabase.rpc('cashier_remit_cod', params: {'p_order_id': orderId});
+      _changes.add('order_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[remitCod] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'The remittance was not recorded.' : msg;
+    } catch (e) {
+      debugPrint('[remitCod] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
   /// Resolves display names (product / member / cashier / rider) client-side
   /// and attaches [itemRows] to their orders — no reliance on PostgREST
   /// nested selects or foreign keys.

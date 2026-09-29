@@ -7,10 +7,14 @@
 //   Picked Up  → "Hand over"  → marks Delivered
 //   Delivered  → nothing; waiting on the member
 //
-// Handover is where v51's QR scan will go for cash orders. In this build
-// it is the plain "Mark delivered" that every order gets; the scanner is
-// deliberately not stubbed in, because a fake scanner that always
-// succeeds is worse than a button that says what it does.
+// Cash orders end differently (v52, plan §7): "Hand over" collects the
+// money and scans the code on the member's phone, and that single scan is
+// both the receipt confirmation and the payment record — so a CoD order
+// never passes through Delivered at all, it goes straight to Completed.
+// The typed fallback exists for a cracked screen or a camera that will
+// not focus; there is deliberately no "mark delivered anyway" for cash,
+// because that would be a rider closing an order with the money still
+// uncollected and nothing recording it.
 //
 // Turn-by-turn is the phone's maps app, not ours — flutter_map has no
 // routing and should not grow any (plan §2).
@@ -21,6 +25,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
 import 'package:lzcas/pages/delivery/rider_order_card.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/animations.dart';
@@ -112,19 +117,22 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
   }
 
   Future<void> _handOver() async {
+    // Cash orders end with a scan, not a button: that one gesture is both
+    // the receipt confirmation and the payment record (v52, plan §7), and
+    // it requires the member to be standing there with their phone.
+    if (_order.isCod && !_order.isPaid) {
+      await _collectCash();
+      return;
+    }
+
     final ok = await showAnimatedDialog<bool>(
       context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: const Text('Hand over?'),
         content: Text(
-          _order.isCod
-              ? 'Confirm you have handed the order to '
-                    '${_order.receiverDisplayName} and collected '
-                    '${formatMoney(_order.finalTotal)}.'
-              : 'Confirm you have handed the order to '
-                    '${_order.receiverDisplayName}. They will confirm on '
-                    'their side.',
+          'Confirm you have handed the order to '
+          '${_order.receiverDisplayName}. They will confirm on their side.',
           style: Theme.of(ctx).textTheme.bodyMedium,
         ),
         actions: [
@@ -143,6 +151,106 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
     await _run(
       () => repository.deliveryMarkDelivered(_order.id),
       'Marked delivered',
+    );
+  }
+
+  /// Cash on delivery: collect the money, then scan the member's code.
+  Future<void> _collectCash() async {
+    final how = await showAnimatedDialog<String>(
+      context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Collect payment'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Collect ${formatMoney(_order.finalTotal)} from '
+              '${_order.receiverDisplayName}, then scan the code on their '
+              'phone.',
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'If their camera code will not scan, they can read you the '
+              'characters underneath it.',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Not yet'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'type'),
+            child: const Text('Enter code'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, 'scan'),
+            icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+            label: const Text('Scan'),
+          ),
+        ],
+      ),
+    );
+    if (how == null || !mounted) return;
+
+    final code = how == 'scan'
+        ? await showQrScannerDialog(context)
+        : await _askCode();
+    if (code == null || code.trim().isEmpty || !mounted) return;
+
+    setState(() => _busy = true);
+    final error = await repository.confirmCodDelivery(
+      orderId: _order.id,
+      nonce: code.trim(),
+    );
+    if (!mounted) return;
+    setState(() => _busy = false);
+
+    if (error != null) {
+      // Shown as the database phrased it — "that code is not valid for this
+      // order" is the difference between a wrong order and a wrong code,
+      // and the rider is the one who has to work out which.
+      showErrorToast(error);
+      return;
+    }
+    showSuccessToast('Payment collected — delivery complete');
+    await _refresh();
+  }
+
+  /// Typed fallback for a code that will not scan: a cracked screen, a
+  /// camera that will not focus, a member holding the phone in the sun.
+  Future<String?> _askCode() {
+    final controller = TextEditingController();
+    return showAnimatedDialog<String>(
+      context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Enter the code'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Code from the member’s screen',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
     );
   }
 

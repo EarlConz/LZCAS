@@ -14,6 +14,7 @@ import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../utils/formatters.dart'
     show formatMoney, formatRelativeDate, formatTimeOfDay;
+import 'order_payment_sheet.dart';
 
 class ActiveOrdersTab extends StatefulWidget {
   final Member member;
@@ -367,6 +368,7 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
                 style: StockpileFonts.satoshi(fontSize: 13, color: muted),
               ),
             ] else if (order.isAssigned) ...[
+              // (payment row is rendered below for every unpaid stage)
               const SizedBox(height: 12),
               _riderLine(
                 Icons.two_wheeler_rounded,
@@ -405,10 +407,82 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
                 ),
               ),
             ],
+
+            // ── Payment ────────────────────────────────────────────────
+            // Shown from Agreed onwards, because that is the first moment
+            // there is a total to pay (plan §7). Deliberately outside the
+            // status chain above: an unpaid order needs this whether it is
+            // sitting with the cashier or already on a rider's bike.
+            if (order.isAgreed ||
+                order.isAssigned ||
+                order.isPickedUp ||
+                order.isDelivered) ...[
+              const SizedBox(height: 12),
+              _paymentRow(order, currency, text, muted, busy),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  /// The payment line: what was chosen, and the way to change it while it
+  /// still can be changed.
+  Widget _paymentRow(
+    DeliveryOrder order,
+    String currency,
+    Color text,
+    Color muted,
+    bool busy,
+  ) {
+    if (order.isPaid) {
+      return Row(
+        children: [
+          const Icon(
+            Icons.verified_rounded,
+            size: 18,
+            color: Color(0xFF16A34A),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              order.isCod
+                  ? 'Paid in cash on delivery.'
+                  : 'Paid from your funds.',
+              style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // CoD chosen but not yet collected: the member needs their code back,
+    // not the chooser again.
+    final chosenCod = order.isCod;
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: busy ? null : () => _openPayment(order),
+        icon: Icon(
+          chosenCod ? Icons.qr_code_2_rounded : Icons.payments_rounded,
+          size: 18,
+        ),
+        label: Text(
+          chosenCod
+              ? 'Show my cash code'
+              : 'Pay ${formatMoney(order.finalTotal, symbol: currency)}',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPayment(DeliveryOrder order) async {
+    final changed = await showOrderPaymentSheet(
+      context,
+      order: order,
+      currencySymbol: context.read<ConfigService>().currencySymbol,
+    );
+    if (changed && mounted) _load();
   }
 
   /// One line about the rider, with an icon so it reads as a status rather

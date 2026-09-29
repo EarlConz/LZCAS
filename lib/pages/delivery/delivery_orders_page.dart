@@ -371,33 +371,15 @@ class _OrderCardState extends State<_OrderCard> {
   Future<void> _completeSale() async {
     widget.onBusyChanged(true);
     try {
-      // Inject the agreed order into the POS: record each line as a sale and
-      // decrement central stock (skipping items that no longer exist).
-      final items = await repository.fetchItems();
-      final byId = {for (final i in items) i.id!: i};
-      final ts = DateTime.now();
-      for (final line in widget.order.items) {
-        final dbItem = byId[line.productId];
-        if (dbItem != null) {
-          final newStock = (dbItem.stock - line.quantity).clamp(0, 1 << 30);
-          await repository.updateItem(
-            dbItem.copyWith(
-              stock: newStock,
-              lastUpdated: DateTime.now(),
-              status: statusFromStock(newStock),
-            ),
-          );
-        }
-        await repository.addSale(
-          itemId: line.productId,
-          itemName: line.productName ?? 'Item',
-          quantity: line.quantity,
-          price: (line.unitPrice ?? 0).round(),
-          timestamp: ts,
-          buyerId: widget.order.memberId,
-          buyerName: widget.order.memberName,
-        );
-      }
+      // The sale and the stock decrement happen SERVER-SIDE, inside
+      // complete_delivery_order → order_record_sales (v52). This loop used
+      // to do both here, which is why an order the MEMBER confirmed was
+      // never recorded as sold: that path has no cashier client to run it.
+      //
+      // Do not reinstate it. The RPC is idempotent on
+      // `orders.sales_recorded_at`, but that only protects the RPC — a
+      // client writing its own `sales` rows would double the revenue and
+      // decrement stock twice, and nothing would flag it.
       await repository.completeDeliveryOrder(widget.order.id);
       if (!mounted) return;
       await DeliveryOrderReceiptDialog(
