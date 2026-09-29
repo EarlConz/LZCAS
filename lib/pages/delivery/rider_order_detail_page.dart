@@ -117,10 +117,13 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
   }
 
   Future<void> _handOver() async {
-    // Cash orders end with a scan, not a button: that one gesture is both
-    // the receipt confirmation and the payment record (v52, plan §7), and
-    // it requires the member to be standing there with their phone.
-    if (_order.isCod && !_order.isPaid) {
+    // ANY unpaid order ends with a scan, not a button — not only the ones
+    // the member already marked as cash. An order whose member never chose
+    // how to pay would otherwise take the plain "Delivered" path below, and
+    // the goods would leave with nothing collected and nothing recording
+    // it. The scan is both the receipt confirmation and the payment record
+    // (v52, plan §7), and it needs the member present with their phone.
+    if (!_order.isPaid) {
       await _collectCash();
       return;
     }
@@ -154,27 +157,37 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
     );
   }
 
-  /// Cash on delivery: collect the money, then scan the member's code.
+  /// An unpaid order at the door: collect the cash and scan the member's
+  /// code. When the member has not chosen how to pay yet, they still can —
+  /// "Pay the rider in cash" shows them the code — and "Check again" is for
+  /// the moment after they do.
   Future<void> _collectCash() async {
+    final chosen = _order.isCod;
     final how = await showAnimatedDialog<String>(
       context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Collect payment'),
+        title: Text(chosen ? 'Collect payment' : 'Not paid yet'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Collect ${formatMoney(_order.finalTotal)} from '
-              '${_order.receiverDisplayName}, then scan the code on their '
-              'phone.',
+              chosen
+                  ? 'Collect ${formatMoney(_order.finalTotal)} from '
+                        '${_order.receiverDisplayName}, then scan the code '
+                        'on their phone.'
+                  : 'This order has not been paid. Ask '
+                        '${_order.receiverDisplayName} to open it in their '
+                        'app and tap "Pay the rider in cash", then collect '
+                        '${formatMoney(_order.finalTotal)} and scan the '
+                        'code it shows.',
               style: Theme.of(ctx).textTheme.bodyMedium,
             ),
             const SizedBox(height: 12),
             Text(
-              'If their camera code will not scan, they can read you the '
-              'characters underneath it.',
+              'Do not hand the order over until it is paid. If their code '
+              'will not scan, they can read you the characters underneath.',
               style: Theme.of(ctx).textTheme.bodySmall,
             ),
           ],
@@ -184,6 +197,11 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Not yet'),
           ),
+          if (!chosen)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'recheck'),
+              child: const Text('Check again'),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, 'type'),
             child: const Text('Enter code'),
@@ -197,6 +215,22 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
       ),
     );
     if (how == null || !mounted) return;
+
+    if (how == 'recheck') {
+      await _refresh();
+      if (!mounted) return;
+      if (_order.isPaid) {
+        // Paid while the rider waited — the ordinary handover applies.
+        await _handOver();
+      } else {
+        showErrorToast(
+          _order.isCod
+              ? 'They chose cash. Collect it and scan their code.'
+              : 'Still not paid.',
+        );
+      }
+      return;
+    }
 
     final code = how == 'scan'
         ? await showQrScannerDialog(context)

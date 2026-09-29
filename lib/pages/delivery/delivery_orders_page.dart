@@ -6,6 +6,9 @@
 //   * 'Member Negotiating'     → accept the counter, or repropose a fee.
 //   * 'Agreed'                 → complete the sale (record in POS + print the
 //                                receipt) and mark Completed.
+//   * 'Completed', cash        → "Cash Received from Rider" once the rider
+//                                hands the money in (v52 cashier_remit_cod).
+//                                Listed under "Cash to Remit" until then.
 //
 // Realtime-refreshed via `repository.changes`.
 
@@ -34,6 +37,10 @@ enum _Filter {
   action('Needs Action'),
   awaiting('Awaiting Member'),
   agreed('Agreed'),
+  // Completed cash orders whose money is still with the rider. Separate
+  // from Completed because Completed is where a cashier stops looking —
+  // exactly the wrong place for money nobody has handed in.
+  cash('Cash to Remit'),
   completed('Completed'),
   cancelled('Cancelled'),
   all('All');
@@ -85,6 +92,8 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
     }
   }
 
+  int get _cashPending => _orders.where((o) => o.awaitingRemittance).length;
+
   List<DeliveryOrder> get _visible {
     return switch (_filter) {
       _Filter.action =>
@@ -103,6 +112,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
       // vanish from the cashier's view the moment it is dispatched.
       _Filter.agreed =>
         _orders.where((o) => o.isAgreed || o.isWithRider).toList(),
+      _Filter.cash => _orders.where((o) => o.awaitingRemittance).toList(),
       _Filter.completed =>
         _orders
             .where((o) => o.status == DeliveryOrderStatus.completed)
@@ -157,7 +167,13 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
             children: [
               for (final f in _Filter.values) ...[
                 ChoiceChip(
-                  label: Text(f.label),
+                  // The cash chip carries its count, so money waiting to be
+                  // handed in is visible from whichever view is open.
+                  label: Text(
+                    f == _Filter.cash && _cashPending > 0
+                        ? '${f.label} ($_cashPending)'
+                        : f.label,
+                  ),
                   selected: _filter == f,
                   onSelected: (_) => setState(() => _filter = f),
                 ),
@@ -497,6 +513,58 @@ class _OrderCardState extends State<_OrderCard> {
     }
   }
 
+  /// The rider has handed this order's cash to you. Records it so the
+  /// collected-vs-remitted tally closes; it settles no balances and moves
+  /// no money in the system — the money moved in your hand.
+  Future<void> _remit() async {
+    final order = widget.order;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Cash received?'),
+        content: Text(
+          'Confirm ${order.deliveryName ?? 'the rider'} has handed you '
+          '${formatMoney(order.finalTotal, symbol: _currency)} for this '
+          'order. Count it first — this cannot be undone from the app.',
+          style: Theme.of(ctx).textTheme.bodyMedium,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cash received'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    widget.onBusyChanged(true);
+    final error = await repository.remitCod(order.id);
+    if (!mounted) return;
+    widget.onBusyChanged(false);
+    if (error != null) {
+      // Verbatim: "already remitted" and "no collected cash" are different
+      // problems, and the cashier needs to know which one they have.
+      BotToast.showText(text: error, duration: const Duration(seconds: 5));
+      return;
+    }
+    BotToast.showText(text: 'Cash recorded as received.');
+    widget.onChanged();
+  }
+
+  /// Reprint for any completed order — until now a receipt only ever
+  /// appeared at the moment of a counter sale, so orders a rider delivered
+  /// never had one.
+  Future<void> _viewReceipt() => DeliveryOrderReceiptDialog(
+    order: widget.order,
+    currencySymbol: _currency,
+  ).show(context);
+
   Future<double?> _promptFee(String title) async {
     final ctrl = TextEditingController();
     final result = await showDialog<double>(
@@ -799,6 +867,36 @@ class _OrderCardState extends State<_OrderCard> {
               ),
             ],
           ),
+          // How it is paid, from the moment there is a total to pay. This is
+          // what tells a cashier, before dispatching, whether the rider has
+          // cash to collect at the door.
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Payment',
+                style: StockpileFonts.satoshi(fontSize: 14, color: text),
+              ),
+              Flexible(
+                child: Text(
+                  order.isPaid
+                      ? '${order.paymentLabel} · paid'
+                      : order.paymentLabel,
+                  textAlign: TextAlign.right,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: order.isPaid || order.isCompleted
+                        ? const Color(0xFF16A34A)
+                        : order.isCod
+                        ? StockpileColors.primary900
+                        : StockpileColors.mutedText,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ],
     );
@@ -934,11 +1032,47 @@ class _OrderCardState extends State<_OrderCard> {
           ],
         );
       case DeliveryOrderStatus.completed:
+        final order = widget.order;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (order.awaitingRemittance) ...[
+              // Money that exists only in a rider's pocket. The one
+              // completed state that still needs something from a cashier.
+              Text(
+                '${order.deliveryName ?? 'The rider'} collected '
+                '${formatMoney(order.finalTotal, symbol: _currency)} in cash '
+                '— not handed in yet.',
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: StockpileColors.primary900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: busy ? null : _remit,
+                icon: const Icon(Icons.payments_rounded, size: 18),
+                label: const Text('Cash Received from Rider'),
+              ),
+            ] else
+              Text(
+                order.isCod && order.codRemittedAt != null
+                    ? 'Order completed · cash handed in '
+                          '${formatRelativeDate(order.codRemittedAt)}.'
+                    : 'Order completed.',
+                style: StockpileFonts.satoshi(fontSize: 13, color: Colors.grey),
+              ),
+            TextButton.icon(
+              onPressed: busy ? null : _viewReceipt,
+              icon: const Icon(Icons.receipt_long_rounded, size: 18),
+              label: const Text('View Receipt'),
+            ),
+          ],
+        );
       case DeliveryOrderStatus.cancelled:
         return Text(
-          status == DeliveryOrderStatus.completed
-              ? 'Order completed.'
-              : 'Order cancelled.',
+          'Order cancelled.',
           style: StockpileFonts.satoshi(fontSize: 13, color: Colors.grey),
         );
       default:

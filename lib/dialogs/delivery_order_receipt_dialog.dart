@@ -1,7 +1,12 @@
 // lib/dialogs/delivery_order_receipt_dialog.dart
-// Receipt preview + print for an Agreed delivery order. Itemized lines use
-// the cashier-set unit prices; the delivery fee is the negotiated amount and
-// the final total is the locked items_total + delivery_fee.
+// Receipt preview + print for a delivery order — at the moment of a counter
+// sale, or reprinted later for any completed order. Itemized lines use the
+// cashier-set unit prices; the delivery fee is the negotiated amount and the
+// final total is the locked items_total + delivery_fee.
+//
+// The reference is derived from the order, not the clock, so a reprint
+// carries the same number as the original and the paper can be traced back
+// to the order it came from.
 
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -36,12 +41,32 @@ class _DeliveryOrderReceiptDialogState
     extends State<DeliveryOrderReceiptDialog> {
   final _receiptKey = GlobalKey();
 
+  /// Stable per order. It used to be built from the current time, which
+  /// was harmless while a receipt could only be printed once — with
+  /// reprints it would give one order a different number every time.
   String get _ref {
-    final d = DateTime.now().toLocal();
-    return 'DEL-${d.year}${d.month.toString().padLeft(2, '0')}'
-        '${d.day.toString().padLeft(2, '0')}'
-        '-${d.hour.toString().padLeft(2, '0')}'
-        '${d.minute.toString().padLeft(2, '0')}';
+    final id = widget.order.id.replaceAll('-', '');
+    final short = id.length >= 8 ? id.substring(0, 8) : id;
+    return 'DEL-${short.toUpperCase()}';
+  }
+
+  /// When the sale happened: now, for a receipt printed at the counter;
+  /// the recorded completion, for a reprint. Otherwise a reprint would be
+  /// dated the day someone happened to reopen it.
+  DateTime get _saleTime {
+    final o = widget.order;
+    if (!o.isCompleted) return DateTime.now();
+    return o.confirmedAt ?? o.paidAt ?? o.updatedAt ?? DateTime.now();
+  }
+
+  /// A counter sale is printed from the order as it was a moment before
+  /// completion, so it still reads Agreed and unpaid. Unless the member
+  /// already paid from funds, the cashier is taking the money right now.
+  String get _paymentText {
+    final o = widget.order;
+    if (o.isPaid) return o.paymentLabel;
+    if (o.isAgreed) return 'Paid at the counter';
+    return o.paymentLabel;
   }
 
   Future<void> _print() async {
@@ -76,7 +101,7 @@ class _DeliveryOrderReceiptDialogState
     final symbol = widget.currencySymbol;
     final fmtDate = DateFormat(
       'MMMM dd, yyyy  hh:mm a',
-    ).format(DateTime.now().toLocal());
+    ).format(_saleTime.toLocal());
 
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -194,6 +219,8 @@ class _DeliveryOrderReceiptDialogState
                         theme,
                         bold: true,
                       ),
+                      const SizedBox(height: 8),
+                      _totalRow('Payment', _paymentText, theme),
                       const SizedBox(height: 12),
                       Text(
                         '— Thank you for your purchase! —',

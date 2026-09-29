@@ -267,6 +267,42 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     final balance = _funds?['balance'];
     final earnings = _funds?['totalEarnings'];
 
+    // Once a rider has the order, funds are off the table:
+    // pay_order_with_funds only accepts Agreed. Offering them anyway would
+    // mean a tap that always fails with a message about statuses the
+    // member never sees. Say what IS possible instead.
+    if (!widget.order.canPayWithFunds) {
+      return [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: StockpileColors.primary50,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            'Your order is already on its way, so it can only be paid in '
+            'cash to the rider.',
+            style: StockpileFonts.satoshi(fontSize: 13, color: text),
+          ),
+        ),
+        const SizedBox(height: 10),
+        _optionCard(
+          isDark: isDark,
+          text: text,
+          muted: muted,
+          icon: Icons.local_atm_rounded,
+          title: 'Cash on delivery',
+          subtitle: 'Show the rider your code when it arrives',
+          enabled: !_busy,
+          onTap: _showCode,
+        ),
+        if (_busy) ...[
+          const SizedBox(height: 16),
+          const Center(child: CircularProgressIndicator()),
+        ],
+      ];
+    }
+
     return [
       _optionCard(
         isDark: isDark,

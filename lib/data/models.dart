@@ -1667,6 +1667,34 @@ class DeliveryOrder {
   bool get isFunds => paymentMethod == 'funds';
   bool get isPaid => paymentStatus == 'paid';
 
+  /// Funds can only be spent while the order is still Agreed —
+  /// `pay_order_with_funds` refuses every later status. Once a rider has
+  /// it, the member pays the rider in cash.
+  bool get canPayWithFunds => isAgreed && !isPaid;
+
+  /// Whether the member can still pay at all from the app: funds while
+  /// Agreed, or a cash code up to the moment of handover
+  /// (`member_order_cod_code` accepts Agreed, Assigned and Picked Up).
+  bool get canStillPay => !isPaid && (isAgreed || isAssigned || isPickedUp);
+
+  /// Cash a rider collected that no cashier has yet confirmed receiving.
+  /// This is the queue behind the cashier's "Cash to Remit" filter.
+  bool get awaitingRemittance => isCod && isPaid && codRemittedAt == null;
+
+  /// How this order was, or will be, paid — in words a receipt can print
+  /// and a cashier can read at a glance. One definition, so the order card
+  /// and the receipt cannot disagree.
+  String get paymentLabel {
+    if (isPaid) return isCod ? 'Cash on delivery' : 'Member funds';
+    // Completed without any recorded payment can only mean the counter:
+    // the cashier took the money in person. v52 does not record that
+    // payment in the database, so this is inferred from the path taken,
+    // not read from a column.
+    if (isCompleted) return 'Paid at the counter';
+    if (isCod) return 'Cash on delivery (to collect)';
+    return 'Not chosen yet';
+  }
+
   /// Who the rider hands it to. Falls back to the member — the receiver
   /// fields are optional at checkout.
   String get receiverDisplayName => (receiverName ?? '').trim().isNotEmpty

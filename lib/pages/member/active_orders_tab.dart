@@ -413,10 +413,7 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
             // there is a total to pay (plan §7). Deliberately outside the
             // status chain above: an unpaid order needs this whether it is
             // sitting with the cashier or already on a rider's bike.
-            if (order.isAgreed ||
-                order.isAssigned ||
-                order.isPickedUp ||
-                order.isDelivered) ...[
+            if (order.isPaid || order.canStillPay) ...[
               const SizedBox(height: 12),
               _paymentRow(order, currency, text, muted, busy),
             ],
@@ -470,7 +467,11 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
         label: Text(
           chosenCod
               ? 'Show my cash code'
-              : 'Pay ${formatMoney(order.finalTotal, symbol: currency)}',
+              : order.canPayWithFunds
+              ? 'Pay ${formatMoney(order.finalTotal, symbol: currency)}'
+              // Dispatched and still unchosen: cash is the only way left,
+              // so the button says so rather than promising a choice.
+              : 'Pay the rider in cash',
         ),
       ),
     );
