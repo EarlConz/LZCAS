@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v51)
+├── migrations/    Ordered, apply-once changes (v2 … v53)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -324,6 +324,87 @@ anywhere._
   nothing changes on screen. Shipping the app build without v51 is not: the
   Cashier Terminal grows an Announcements tab whose every post is rejected by
   the database.
+**Delivery orders (v48)** — _on the delivery branch; not applied to production._
+
+- v48 — `orders`, `order_items`, Realtime on `orders`, and six SECURITY
+  DEFINER RPCs for the cashier ⇄ member fee negotiation. **Shipped with RLS
+  off and no caller checks** — see v49. Do not apply v48 without v49.
+
+**Orders authorization (v49)** — _prerequisite for v50. Not yet applied._
+
+- v49 — RLS on `orders` and `order_items` (member: own; cashier: theirs plus
+  unassigned; rider: theirs; admin: all), and a caller check in every v48
+  RPC. Without this, every member can read every other member's home
+  coordinates and anyone can cancel or complete any order. Also defines
+  `is_delivery()`, `my_member_id()` and `order_rider_is_me()`, and records
+  v47/v48 in the ledger. Signatures unchanged — no Dart caller breaks.
+
+  Cannot be verified in the SQL editor (superuser). In the app: a member must
+  not see another member's order; a non-owner calling `cancel_delivery_order`
+  must fail.
+
+**Delivery rider (v50)** — _not yet applied. Ship the app FIRST._
+
+- v50 — `profiles.role = 'delivery'`; `orders` gains `delivery_id`, the
+  pickup / ETA / delivered timestamps, receiver fields, confirmation fields,
+  `cancel_reason`, and `payment_method` / `payment_status` (nullable — nothing
+  sets them until v52). Status set widens to add Assigned / Picked Up /
+  Delivered. RPCs: `cashier_assign_rider`, `delivery_pickup`,
+  `delivery_update_eta`, `delivery_mark_delivered`,
+  `delivery_update_position`, `member_confirm_received`; redefines
+  `complete_delivery_order` (Agreed → counter handover, Delivered → cashier
+  override) and `cancel_delivery_order` (rider states, with a reason).
+
+  `UserRole.fromString` **throws** on an unknown role, so the build that knows
+  `delivery` must be installed before the first rider account is created —
+  the v28 rule. The rider is optional per order: an Agreed order can still be
+  completed at the counter exactly as v48 intended.
+
+  Known gap, deliberately left for v52: an order the **member** confirms
+  (`member_confirm_received`) is not recorded in `sales`. The cashier's
+  counter path writes `sales` client-side before completing; the member's
+  path has no client to do that. v52 moves sale recording into the
+  completion RPCs, where payment lives too.
+
+**A note on the numbering.** v51 was originally reserved, in the delivery
+plan above, for payment and for moving sale recording into the completion
+RPCs. It was taken instead by `cashier_announcements`, which shipped to
+production on 2026-09-22 with the 1.5.1 release, while v48–v50 were still
+unapplied. The delivery payment work is therefore **v52**, and production
+will apply 48, 49 and 50 *after* 51. The ledger will read out of order and
+that is correct — v51 deliberately depends on nothing in the delivery
+chain, and the delivery migrations depend on nothing in v51.
+
+**Order payment and sale recording (v52)** — _applied to staging. Ships with
+the build that stops recording sales client-side._
+
+- v52 — `pay_order_with_funds`, the cash-on-delivery code and scan,
+  `cashier_remit_cod`, and `order_record_sales`, which every completion path
+  now calls. Redefines `get_member_earnings` so order payments are actually
+  subtracted. Full reasoning in the file's header.
+
+**Road route (v53)** — _needs the `order-route` Edge Function and its key._
+
+- v53 — `orders.route_points` and friends: the road route from the branch to
+  the member, fetched from OpenRouteService once per order and stored, so
+  every screen reads one copy instead of paying for its own. Failures are
+  stored too (`unroutable` never retried, `failed` retried after 30 minutes),
+  or an order pinned where no road reaches would spend the daily allowance
+  one view at a time. Only the Edge Function writes these columns.
+
+  To turn it on in an environment:
+
+  1. Create a free key at openrouteservice.org (about 2,000 routes a day).
+  2. `supabase secrets set ORS_API_KEY=<key> --project-ref <ref>` — the key
+     lives only in the function, never in the app.
+  3. `supabase functions deploy order-route --project-ref <ref>`
+  4. Apply v53.
+
+  Any order in any order: without the function, the key or the columns, the
+  maps fall back to the straight line they drew before.
+
+  The payment hardening noted with v52 — recording a counter payment, and
+  refusing to mark an unpaid order delivered — is **v54**, not yet written.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

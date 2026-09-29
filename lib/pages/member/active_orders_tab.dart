@@ -12,7 +12,9 @@ import '../../db/db.dart';
 import '../../services/config_service.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
-import '../../utils/formatters.dart' show formatMoney, formatRelativeDate;
+import '../../utils/formatters.dart'
+    show formatMoney, formatRelativeDate, formatTimeOfDay;
+import 'order_payment_sheet.dart';
 
 class ActiveOrdersTab extends StatefulWidget {
   final Member member;
@@ -78,6 +80,22 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
     } catch (_) {
       if (!mounted) return;
       BotToast.showText(text: 'Could not agree. Please try again.');
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  /// "I have it." Delivered → Completed, recorded as member_tap (v50).
+  Future<void> _confirmReceived(DeliveryOrder order) async {
+    setState(() => _busy = order.id);
+    try {
+      await repository.memberConfirmReceived(order.id);
+      if (!mounted) return;
+      BotToast.showText(text: 'Thanks — order complete.');
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      BotToast.showText(text: 'Could not confirm. Please try again.');
     } finally {
       if (mounted) setState(() => _busy = null);
     }
@@ -343,10 +361,152 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
                 'Counter-offer sent — waiting for the cashier…',
                 style: StockpileFonts.satoshi(fontSize: 13, color: muted),
               ),
+            ] else if (order.isAgreed) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Agreed — the cashier is preparing your order.',
+                style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+              ),
+            ] else if (order.isAssigned) ...[
+              // (payment row is rendered below for every unpaid stage)
+              const SizedBox(height: 12),
+              _riderLine(
+                Icons.two_wheeler_rounded,
+                '${order.deliveryName ?? 'A rider'} will bring your order.',
+                muted,
+              ),
+            ] else if (order.isPickedUp) ...[
+              const SizedBox(height: 12),
+              _riderLine(
+                Icons.two_wheeler_rounded,
+                '${order.deliveryName ?? 'Your rider'} is on the way'
+                '${order.etaAt == null ? '' : ' · arriving about ${formatTimeOfDay(order.etaAt)}'}.',
+                muted,
+              ),
+            ] else if (order.isDelivered) ...[
+              const SizedBox(height: 12),
+              _riderLine(
+                Icons.inventory_2_rounded,
+                '${order.deliveryName ?? 'The rider'} marked this delivered. '
+                'Did you receive it?',
+                muted,
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: busy ? null : () => _confirmReceived(order),
+                  icon: busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_circle_rounded, size: 18),
+                  label: const Text('Yes, I received it'),
+                ),
+              ),
+            ],
+
+            // ── Payment ────────────────────────────────────────────────
+            // Shown from Agreed onwards, because that is the first moment
+            // there is a total to pay (plan §7). Deliberately outside the
+            // status chain above: an unpaid order needs this whether it is
+            // sitting with the cashier or already on a rider's bike.
+            if (order.isPaid || order.canStillPay) ...[
+              const SizedBox(height: 12),
+              _paymentRow(order, currency, text, muted, busy),
             ],
           ],
         ),
       ),
+    );
+  }
+
+  /// The payment line: what was chosen, and the way to change it while it
+  /// still can be changed.
+  Widget _paymentRow(
+    DeliveryOrder order,
+    String currency,
+    Color text,
+    Color muted,
+    bool busy,
+  ) {
+    if (order.isPaid) {
+      return Row(
+        children: [
+          const Icon(
+            Icons.verified_rounded,
+            size: 18,
+            color: Color(0xFF16A34A),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              switch (order.paymentMethod) {
+                'cod' => 'Paid in cash on delivery.',
+                'counter' => 'Paid at the counter.',
+                _ => 'Paid from your funds.',
+              },
+              style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // CoD chosen but not yet collected: the member needs their code back,
+    // not the chooser again.
+    final chosenCod = order.isCod;
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: busy ? null : () => _openPayment(order),
+        icon: Icon(
+          chosenCod ? Icons.qr_code_2_rounded : Icons.payments_rounded,
+          size: 18,
+        ),
+        label: Text(
+          chosenCod
+              ? 'Show my cash code'
+              : order.canPayWithFunds
+              ? 'Pay ${formatMoney(order.finalTotal, symbol: currency)}'
+              // Dispatched and still unchosen: cash is the only way left,
+              // so the button says so rather than promising a choice.
+              : 'Pay the rider in cash',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openPayment(DeliveryOrder order) async {
+    final changed = await showOrderPaymentSheet(
+      context,
+      order: order,
+      currencySymbol: context.read<ConfigService>().currencySymbol,
+    );
+    if (changed && mounted) _load();
+  }
+
+  /// One line about the rider, with an icon so it reads as a status rather
+  /// than more body text.
+  Widget _riderLine(IconData icon, String text, Color muted) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: StockpileColors.primary900),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              height: 1.45,
+              color: muted,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -393,7 +553,10 @@ class _StatusBadge extends StatelessWidget {
         StockpileColors.danger,
         StockpileColors.dangerBg,
       ),
-      DeliveryOrderStatus.memberNegotiating => (
+      DeliveryOrderStatus.memberNegotiating ||
+      DeliveryOrderStatus.assigned ||
+      DeliveryOrderStatus.pickedUp ||
+      DeliveryOrderStatus.delivered => (
         StockpileColors.secondary500,
         StockpileColors.secondary500.withAlpha(30),
       ),

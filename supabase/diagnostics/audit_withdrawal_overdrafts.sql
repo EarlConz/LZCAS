@@ -17,6 +17,12 @@
 -- who withdrew precisely what they earned. No screen in the app shows the
 -- difference. This file is the only way to see it.
 --
+-- "Earned" here is net of delivery orders paid from funds (v52): those are
+-- negative 'Order Payment (Balance)' / 'Order Payment (Earnings)' rows, so
+-- summing them in lowers what the member had to withdraw. Left out, a member
+-- who spent on an order and then withdrew everything would look covered.
+-- Keep these prefixes in step with get_member_earnings.
+--
 -- The amounts below are the AUTHORISED payout against the EARNED total.
 -- Whether the cash actually left the till is a question for whoever
 -- handles payouts — this reconciles the records, not the drawer.
@@ -42,12 +48,14 @@ with earned as (
     trim(m.first_name || ' ' || m.last_name) as member_name,
     m.role,
     coalesce(sum(t.price) filter (
-      where t.item_name ilike 'Direct Referral%'), 0)   as balance_earned,
+      where t.item_name ilike 'Direct Referral%'
+         or t.item_name ilike 'Order Payment (Balance)%'), 0)   as balance_earned,
     coalesce(sum(t.price) filter (
       where t.item_name ilike 'Indirect Referral%'
          or t.item_name ilike 'Group Sales%'
          or t.item_name ilike 'Upgrade Bonus%'
-         or t.item_name ilike 'Chairman Bonus%'), 0)    as earnings_earned
+         or t.item_name ilike 'Chairman Bonus%'
+         or t.item_name ilike 'Order Payment (Earnings)%'), 0)    as earnings_earned
   from public.members m
   left join public.member_transactions t on t.member_id = m.id
   where m.is_deleted = false
@@ -102,12 +110,14 @@ with earned as (
     m.id                                     as member_id,
     trim(m.first_name || ' ' || m.last_name) as member_name,
     coalesce(sum(t.price) filter (
-      where t.item_name ilike 'Direct Referral%'), 0)   as balance_earned,
+      where t.item_name ilike 'Direct Referral%'
+         or t.item_name ilike 'Order Payment (Balance)%'), 0)   as balance_earned,
     coalesce(sum(t.price) filter (
       where t.item_name ilike 'Indirect Referral%'
          or t.item_name ilike 'Group Sales%'
          or t.item_name ilike 'Upgrade Bonus%'
-         or t.item_name ilike 'Chairman Bonus%'), 0)    as earnings_earned
+         or t.item_name ilike 'Chairman Bonus%'
+         or t.item_name ilike 'Order Payment (Earnings)%'), 0)    as earnings_earned
   from public.members m
   left join public.member_transactions t on t.member_id = m.id
   where m.is_deleted = false

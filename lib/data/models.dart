@@ -1408,8 +1408,23 @@ abstract class DeliveryOrderStatus {
   static const cashierPricing = 'Cashier Pricing & Negotiating';
   static const memberNegotiating = 'Member Negotiating';
   static const agreed = 'Agreed';
+
+  // Rider states (v50). Delivered and Completed are deliberately distinct:
+  // the rider's claim and the member's confirmation are different facts.
+  static const assigned = 'Assigned';
+  static const pickedUp = 'Picked Up';
+  static const delivered = 'Delivered';
+
   static const completed = 'Completed';
   static const cancelled = 'Cancelled';
+}
+
+/// How an order was confirmed complete (`orders.confirmation_method`).
+abstract class OrderConfirmation {
+  OrderConfirmation._();
+  static const memberTap = 'member_tap';
+  static const qr = 'qr';
+  static const cashierOverride = 'cashier_override';
 }
 
 /// Coerce a JSON scalar into an int, tolerating PostgREST returning bigint
@@ -1427,6 +1442,36 @@ double? _doubleFromJson(Object? value) {
   if (value == null) return null;
   if (value is num) return value.toDouble();
   return double.tryParse(value.toString());
+}
+
+/// One delivery-fee offer in an order's negotiation (`order_fee_offers`,
+/// v54). Written by a database trigger whenever the fee changes; the app
+/// only reads them.
+///
+/// Orders that already had a fee when v54 was applied start with a single
+/// row — their current offer. Earlier offers were never stored anywhere and
+/// are not reconstructed.
+class DeliveryFeeOffer {
+  final double fee;
+
+  /// 'cashier' or 'member'.
+  final String offeredBy;
+  final DateTime? offeredAt;
+
+  const DeliveryFeeOffer({
+    required this.fee,
+    required this.offeredBy,
+    this.offeredAt,
+  });
+
+  bool get byMember => offeredBy == 'member';
+
+  factory DeliveryFeeOffer.fromJson(Map<String, dynamic> json) =>
+      DeliveryFeeOffer(
+        fee: _doubleFromJson(json['fee']) ?? 0,
+        offeredBy: (json['offered_by'] ?? 'cashier').toString(),
+        offeredAt: DateTime.tryParse((json['offered_at'] ?? '').toString()),
+      );
 }
 
 /// One requested line on a delivery order (`order_items`).
@@ -1500,9 +1545,72 @@ class DeliveryOrder {
   final DateTime? updatedAt;
   final List<DeliveryOrderItem> items;
 
+  // ── Rider stage (v50) ─────────────────────────────────────────────
+  /// `profiles.id` of the rider, once the cashier has dispatched one.
+  final String? deliveryId;
+  final DateTime? assignedAt;
+  final DateTime? pickedUpAt;
+
+  /// The rider's own estimate, entered at pickup and updatable while on
+  /// the way. Not computed — there is no routing engine (plan §3).
+  final DateTime? etaAt;
+  final DateTime? deliveredAt;
+
+  /// Who receives it, which may not be the member. Defaults to the member
+  /// at checkout; stored on the order because it can differ per order.
+  final String? receiverName;
+  final String? receiverContact;
+
+  final String? confirmedBy;
+  final DateTime? confirmedAt;
+
+  /// One of [OrderConfirmation]; null until Completed.
+  final String? confirmationMethod;
+  final String? cancelReason;
+
+  /// 'funds' or 'cod'; null reads as "not chosen yet". Set by
+  /// `pay_order_with_funds` or by the member asking for their CoD code
+  /// (v52).
+  final String? paymentMethod;
+  final String paymentStatus;
+
+  /// When the money actually moved: the funds deduction, or the rider's
+  /// scan for cash on delivery.
+  final DateTime? paidAt;
+
+  /// Set once `order_record_sales` has written this order's `sales` rows
+  /// and decremented stock. The app never writes it and never writes
+  /// those rows — it is here so a screen can say whether an order has hit
+  /// the books yet.
+  final DateTime? salesRecordedAt;
+
+  /// Cash handed back to a cashier. Only ever set for CoD orders, and it
+  /// settles nothing — it is what makes collected-vs-remitted countable.
+  final DateTime? codRemittedAt;
+  final String? codRemittedTo;
+
+  // ── Road route (v53) ──────────────────────────────────────────────
+  /// Branch to member along the roads, `[lat, lng]` pairs in travel order.
+  /// Written once by the `order-route` Edge Function and never by the app;
+  /// null until then, or when the route could not be found.
+  ///
+  /// Plain pairs rather than map types, to keep this file free of the map
+  /// package: the map code converts them where it draws them.
+  final List<List<double>>? routePoints;
+  final int? routeDistanceM;
+  final int? routeDurationS;
+
+  /// 'ok', 'unroutable', 'failed', or null (never attempted). See v53.
+  final String? routeStatus;
+
+  /// Where the route starts: the branch's saved location when it was made.
+  final double? routeOriginLat;
+  final double? routeOriginLng;
+
   /// Resolved client-side (not stored on `orders`).
   final String? memberName;
   final String? cashierName;
+  final String? deliveryName;
 
   const DeliveryOrder({
     required this.id,
@@ -1518,8 +1626,32 @@ class DeliveryOrder {
     this.createdAt,
     this.updatedAt,
     this.items = const [],
+    this.deliveryId,
+    this.assignedAt,
+    this.pickedUpAt,
+    this.etaAt,
+    this.deliveredAt,
+    this.receiverName,
+    this.receiverContact,
+    this.confirmedBy,
+    this.confirmedAt,
+    this.confirmationMethod,
+    this.cancelReason,
+    this.paymentMethod,
+    this.paymentStatus = 'unpaid',
+    this.paidAt,
+    this.salesRecordedAt,
+    this.codRemittedAt,
+    this.codRemittedTo,
+    this.routePoints,
+    this.routeDistanceM,
+    this.routeDurationS,
+    this.routeStatus,
+    this.routeOriginLat,
+    this.routeOriginLng,
     this.memberName,
     this.cashierName,
+    this.deliveryName,
   });
 
   factory DeliveryOrder.fromJson(Map<String, dynamic> json) => DeliveryOrder(
@@ -1542,7 +1674,58 @@ class DeliveryOrder {
     items: (json['order_items'] as List? ?? const [])
         .map((j) => DeliveryOrderItem.fromJson(j as Map<String, dynamic>))
         .toList(),
+    deliveryId: json['delivery_id'] as String?,
+    assignedAt: _ts(json['assigned_at']),
+    pickedUpAt: _ts(json['picked_up_at']),
+    etaAt: _ts(json['eta_at']),
+    deliveredAt: _ts(json['delivered_at']),
+    receiverName: json['receiver_name'] as String?,
+    receiverContact: json['receiver_contact'] as String?,
+    confirmedBy: json['confirmed_by'] as String?,
+    confirmedAt: _ts(json['confirmed_at']),
+    confirmationMethod: json['confirmation_method'] as String?,
+    cancelReason: json['cancel_reason'] as String?,
+    paymentMethod: json['payment_method'] as String?,
+    paymentStatus: json['payment_status'] as String? ?? 'unpaid',
+    paidAt: _ts(json['paid_at']),
+    salesRecordedAt: _ts(json['sales_recorded_at']),
+    codRemittedAt: _ts(json['cod_remitted_at']),
+    codRemittedTo: json['cod_remitted_to'] as String?,
+    routePoints: _routePoints(json['route_points']),
+    routeDistanceM: _intFromJson(json['route_distance_m']),
+    routeDurationS: _intFromJson(json['route_duration_s']),
+    routeStatus: json['route_status'] as String?,
+    routeOriginLat: _doubleFromJson(json['route_origin_lat']),
+    routeOriginLng: _doubleFromJson(json['route_origin_lng']),
   );
+
+  /// Tolerant of anything malformed: a route that cannot be read is drawn
+  /// as no route (the straight-line fallback), never as a crash.
+  static List<List<double>>? _routePoints(Object? raw) {
+    if (raw is! List) return null;
+    final out = <List<double>>[];
+    for (final p in raw) {
+      if (p is List && p.length >= 2 && p[0] is num && p[1] is num) {
+        out.add([(p[0] as num).toDouble(), (p[1] as num).toDouble()]);
+      }
+    }
+    return out.length >= 2 ? out : null;
+  }
+
+  /// Whether there is a road path to draw.
+  bool get hasRoute => routeStatus == 'ok' && routePoints != null;
+
+  /// Whether asking the Edge Function could still produce a route. Once
+  /// it is 'ok' or 'unroutable' nothing will change without a `force`, so
+  /// screens do not keep asking. 'failed' is retried by the function
+  /// itself after its cool-down.
+  bool get routeWorthRequesting =>
+      deliveryLatitude != null &&
+      deliveryLongitude != null &&
+      (routeStatus == null || routeStatus == 'failed');
+
+  static DateTime? _ts(Object? v) =>
+      v == null ? null : DateTime.tryParse(v.toString());
 
   /// Whether this order is still in an active negotiation state.
   bool get isOpen =>
@@ -1553,6 +1736,71 @@ class DeliveryOrder {
   /// True once both sides agreed and the final total is locked.
   bool get isAgreed => status == DeliveryOrderStatus.agreed;
 
+  /// A rider has it, in some stage: Assigned, Picked Up or Delivered.
+  bool get isWithRider =>
+      status == DeliveryOrderStatus.assigned ||
+      status == DeliveryOrderStatus.pickedUp ||
+      status == DeliveryOrderStatus.delivered;
+
+  bool get isAssigned => status == DeliveryOrderStatus.assigned;
+  bool get isPickedUp => status == DeliveryOrderStatus.pickedUp;
+  bool get isDelivered => status == DeliveryOrderStatus.delivered;
+  bool get isCompleted => status == DeliveryOrderStatus.completed;
+  bool get isCancelled => status == DeliveryOrderStatus.cancelled;
+
+  bool get isCod => paymentMethod == 'cod';
+  bool get isFunds => paymentMethod == 'funds';
+  bool get isPaid => paymentStatus == 'paid';
+
+  /// Funds can only be spent while the order is still Agreed —
+  /// `pay_order_with_funds` refuses every later status. Once a rider has
+  /// it, the member pays the rider in cash.
+  bool get canPayWithFunds => isAgreed && !isPaid;
+
+  /// Whether the member can still pay at all from the app: funds while
+  /// Agreed, or a cash code up to the moment of handover
+  /// (`member_order_cod_code` accepts Agreed, Assigned and Picked Up).
+  bool get canStillPay => !isPaid && (isAgreed || isAssigned || isPickedUp);
+
+  /// Cash a rider collected that no cashier has yet confirmed receiving.
+  /// This is the queue behind the cashier's "Cash to Remit" filter.
+  bool get awaitingRemittance => isCod && isPaid && codRemittedAt == null;
+
+  /// How this order was, or will be, paid — in words a receipt can print
+  /// and a cashier can read at a glance. One definition, so the order card
+  /// and the receipt cannot disagree.
+  String get paymentLabel {
+    if (isPaid) {
+      return switch (paymentMethod) {
+        'cod' => 'Cash on delivery',
+        'counter' => 'Paid at the counter',
+        _ => 'Member funds',
+      };
+    }
+    // Completed and unpaid happens two ways. Before v54 a counter sale
+    // recorded no payment, so an old one reads as the counter. After v54
+    // it is a Delivered order a cashier closed without confirmation, which
+    // nobody collected for — and saying so is the point.
+    if (isCompleted) {
+      return confirmationMethod == OrderConfirmation.cashierOverride
+          ? 'Not collected'
+          : 'Paid at the counter';
+    }
+    if (isCod) return 'Cash on delivery (to collect)';
+    return 'Not chosen yet';
+  }
+
+  /// Who the rider hands it to. Falls back to the member — the receiver
+  /// fields are optional at checkout.
+  String get receiverDisplayName => (receiverName ?? '').trim().isNotEmpty
+      ? receiverName!.trim()
+      : (memberName ?? 'Member #$memberId');
+
+  /// Short, human-sized order reference: the first block of the UUID,
+  /// upper-cased. Enough to read out over the phone; not unique in
+  /// theory, unique enough in a few hundred orders.
+  String get shortId => id.split('-').first.toUpperCase();
+
   DeliveryOrder copyWith({
     String? status,
     String? cashierId,
@@ -1562,6 +1810,8 @@ class DeliveryOrder {
     List<DeliveryOrderItem>? items,
     String? memberName,
     String? cashierName,
+    String? deliveryName,
+    DateTime? etaAt,
   }) => DeliveryOrder(
     id: id,
     memberId: memberId,
@@ -1576,8 +1826,32 @@ class DeliveryOrder {
     createdAt: createdAt,
     updatedAt: updatedAt,
     items: items ?? this.items,
+    deliveryId: deliveryId,
+    assignedAt: assignedAt,
+    pickedUpAt: pickedUpAt,
+    etaAt: etaAt ?? this.etaAt,
+    deliveredAt: deliveredAt,
+    receiverName: receiverName,
+    receiverContact: receiverContact,
+    confirmedBy: confirmedBy,
+    confirmedAt: confirmedAt,
+    confirmationMethod: confirmationMethod,
+    cancelReason: cancelReason,
+    paymentMethod: paymentMethod,
+    paymentStatus: paymentStatus,
+    paidAt: paidAt,
+    salesRecordedAt: salesRecordedAt,
+    codRemittedAt: codRemittedAt,
+    codRemittedTo: codRemittedTo,
+    routePoints: routePoints,
+    routeDistanceM: routeDistanceM,
+    routeDurationS: routeDurationS,
+    routeStatus: routeStatus,
+    routeOriginLat: routeOriginLat,
+    routeOriginLng: routeOriginLng,
     memberName: memberName ?? this.memberName,
     cashierName: cashierName ?? this.cashierName,
+    deliveryName: deliveryName ?? this.deliveryName,
   );
 }
 

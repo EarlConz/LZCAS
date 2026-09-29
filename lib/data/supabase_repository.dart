@@ -3609,8 +3609,12 @@ class SupabaseRepository {
       ..sort((a, b) => a.name.compareTo(b.name));
   }
 
-  /// Delivery orders for the Cashier/Admin module (all orders), or scoped to
-  /// one member for the member-facing Active Orders screen.
+  /// Delivery orders. Unscoped for the Cashier/Admin module; scoped to one
+  /// member for Active Orders; scoped to one rider for My Deliveries.
+  ///
+  /// As of v49 RLS does the real filtering — a member only ever receives
+  /// their own rows, a rider only the orders assigned to them — so these
+  /// parameters narrow a set that is already safe, not the other way round.
   ///
   /// [memberId] is the numeric `members.id` bigint — NOT the Supabase auth
   /// UUID. [statuses] optionally narrows the result server-side (e.g. the
@@ -3624,10 +3628,12 @@ class SupabaseRepository {
   /// depends on any FK.
   Future<List<DeliveryOrder>> fetchDeliveryOrders({
     int? memberId,
+    String? deliveryId,
     List<String>? statuses,
   }) async {
     var query = _supabase.from('orders').select();
     if (memberId != null) query = query.eq('member_id', memberId);
+    if (deliveryId != null) query = query.eq('delivery_id', deliveryId);
     if (statuses != null && statuses.isNotEmpty) {
       query = query.inFilter('status', statuses);
     }
@@ -3637,8 +3643,8 @@ class SupabaseRepository {
     // empty result set or a deserialization problem.
     final rows = (orderRows as List);
     debugPrint(
-      'fetchDeliveryOrders(memberId=$memberId, statuses=$statuses) '
-      '→ ${rows.length} order row(s)',
+      'fetchDeliveryOrders(memberId=$memberId, deliveryId=$deliveryId, '
+      'statuses=$statuses) → ${rows.length} order row(s)',
     );
     if (rows.isNotEmpty) {
       debugPrint('fetchDeliveryOrders first row: ${rows.first}');
@@ -3662,9 +3668,254 @@ class SupabaseRepository {
     return _hydrateDeliveryOrders(rows, itemRows: itemRows);
   }
 
-  /// Resolves display names (product / member / cashier) client-side and
-  /// attaches [itemRows] to their orders — no reliance on PostgREST nested
-  /// selects or foreign keys.
+  // ── Delivery dispatch (v50) ────────────────────────────────────────
+  // `fetchRiders()` lives with the other profile queries, above.
+
+  /// Cashier dispatches an agreed order to a rider (`Agreed → Assigned`).
+  /// Re-dispatch from Assigned is allowed; from Picked Up it is not.
+  Future<void> assignRider({
+    required String orderId,
+    required String riderId,
+  }) async {
+    await _supabase.rpc(
+      'cashier_assign_rider',
+      params: {'p_order_id': orderId, 'p_rider_id': riderId},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Rider has the goods. The ETA is the rider's own estimate — there is
+  /// no routing engine — and must be in the future.
+  Future<void> deliveryPickup({
+    required String orderId,
+    required DateTime etaAt,
+  }) async {
+    await _supabase.rpc(
+      'delivery_pickup',
+      params: {
+        'p_order_id': orderId,
+        'p_eta_at': etaAt.toUtc().toIso8601String(),
+      },
+    );
+    _changes.add('order_updated');
+  }
+
+  Future<void> deliveryUpdateEta({
+    required String orderId,
+    required DateTime etaAt,
+  }) async {
+    await _supabase.rpc(
+      'delivery_update_eta',
+      params: {
+        'p_order_id': orderId,
+        'p_eta_at': etaAt.toUtc().toIso8601String(),
+      },
+    );
+    _changes.add('order_updated');
+  }
+
+  /// The rider's claim that it is handed over. The member's confirmation
+  /// (`memberConfirmReceived`) is a separate step, on purpose.
+  Future<void> deliveryMarkDelivered(String orderId) async {
+    await _supabase.rpc(
+      'delivery_mark_delivered',
+      params: {'p_order_id': orderId},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// The rider's current position, written to their own profile row.
+  /// Called on a timer only while an order is Picked Up — never
+  /// off-shift. Swallows failures: a missed ping is not worth a toast
+  /// on a phone that is being used to navigate.
+  Future<void> deliveryUpdatePosition({
+    required double latitude,
+    required double longitude,
+  }) async {
+    try {
+      await _supabase.rpc(
+        'delivery_update_position',
+        params: {'p_latitude': latitude, 'p_longitude': longitude},
+      );
+    } catch (e) {
+      debugPrint('[deliveryUpdatePosition] failed: $e');
+    }
+  }
+
+  /// Member confirms receipt (`Delivered → Completed`, method member_tap).
+  Future<void> memberConfirmReceived(String orderId) async {
+    await _supabase.rpc(
+      'member_confirm_received',
+      params: {'p_order_id': orderId},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Cancel with a reason. Required when a rider cancels; recorded for
+  /// everyone else so the cashier knows why an order came back.
+  Future<void> cancelDeliveryOrderWithReason({
+    required String orderId,
+    required String reason,
+  }) async {
+    await _supabase.rpc(
+      'cancel_delivery_order',
+      params: {'p_order_id': orderId, 'p_reason': reason},
+    );
+    _changes.add('order_updated');
+  }
+
+  // ── Fee negotiation history (v54) ──────────────────────────────────
+
+  /// Every delivery-fee offer on [orderId], oldest first — what lets a
+  /// screen say "you proposed ₱80, they countered ₱50" after the order row
+  /// itself has moved on to the latest figure.
+  ///
+  /// Empty on failure or on a database without v54: the counter-offer
+  /// screen then shows only the current fee, as it could before.
+  Future<List<DeliveryFeeOffer>> fetchFeeOffers(String orderId) async {
+    try {
+      final rows = await _supabase
+          .from('order_fee_offers')
+          .select('fee, offered_by, offered_at')
+          .eq('order_id', orderId)
+          .order('offered_at', ascending: true);
+      return (rows as List)
+          .map((r) => DeliveryFeeOffer.fromJson(r as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('[fetchFeeOffers] failed: $e');
+      return const [];
+    }
+  }
+
+  // ── Road route (v53) ───────────────────────────────────────────────
+
+  /// Makes sure [orderId] has its road route stored, asking the
+  /// `order-route` Edge Function to fetch it if it has none. Returns true
+  /// when a route is now stored.
+  ///
+  /// Cheap to call and safe to repeat: the function answers from the
+  /// stored copy whenever it has one, so only the first caller for an
+  /// order costs a routing request. Callers still check
+  /// [DeliveryOrder.routeWorthRequesting] first, so a screen that is
+  /// refreshed every minute does not make even the free call every minute.
+  ///
+  /// Never throws: a route is decoration on top of a working order, and
+  /// the maps fall back to a straight line without one.
+  Future<bool> ensureOrderRoute(String orderId, {bool force = false}) async {
+    try {
+      final res = await _supabase.functions.invoke(
+        'order-route',
+        body: {'order_id': orderId, if (force) 'force': true},
+      );
+      final data = res.data;
+      final ok = data is Map && data['status'] == 'ok';
+      // The function wrote the order; tell the screens showing it.
+      if (ok) _changes.add('order_updated');
+      return ok;
+    } catch (e) {
+      debugPrint('[ensureOrderRoute] failed: $e');
+      return false;
+    }
+  }
+
+  // ── Payment (v52) ──────────────────────────────────────────────────
+  //
+  // Sale recording lives in the completion RPCs now, not in any caller.
+  // Nothing on this side writes `sales` for a delivery order — see
+  // `order_record_sales` and the note in delivery_orders_page.
+
+  /// Member pays an Agreed order out of their own funds.
+  ///
+  /// [sourceBucket] is 'balance' or 'total_earnings', the same choice
+  /// withdrawals already offer, so the member's mental model is unchanged.
+  /// The database refuses if the bucket does not cover the total; the
+  /// message it returns names both figures and is worth showing verbatim.
+  Future<String?> payOrderWithFunds({
+    required String orderId,
+    required String sourceBucket,
+  }) async {
+    try {
+      await _supabase.rpc(
+        'pay_order_with_funds',
+        params: {'p_order_id': orderId, 'p_source_bucket': sourceBucket},
+      );
+      _changes.add('order_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[payOrderWithFunds] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'The payment did not go through.' : msg;
+    } catch (e) {
+      debugPrint('[payOrderWithFunds] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// The member's single-use cash-on-delivery code for one order, created
+  /// on first ask. Rendered as a QR for the rider to scan; choosing to see
+  /// it is what marks the order as CoD.
+  ///
+  /// Deliberately NOT `members.qr` — that one is a persistent identifier
+  /// printed on things, so anyone who had seen it could confirm someone
+  /// else's delivery.
+  Future<String?> memberOrderCodCode(String orderId) async {
+    try {
+      final code = await _supabase.rpc(
+        'member_order_cod_code',
+        params: {'p_order_id': orderId},
+      );
+      _changes.add('order_updated');
+      return code as String?;
+    } catch (e) {
+      debugPrint('[memberOrderCodCode] failed: $e');
+      return null;
+    }
+  }
+
+  /// Rider scans the member's code: one gesture that is both the receipt
+  /// confirmation and the payment record. Returns null on success.
+  Future<String?> confirmCodDelivery({
+    required String orderId,
+    required String nonce,
+  }) async {
+    try {
+      await _supabase.rpc(
+        'confirm_cod_delivery',
+        params: {'p_order_id': orderId, 'p_nonce': nonce},
+      );
+      _changes.add('order_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[confirmCodDelivery] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'That code was not accepted.' : msg;
+    } catch (e) {
+      debugPrint('[confirmCodDelivery] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// Cashier records cash handed back by the rider. Settles no balances —
+  /// it is what makes "collected vs remitted" countable.
+  Future<String?> remitCod(String orderId) async {
+    try {
+      await _supabase.rpc('cashier_remit_cod', params: {'p_order_id': orderId});
+      _changes.add('order_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[remitCod] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'The remittance was not recorded.' : msg;
+    } catch (e) {
+      debugPrint('[remitCod] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// Resolves display names (product / member / cashier / rider) client-side
+  /// and attaches [itemRows] to their orders — no reliance on PostgREST
+  /// nested selects or foreign keys.
   Future<List<DeliveryOrder>> _hydrateDeliveryOrders(
     List<dynamic> rows, {
     List<Map<String, dynamic>> itemRows = const [],
@@ -3715,6 +3966,10 @@ class SupabaseRepository {
         cashierName: order.cashierId == null
             ? null
             : cashierNames[order.cashierId],
+        // Same map: riders are profiles too.
+        deliveryName: order.deliveryId == null
+            ? null
+            : cashierNames[order.deliveryId],
       );
     }).toList();
   }

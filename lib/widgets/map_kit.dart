@@ -15,9 +15,14 @@
 //   • MapStatusChip        one fact about the whole map, bottom-right
 //   • MapFrame             the rounded, bordered card that clips a map
 //   • osmTileLayer / fitPoints / MapEdge   the bits every FlutterMap needs
+//   • roadRoute / lastStretch / remainingAlongRoute   a stored road route
+//                          (v53): solid along the roads, dashed where no
+//                          road reaches, distance left measured on it
 //
 // Screens compose these; nothing here knows about orders, stock or roles
 // beyond the colour each role is drawn in.
+
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -618,6 +623,102 @@ Polyline straightLine(LatLng a, LatLng b) => Polyline(
   strokeWidth: 2.5,
   pattern: StrokePattern.dashed(segments: const [6, 6]),
 );
+
+// ─── Road routes (v53) ──────────────────────────────────────────────────────
+//
+// A route is stored on the order as plain [lat, lng] pairs (models.dart
+// stays free of map types); these turn it into something to draw and
+// measure. SOLID means "along the roads"; DASHED keeps its meaning above,
+// "no road known here" — so the two can share a map without either being
+// mistaken for the other.
+
+/// The stored pairs as map points. Empty for a missing or malformed route,
+/// which callers treat as "draw the straight line instead".
+List<LatLng> routePoints(List<List<double>>? pairs) => [
+  for (final p in pairs ?? const <List<double>>[])
+    if (p.length >= 2) LatLng(p[0], p[1]),
+];
+
+/// The road path, solid, with a white casing so it stays legible over
+/// busy tiles and where it crosses another road.
+Polyline roadRoute(List<LatLng> points) => Polyline(
+  points: points,
+  color: StockpileColors.primary900,
+  strokeWidth: 4,
+  borderColor: Colors.white,
+  borderStrokeWidth: 1.5,
+);
+
+/// The part the roads do not reach: from where the route ends to the pin
+/// itself, dashed. The routing service snaps each end to the nearest mapped
+/// road, and in rural areas the house can sit well off it — a purok path
+/// OpenStreetMap does not have. Null when the gap is too small to see.
+Polyline? lastStretch(LatLng routeEnd, LatLng pin, {double minMeters = 30}) {
+  if (const Distance().as(LengthUnit.Meter, routeEnd, pin) < minMeters) {
+    return null;
+  }
+  return Polyline(
+    points: [routeEnd, pin],
+    color: StockpileColors.primary900,
+    strokeWidth: 2.5,
+    pattern: StrokePattern.dashed(segments: const [4, 5]),
+  );
+}
+
+/// How far is left along [route] from [position], in metres — measured on
+/// the phone from the stored route, so it costs no routing request however
+/// often it is recalculated.
+///
+/// Null when [position] is more than [maxOffRoute] from the route: a rider
+/// who took another road is not "1.2 km to go" along a road they are not
+/// on, and the caller should say straight-line instead of implying a path.
+double? remainingAlongRoute(
+  List<LatLng> route,
+  LatLng position, {
+  double maxOffRoute = 300,
+}) {
+  if (route.length < 2) return null;
+
+  // Nearest point on the polyline, found segment by segment in a local
+  // flat projection — accurate to well under a metre at city scale, and
+  // far cheaper than great-circle geometry per segment.
+  var bestDist = double.infinity;
+  var bestSeg = 0;
+  var bestT = 0.0;
+  for (var i = 0; i < route.length - 1; i++) {
+    final a = route[i], b = route[i + 1];
+    final kx = 111320 * _cosDeg(a.latitude);
+    const ky = 110540.0;
+    final bx = (b.longitude - a.longitude) * kx;
+    final by = (b.latitude - a.latitude) * ky;
+    final px = (position.longitude - a.longitude) * kx;
+    final py = (position.latitude - a.latitude) * ky;
+    final len2 = bx * bx + by * by;
+    final t = len2 == 0 ? 0.0 : ((px * bx + py * by) / len2).clamp(0.0, 1.0);
+    final dx = px - bx * t, dy = py - by * t;
+    final d = dx * dx + dy * dy;
+    if (d < bestDist) {
+      bestDist = d;
+      bestSeg = i;
+      bestT = t;
+    }
+  }
+  if (bestDist > maxOffRoute * maxOffRoute) return null;
+
+  const distance = Distance();
+  final segLen = distance.as(
+    LengthUnit.Meter,
+    route[bestSeg],
+    route[bestSeg + 1],
+  );
+  var remaining = segLen * (1 - bestT);
+  for (var i = bestSeg + 1; i < route.length - 1; i++) {
+    remaining += distance.as(LengthUnit.Meter, route[i], route[i + 1]);
+  }
+  return remaining;
+}
+
+double _cosDeg(double deg) => math.cos(deg * math.pi / 180);
 
 // ─── Full-screen map ────────────────────────────────────────────────────────
 
