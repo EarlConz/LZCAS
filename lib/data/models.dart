@@ -1444,6 +1444,36 @@ double? _doubleFromJson(Object? value) {
   return double.tryParse(value.toString());
 }
 
+/// One delivery-fee offer in an order's negotiation (`order_fee_offers`,
+/// v54). Written by a database trigger whenever the fee changes; the app
+/// only reads them.
+///
+/// Orders that already had a fee when v54 was applied start with a single
+/// row — their current offer. Earlier offers were never stored anywhere and
+/// are not reconstructed.
+class DeliveryFeeOffer {
+  final double fee;
+
+  /// 'cashier' or 'member'.
+  final String offeredBy;
+  final DateTime? offeredAt;
+
+  const DeliveryFeeOffer({
+    required this.fee,
+    required this.offeredBy,
+    this.offeredAt,
+  });
+
+  bool get byMember => offeredBy == 'member';
+
+  factory DeliveryFeeOffer.fromJson(Map<String, dynamic> json) =>
+      DeliveryFeeOffer(
+        fee: _doubleFromJson(json['fee']) ?? 0,
+        offeredBy: (json['offered_by'] ?? 'cashier').toString(),
+        offeredAt: DateTime.tryParse((json['offered_at'] ?? '').toString()),
+      );
+}
+
 /// One requested line on a delivery order (`order_items`).
 ///
 /// [unitPrice] and [subtotal] are null until the Cashier prices them — they
@@ -1740,12 +1770,22 @@ class DeliveryOrder {
   /// and a cashier can read at a glance. One definition, so the order card
   /// and the receipt cannot disagree.
   String get paymentLabel {
-    if (isPaid) return isCod ? 'Cash on delivery' : 'Member funds';
-    // Completed without any recorded payment can only mean the counter:
-    // the cashier took the money in person. v52 does not record that
-    // payment in the database, so this is inferred from the path taken,
-    // not read from a column.
-    if (isCompleted) return 'Paid at the counter';
+    if (isPaid) {
+      return switch (paymentMethod) {
+        'cod' => 'Cash on delivery',
+        'counter' => 'Paid at the counter',
+        _ => 'Member funds',
+      };
+    }
+    // Completed and unpaid happens two ways. Before v54 a counter sale
+    // recorded no payment, so an old one reads as the counter. After v54
+    // it is a Delivered order a cashier closed without confirmation, which
+    // nobody collected for — and saying so is the point.
+    if (isCompleted) {
+      return confirmationMethod == OrderConfirmation.cashierOverride
+          ? 'Not collected'
+          : 'Paid at the counter';
+    }
     if (isCod) return 'Cash on delivery (to collect)';
     return 'Not chosen yet';
   }

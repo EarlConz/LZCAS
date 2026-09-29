@@ -443,9 +443,11 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              order.isCod
-                  ? 'Paid in cash on delivery.'
-                  : 'Paid from your funds.',
+              switch (order.paymentMethod) {
+                'cod' => 'Paid in cash on delivery.',
+                'counter' => 'Paid at the counter.',
+                _ => 'Paid from your funds.',
+              },
               style: StockpileFonts.satoshi(fontSize: 13, color: muted),
             ),
           ),

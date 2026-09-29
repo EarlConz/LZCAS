@@ -3764,6 +3764,30 @@ class SupabaseRepository {
     _changes.add('order_updated');
   }
 
+  // ── Fee negotiation history (v54) ──────────────────────────────────
+
+  /// Every delivery-fee offer on [orderId], oldest first — what lets a
+  /// screen say "you proposed ₱80, they countered ₱50" after the order row
+  /// itself has moved on to the latest figure.
+  ///
+  /// Empty on failure or on a database without v54: the counter-offer
+  /// screen then shows only the current fee, as it could before.
+  Future<List<DeliveryFeeOffer>> fetchFeeOffers(String orderId) async {
+    try {
+      final rows = await _supabase
+          .from('order_fee_offers')
+          .select('fee, offered_by, offered_at')
+          .eq('order_id', orderId)
+          .order('offered_at', ascending: true);
+      return (rows as List)
+          .map((r) => DeliveryFeeOffer.fromJson(r as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('[fetchFeeOffers] failed: $e');
+      return const [];
+    }
+  }
+
   // ── Road route (v53) ───────────────────────────────────────────────
 
   /// Makes sure [orderId] has its road route stored, asking the
