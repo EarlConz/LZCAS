@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v53)
+├── migrations/    Ordered, apply-once changes (v2 … v55)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -403,8 +403,21 @@ the build that stops recording sales client-side._
   Any order in any order: without the function, the key or the columns, the
   maps fall back to the straight line they drew before.
 
-  The payment hardening noted with v52 — recording a counter payment, and
-  refusing to mark an unpaid order delivered — is **v54**, not yet written.
+**Payment hardening (v54)** — _applied to staging._
+
+- v54 — `payment_method` accepts `'counter'` and a counter sale records it;
+  `delivery_mark_delivered` refuses an unpaid order; `order_fee_offers`
+  keeps every delivery-fee offer (written by a trigger).
+
+**Main cashiers only (v55)** — _requires v54._
+
+- v55 — `can_handle_orders()` (admin or cashier) replaces `is_staff()` in
+  every delivery rule: the staff arm of `orders_select`, quoting, answering
+  a counter-offer, dispatch, cancelling, completing and cash remittance.
+  Inventory and branch cashier accounts pass `is_staff()`, so until now they
+  could work delivery orders by calling the RPCs directly, though the app
+  never showed them the page. `get_member_earnings` keeps `is_staff()` — it
+  is not a delivery rule.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
