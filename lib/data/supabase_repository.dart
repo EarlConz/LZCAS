@@ -2970,6 +2970,22 @@ class SupabaseRepository {
 
   // ── Withdrawal Requests ──────────────────────────────────────────────────
 
+  // ── Push notifications (v58) ─────────────────────────────────────────────
+
+  /// Register this phone's FCM token for the signed-in account. Moves it
+  /// from whoever had it before.
+  Future<void> registerPushToken(String token) async {
+    await _supabase.rpc(
+      'register_push_token',
+      params: {'p_token': token, 'p_platform': 'android'},
+    );
+  }
+
+  /// Stop sending this account's alerts to this phone.
+  Future<void> unregisterPushToken(String token) async {
+    await _supabase.rpc('unregister_push_token', params: {'p_token': token});
+  }
+
   /// Submit a withdrawal request for admin approval.
   ///
   /// Throws [PostgrestException] when the database refuses it (v56: the

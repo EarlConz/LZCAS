@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1074297596135",
+    "project_id": "gutvita-8df41",
+    "storage_bucket": "gutvita-8df41.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1074297596135:android:f6ad62e5123d7120811a42",
+        "android_client_info": {
+          "package_name": "com.lzcas.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQCFKUL6akszYgoPX9FeRYxMAj4exPxlA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1074297596135:android:72c5b958acafbff7811a42",
+        "android_client_info": {
+          "package_name": "com.lzcas.app.staging"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQCFKUL6akszYgoPX9FeRYxMAj4exPxlA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -6,6 +6,9 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    // Push notifications. google-services.json lists both package names
+    // (com.lzcas.app and com.lzcas.app.staging), so it serves both flavors.
+    id("com.google.gms.google-services")
 }
 
 // Release signing credentials — android/key.properties (NOT committed).
@@ -89,4 +92,14 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// Firebase Cloud Messaging, used directly from MainActivity.kt rather than
+// through the FlutterFire plugins: those also build for Windows, where they
+// download the Firebase C++ SDK on every clean build, and Windows cannot
+// receive these pushes anyway. Android shows a push itself when the app is
+// closed, so the Dart side only needs the token.
+dependencies {
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 }
