@@ -1028,6 +1028,10 @@ enum EarningsBucket {
   groupSales('Group Sales', wire: 'group_sales'),
   chairmanBonus("Chairman's Bonus", wire: 'chairman_bonus'),
   upgradeBonus('Upgrade Bonus', wire: 'upgrade_bonus'),
+
+  /// Delivery orders paid from funds (v52), and refunds of them (v57).
+  /// Rows from both wallets; each row's label says which. Not adjustable.
+  deliveryPurchase('Delivery purchases'),
   other('Other');
 
   const EarningsBucket(this.label, {this.isBalance = false, this.wire});
@@ -1058,6 +1062,7 @@ enum EarningsBucket {
     if (n.startsWith('direct referral')) return EarningsBucket.directReferral;
     if (n.startsWith('chairman bonus')) return EarningsBucket.chairmanBonus;
     if (n.startsWith('upgrade bonus')) return EarningsBucket.upgradeBonus;
+    if (n.startsWith('order payment')) return EarningsBucket.deliveryPurchase;
     return EarningsBucket.other;
   }
 }
@@ -1752,6 +1757,9 @@ class DeliveryOrder {
   bool get isFunds => paymentMethod == 'funds';
   bool get isPaid => paymentStatus == 'paid';
 
+  /// A funds payment given back when the order was cancelled (v57).
+  bool get isRefunded => paymentStatus == 'refunded';
+
   /// Funds can only be spent while the order is still Agreed —
   /// `pay_order_with_funds` refuses every later status. Once a rider has
   /// it, the member pays the rider in cash.
@@ -1770,6 +1778,7 @@ class DeliveryOrder {
   /// and a cashier can read at a glance. One definition, so the order card
   /// and the receipt cannot disagree.
   String get paymentLabel {
+    if (isRefunded) return 'Refunded to member funds';
     if (isPaid) {
       return switch (paymentMethod) {
         'cod' => 'Cash on delivery',

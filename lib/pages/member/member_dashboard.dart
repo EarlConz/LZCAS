@@ -2909,6 +2909,7 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
       EarningsBucket.upgradeBonus,
       EarningsBucket.other,
       EarningsBucket.directReferral,
+      EarningsBucket.deliveryPurchase,
     ];
     final visible = order
         .where((b) => (grouped[b]?.isNotEmpty ?? false))
@@ -2987,6 +2988,17 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
     final visible = expanded ? entries : entries.take(_previewCount).toList();
     final hidden = count - visible.length;
 
+    // Delivery purchases are spending, not earning: a minus total, drawn
+    // like the rows' own negatives, and rows from either wallet.
+    final spending = bucket == EarningsBucket.deliveryPurchase;
+    final totalText = total < 0
+        ? '−${widget.currencySymbol}${total.abs()}'
+        : '${widget.currencySymbol}$total';
+    final subtitle = spending
+        ? '$count entr${count == 1 ? 'y' : 'ies'} · paid from your funds'
+        : '$count credit${count == 1 ? '' : 's'} · '
+              '${bucket.isBalance ? 'Balance' : 'Total Earnings'}';
+
     return Theme(
       // Strip ExpansionTile's default dividers so it sits flush in the card.
       data: ThemeData(
@@ -3010,11 +3022,13 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
               ),
             ),
             Text(
-              '${widget.currencySymbol}$total',
+              totalText,
               style: StockpileFonts.satoshi(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
-                color: bucket.isBalance
+                color: spending
+                    ? (total < 0 ? StockpileColors.danger : textColor)
+                    : bucket.isBalance
                     ? StockpileColors.primary900
                     : StockpileColors.success,
               ),
@@ -3022,8 +3036,7 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
           ],
         ),
         subtitle: Text(
-          '$count credit${count == 1 ? '' : 's'} · '
-          '${bucket.isBalance ? 'Balance' : 'Total Earnings'}',
+          subtitle,
           style: TextStyle(fontSize: 10, color: mutedColor),
         ),
         children: [
@@ -3070,6 +3083,9 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
   /// Legacy/imported rows have no link at all — say so rather than repeating
   /// the bucket name back at the reader.
   String _title(EarningsSource e) {
+    if (e.bucket == EarningsBucket.deliveryPurchase) {
+      return _deliveryTitle(e.rawLabel);
+    }
     if (e.sourceName != null) return e.sourceName!;
     // An admin correction's label repeats the bucket it already sits under
     // ("Chairman Bonus Adjustment — Duplicate referral reversed"). Lead with
@@ -3088,6 +3104,18 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
     // bucket name, that text IS the explanation, so show it.
     if (!_isUnknownSource(e)) return e.rawLabel;
     return 'Source not recorded';
+  }
+
+  /// "Order Payment (Balance) — Order #2600ecae" is the ledger's label;
+  /// "Delivery purchase · order 2600ECAE · from Balance" is what it means.
+  /// A v57 refund carries "— Refund, Order #…" and reads as one.
+  String _deliveryTitle(String raw) {
+    final ref = RegExp(r'Order #([0-9a-fA-F]+)').firstMatch(raw)?.group(1);
+    final wallet = raw.contains('(Balance)') ? 'Balance' : 'Total Earnings';
+    final order = ref == null ? '' : ' · order ${ref.toUpperCase()}';
+    return raw.contains('Refund')
+        ? 'Refund$order · back to $wallet'
+        : 'Delivery purchase$order · from $wallet';
   }
 
   /// True only when the row has neither a linked person nor a label that says

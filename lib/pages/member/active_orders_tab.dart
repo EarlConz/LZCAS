@@ -417,6 +417,37 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
               const SizedBox(height: 12),
               _paymentRow(order, currency, text, muted, busy),
             ],
+
+            // ── Cancelled: why, and where the money went ───────────────
+            if (order.isCancelled &&
+                (order.cancelReason ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Cancelled: ${order.cancelReason!.trim()}',
+                style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+              ),
+            ],
+            if (order.isRefunded) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.undo_rounded,
+                    size: 18,
+                    color: Color(0xFF16A34A),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Your payment of '
+                      '${formatMoney(order.finalTotal, symbol: currency)} '
+                      'was returned to your funds.',
+                      style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

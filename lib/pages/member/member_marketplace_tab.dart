@@ -565,10 +565,28 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
   late Member _member;
   bool _submitting = false;
 
+  /// Who takes the order at the door. Starts as the member; a relative at
+  /// home is the usual reason to change it. The rider sees both fields.
+  late final TextEditingController _receiverName;
+  late final TextEditingController _receiverContact;
+
+  String get _ownName =>
+      '${widget.member.firstName ?? ''} ${widget.member.lastName ?? ''}'.trim();
+  String get _ownContact => (widget.member.contactNo ?? '').trim();
+
   @override
   void initState() {
     super.initState();
     _member = widget.member;
+    _receiverName = TextEditingController(text: _ownName);
+    _receiverContact = TextEditingController(text: _ownContact);
+  }
+
+  @override
+  void dispose() {
+    _receiverName.dispose();
+    _receiverContact.dispose();
+    super.dispose();
   }
 
   Future<void> _placeOrder() async {
@@ -602,6 +620,15 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
       return;
     }
 
+    // Always sent, even unchanged: the rider's screen reads the number
+    // from the order, and without it they would have no one to call.
+    final name = _receiverName.text.trim();
+    final contact = _receiverContact.text.trim();
+    if (name.isEmpty) {
+      BotToast.showText(text: 'Please enter who will receive the order.');
+      return;
+    }
+
     setState(() => _submitting = true);
     try {
       await repository.createDeliveryOrder(
@@ -610,6 +637,8 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
         deliveryLatitude: _member.latitude,
         deliveryLongitude: _member.longitude,
         items: items,
+        receiverName: name,
+        receiverContact: contact.isEmpty ? null : contact,
       );
       if (!mounted) return;
       Navigator.pop(context, true);
@@ -718,6 +747,50 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
     );
   }
 
+  /// "Who will receive it?" — name and number, prefilled with the member's.
+  Widget _buildReceiverFields(Color text, Color muted) {
+    InputDecoration deco(String label, IconData icon) => InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, size: 18),
+      isDense: true,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Who will receive it?',
+          style: StockpileFonts.satoshi(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: text,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'Change this if someone else will take the order at the door.',
+          style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _receiverName,
+          enabled: !_submitting,
+          textCapitalization: TextCapitalization.words,
+          textInputAction: TextInputAction.next,
+          decoration: deco('Receiver name', Icons.person_outline_rounded),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _receiverContact,
+          enabled: !_submitting,
+          keyboardType: TextInputType.phone,
+          textInputAction: TextInputAction.done,
+          decoration: deco('Contact number', Icons.phone_outlined),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -784,6 +857,8 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
                 ),
               const SizedBox(height: 16),
               _buildDeliveryCard(isDark, surface, text, muted),
+              const SizedBox(height: 16),
+              _buildReceiverFields(text, muted),
               const SizedBox(height: 16),
               Text(
                 'No payment now. The cashier will price your items and send '

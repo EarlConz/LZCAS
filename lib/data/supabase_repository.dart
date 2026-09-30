@@ -4020,19 +4020,27 @@ class SupabaseRepository {
   /// `memberId` must be the numeric `members.id` bigint — NOT the Supabase
   /// auth UUID. `items` is a `List<Map<String, dynamic>>` of
   /// `{"product_id": int, "quantity": int}` lines.
+  ///
+  /// [receiverName] / [receiverContact] (v57): who takes the order at the
+  /// door, and the number the rider calls. Checkout always passes them,
+  /// prefilled with the member's own. Needs v57: the keys are only sent
+  /// when non-null, and before v57 the function has no such parameters.
   Future<String> createDeliveryOrder({
     required int memberId,
     String? deliveryAddress,
     double? deliveryLatitude,
     double? deliveryLongitude,
     required List<Map<String, dynamic>> items,
+    String? receiverName,
+    String? receiverContact,
   }) async {
     assert(memberId > 0, 'p_member_id must be the numeric members.id bigint');
 
     // Parameter keys MUST match the SQL signature of
     // public.create_delivery_order(p_member_id bigint,
     //   p_delivery_address text, p_delivery_latitude double precision,
-    //   p_delivery_longitude double precision, p_items jsonb) exactly —
+    //   p_delivery_longitude double precision, p_items jsonb
+    //   [, p_receiver_name text, p_receiver_contact text]) exactly —
     // PostgREST resolves the function from these named arguments, and a
     // missing/mistyped key yields PGRST202 ("function not found").
     final params = <String, dynamic>{
@@ -4041,6 +4049,8 @@ class SupabaseRepository {
       'p_delivery_latitude': deliveryLatitude, // double?
       'p_delivery_longitude': deliveryLongitude, // double?
       'p_items': items, // List<Map<String, dynamic>>
+      if (receiverName != null) 'p_receiver_name': receiverName,
+      if (receiverContact != null) 'p_receiver_contact': receiverContact,
     };
 
     try {

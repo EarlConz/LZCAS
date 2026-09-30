@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v56)
+├── migrations/    Ordered, apply-once changes (v2 … v57)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -432,6 +432,15 @@ the build that stops recording sales client-side._
   and payments are checked one at a time. Run section 2 of
   `diagnostics/audit_withdrawal_overdrafts.sql` before approving the queue
   that was there before it.
+
+**Refunds and receiver (v57)** — _requires v56._
+
+- v57 — cancelling an order paid from funds refunds it: one positive
+  `member_transactions` row under the payment's own prefix, so every sum that
+  subtracted the payment adds it back; the order reads `payment_status =
+  'refunded'`. `create_delivery_order` gains optional `p_receiver_name` /
+  `p_receiver_contact` (the five-argument version is dropped, not overloaded).
+  Verify query 2 lists paid orders cancelled before v57, which kept the money.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
