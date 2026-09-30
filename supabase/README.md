@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v57)
+├── migrations/    Ordered, apply-once changes (v2 … v58)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -441,6 +441,31 @@ the build that stops recording sales client-side._
   'refunded'`. `create_delivery_order` gains optional `p_receiver_name` /
   `p_receiver_contact` (the five-argument version is dropped, not overloaded).
   Verify query 2 lists paid orders cancelled before v57, which kept the money.
+
+**Push notifications (v58)** — _needs the `order-push` Edge Function, a Firebase
+project and two Vault secrets. Does nothing until all are in place._
+
+- v58 — `push_tokens` (one row per phone, written only through
+  `register_push_token` / `unregister_push_token`) and a trigger on `orders`
+  that queues a call to `order-push` through pg_net when an order's status or
+  rider changes. The function decides who to tell (the same rules as the
+  in-app alerts) and sends through Firebase Cloud Messaging, so the alert
+  reaches a phone whose app is closed. Android only.
+
+  To turn it on in an environment:
+
+  1. Firebase: one project with Android apps `com.lzcas.app` and
+     `com.lzcas.app.staging`; `google-services.json` goes in `android/app/`.
+     Service accounts → Generate new private key. That file is a secret.
+  2. Make a long random shared secret. Set the function's secrets
+     `PUSH_WEBHOOK_SECRET` (that value) and `FIREBASE_SERVICE_ACCOUNT` (the
+     whole key file) with `supabase secrets set --env-file <file>`.
+  3. `supabase functions deploy order-push --no-verify-jwt --project-ref <ref>`
+     — no JWT check, because the caller is the database, which proves itself
+     with the shared secret instead.
+  4. Apply v58, then in the SQL editor create the two Vault secrets:
+     `order_push_url` = `https://<ref>.supabase.co/functions/v1/order-push`,
+     and `order_push_secret` = the same shared secret as step 2.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
