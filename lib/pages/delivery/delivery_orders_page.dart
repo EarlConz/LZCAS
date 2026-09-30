@@ -48,6 +48,10 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   List<UserProfile> _riders = const [];
   CashierLocation? _branch;
 
+  /// Every main cashier's saved store. An admin has no store of their own,
+  /// so an order they handle leaves from the one nearest the member.
+  List<CashierLocation> _stores = const [];
+
   bool _loading = true;
   String? _error;
   DateTime? _loadedAt;
@@ -101,11 +105,18 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
           branch = await repository.fetchCashierLocation(uid);
         } catch (_) {}
       }
+      List<CashierLocation> stores = _stores;
+      try {
+        stores = (await repository.fetchCashierLocations())
+            .where((s) => !s.isBranchCashier)
+            .toList();
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _orders = orders;
         _riders = riders;
         _branch = branch;
+        _stores = stores;
         _loading = false;
         _error = null;
         _loadedAt = DateTime.now();
@@ -728,6 +739,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
       order: o,
       riders: _riders,
       branch: _branch,
+      stores: _stores,
       busyRiderIds: _busyRiders(o.id),
       onChanged: _load,
     );
@@ -743,6 +755,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
           initial: o,
           riders: _riders,
           branch: _branch,
+          stores: _stores,
           busyRiderIds: _busyRiders(o.id),
         ),
       ),
@@ -764,6 +777,7 @@ class _OrderScreen extends StatefulWidget {
   final DeliveryOrder initial;
   final List<UserProfile> riders;
   final CashierLocation? branch;
+  final List<CashierLocation> stores;
   final Set<String> busyRiderIds;
 
   const _OrderScreen({
@@ -771,6 +785,7 @@ class _OrderScreen extends StatefulWidget {
     required this.initial,
     required this.riders,
     required this.branch,
+    required this.stores,
     required this.busyRiderIds,
   });
 
@@ -815,6 +830,7 @@ class _OrderScreenState extends State<_OrderScreen> {
           order: _order,
           riders: widget.riders,
           branch: widget.branch,
+          stores: widget.stores,
           busyRiderIds: widget.busyRiderIds,
           onChanged: _reload,
           compact: true,

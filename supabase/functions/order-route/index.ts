@@ -49,6 +49,14 @@ const json = (body: unknown, status = 200) =>
 // the stored array a fraction of the size ORS sends.
 const round5 = (n: number) => Math.round(n * 1e5) / 1e5;
 
+// For ranking only — which store is nearest — so a flat approximation is
+// enough at the distances between branches, and needs no square root.
+const squaredDegrees = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const dLng = (lng2 - lng1) * Math.cos(((lat1 + lat2) / 2) * (Math.PI / 180));
+  const dLat = lat2 - lat1;
+  return dLat * dLat + dLng * dLng;
+};
+
 type OrderRow = {
   id: string;
   member_id: number | null;
@@ -179,6 +187,31 @@ serve(async (req: Request) => {
   if ((originLat == null || originLng == null) && isStaff) {
     originLat = me.latitude ?? null;
     originLng = me.longitude ?? null;
+  }
+  if (originLat == null || originLng == null) {
+    // Admins price and dispatch too, and have no store of their own: the
+    // goods then leave from the main cashier's store nearest the member.
+    // The app makes the same choice (delivery_order_pane.dart, _origin).
+    const { data: stores } = await service
+      .from("profiles")
+      .select("latitude, longitude")
+      .eq("role", "cashier")
+      .not("latitude", "is", null)
+      .not("longitude", "is", null);
+    let best = Infinity;
+    for (const s of stores ?? []) {
+      const d = squaredDegrees(
+        s.latitude,
+        s.longitude,
+        order.delivery_latitude,
+        order.delivery_longitude,
+      );
+      if (d < best) {
+        best = d;
+        originLat = s.latitude;
+        originLng = s.longitude;
+      }
+    }
   }
   if (originLat == null || originLng == null) {
     // Not stored either: the cashier setting their location should unblock

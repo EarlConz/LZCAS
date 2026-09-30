@@ -71,9 +71,13 @@ class DeliveryOrderPane extends StatefulWidget {
   final DeliveryOrder order;
   final List<UserProfile> riders;
 
-  /// This cashier's saved location: where the rider collects the order, and
-  /// what distances are measured from.
+  /// The viewer's own saved store, if any. Orders they handle leave from
+  /// here unless the order says otherwise (see `_origin`).
   final CashierLocation? branch;
+
+  /// Every main cashier's store. Where an order leaves from when neither
+  /// its cashier nor this viewer has a location (an admin handling it).
+  final List<CashierLocation> stores;
 
   /// Riders already carrying ANOTHER order. Still assignable — the cashier
   /// may know something the app does not — but marked busy.
@@ -91,6 +95,7 @@ class DeliveryOrderPane extends StatefulWidget {
     required this.riders,
     required this.branch,
     required this.onChanged,
+    this.stores = const [],
     this.busyRiderIds = const {},
     this.compact = false,
   });
@@ -184,9 +189,43 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       ? null
       : LatLng(_o.deliveryLatitude!, _o.deliveryLongitude!);
 
-  LatLng? get _branchPoint => widget.branch == null
-      ? null
-      : LatLng(widget.branch!.latitude, widget.branch!.longitude);
+  /// Where the rider collects this order. The order-route function makes
+  /// the same choice, in the same order: where the stored route starts;
+  /// else the order's cashier; else this viewer's own store; else (an admin,
+  /// who has none) the main cashier's store nearest the member.
+  CashierLocation? get _origin {
+    final own = widget.branch;
+    final lat = _o.routeOriginLat, lng = _o.routeOriginLng;
+    if (lat != null && lng != null) {
+      bool at(CashierLocation s) => s.latitude == lat && s.longitude == lng;
+      return [?own, ...widget.stores].where(at).firstOrNull ??
+          CashierLocation(id: '', name: '', role: 'cashier', latitude: lat, longitude: lng);
+    }
+    final holder = widget.stores.where((s) => s.id == _o.cashierId).firstOrNull;
+    if (holder != null) return holder;
+    if (own != null) return own;
+    final dest = _dest;
+    if (dest == null || widget.stores.isEmpty) return null;
+    double far(CashierLocation s) =>
+        Geolocator.distanceBetween(s.latitude, s.longitude, dest.latitude, dest.longitude);
+    return widget.stores.reduce((a, b) => far(a) <= far(b) ? a : b);
+  }
+
+  LatLng? get _branchPoint {
+    final o = _origin;
+    return o == null ? null : LatLng(o.latitude, o.longitude);
+  }
+
+  /// "your branch" when the order leaves from the viewer's own store,
+  /// otherwise whose store it is.
+  String get _fromWhere {
+    final o = _origin, own = widget.branch;
+    if (o == null) return 'the branch';
+    if (own != null && o.latitude == own.latitude && o.longitude == own.longitude) {
+      return 'your branch';
+    }
+    return o.name.isEmpty ? 'the branch' : "${o.name}'s store";
+  }
 
   List<LatLng> get _route => _o.hasRoute ? routePoints(_o.routePoints) : const [];
 
@@ -198,8 +237,8 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
 
   List<RiderCandidate> get _candidates => rankRiders(
     widget.riders,
-    fromLat: widget.branch?.latitude,
-    fromLng: widget.branch?.longitude,
+    fromLat: _branchPoint?.latitude,
+    fromLng: _branchPoint?.longitude,
     busyIds: widget.busyRiderIds,
   );
 
@@ -930,12 +969,12 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
 
   String? get _distanceLine {
     if (_o.hasRoute && (_o.routeDistanceM ?? 0) > 0) {
-      return '${formatDistance(_o.routeDistanceM!.toDouble())} by road from your branch';
+      return '${formatDistance(_o.routeDistanceM!.toDouble())} by road from $_fromWhere';
     }
     final b = _branchPoint, d = _dest;
     if (b == null || d == null) return null;
     final m = Geolocator.distanceBetween(b.latitude, b.longitude, d.latitude, d.longitude);
-    return '${formatDistance(m)} from your branch, in a straight line';
+    return '${formatDistance(m)} from $_fromWhere, in a straight line';
   }
 
   Widget _deliverTo() {
@@ -1327,7 +1366,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         const SizedBox(height: 18),
         PaneSection(
           title: _reassigning ? 'Choose another rider' : 'Choose a rider',
-          trailing: cands.isEmpty ? null : 'Nearest to your branch first',
+          trailing: cands.isEmpty ? null : 'Nearest to $_fromWhere first',
           isDark: _dark,
           child: picker,
         ),
@@ -1349,7 +1388,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     final at = c.rider.locationUpdatedAt;
     final parts = <String>[
       c.busy ? 'On a delivery' : 'Free',
-      if (c.meters != null) '${formatDistance(c.meters!)} from your branch',
+      if (c.meters != null) '${formatDistance(c.meters!)} from $_fromWhere',
       if (c.meters == null) 'no position yet',
     ];
     final stale = at != null && !c.isLive;
@@ -1477,7 +1516,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
 
     final riderLine = switch (_o.status) {
       DeliveryOrderStatus.assigned =>
-        'Assigned ${formatTimeOfDay(_o.assignedAt)} · coming to your branch',
+        'Assigned ${formatTimeOfDay(_o.assignedAt)} · coming to $_fromWhere',
       DeliveryOrderStatus.pickedUp =>
         'Picked up ${formatTimeOfDay(_o.pickedUpAt)}${left == null ? '' : ' · $left'}',
       _ => 'Delivered ${formatTimeOfDay(_o.deliveredAt)}',
