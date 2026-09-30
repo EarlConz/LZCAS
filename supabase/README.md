@@ -466,6 +466,27 @@ project and two Vault secrets. Does nothing until all are in place._
   4. Apply v58, then in the SQL editor create the two Vault secrets:
      `order_push_url` = `https://<ref>.supabase.co/functions/v1/order-push`,
      and `order_push_secret` = the same shared secret as step 2.
+  5. `notify pgrst, 'reload schema';` then reopen the app on each phone and
+     check `select * from public.push_tokens;` has a row per phone.
+
+  Verified on staging 2026-10-01: pushes arrive with sound, app backgrounded
+  or swiped away. Two things went wrong on the way; check them first:
+
+  - **No rows in `push_tokens`** after applying v58: the API had not picked up
+    `register_push_token` yet. The schema reload in step 5 fixed it.
+  - **`401 {"error":"Unauthorized"}`** in `net._http_response`: the Vault
+    secret did not match `PUSH_WEBHOOK_SECRET`. On staging the placeholder
+    text had been saved instead of the value. Set both from ONE PowerShell
+    variable, never by hand: `supabase secrets set "PUSH_WEBHOOK_SECRET=$secret"`,
+    then `Set-Clipboard` the line
+    `select vault.update_secret((select id from vault.secrets where name = 'order_push_secret'), '<secret>');`
+    and paste it straight into the SQL editor. To confirm they match without
+    revealing either, compare `supabase secrets list`'s digest with
+    `encode(extensions.digest(decrypted_secret, 'sha256'), 'hex')` from
+    `vault.decrypted_secrets` (a 64-character hex secret has length 64).
+
+  `net._http_response` shows each call and its answer: `200 {"sent":N}` is
+  success; `sent: 0` means nobody to notify had a registered phone.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
