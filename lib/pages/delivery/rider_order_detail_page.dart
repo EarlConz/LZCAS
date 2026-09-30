@@ -546,9 +546,13 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
   /// the pin sits off the nearest mapped road. Without a route, today's
   /// dashed straight line from the rider to the door — dashed so it is
   /// never mistaken for a way to drive.
+  /// Whether [_mapLines] draws the stored road (and the map must credit
+  /// openrouteservice) rather than a straight line.
+  bool get _drawsRoad => _route.length >= 2 && _destination != null;
+
   List<Polyline> _mapLines() {
     final dest = _destination, me = widget.myPosition, route = _route;
-    if (route.length >= 2 && dest != null) {
+    if (_drawsRoad && dest != null) {
       final branch = _branch;
       return [
         roadRoute(route),
@@ -589,6 +593,7 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
         markers: _mapMarkers(labelled: true),
         polylines: _mapLines(),
         fitTo: _mapPoints,
+        showsRoadRoute: _drawsRoad,
         statusChip: _distanceLine == null
             ? null
             : MapStatusChip(icon: Icons.navigation_rounded, text: _distanceLine!),
@@ -650,6 +655,7 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
                           icon: Icons.navigation_rounded,
                           text: _distanceLine!,
                         ),
+                  showsRoadRoute: _drawsRoad,
                 ),
               ),
             ),

@@ -950,12 +950,16 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
 
   // ── Where it goes ──────────────────────────────────────────────────
 
+  /// Whether [_routeLines] draws the stored road (and the map must credit
+  /// openrouteservice) rather than a straight line.
+  bool get _drawsRoad => _dest != null && _route.length >= 2;
+
   /// The road when stored (v53), with dashed gaps where the pins sit off
   /// it; otherwise a dashed straight line from the branch.
   List<Polyline> _routeLines({LatLng? from}) {
     final dest = _dest, route = _route;
     if (dest == null) return const [];
-    if (route.length >= 2) {
+    if (_drawsRoad) {
       final b = _branchPoint;
       return [
         roadRoute(route),
@@ -1050,6 +1054,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           markers: markers,
           polylines: lines,
           fitTo: fit,
+          showsRoadRoute: _drawsRoad,
         ),
       ),
     );
@@ -1086,6 +1091,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
             ),
           ],
           bottomLeft: bottomLeft,
+          showsRoadRoute: _drawsRoad,
         ),
       ),
     );
