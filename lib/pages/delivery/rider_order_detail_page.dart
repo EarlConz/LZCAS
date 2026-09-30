@@ -900,16 +900,24 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
 
     // Two cards side by side get ~150px each on a phone, which is enough
     // for a number and two short lines. Below that they stack.
+    //
+    // IntrinsicHeight is what lets `stretch` work here: this sits in a
+    // scrolling list, whose height is unbounded, so a bare stretching Row
+    // asks for infinite height and fails layout — taking the whole page
+    // down with it. IntrinsicHeight sizes the Row to the taller card first,
+    // and both cards then stretch to match it.
     return LayoutBuilder(
       builder: (context, c) => c.maxWidth < 320
           ? Column(children: [moneyCard, const SizedBox(height: 12), etaCard])
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(child: moneyCard),
-                const SizedBox(width: 12),
-                Expanded(child: etaCard),
-              ],
+          : IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: moneyCard),
+                  const SizedBox(width: 12),
+                  Expanded(child: etaCard),
+                ],
+              ),
             ),
     );
   }
