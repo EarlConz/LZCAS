@@ -13,14 +13,18 @@ const bool enableMemberLocationSetup = true;
 /// module, the order notification chimes, and the rider-related parts of
 /// the admin Cashier Locations map.
 ///
-/// `false` on `main` and the whole 1.5.x line — those releases carry the GPS
-/// fix only, and const-false branches are tree-shaken out of release AOT
-/// builds.
+/// On for STAGING builds only, until the delivery release. Staging has the
+/// delivery migrations (v48–v56); production does not, so a production
+/// build with this on would show screens that fail against it. Tying it to
+/// the build flavor rather than the branch means every branch — `main`
+/// included — is safe to build for production, and every staging build
+/// (which always passes `--dart-define=APP_FLAVOR=staging`) gets delivery.
 ///
-/// `true` on the `delivery-account` branch, for testing against staging,
-/// which has v48–v52 applied. That makes this branch UNSAFE TO BUILD FOR
-/// PRODUCTION until the delivery release: production has none of v48–v50 or
-/// v52, so every delivery screen would fail against it. Build staging from
-/// here (`--flavor staging` plus the staging dart-defines), and production
-/// from `main` only.
-const bool enableDeliverySystem = true;
+/// Still a compile-time constant: production builds tree-shake the delivery
+/// screens out entirely. Exact match, no trimming — `AppFlavor.current`
+/// normalises, but that is not const, and the member sidebar needs this to
+/// be. The staging build commands pass exactly `staging`.
+///
+/// On release day, once production has the migrations: set this to `true`.
+const bool enableDeliverySystem =
+    String.fromEnvironment('APP_FLAVOR') == 'staging';
