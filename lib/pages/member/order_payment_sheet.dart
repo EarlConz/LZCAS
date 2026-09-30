@@ -264,8 +264,15 @@ class _PaymentSheetState extends State<_PaymentSheet> {
 
   // ── The two choices ────────────────────────────────────────────────
   List<Widget> _choices(bool isDark, Color text, Color muted) {
-    final balance = _funds?['balance'];
-    final earnings = _funds?['totalEarnings'];
+    // What can be spent: withdrawals awaiting approval hold their amount
+    // (v56), and pay_order_with_funds checks against the same figure.
+    final balance = _funds?['availableBalance'];
+    final earnings = _funds?['availableEarnings'];
+    final balanceHeld = _funds?['pendingBalance'] ?? 0;
+    final earningsHeld = _funds?['pendingEarnings'] ?? 0;
+    String held(int amount) => amount > 0
+        ? ' (${formatMoney(amount, symbol: widget.currencySymbol)} held for a withdrawal)'
+        : '';
 
     // Once a rider has the order, funds are off the table:
     // pay_order_with_funds only accepts Agreed. Offering them anyway would
@@ -312,7 +319,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         title: 'Pay from Balance',
         subtitle: balance == null
             ? 'Could not read your balance right now'
-            : 'You have ${formatMoney(balance, symbol: widget.currencySymbol)}',
+            : 'You can use ${formatMoney(balance, symbol: widget.currencySymbol)}${held(balanceHeld)}',
         // Offered even when it looks short: the database is the authority on
         // what is available, and its refusal explains itself better than a
         // greyed-out row that says nothing.
@@ -328,7 +335,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         title: 'Pay from Total Earnings',
         subtitle: earnings == null
             ? 'Could not read your earnings right now'
-            : 'You have ${formatMoney(earnings, symbol: widget.currencySymbol)}',
+            : 'You can use ${formatMoney(earnings, symbol: widget.currencySymbol)}${held(earningsHeld)}',
         enabled: !_busy && earnings != null,
         onTap: () => _payWithFunds('total_earnings'),
       ),

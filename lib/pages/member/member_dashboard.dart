@@ -1883,6 +1883,11 @@ class _EarningsTab extends StatefulWidget {
 class _EarningsTabState extends State<_EarningsTab> {
   int _totalEarnings = 0;
   int _balance = 0;
+  // v56: withdrawals awaiting approval hold their amount.
+  int _pendingEarnings = 0;
+  int _pendingBalance = 0;
+  int _availableEarnings = 0;
+  int _availableBalance = 0;
   int _totalPurchases = 0;
   int _chairmanBonus = 0;
   List<EarningsSnapshot> _history = [];
@@ -1975,6 +1980,10 @@ class _EarningsTabState extends State<_EarningsTab> {
     setState(() {
       _totalEarnings = totalEarnings;
       _balance = balance;
+      _pendingEarnings = breakdown['pendingEarnings'] ?? 0;
+      _pendingBalance = breakdown['pendingBalance'] ?? 0;
+      _availableEarnings = breakdown['availableEarnings'] ?? totalEarnings;
+      _availableBalance = breakdown['availableBalance'] ?? balance;
       _totalPurchases = (results[1] as List<Sale>)
           .where((s) => !s.isPackage)
           .fold(0, (sum, s) => sum + s.quantity);
@@ -2053,8 +2062,10 @@ class _EarningsTabState extends State<_EarningsTab> {
           // ── Withdrawal request buttons ─────────────────
           _WithdrawalButtons(
             isDark: isDark,
-            totalEarnings: _totalEarnings,
-            balance: _balance,
+            availableEarnings: _availableEarnings,
+            availableBalance: _availableBalance,
+            pendingEarnings: _pendingEarnings,
+            pendingBalance: _pendingBalance,
             memberId: widget.member.id!,
             onWithdrew: _load,
           ),
@@ -3885,15 +3896,26 @@ class _ChangePasswordFormState extends State<_ChangePasswordForm> {
 
 class _WithdrawalButtons extends StatelessWidget {
   final bool isDark;
-  final int totalEarnings;
-  final int balance;
+
+  /// What can still be requested: each bucket less the approved AND the
+  /// pending withdrawals from it (v56). A request already awaiting
+  /// approval holds its amount, so it cannot be asked for twice.
+  final int availableEarnings;
+  final int availableBalance;
+
+  /// Awaiting approval, per bucket. Shown so a member whose balance reads
+  /// ₱300 understands why only ₱100 can be requested.
+  final int pendingEarnings;
+  final int pendingBalance;
   final int memberId;
   final VoidCallback onWithdrew;
 
   const _WithdrawalButtons({
     required this.isDark,
-    required this.totalEarnings,
-    required this.balance,
+    required this.availableEarnings,
+    required this.availableBalance,
+    required this.pendingEarnings,
+    required this.pendingBalance,
     required this.memberId,
     required this.onWithdrew,
   });
@@ -3912,12 +3934,17 @@ class _WithdrawalButtons extends StatelessWidget {
         _WithdrawButton(
           label: 'Withdraw Request From Total Earnings',
           icon: Icons.account_balance_wallet_rounded,
-          amount: totalEarnings,
+          amount: availableEarnings,
+          pending: pendingEarnings,
           sourceBucket: 'total_earnings',
           isDark: isDark,
           memberId: memberId,
-          enabled: _isFriday && totalEarnings > 0,
-          lockedHint: _isFriday ? null : 'Available on Fridays only',
+          enabled: _isFriday && availableEarnings > 0,
+          lockedHint: !_isFriday
+              ? 'Available on Fridays only'
+              : availableEarnings <= 0 && pendingEarnings > 0
+              ? 'Your Total Earnings are all awaiting approval'
+              : null,
           onWithdrew: onWithdrew,
         ),
         const SizedBox(height: 10),
@@ -3925,12 +3952,17 @@ class _WithdrawalButtons extends StatelessWidget {
         _WithdrawButton(
           label: 'Withdraw Request From Balance',
           icon: Icons.savings_rounded,
-          amount: balance,
+          amount: availableBalance,
+          pending: pendingBalance,
           sourceBucket: 'balance',
           isDark: isDark,
           memberId: memberId,
-          enabled: balance > 0,
-          lockedHint: balance <= 0 ? 'No balance available' : null,
+          enabled: availableBalance > 0,
+          lockedHint: availableBalance > 0
+              ? null
+              : pendingBalance > 0
+              ? 'Your Balance is all awaiting approval'
+              : 'No balance available',
           onWithdrew: onWithdrew,
         ),
         const SizedBox(height: 10),
@@ -3989,7 +4021,12 @@ class _ViewHistoryButton extends StatelessWidget {
 class _WithdrawButton extends StatelessWidget {
   final String label;
   final IconData icon;
+
+  /// What can still be requested from this bucket.
   final int amount;
+
+  /// Already requested from this bucket and awaiting approval.
+  final int pending;
   final String sourceBucket;
   final bool isDark;
   final int memberId;
@@ -4001,6 +4038,7 @@ class _WithdrawButton extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.amount,
+    this.pending = 0,
     required this.sourceBucket,
     required this.isDark,
     required this.memberId,
@@ -4012,7 +4050,7 @@ class _WithdrawButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = context.watch<ConfigService>().currencySymbol;
-    return SizedBox(
+    final button = SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
         onPressed: enabled
@@ -4044,6 +4082,25 @@ class _WithdrawButton extends StatelessWidget {
         ),
       ),
     );
+    if (pending <= 0) return button;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        button,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+          child: Text(
+            '$cs$pending awaiting approval · $cs$amount can still be requested',
+            style: StockpileFonts.satoshi(
+              fontSize: 12,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   void _showWithdrawalDialog(BuildContext context, String cs) {
@@ -4055,6 +4112,7 @@ class _WithdrawButton extends StatelessWidget {
             ? 'Total Earnings'
             : 'Balance',
         maxAmount: amount,
+        pending: pending,
         currencySymbol: cs,
         memberId: memberId,
         isDark: isDark,
@@ -4070,6 +4128,7 @@ class _WithdrawalRequestDialog extends StatefulWidget {
   final String sourceBucket;
   final String sourceLabel;
   final int maxAmount;
+  final int pending;
   final String currencySymbol;
   final int memberId;
   final bool isDark;
@@ -4079,6 +4138,7 @@ class _WithdrawalRequestDialog extends StatefulWidget {
     required this.sourceBucket,
     required this.sourceLabel,
     required this.maxAmount,
+    this.pending = 0,
     required this.currencySymbol,
     required this.memberId,
     required this.isDark,
@@ -4095,6 +4155,10 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
   final _formKey = GlobalKey<FormState>();
   bool _submitting = false;
 
+  /// The database's refusal (v56), shown in the dialog so the member can
+  /// change the amount instead of starting over.
+  String? _refusal;
+
   @override
   void dispose() {
     _amountCtrl.dispose();
@@ -4104,7 +4168,10 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _refusal = null;
+    });
 
     final amount = int.tryParse(_amountCtrl.text.trim());
     if (amount == null || amount <= 0) {
@@ -4130,10 +4197,16 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
       } else {
         BotToast.showText(text: 'Failed to submit request. Please try again.');
       }
+    } on PostgrestException catch (e) {
+      // Refused by the database — most likely another request was made
+      // since this dialog opened. Stay open with its reason.
+      if (!mounted) return;
+      setState(() => _refusal = e.message);
+      widget.onWithdrew();
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop();
-      BotToast.showText(text: 'Error: $e');
+      BotToast.showText(text: 'Could not submit the request. Please try again.');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -4181,6 +4254,14 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
               'Available: ${widget.currencySymbol}${widget.maxAmount}',
               style: StockpileFonts.satoshi(fontSize: 13, color: mutedColor),
             ),
+            if (widget.pending > 0) ...[
+              const SizedBox(height: 2),
+              Text(
+                '${widget.currencySymbol}${widget.pending} is already requested '
+                'and awaiting approval',
+                style: StockpileFonts.satoshi(fontSize: 12, color: mutedColor),
+              ),
+            ],
             const SizedBox(height: 12),
             TextFormField(
               controller: _amountCtrl,
@@ -4209,6 +4290,16 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
               },
               onFieldSubmitted: (_) => _submit(),
             ),
+            if (_refusal != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _refusal!,
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  color: StockpileColors.error500,
+                ),
+              ),
+            ],
           ],
         ),
       ),

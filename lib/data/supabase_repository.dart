@@ -1592,6 +1592,17 @@ class SupabaseRepository {
       // Legacy key from the old weekly-Friday chairman model; the RPC now
       // always returns 0 (v24 made Chairman's Bonus per-direct-referral).
       'chairmanFridays': asInt('chairmanFridays'),
+      // v56: withdrawals awaiting approval, and what is left after them.
+      // Before v56 (or after its rollback) nothing is on hold, so the
+      // available figure is the whole bucket — exactly the old behaviour.
+      'pendingEarnings': asInt('pendingEarnings'),
+      'pendingBalance': asInt('pendingBalance'),
+      'availableEarnings': map.containsKey('availableEarnings')
+          ? asInt('availableEarnings')
+          : asInt('totalEarnings'),
+      'availableBalance': map.containsKey('availableBalance')
+          ? asInt('availableBalance')
+          : asInt('balance'),
     };
   }
 
@@ -2960,6 +2971,10 @@ class SupabaseRepository {
   // ── Withdrawal Requests ──────────────────────────────────────────────────
 
   /// Submit a withdrawal request for admin approval.
+  ///
+  /// Throws [PostgrestException] when the database refuses it (v56: the
+  /// amount does not fit in what is left after approved and pending
+  /// requests). Its `message` is a sentence written for the member.
   Future<String?> submitWithdrawalRequest({
     required int memberId,
     required String sourceBucket,
@@ -3067,10 +3082,10 @@ class SupabaseRepository {
       // legitimate and simply out of date, and rejecting needs a reason
       // the admin writes, not one this method invents.
       //
-      // This closes the hole for one approver at a time. Two admins
-      // approving at the same instant can still slip between the check
-      // and the write — that needs a database-level constraint, which
-      // belongs with the full fix.
+      // Since v56 the database enforces this itself (a trigger on
+      // withdrawal_requests, which also covers two admins approving at
+      // once). This early check stays so a database without v56 is still
+      // guarded, and so the admin gets the answer without a round trip.
       final available = req.sourceBucket == 'total_earnings'
           ? currentTotalEarnings
           : currentBalance;
@@ -3079,6 +3094,24 @@ class SupabaseRepository {
             '₱$available available in ${req.sourceLabel}. The member has '
             'other approved or pending withdrawals. Reject this one and ask '
             'them to submit a new request.';
+      }
+
+      // Approve FIRST. The database has the final say (v56) and may refuse;
+      // the history snapshot below must only be written for an approval
+      // that happened. Filtered on 'pending' so a second click, or a second
+      // admin, cannot approve the same request twice.
+      final approved = await _supabase
+          .from('withdrawal_requests')
+          .update({
+            'status': 'approved',
+            'reviewed_by': _uid,
+            'reviewed_at': now,
+          })
+          .eq('id', requestId)
+          .eq('status', 'pending')
+          .select('id');
+      if ((approved as List).isEmpty) {
+        return 'This request was already reviewed.';
       }
 
       // Deduct the requested amount from the appropriate pool
@@ -3096,32 +3129,39 @@ class SupabaseRepository {
         );
       }
 
-      // Record a negative snapshot to reflect the deduction
-      await _supabase.from('earnings_history').insert({
-        'member_id': req.memberId,
-        'total_earnings': newTotalEarnings,
-        'balance': newBalance,
-        'earnings_delta': newTotalEarnings - currentTotalEarnings,
-        'balance_delta': newBalance - currentBalance,
-        'indirect_bonus': breakdown['indirectBonus'] ?? 0,
-        'group_sales': breakdown['groupSales'] ?? 0,
-        'passive_income': breakdown['passiveIncome'] ?? 0,
-        'repeat_purchase': breakdown['repeatPurchase'] ?? 0,
-        'chairman_bonus': breakdown['chairmanBonus'] ?? 0,
-        'upgrade_bonus': breakdown['upgradeBonus'] ?? 0,
-      });
+      // Record a negative snapshot to reflect the deduction. The approval
+      // above already stands; this is the history line, and failing to
+      // write it must not tell the admin the approval failed.
+      try {
+        await _supabase.from('earnings_history').insert({
+          'member_id': req.memberId,
+          'total_earnings': newTotalEarnings,
+          'balance': newBalance,
+          'earnings_delta': newTotalEarnings - currentTotalEarnings,
+          'balance_delta': newBalance - currentBalance,
+          'indirect_bonus': breakdown['indirectBonus'] ?? 0,
+          'group_sales': breakdown['groupSales'] ?? 0,
+          'passive_income': breakdown['passiveIncome'] ?? 0,
+          'repeat_purchase': breakdown['repeatPurchase'] ?? 0,
+          'chairman_bonus': breakdown['chairmanBonus'] ?? 0,
+          'upgrade_bonus': breakdown['upgradeBonus'] ?? 0,
+        });
+      } catch (e) {
+        debugPrint('[approveWithdrawalRequest] snapshot failed: $e');
+      }
+    } on PostgrestException catch (e) {
+      debugPrint('[approveWithdrawalRequest] refused: ${e.message}');
+      // The v56 refusal is a sentence written for the admin. Anything else
+      // raised by the database is not, and gets the generic wording.
+      return e.message.startsWith('Cannot approve')
+          ? e.message
+          : 'Failed to approve: ${_friendlyError(e)}';
     } catch (e) {
-      debugPrint('[approveWithdrawalRequest] deduction failed: $e');
+      debugPrint('[approveWithdrawalRequest] failed: $e');
       // `$_friendlyError(e)` interpolated the method itself and printed
       // "Closure: (Object) => String(e)" at the admin. Braces call it.
-      return 'Failed to process deduction: ${_friendlyError(e)}';
+      return 'Failed to approve: ${_friendlyError(e)}';
     }
-
-    // Mark as approved
-    await _supabase
-        .from('withdrawal_requests')
-        .update({'status': 'approved', 'reviewed_by': _uid, 'reviewed_at': now})
-        .eq('id', requestId);
 
     _changes.add('withdrawal_request_approved');
     return null; // success

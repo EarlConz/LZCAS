@@ -5,7 +5,11 @@
 -- earned, and is anyone queued up to be?
 --
 -- ── Why this can happen ────────────────────────────────────────────
--- Nothing reserves a pending request. The member's dialog validates
+-- (Before v56. Since v56 a pending request holds its amount and the
+-- database refuses an overdrawing approval, so sections 1 and 2 should
+-- stay empty; run them to confirm, and before applying v56.)
+--
+-- Nothing reserved a pending request. The member's dialog validates
 -- against the CURRENT balance, so with ₱300 earned and ₱200 already
 -- awaiting approval, a second request for up to ₱300 is accepted. The
 -- admin approval screen shows neither the balance nor the member's other

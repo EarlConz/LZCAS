@@ -5660,6 +5660,10 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   Map<String, String> _profiles = {};
   Map<String, String> _roles = {};
   Map<int, String> _memberNames = {}; // memberId → "First Last"
+
+  /// Each requesting member's earnings (get_member_earnings), so the
+  /// approval card can show what they have left before the admin decides.
+  Map<int, Map<String, int>> _memberFunds = {};
   bool _showHistory = false;
   String _historyFilter = 'all'; // all, approved, rejected
   String _historyTypeFilter = 'all'; // all, delete, reduce, withdrawal
@@ -5753,17 +5757,24 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         memberIds.add(w.memberId);
       }
       final names = <int, String>{};
+      final funds = <int, Map<String, int>>{};
       for (final id in memberIds) {
         final m = await repository.getMemberById(id);
         if (m != null) {
           names[id] = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
         }
+        // Context only: a card without it still approves (the database
+        // checks the amount either way).
+        try {
+          funds[id] = await repository.fetchMemberEarningsBreakdown(id);
+        } catch (_) {}
       }
 
       if (!mounted) return;
       setState(() {
         _withdrawalRequests = withdrawals;
         _memberNames = names;
+        _memberFunds = funds;
       });
     } catch (_) {}
   }
@@ -7453,6 +7464,43 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     );
   }
 
+  /// What the member has left in the requested bucket, and what else they
+  /// have asked for from it — the two facts the approver never had. Red
+  /// when approving would take more than is left (the database refuses
+  /// that since v56; this says so before the click).
+  Widget? _withdrawalFundsLine(WithdrawalRequest req, bool isDark, String cs) {
+    final funds = _memberFunds[req.memberId];
+    if (funds == null) return null;
+    final isEarnings = req.sourceBucket == 'total_earnings';
+    // Net of APPROVED withdrawals only: every pending one, this included,
+    // is still money the member has.
+    final left = (isEarnings ? funds['totalEarnings'] : funds['balance']) ?? 0;
+    final others = _withdrawalRequests
+        .where((w) =>
+            w.id != req.id &&
+            w.memberId == req.memberId &&
+            w.sourceBucket == req.sourceBucket)
+        .fold<int>(0, (sum, w) => sum + w.requestedAmount);
+    final over = req.requestedAmount > left;
+    final text = over
+        ? 'Only $cs$left left in ${req.sourceLabel} — approving would overdraw'
+        : 'Has $cs$left in ${req.sourceLabel}'
+              '${others > 0 ? ' · $cs$others more in other requests' : ''}';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: over ? FontWeight.w600 : FontWeight.w400,
+          color: over
+              ? StockpileColors.error500
+              : (isDark ? Colors.white54 : const Color(0xFF64748B)),
+        ),
+      ),
+    );
+  }
+
   Widget _buildWithdrawalCard(
     WithdrawalRequest req,
     bool isDark,
@@ -7547,6 +7595,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                             : const Color(0xFF64748B),
                       ),
                     ),
+                    if (!isHistory) ?_withdrawalFundsLine(req, isDark, cs),
                     const SizedBox(height: 12),
                     Divider(
                       color: isDark ? Colors.white10 : Colors.grey.shade200,

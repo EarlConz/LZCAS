@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v55)
+├── migrations/    Ordered, apply-once changes (v2 … v56)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -418,6 +418,20 @@ the build that stops recording sales client-side._
   could work delivery orders by calling the RPCs directly, though the app
   never showed them the page. `get_member_earnings` keeps `is_staff()` — it
   is not a delivery rule.
+
+**Withdrawal reservations (v56)** — _requires v52._
+
+- v56 — a pending withdrawal holds its amount. A trigger on
+  `withdrawal_requests` refuses a request that does not fit in what is left
+  after approved AND pending requests, refuses an approval that would
+  overdraw, and stops members inserting a request that is already approved.
+  Being a trigger, it also covers the 1.5.1 app, which writes the table
+  directly. `get_member_earnings` gains `pending…` and `available…` keys
+  (existing keys unchanged); `pay_order_with_funds` spends only the
+  available figure. Both take one per-member lock, so simultaneous requests
+  and payments are checked one at a time. Run section 2 of
+  `diagnostics/audit_withdrawal_overdrafts.sql` before approving the queue
+  that was there before it.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
