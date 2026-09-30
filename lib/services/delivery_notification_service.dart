@@ -40,6 +40,11 @@ class DeliveryNotificationService extends ChangeNotifier {
   /// Last status seen per order id: the "before" half of each transition.
   final Map<String, String> _lastStatus = {};
 
+  /// Whether each order was ready for a rider when last seen (v59: agreed
+  /// AND paid or cash chosen). Paying changes no status, so this is how
+  /// the cashier's "Ready to dispatch" knows the moment it happens.
+  final Map<String, bool> _lastReady = {};
+
   /// Who the seed was taken for, so signing in as someone else re-seeds.
   String? _seededFor;
 
@@ -78,11 +83,13 @@ class DeliveryNotificationService extends ChangeNotifier {
     final uid = _auth?.userId;
     _seededFor = uid;
     _lastStatus.clear();
+    _lastReady.clear();
     if (uid == null || !(_isStaff || _isMember || _isRider)) return;
     try {
       final orders = await repository.fetchDeliveryOrders();
       for (final o in orders) {
         _lastStatus.putIfAbsent(o.id, () => o.status);
+        _lastReady.putIfAbsent(o.id, () => o.readyForRider);
       }
     } catch (_) {}
   }
@@ -101,19 +108,25 @@ class DeliveryNotificationService extends ChangeNotifier {
     if (order.id.isEmpty || event.type == 'deleted') return;
 
     final before = _lastStatus[order.id];
+    final wasReady = _lastReady[order.id] ?? false;
     _lastStatus[order.id] = order.status;
-    // Same status as last time: a route, payment or ETA write. Nothing new
-    // for anyone to act on.
-    if (before == order.status) return;
+    _lastReady[order.id] = order.readyForRider;
+    final statusChanged = before != order.status;
+    final becameReady = order.readyForRider && !wasReady;
+    // Neither moved: a route, ETA or cash-code write. Nothing new for
+    // anyone to act on.
+    if (!statusChanged && !becameReady) return;
 
     final ref = 'Order ${order.shortId}';
     if (_isStaff) {
-      _forStaff(event, order, before, ref);
+      _forStaff(event, order, before, ref, statusChanged, becameReady);
     } else if (_isMember) {
       // Ignore other members' orders, should any arrive.
+      if (!statusChanged) return;
       if (_myMemberId == null || order.memberId != _myMemberId) return;
       _forMember(order, before);
     } else if (_isRider) {
+      if (!statusChanged) return;
       if (order.deliveryId != _auth?.userId) return;
       _forRider(order, ref);
     }
@@ -124,6 +137,8 @@ class DeliveryNotificationService extends ChangeNotifier {
     DeliveryOrder order,
     String? before,
     String ref,
+    bool statusChanged,
+    bool becameReady,
   ) {
     // A cashier hears about the orders they hold and the ones nobody has
     // picked up yet; an admin, about all of them.
@@ -141,12 +156,21 @@ class DeliveryNotificationService extends ChangeNotifier {
     if (event.type == 'added' &&
         order.status == DeliveryOrderStatus.orderPlaced) {
       _notify('New delivery order', 'A member just placed an order.');
-    } else if (order.status == DeliveryOrderStatus.memberNegotiating) {
+    } else if (statusChanged &&
+        order.status == DeliveryOrderStatus.memberNegotiating) {
       _notify('Delivery counter-offer', '$ref: the member countered the fee.');
-    } else if (order.status == DeliveryOrderStatus.agreed &&
-        before == DeliveryOrderStatus.cashierPricing) {
-      _notify('Ready to dispatch', '$ref: the member agreed to the price.');
-    } else if (order.status == DeliveryOrderStatus.cancelled && onTheRoad) {
+    } else if (becameReady) {
+      // v59: ready for a rider once agreed AND paid or cash chosen,
+      // whichever came last.
+      _notify(
+        'Ready to dispatch',
+        order.isPaid
+            ? "$ref: paid from the member's funds."
+            : '$ref: the member will pay cash on delivery.',
+      );
+    } else if (statusChanged &&
+        order.status == DeliveryOrderStatus.cancelled &&
+        onTheRoad) {
       final why = (order.cancelReason ?? '').trim();
       _notify(
         'Delivery cancelled',

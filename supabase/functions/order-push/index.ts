@@ -20,7 +20,10 @@
 //   SERVICE_ROLE_KEY          reads orders, profiles and push_tokens
 //
 // Body (from the trigger):
-//   { order_id, type: 'insert'|'update', old_status, old_delivery_id, actor }
+//   { order_id, type: 'insert'|'update', old_status, old_delivery_id,
+//     old_payment_status, old_payment_method, actor }
+// The payment fields arrive from v59 on: paying or choosing cash does not
+// change the status, but it is what makes an order ready for a rider.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -46,6 +49,11 @@ const S = {
 
 const ON_THE_ROAD = new Set<string>([S.assigned, S.pickedUp, S.delivered]);
 
+// Agreed, and paid or cash on delivery chosen: what cashier_assign_rider
+// (v59) requires. Mirrors DeliveryOrder.readyForRider in the app.
+const readyForRider = (status: string | null, paid: string | null, method: string | null) =>
+  status === S.agreed && (paid === "paid" || method === "cod");
+
 type OrderRow = {
   id: string;
   status: string;
@@ -54,6 +62,7 @@ type OrderRow = {
   delivery_id: string | null;
   cancel_reason: string | null;
   payment_status: string | null;
+  payment_method: string | null;
 };
 
 type Push = { to: string[]; title: string; body: string };
@@ -149,6 +158,8 @@ async function decide(
   type: string,
   before: string | null,
   oldRider: string | null,
+  oldPaid: string | null,
+  oldMethod: string | null,
 ): Promise<Push[]> {
   const ref = `Order ${order.id.split("-")[0].toUpperCase()}`;
   const status = order.status;
@@ -170,8 +181,18 @@ async function decide(
     pushes.push({ to: await staff(), title: "New delivery order", body: "A member just placed an order." });
   } else if (status === S.countered && before !== S.countered) {
     pushes.push({ to: await staff(), title: "Delivery counter-offer", body: `${ref}: the member countered the fee.` });
-  } else if (status === S.agreed && before === S.pricing) {
-    pushes.push({ to: await staff(), title: "Ready to dispatch", body: `${ref}: the member agreed to the price.` });
+  } else if (readyForRider(status, order.payment_status, order.payment_method) &&
+             !readyForRider(before, oldPaid, oldMethod)) {
+    // v59: a rider can be assigned only once the order is paid or cash is
+    // chosen, so this is the moment the cashier can act, whichever came
+    // last: the agreement, or the payment.
+    pushes.push({
+      to: await staff(),
+      title: "Ready to dispatch",
+      body: order.payment_status === "paid"
+        ? `${ref}: paid from the member's funds.`
+        : `${ref}: the member will pay cash on delivery.`,
+    });
   } else if (status === S.cancelled && before !== null && ON_THE_ROAD.has(before)) {
     const why = (order.cancel_reason ?? "").trim();
     pushes.push({
@@ -244,6 +265,8 @@ serve(async (req: Request) => {
     type?: string;
     old_status?: string | null;
     old_delivery_id?: string | null;
+    old_payment_status?: string | null;
+    old_payment_method?: string | null;
     actor?: string | null;
   };
   try {
@@ -273,7 +296,7 @@ serve(async (req: Request) => {
 
   const { data: order } = await service
     .from("orders")
-    .select("id, status, member_id, cashier_id, delivery_id, cancel_reason, payment_status")
+    .select("id, status, member_id, cashier_id, delivery_id, cancel_reason, payment_status, payment_method")
     .eq("id", body.order_id)
     .single<OrderRow>();
   if (!order) return json({ error: "Order not found" }, 404);
@@ -284,6 +307,8 @@ serve(async (req: Request) => {
     body.type ?? "update",
     body.old_status ?? null,
     body.old_delivery_id ?? null,
+    body.old_payment_status ?? null,
+    body.old_payment_method ?? null,
   );
 
   // Whoever made the change already knows. Everyone else, once per push.

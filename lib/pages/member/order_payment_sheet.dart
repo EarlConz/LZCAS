@@ -100,8 +100,13 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     setState(() => _busy = false);
     if (error != null) {
       // Shown as the database phrased it: it names what is available and
-      // what is needed, which is more use than "payment failed".
-      BotToast.showText(text: error, duration: const Duration(seconds: 5));
+      // what is needed, which is more use than "payment failed". Then the
+      // way forward: since v59 the order waits until they pay or pick cash.
+      final reason = error.endsWith('.') ? error.substring(0, error.length - 1) : error;
+      BotToast.showText(
+        text: '$reason. You can choose Cash on delivery instead.',
+        duration: const Duration(seconds: 6),
+      );
       return;
     }
     Navigator.pop(context, true);

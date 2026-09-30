@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v58)
+├── migrations/    Ordered, apply-once changes (v2 … v59)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -487,6 +487,16 @@ project and two Vault secrets. Does nothing until all are in place._
 
   `net._http_response` shows each call and its answer: `200 {"sent":N}` is
   success; `sent: 0` means nobody to notify had a registered phone.
+
+**No rider before payment (v59)** — _requires v58; deploy `order-push` from
+the same commit._
+
+- v59 — `cashier_assign_rider` refuses an Agreed order until it is paid from
+  funds or cash on delivery is chosen (client decision, 2026-10-01). Counter
+  handover and reassignment are unaffected. The push trigger also fires on
+  `payment_status` / `payment_method` changes and sends their old values, so
+  "Ready to dispatch" goes out when the order becomes dispatchable, not when
+  the price is agreed.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

@@ -1760,6 +1760,15 @@ class DeliveryOrder {
   /// A funds payment given back when the order was cancelled (v57).
   bool get isRefunded => paymentStatus == 'refunded';
 
+  /// Agreed and ready for a rider: paid from funds, or cash on delivery
+  /// chosen. `cashier_assign_rider` (v59) refuses every other Agreed
+  /// order; the member has to do one of the two first. Handing over at the
+  /// counter needs neither, since the member pays there.
+  bool get readyForRider => isAgreed && (isPaid || isCod);
+
+  /// Agreed, but the member hasn't paid or chosen cash yet (v59).
+  bool get waitingForPayment => isAgreed && !isPaid && !isCod;
+
   /// Funds can only be spent while the order is still Agreed —
   /// `pay_order_with_funds` refuses every later status. Once a rider has
   /// it, the member pays the rider in cash.

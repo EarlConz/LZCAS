@@ -54,11 +54,12 @@ extension OrderStageOf on DeliveryOrder {
   }
 
   /// Whether the cashier is the one holding things up. A quote waiting on
-  /// the member, or an order on a rider's bike, is not.
+  /// the member, an agreed order waiting for the member to pay (v59), or an
+  /// order on a rider's bike, is not.
   bool get needsCashier =>
       status == DeliveryOrderStatus.orderPlaced ||
       status == DeliveryOrderStatus.memberNegotiating ||
-      status == DeliveryOrderStatus.agreed ||
+      readyForRider ||
       awaitingRemittance;
 
   /// How long it has sat in its current status. `updated_at` is touched by

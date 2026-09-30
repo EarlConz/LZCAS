@@ -1302,13 +1302,23 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         isDark: _dark,
       );
     }
+    if (_o.waitingForPayment) {
+      // v59: no rider until the member pays or chooses cash.
+      return PaneNote(
+        icon: Icons.hourglass_top_rounded,
+        title: 'Waiting for $first to pay',
+        body: 'A rider can be assigned once $first pays from their funds or '
+            'chooses cash on delivery. You\'ll get an alert. If they come to '
+            'the counter instead, hand it over there and they pay in person.',
+        tint: _dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+        iconColor: _dark ? StockpileColors.primary500 : kOrangeText,
+        isDark: _dark,
+      );
+    }
     return PaneNote(
       icon: Icons.help_outline_rounded,
       title: 'Not paid yet',
-      body: _o.isAgreed
-          ? '$first can still pay from their funds until a rider is '
-                'assigned. After that, the rider collects cash at the door.'
-          : 'The rider collects $total in cash at the door.',
+      body: 'The rider collects $total in cash at the door.',
       tint: _dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
       iconColor: _body,
       isDark: _dark,
@@ -1837,15 +1847,16 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
 
       case DeliveryOrderStatus.agreed:
         final chosen = _candidates.where((c) => c.rider.id == _riderId).firstOrNull;
+        final ready = _o.readyForRider;
         return (
-          null,
+          ready ? null : 'A rider can be assigned once ${_o.memberFirstName} pays or chooses cash.',
           [
             OutlinedButton(
               onPressed: busy ? null : () => _complete(override: false),
               child: const Text('Hand over at counter'),
             ),
             FilledButton(
-              onPressed: busy || chosen == null ? null : _assign,
+              onPressed: busy || chosen == null || !ready ? null : _assign,
               child: Text(chosen == null ? 'Assign rider' : 'Assign ${chosen.rider.username.split(' ').first}'),
             ),
           ],

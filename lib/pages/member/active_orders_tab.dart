@@ -364,7 +364,10 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
             ] else if (order.isAgreed) ...[
               const SizedBox(height: 12),
               Text(
-                'Agreed — the cashier is preparing your order.',
+                order.readyForRider
+                    ? 'Agreed — the store is getting your order ready.'
+                    : 'Agreed — now choose how to pay. The store sends your '
+                          'order once you pay or choose cash on delivery.',
                 style: StockpileFonts.satoshi(fontSize: 13, color: muted),
               ),
             ] else if (order.isAssigned) ...[
