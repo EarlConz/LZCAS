@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v59)
+├── migrations/    Ordered, apply-once changes (v2 … v60)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -497,6 +497,17 @@ the same commit._
   `payment_status` / `payment_method` changes and sends their old values, so
   "Ready to dispatch" goes out when the order becomes dispatchable, not when
   the price is agreed.
+
+**Reduce stock in one step (v60)** — _independent of the delivery chain; ship
+with the app build that calls it._
+
+- v60 — `reduce_item_stock(item, quantity, reason, on_behalf_of)`: locks the
+  item row, refuses a reduction past the current stock (the stock goes in the
+  error's `detail`, `hint = 'stock_too_low'`), writes stock + status and the
+  `stock_out` movement in one transaction. Used by Edit Product's Reduce
+  Stock and by approving an inventory user's reduction request; before this
+  both read and wrote from the app, and an over-large reduction was skipped
+  silently. POS sales still lower stock from the app (see the file's header).
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

@@ -28,6 +28,33 @@ class _EditProductDialogState extends State<EditProductDialog> {
   List<String> categories = [];
   String? selectedCategory;
 
+  /// The stock the database reported when it refused a reduction: newer
+  /// than the list row this dialog opened with. Null until that happens.
+  int? _stockNow;
+
+  /// Shown under Amount to reduce after such a refusal, until edited.
+  String? _staleError;
+
+  bool _saving = false;
+
+  int get _currentStock => _stockNow ?? (widget.item['stock'] as int? ?? 0);
+
+  /// Checked as the amount is typed, so an amount over the stock can never
+  /// reach Save. Before this, it was skipped silently: the dialog closed as
+  /// if it had worked and the stock never moved.
+  String? get _reduceError {
+    final raw = reduceStockController.text.trim();
+    if (raw.isEmpty) return null;
+    final n = int.tryParse(raw);
+    if (n == null || n < 0) return 'Enter a whole number';
+    if (n > _currentStock) {
+      return _currentStock <= 0
+          ? 'Nothing to reduce: the stock is 0'
+          : 'You can reduce at most $_currentStock (the current stock)';
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -77,6 +104,28 @@ class _EditProductDialogState extends State<EditProductDialog> {
   }
 
   Future<void> _save() async {
+    if (_saving || _reduceError != null) return;
+    setState(() => _saving = true);
+    try {
+      await _apply();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// The database's stock is lower than the amount: say what it is now and
+  /// keep the dialog open so the amount can be corrected.
+  void _showStale(int stockNow) {
+    setState(() {
+      _stockNow = stockNow;
+      _staleError =
+          'Stock is now $stockNow (it changed since you opened this). '
+          'Reduce by at most $stockNow.';
+    });
+    widget.onUpdated();
+  }
+
+  Future<void> _apply() async {
     final addAmount = int.tryParse(addStockController.text.trim()) ?? 0;
     final reduceAmount = int.tryParse(reduceStockController.text.trim()) ?? 0;
     final reason = reasonController.text.trim();
@@ -102,11 +151,10 @@ class _EditProductDialogState extends State<EditProductDialog> {
     final newCategory = selectedCategory?.trim();
 
     final id = widget.item['id'] as int?;
-    final currentStock = widget.item['stock'] as int? ?? 0;
 
     if (id == null) {
       // in-memory
-      widget.item['stock'] = currentStock + addAmount - reduceAmount;
+      widget.item['stock'] = _currentStock + addAmount - reduceAmount;
       widget.item['name'] = newName;
       widget.item['category'] = newCategory;
       widget.item['lastUpdated'] = "${DateTime.now().toLocal()}".split('.')[0];
@@ -115,6 +163,10 @@ class _EditProductDialogState extends State<EditProductDialog> {
       return;
     }
 
+    // Read before the await: needed for the approval decision below.
+    final needsApproval =
+        context.read<AuthState>().userRole == UserRole.inventory;
+
     final row = await repository.getItemById(id);
     if (row == null) {
       if (!mounted) return;
@@ -122,18 +174,8 @@ class _EditProductDialogState extends State<EditProductDialog> {
       return;
     }
 
-    // Update name/category if changed
-    if (newName.isNotEmpty && newName != row.name ||
-        newCategory != row.category) {
-      await repository.updateItem(
-        row.copyWith(
-          name: newName.isEmpty ? row.name : newName,
-          category: newCategory,
-        ),
-      );
-    }
-
-    // Apply stock changes with audit trail
+    // Stock first, so a refused reduction leaves the product exactly as it
+    // was: no half-save of the name with the stock untouched.
     if (addAmount > 0) {
       final ok = await repository.addStock(
         itemId: id,
@@ -147,9 +189,14 @@ class _EditProductDialogState extends State<EditProductDialog> {
       }
     }
 
-    if (reduceAmount > 0 && currentStock >= reduceAmount) {
-      final role = context.read<AuthState>().userRole;
-      final needsApproval = role == UserRole.inventory;
+    if (reduceAmount > 0) {
+      // The list this dialog opened from may be out of date: a sale or
+      // another edit since. Check against the stock just read.
+      if (row.stock < reduceAmount) {
+        if (!mounted) return;
+        _showStale(row.stock);
+        return;
+      }
 
       if (needsApproval) {
         await repository.submitPendingRequest(
@@ -164,18 +211,35 @@ class _EditProductDialogState extends State<EditProductDialog> {
           text: 'Stock reduction request sent to admin for approval',
         );
       } else {
-        final ok = await repository.reduceStock(
+        // Checked again by the database (v60), which also stops two
+        // reductions at the same moment from both going through.
+        final r = await repository.reduceStock(
           itemId: id,
-          itemName: row.name,
           quantity: reduceAmount,
           reason: reason,
         );
-        if (!ok) {
-          if (!mounted) return;
-          BotToast.showText(text: 'Failed to reduce stock');
+        if (!mounted) return;
+        if (r.stockNow != null) {
+          _showStale(r.stockNow!);
+          return;
+        }
+        if (r.error != null) {
+          BotToast.showText(text: 'Could not reduce stock: ${r.error}');
           return;
         }
       }
+    }
+
+    if (newName.isNotEmpty && newName != row.name ||
+        newCategory != row.category) {
+      await repository.updateItem(
+        // Re-read: a reduction just changed this row's stock and status,
+        // and writing the old copy back would undo it.
+        ((await repository.getItemById(id)) ?? row).copyWith(
+          name: newName.isEmpty ? row.name : newName,
+          category: newCategory,
+        ),
+      );
     }
 
     if (!mounted) return;
@@ -188,7 +252,8 @@ class _EditProductDialogState extends State<EditProductDialog> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isNarrow = MediaQuery.sizeOf(context).width < 500;
-    final currentStock = widget.item['stock'] as int? ?? 0;
+    final currentStock = _currentStock;
+    final reduceError = _staleError ?? _reduceError;
 
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -302,14 +367,22 @@ class _EditProductDialogState extends State<EditProductDialog> {
               TextField(
                 controller: reduceStockController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
+                // Re-check on every keystroke; a stale-stock message clears
+                // as soon as the amount is changed.
+                onChanged: (_) => setState(() => _staleError = null),
+                decoration: InputDecoration(
                   labelText: 'Amount to reduce',
                   hintText: 'e.g. 10',
-                  prefixIcon: Icon(
+                  helperText: currentStock > 0
+                      ? 'Up to $currentStock'
+                      : null,
+                  errorText: reduceError,
+                  errorMaxLines: 3,
+                  prefixIcon: const Icon(
                     Icons.remove_circle_outline,
                     color: Colors.red,
                   ),
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 12),
@@ -335,7 +408,16 @@ class _EditProductDialogState extends State<EditProductDialog> {
           child: const Text('Cancel'),
         ),
         const SizedBox(width: 12),
-        FilledButton(onPressed: _save, child: const Text('Save')),
+        FilledButton(
+          onPressed: _saving || reduceError != null ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Save'),
+        ),
       ],
     );
   }

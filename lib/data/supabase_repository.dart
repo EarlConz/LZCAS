@@ -788,39 +788,47 @@ class SupabaseRepository {
     return true;
   }
 
-  /// Reduce stock with audit trail and mandatory reason.
-  Future<bool> reduceStock({
+  /// Reduce stock with audit trail and mandatory reason, as ONE database
+  /// step (`reduce_item_stock`, v60): the item row is locked, so two
+  /// reductions at once can't both pass on the same reading, and stock
+  /// can't go below zero.
+  ///
+  /// Returns the new stock, or why it was refused. [stockNow] is set when
+  /// the refusal was "not enough stock": it is the stock the database
+  /// actually holds, which may have changed since the caller last looked.
+  Future<({int? newStock, int? stockNow, String? error})> reduceStock({
     required int itemId,
-    required String itemName,
     required int quantity,
     required String reason,
     String?
-    overriddenUserId, // if set, uses this user_id for audit instead of _uid
+    overriddenUserId, // admin approving a request: credit the requester
   }) async {
-    final item = await getItemById(itemId);
-    if (item == null) return false;
-    if (item.stock < quantity) return false;
-
-    final newStock = item.stock - quantity;
-    final updated = item.copyWith(
-      stock: newStock,
-      lastUpdated: DateTime.now(),
-      status: statusFromStock(newStock),
-    );
-    await updateItem(updated);
-
-    await _supabase.from('stock_movements').insert({
-      'user_id': overriddenUserId ?? _uid,
-      'item_id': itemId,
-      'item_name': itemName,
-      'quantity': quantity,
-      'movement_type': 'stock_out',
-      'reason': reason,
-      'created_at': DateTime.now().toUtc().toIso8601String(),
-    });
-
-    _changes.add('stock_movement_added');
-    return true;
+    try {
+      final result = await _supabase.rpc(
+        'reduce_item_stock',
+        params: {
+          'p_item_id': itemId,
+          'p_quantity': quantity,
+          'p_reason': reason,
+          'p_on_behalf_of': ?overriddenUserId,
+        },
+      );
+      _changes.add('stock_movement_added');
+      return (newStock: (result as num).toInt(), stockNow: null, error: null);
+    } on PostgrestException catch (e) {
+      if (e.hint == 'stock_too_low') {
+        return (
+          newStock: null,
+          stockNow: int.tryParse('${e.details}'),
+          error: e.message,
+        );
+      }
+      debugPrint('[reduceStock] refused: ${e.message}');
+      return (newStock: null, stockNow: null, error: e.message);
+    } catch (e) {
+      debugPrint('[reduceStock] failed: $e');
+      return (newStock: null, stockNow: null, error: _friendlyError(e));
+    }
   }
 
   Future<List<StockMovement>> fetchStockMovements() async {
@@ -2921,14 +2929,20 @@ class SupabaseRepository {
       if (req.requestType == 'delete') {
         await deleteItemById(req.itemId!);
       } else if (req.requestType == 'reduce_stock') {
-        final ok = await reduceStock(
+        final r = await reduceStock(
           itemId: req.itemId!,
-          itemName: req.itemName!,
           quantity: req.quantity ?? 0,
           reason: req.reason ?? 'Admin-approved stock reduction',
           overriddenUserId: req.userId, // credit the original requester
         );
-        if (!ok) return 'Insufficient stock for this item';
+        if (r.error != null) {
+          // The request stays pending: approving it later, once stock is
+          // back, still works.
+          return r.stockNow != null
+              ? 'Insufficient stock for ${req.itemName ?? 'this item'}: '
+                    'only ${r.stockNow} in stock, ${req.quantity} requested.'
+              : r.error;
+        }
       } else if (req.requestType == 'delete_member' && req.memberId != null) {
         final ok = await deleteMemberById(req.memberId!);
         if (!ok) return 'Failed to delete member';
