@@ -1,10 +1,22 @@
-// ...existing code...
+// lib/dialogs/edit_stock_dialog.dart
+//
+// Edit Product: rename, recategorise, and add or reduce stock, from the
+// "Staff Modals Redesign" canvas. Built on widgets/modal_kit.dart, so it is
+// a dialog on desktop and a full screen on a phone.
+//
+// Stock is checked as it is typed (a reduction can't exceed the stock) and
+// again by the database (reduce_item_stock, v60). Inventory users don't
+// reduce directly: their reduction goes to an admin for approval.
+
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/config_service.dart';
 import 'package:lzcas/theme.dart';
+import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/widgets/modal_kit.dart';
 
 class EditProductDialog extends StatefulWidget {
   final Map<String, dynamic> item;
@@ -20,50 +32,85 @@ class EditProductDialog extends StatefulWidget {
   State<EditProductDialog> createState() => _EditProductDialogState();
 }
 
+enum _StockMode { none, add, reduce }
+
 class _EditProductDialogState extends State<EditProductDialog> {
-  late final TextEditingController nameController;
-  late final TextEditingController addStockController;
-  late final TextEditingController reduceStockController;
-  late final TextEditingController reasonController;
-  List<String> categories = [];
-  String? selectedCategory;
+  late final TextEditingController _name;
+  final _amount = TextEditingController();
+  final _details = TextEditingController();
+  List<String> _categories = [];
+  String? _category;
+
+  _StockMode _mode = _StockMode.none;
+  String? _reason;
 
   /// The stock the database reported when it refused a reduction: newer
   /// than the list row this dialog opened with. Null until that happens.
   int? _stockNow;
 
-  /// Shown under Amount to reduce after such a refusal, until edited.
+  /// Shown under the amount after such a refusal, until the amount changes.
   String? _staleError;
 
   bool _saving = false;
 
+  static const _reasons = [
+    'Damaged',
+    'Expired',
+    'Transferred',
+    'Count correction',
+    'Other',
+  ];
+
+  String get _originalName => (widget.item['name'] as String? ?? '').trim();
+  String? get _originalCategory => (widget.item['category'] as String?)?.trim();
   int get _currentStock => _stockNow ?? (widget.item['stock'] as int? ?? 0);
+  int get _amountValue => int.tryParse(_amount.text.trim()) ?? 0;
+  bool get _isReduce => _mode == _StockMode.reduce;
+
+  bool get _needsApproval =>
+      context.read<AuthState>().userRole == UserRole.inventory;
+
+  bool get _detailsChanged =>
+      _name.text.trim() != _originalName || (_category ?? '') != (_originalCategory ?? '');
+
+  bool get _stockChanged => _mode != _StockMode.none && _amountValue > 0;
 
   /// Checked as the amount is typed, so an amount over the stock can never
   /// reach Save. Before this, it was skipped silently: the dialog closed as
   /// if it had worked and the stock never moved.
-  String? get _reduceError {
-    final raw = reduceStockController.text.trim();
-    if (raw.isEmpty) return null;
-    final n = int.tryParse(raw);
-    if (n == null || n < 0) return 'Enter a whole number';
-    if (n > _currentStock) {
+  String? get _amountError {
+    if (!_isReduce) return null;
+    if (_staleError != null) return _staleError;
+    if (_amountValue > _currentStock) {
       return _currentStock <= 0
           ? 'Nothing to reduce: the stock is 0'
-          : 'You can reduce at most $_currentStock (the current stock)';
+          : 'At most $_currentStock, the current stock';
     }
     return null;
+  }
+
+  /// Why Save is off, in words; null when it can save.
+  String? get _blocker {
+    if (_name.text.trim().isEmpty) return 'A product name is required.';
+    if (_amountError != null) return 'Lower the amount to save.';
+    if (_isReduce && _amountValue > 0 && _reason == null) {
+      return 'Pick a reason for the reduction.';
+    }
+    if (!_detailsChanged && !_stockChanged) return 'Nothing changed yet.';
+    return null;
+  }
+
+  /// "Damaged" or "Damaged — water damage in storeroom".
+  String get _reasonText {
+    final d = _details.text.trim();
+    return d.isEmpty ? _reason! : '${_reason!} — $d';
   }
 
   @override
   void initState() {
     super.initState();
-    nameController = TextEditingController(
-      text: widget.item["name"] as String? ?? '',
-    );
-    addStockController = TextEditingController();
-    reduceStockController = TextEditingController();
-    reasonController = TextEditingController();
+    _name = TextEditingController(text: _originalName);
+    _category = (_originalCategory?.isNotEmpty ?? false) ? _originalCategory : null;
     _loadCategories();
   }
 
@@ -76,35 +123,27 @@ class _EditProductDialogState extends State<EditProductDialog> {
         for (final c in cats)
           if (c.name.trim().isNotEmpty) c.name.trim(),
       };
-      final existing = (widget.item['category'] as String?)?.trim();
       // Keep the product's current category selectable even if it was
       // later removed from Settings, so editing never silently drops it.
+      final existing = _originalCategory;
       if (existing != null && existing.isNotEmpty) set.add(existing);
-      final list = set.toList()..sort();
       if (!mounted) return;
-      setState(() {
-        categories = list;
-        selectedCategory = (existing != null && existing.isNotEmpty)
-            ? existing
-            : null;
-      });
+      setState(() => _categories = set.toList()..sort());
     } catch (e) {
-      // ignore: avoid_print
-      print('Failed to load categories: $e');
+      debugPrint('Failed to load categories: $e');
     }
   }
 
   @override
   void dispose() {
-    nameController.dispose();
-    addStockController.dispose();
-    reduceStockController.dispose();
-    reasonController.dispose();
+    _name.dispose();
+    _amount.dispose();
+    _details.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    if (_saving || _reduceError != null) return;
+    if (_saving || _blocker != null) return;
     setState(() => _saving = true);
     try {
       await _apply();
@@ -126,35 +165,15 @@ class _EditProductDialogState extends State<EditProductDialog> {
   }
 
   Future<void> _apply() async {
-    final addAmount = int.tryParse(addStockController.text.trim()) ?? 0;
-    final reduceAmount = int.tryParse(reduceStockController.text.trim()) ?? 0;
-    final reason = reasonController.text.trim();
-
-    if (addAmount == 0 && reduceAmount == 0) {
-      BotToast.showText(text: 'No stock change requested');
-      return;
-    }
-
-    if (addAmount > 0 && reduceAmount > 0) {
-      BotToast.showText(
-        text: 'Choose either Add Stock or Reduce Stock, not both',
-      );
-      return;
-    }
-
-    if (reduceAmount > 0 && reason.isEmpty) {
-      BotToast.showText(text: 'A reason is required for stock reduction');
-      return;
-    }
-
-    final newName = nameController.text.trim();
-    final newCategory = selectedCategory?.trim();
-
+    final amount = _stockChanged ? _amountValue : 0;
+    final newName = _name.text.trim();
+    final newCategory = _category?.trim();
     final id = widget.item['id'] as int?;
 
     if (id == null) {
-      // in-memory
-      widget.item['stock'] = _currentStock + addAmount - reduceAmount;
+      // In-memory (no database row yet).
+      final delta = _mode == _StockMode.add ? amount : -amount;
+      widget.item['stock'] = _currentStock + delta;
       widget.item['name'] = newName;
       widget.item['category'] = newCategory;
       widget.item['lastUpdated'] = "${DateTime.now().toLocal()}".split('.')[0];
@@ -164,8 +183,8 @@ class _EditProductDialogState extends State<EditProductDialog> {
     }
 
     // Read before the await: needed for the approval decision below.
-    final needsApproval =
-        context.read<AuthState>().userRole == UserRole.inventory;
+    final needsApproval = _needsApproval;
+    var sentForApproval = false;
 
     final row = await repository.getItemById(id);
     if (row == null) {
@@ -176,11 +195,11 @@ class _EditProductDialogState extends State<EditProductDialog> {
 
     // Stock first, so a refused reduction leaves the product exactly as it
     // was: no half-save of the name with the stock untouched.
-    if (addAmount > 0) {
+    if (_mode == _StockMode.add && amount > 0) {
       final ok = await repository.addStock(
         itemId: id,
         itemName: row.name,
-        quantity: addAmount,
+        quantity: amount,
       );
       if (!ok) {
         if (!mounted) return;
@@ -189,10 +208,10 @@ class _EditProductDialogState extends State<EditProductDialog> {
       }
     }
 
-    if (reduceAmount > 0) {
+    if (_isReduce && amount > 0) {
       // The list this dialog opened from may be out of date: a sale or
       // another edit since. Check against the stock just read.
-      if (row.stock < reduceAmount) {
+      if (row.stock < amount) {
         if (!mounted) return;
         _showStale(row.stock);
         return;
@@ -203,20 +222,17 @@ class _EditProductDialogState extends State<EditProductDialog> {
           itemId: id,
           itemName: row.name,
           requestType: 'reduce_stock',
-          quantity: reduceAmount,
-          reason: reason,
+          quantity: amount,
+          reason: _reasonText,
         );
-        if (!mounted) return;
-        BotToast.showText(
-          text: 'Stock reduction request sent to admin for approval',
-        );
+        sentForApproval = true;
       } else {
         // Checked again by the database (v60), which also stops two
         // reductions at the same moment from both going through.
         final r = await repository.reduceStock(
           itemId: id,
-          quantity: reduceAmount,
-          reason: reason,
+          quantity: amount,
+          reason: _reasonText,
         );
         if (!mounted) return;
         if (r.stockNow != null) {
@@ -230,195 +246,261 @@ class _EditProductDialogState extends State<EditProductDialog> {
       }
     }
 
-    if (newName.isNotEmpty && newName != row.name ||
-        newCategory != row.category) {
+    if (_detailsChanged) {
       await repository.updateItem(
-        // Re-read: a reduction just changed this row's stock and status,
+        // Re-read: a stock change just rewrote this row's stock and status,
         // and writing the old copy back would undo it.
         ((await repository.getItemById(id)) ?? row).copyWith(
-          name: newName.isEmpty ? row.name : newName,
+          name: newName,
           category: newCategory,
         ),
       );
     }
 
     if (!mounted) return;
+    if (sentForApproval) {
+      BotToast.showText(text: 'Stock reduction sent to an admin for approval');
+    }
     widget.onUpdated();
     Navigator.pop(context);
   }
 
+  // ── UI ─────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isNarrow = MediaQuery.sizeOf(context).width < 500;
-    final currentStock = _currentStock;
-    final reduceError = _staleError ?? _reduceError;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final text = dark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
+    final muted = dark ? StockpileColors.darkTextMuted : const Color(0xFF6E6E7A);
+    final blocker = _blocker;
+    final approval = _isReduce && _needsApproval;
+    final subtitle = [
+      _originalName.isEmpty ? 'Unnamed product' : _originalName,
+      if ((_originalCategory ?? '').isNotEmpty) _originalCategory!,
+    ].join(' · ');
 
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
-      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-      title: Row(
-        children: [
-          Icon(Icons.edit_rounded, color: colorScheme.primary, size: 28),
-          const SizedBox(width: 10),
-          Text(
-            'Edit Product',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
+    return AppModal(
+      title: 'Edit product',
+      subtitle: subtitle,
+      leading: const ModalIconTile(Icons.inventory_2_outlined),
+      body: [
+        _stockSummary(dark, text, muted),
+        ModalSection(
+          title: 'Details',
+          children: [
+            FieldPair(
+              LabeledField(
+                label: 'Name',
+                required: true,
+                child: TextField(
+                  controller: _name,
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              LabeledField(
+                label: 'Category',
+                child: DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  initialValue: _categories.contains(_category) ? _category : null,
+                  hint: const Text('Select category'),
+                  items: [
+                    for (final c in _categories)
+                      DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)),
+                  ],
+                  onChanged: (v) => setState(() => _category = v),
+                ),
+              ),
             ),
+          ],
+        ),
+        ModalSection(
+          title: 'Change stock',
+          children: [
+            SegmentedChoice<_StockMode>(
+              options: const [
+                (_StockMode.none, 'No change'),
+                (_StockMode.add, 'Add'),
+                (_StockMode.reduce, 'Reduce'),
+              ],
+              value: _mode,
+              onChanged: (m) => setState(() {
+                _mode = m;
+                _staleError = null;
+              }),
+            ),
+            if (_mode != _StockMode.none) _amountRow(dark, text, muted),
+            if (_isReduce) ...[
+              LabeledField(
+                label: 'Reason',
+                required: true,
+                child: ChoicePills(
+                  options: _reasons,
+                  value: _reason,
+                  onChanged: (r) => setState(() => _reason = r),
+                ),
+              ),
+              TextField(
+                controller: _details,
+                decoration: const InputDecoration(
+                  hintText: 'Details (optional) — e.g. water damage in storeroom',
+                ),
+              ),
+              if (approval)
+                ModalNote(
+                  tone: ModalTone.info,
+                  icon: Icons.verified_user_outlined,
+                  title: 'An admin approves reductions first.',
+                  body: 'The stock stays at $_currentStock until they do. '
+                      'The request appears under My Requests.',
+                ),
+            ],
+          ],
+        ),
+      ],
+      footerNote: Text(
+        blocker ?? (_stockChanged ? 'Recorded in stock history under your name.' : ''),
+        style: StockpileFonts.satoshi(
+          fontSize: 12,
+          fontWeight: _amountError != null ? FontWeight.w600 : FontWeight.w400,
+          color: _amountError != null ? const Color(0xFFB91C1C) : muted,
+        ),
+      ),
+      primaryAction: FilledButton(
+        onPressed: _saving || blocker != null ? null : _save,
+        child: _saving
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Text(approval ? 'Send for approval' : 'Save changes'),
+      ),
+    );
+  }
+
+  Widget _stockSummary(bool dark, Color text, Color muted) {
+    final stock = _currentStock;
+    final threshold = context.read<ConfigService>().thresholdForCategory(_category);
+    final (label, tone) = stock <= 0
+        ? ('Out of stock', ModalTone.danger)
+        : stock < threshold
+        ? ('Low stock', ModalTone.warn)
+        : ('In good supply', ModalTone.neutral);
+    final (bg, fg) = tone.colors(dark);
+    final updated = widget.item['lastUpdated']?.toString();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('In stock now', style: StockpileFonts.satoshi(fontSize: 12, color: muted)),
+                Text(
+                  '$stock',
+                  style: StockpileFonts.satoshi(fontSize: 28, fontWeight: FontWeight.w700, color: text),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
+                child: Text(label, style: StockpileFonts.satoshi(fontSize: 12, fontWeight: FontWeight.w700, color: fg)),
+              ),
+              if (updated != null && updated.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('Updated $updated', style: StockpileFonts.satoshi(fontSize: 12, color: muted)),
+              ],
+            ],
           ),
         ],
       ),
-      content: SizedBox(
-        width: isNarrow ? double.maxFinite : 480,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Current stock display
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest.withAlpha(80),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.inventory_2_outlined,
-                      size: 20,
-                      color: colorScheme.primary,
+    );
+  }
+
+  /// The stepper, and what the stock becomes.
+  Widget _amountRow(bool dark, Color text, Color muted) {
+    final stock = _currentStock;
+    final n = _amountValue;
+    final after = _isReduce ? stock - n : stock + n;
+    final bad = _amountError != null;
+
+    final preview = n <= 0
+        ? null
+        : Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: bad ? (dark ? const Color(0x33B91C1C) : const Color(0xFFFEF2F2)) : null,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: bad
+                    ? const Color(0xFFF5B4B4)
+                    : (dark ? StockpileColors.darkDivider : StockpileColors.divider),
+              ),
+            ),
+            alignment: Alignment.center,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('$stock', style: StockpileFonts.satoshi(fontSize: 16, fontWeight: FontWeight.w600, color: muted)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(Icons.arrow_forward_rounded, size: 18, color: muted),
+                  ),
+                  Text(
+                    bad ? '$after' : '$after in stock',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: bad ? const Color(0xFFB91C1C) : text,
+                      decoration: bad ? TextDecoration.lineThrough : null,
                     ),
+                  ),
+                  if (bad) ...[
                     const SizedBox(width: 8),
-                    Text('Current Stock: ', style: theme.textTheme.bodyMedium),
                     Text(
-                      '$currentStock',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: colorScheme.primary,
-                      ),
+                      "can't go below 0",
+                      style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: const Color(0xFFB91C1C)),
                     ),
                   ],
-                ),
+                ],
               ),
-              const SizedBox(height: 16),
+            ),
+          );
 
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Product name'),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: categories.contains(selectedCategory)
-                    ? selectedCategory
-                    : null,
-                decoration: const InputDecoration(labelText: 'Category'),
-                items: categories
-                    .map(
-                      (c) => DropdownMenuItem(
-                        value: c,
-                        child: Text(c, overflow: TextOverflow.ellipsis),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => selectedCategory = v),
-                hint: const Text('Select category'),
-              ),
-              const SizedBox(height: 20),
-
-              // --- Add Stock ---
-              Text(
-                'Add Stock',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: StockpileColors.success,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: addStockController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Amount to add',
-                  hintText: 'e.g. 50',
-                  prefixIcon: Icon(
-                    Icons.add_circle_outline,
-                    color: Colors.green,
-                  ),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // --- Reduce Stock ---
-              Text(
-                'Reduce Stock',
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: StockpileColors.error500,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: reduceStockController,
-                keyboardType: TextInputType.number,
-                // Re-check on every keystroke; a stale-stock message clears
-                // as soon as the amount is changed.
-                onChanged: (_) => setState(() => _staleError = null),
-                decoration: InputDecoration(
-                  labelText: 'Amount to reduce',
-                  hintText: 'e.g. 10',
-                  helperText: currentStock > 0
-                      ? 'Up to $currentStock'
-                      : null,
-                  errorText: reduceError,
-                  errorMaxLines: 3,
-                  prefixIcon: const Icon(
-                    Icons.remove_circle_outline,
-                    color: Colors.red,
-                  ),
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: reasonController,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Reason for reduction',
-                  hintText: 'e.g. Damaged, expired, transferred',
-                  prefixIcon: Icon(Icons.edit_note_rounded),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
+    return LabeledField(
+      label: _isReduce ? 'Amount to reduce' : 'Amount to add',
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          NumberStepper(
+            controller: _amount,
+            semanticLabel: _isReduce ? 'Amount to reduce' : 'Amount to add',
+            min: 0,
+            max: _isReduce ? stock : null,
+            errorText: _amountError,
+            helperText: _isReduce ? 'Up to $stock' : null,
+            onChanged: (_) => setState(() => _staleError = null),
           ),
-        ),
+          if (preview != null) ...[
+            const SizedBox(width: 12),
+            Expanded(child: preview),
+          ],
+        ],
       ),
-      actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        const SizedBox(width: 12),
-        FilledButton(
-          onPressed: _saving || reduceError != null ? null : _save,
-          child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Save'),
-        ),
-      ],
     );
   }
 }
