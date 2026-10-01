@@ -10,6 +10,14 @@ applied to either project.
 > **Last updated 2026-10-02.** Staging is at **v62**. Production, as far as
 > these notes know, is at v46 plus v47 and v51. **Confirm production before
 > starting** (query below): this file only knows what someone wrote down.
+>
+> **Production app:** release **v1.5.1** (tag, 2026-09-23). Delivery is off in
+> it (`enableDeliverySystem = false`), and it carries only three of these
+> migration files: v47, v48 and v51. So production cannot have v49 or later
+> from this release. Whether v48 was ever run there is unknown: the ledger
+> query settles it. A v52 called `saved_items_policy_repair` existed for
+> twelve minutes on 2026-09-23 and was dropped before the tag; it is the
+> label staging still shows for v52.
 
 ```sql
 -- Run on PRODUCTION first: what its ledger says is applied from v45 on.
@@ -31,7 +39,7 @@ order by version;
 | # | File | Staging | Production | Before applying on production |
 |---|------|:-:|:-:|---|
 | v47 | `migration_v47_member_location.sql` | ✅ | ✅ | — |
-| v48 | `migration_v48_delivery_orders.sql` | ✅ | ❌ | — |
+| v48 | `migration_v48_delivery_orders.sql` | ✅ | ❓ | Shipped as a file in v1.5.1; check the ledger. Safe to re-run if present. |
 | v49 | `migration_v49_orders_authorization.sql` | ✅ | ❌ | — |
 | v50 | `migration_v50_delivery_role.sql` | ✅ | ❌ | — |
 | v51 | `migration_v51_cashier_announcements.sql` | ✅ | ✅ | — |
@@ -97,3 +105,4 @@ must know v59's payment events and v61's `event` field.
 | Date | Change |
 |---|---|
 | 2026-10-02 | Created. Staging at v62; production at v46 + v47 + v51 (unconfirmed). |
+| 2026-10-02 | Production app is v1.5.1: delivery off; v48 status unknown. |
