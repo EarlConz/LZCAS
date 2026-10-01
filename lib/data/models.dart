@@ -448,6 +448,11 @@ class Sale {
   /// Set when this sale is a package availment, not a product sale.
   final int? packageId;
 
+  /// How a delivery order was paid ('funds', 'cod', 'counter', 'outside'),
+  /// written by the database when it records the order's sale (v52). Null
+  /// for a sale made at the POS. Read-only: the app never writes it.
+  final String? paymentMethod;
+
   const Sale({
     this.id,
     required this.itemId,
@@ -459,11 +464,15 @@ class Sale {
     this.timestamp,
     this.userId,
     this.packageId,
+    this.paymentMethod,
   });
 
   /// Package availments are not products and are excluded from
   /// product metrics (revenue, category breakdown, top products).
   bool get isPackage => packageId != null;
+
+  /// Sold through a delivery order rather than at the counter.
+  bool get isOnlineOrder => paymentMethod != null;
 
   factory Sale.fromJson(Map<String, dynamic> json) => Sale(
     id: json['id'] as int?,
@@ -478,6 +487,7 @@ class Sale {
         : null,
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
+    paymentMethod: json['payment_method'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -514,6 +524,7 @@ class Sale {
     timestamp: timestamp ?? this.timestamp,
     userId: userId ?? this.userId,
     packageId: packageId ?? this.packageId,
+    paymentMethod: paymentMethod,
   );
 }
 

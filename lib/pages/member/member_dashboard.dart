@@ -28,6 +28,8 @@ import '../../widgets/memberqr.dart';
 import 'announcements_tab.dart';
 import 'member_marketplace_tab.dart';
 import 'active_orders_tab.dart';
+import 'member_order_kit.dart' show MemberOrderView;
+import 'my_purchases_tab.dart';
 
 class MemberDashboard extends StatefulWidget {
   const MemberDashboard({super.key});
@@ -46,11 +48,37 @@ class _MemberDashboardState extends State<MemberDashboard> {
   /// True when this member's role is 'Verified Reseller'.
   bool get _isReseller => _member?.role == 'Verified Reseller';
 
+  /// Orders waiting on this member (a quote, a payment, a delivery to
+  /// confirm): the badge on Active Orders in the menu.
+  int _ordersNeedingYou = 0;
+  StreamSubscription<String>? _orderSub;
+
   @override
   void initState() {
     super.initState();
     _loadMemberData();
     _triggerUpdateCheck();
+    if (enableDeliverySystem) {
+      _orderSub = repository.changes.listen((e) {
+        if (e.startsWith('order_') || e == 'orders_changed') _countOrders();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _orderSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _countOrders() async {
+    final id = _member?.id;
+    if (!enableDeliverySystem || id == null) return;
+    try {
+      final orders = await repository.fetchDeliveryOrders(memberId: id);
+      final n = orders.where((o) => o.memberMustAct).length;
+      if (mounted && n != _ordersNeedingYou) setState(() => _ordersNeedingYou = n);
+    } catch (_) {}
   }
 
   void _triggerUpdateCheck() {
@@ -88,6 +116,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
         _member = member;
         _loading = false;
       });
+      _countOrders();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -188,6 +217,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
       selectedIndex: _selectedIndex,
       isReseller: _isReseller,
       onItemSelected: _onItemTapped,
+      ordersBadge: _ordersNeedingYou,
       onLogout: _handleLogout,
       onFindCashiers: _openNearestCashiers,
     );
@@ -287,9 +317,12 @@ class _MemberDashboardState extends State<MemberDashboard> {
           onOrderPlaced: () => _openTab(_MemberTab.orders),
         );
       case _MemberTab.orders:
-        return ActiveOrdersTab(member: _member!);
+        return ActiveOrdersTab(
+          member: _member!,
+          onShop: () => _openTab(_MemberTab.marketplace),
+        );
       case _MemberTab.purchases:
-        return _PurchasesTab(member: _member!);
+        return MyPurchasesTab(member: _member!);
       case _MemberTab.announcements:
         return AnnouncementsTab(member: _member!);
       case _MemberTab.earnings:
@@ -1593,242 +1626,6 @@ class _RecentActivityCard extends StatelessWidget {
   String _fmtDate(DateTime dt) {
     final d = dt.toLocal();
     return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-  }
-}
-
-// ─── Purchases Tab ─────────────────────────────────────────────────────────
-
-class _PurchasesTab extends StatefulWidget {
-  final Member member;
-  const _PurchasesTab({required this.member});
-
-  @override
-  State<_PurchasesTab> createState() => _PurchasesTabState();
-}
-
-class _PurchasesTabState extends State<_PurchasesTab> {
-  List<Sale> _sales = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final sales = await repository.fetchMemberPurchaseHistory(
-      widget.member.id!,
-    );
-    if (!mounted) return;
-    setState(() {
-      _sales = sales;
-      _loading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_sales.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: StockpileColors.primary900.withValues(alpha: 0.08),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.receipt_long_rounded,
-                size: 32,
-                color: StockpileColors.primary900,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No purchase history',
-              style: StockpileFonts.satoshi(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Your purchases will appear here once you start buying.',
-              textAlign: TextAlign.center,
-              style: StockpileFonts.satoshi(
-                fontSize: 13,
-                color: StockpileColors.mutedText,
-                height: 1.5,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final currencySymbol = context.watch<ConfigService>().currencySymbol;
-    final now = DateTime.now();
-
-    return RefreshIndicator(
-      onRefresh: _load,
-      color: StockpileColors.primary900,
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        itemCount: _sales.length,
-        itemBuilder: (context, i) {
-          final s = _sales[i];
-          const accent = StockpileColors.primary900;
-          final iconBg = StockpileColors.primary900.withValues(alpha: 0.08);
-          final age = s.timestamp != null
-              ? _relativeTime(s.timestamp!, now)
-              : '';
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Container(
-              decoration: BoxDecoration(
-                color: isDark ? StockpileColors.darkSurface : Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.03),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-                border: Border(left: BorderSide(color: accent, width: 3)),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                child: Row(
-                  children: [
-                    // Icon
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: iconBg,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.shopping_bag_rounded,
-                        size: 20,
-                        color: accent,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    // Name + meta
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  s.itemName,
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    color: isDark
-                                        ? StockpileColors.darkTextPrimary
-                                        : StockpileColors.darkText,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              if (age.isNotEmpty) ...[
-                                Text(
-                                  age,
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 12,
-                                    color: StockpileColors.mutedText,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                              ],
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? StockpileColors.darkInputBg
-                                      : const Color(0xFFF1F3F5),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  '×${s.quantity}',
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: StockpileColors.mutedText,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Price
-                    Text(
-                      '$currencySymbol${s.price}',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: isDark
-                            ? StockpileColors.darkTextPrimary
-                            : StockpileColors.darkText,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  String _relativeTime(DateTime dt, DateTime now) {
-    final diff = now.difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) {
-      if (dt.day == now.day) return 'Today';
-      return '${diff.inHours}h ago';
-    }
-    if (diff.inDays == 1) return 'Yesterday';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
   }
 }
 
