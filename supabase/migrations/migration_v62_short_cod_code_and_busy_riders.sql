@@ -133,13 +133,13 @@ language sql
 stable
 security definer
 set search_path = public
-as $
+as $$
   select delivery_id, id
     from public.orders
    where public.can_handle_orders()
      and delivery_id is not null
      and status in ('Assigned', 'Picked Up', 'Delivered');
-$;
+$$;
 
 revoke all on function public.delivery_busy_rider_ids() from public;
 grant execute on function public.delivery_busy_rider_ids() to authenticated;
