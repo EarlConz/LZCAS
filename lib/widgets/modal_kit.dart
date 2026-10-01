@@ -42,13 +42,19 @@ const Color _orangeText = Color(0xFFB24800);
 class _Palette {
   final bool dark;
   const _Palette(this.dark);
-  Color get surface => dark ? StockpileColors.darkSurface : StockpileColors.surface;
-  Color get text => dark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
-  Color get body => dark ? StockpileColors.darkTextBody : StockpileColors.bodyText;
+  Color get surface =>
+      dark ? StockpileColors.darkSurface : StockpileColors.surface;
+  Color get text =>
+      dark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
+  Color get body =>
+      dark ? StockpileColors.darkTextBody : StockpileColors.bodyText;
   Color get muted => dark ? StockpileColors.darkTextMuted : _caption;
-  Color get line => dark ? StockpileColors.darkDivider : StockpileColors.divider;
-  Color get field => dark ? StockpileColors.darkInputBg : StockpileColors.inputBg;
-  Color get track => dark ? StockpileColors.darkInputBg : const Color(0xFFF0F0F4);
+  Color get line =>
+      dark ? StockpileColors.darkDivider : StockpileColors.divider;
+  Color get field =>
+      dark ? StockpileColors.darkInputBg : StockpileColors.inputBg;
+  Color get track =>
+      dark ? StockpileColors.darkInputBg : const Color(0xFFF0F0F4);
   static _Palette of(BuildContext c) =>
       _Palette(Theme.of(c).brightness == Brightness.dark);
 }
@@ -128,7 +134,10 @@ class AppModal extends StatelessWidget {
           subtitle!,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: StockpileFonts.satoshi(fontSize: compact ? 12 : 13, color: p.muted),
+          style: StockpileFonts.satoshi(
+            fontSize: compact ? 12 : 13,
+            color: p.muted,
+          ),
         ),
       ],
     ],
@@ -150,7 +159,10 @@ class AppModal extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: screen.height * 0.9),
+        constraints: BoxConstraints(
+          maxWidth: maxWidth,
+          maxHeight: screen.height * 0.9,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -221,7 +233,8 @@ class AppModal extends StatelessWidget {
             Divider(height: 1, color: p.line),
             Expanded(
               child: SingleChildScrollView(
-                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -259,11 +272,16 @@ class ModalIconTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (bg, fg) = tone.colors(Theme.of(context).brightness == Brightness.dark);
+    final (bg, fg) = tone.colors(
+      Theme.of(context).brightness == Brightness.dark,
+    );
     return Container(
       width: 44,
       height: 44,
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Icon(icon, size: 22, color: fg),
     );
   }
@@ -287,7 +305,11 @@ class ModalSection extends StatelessWidget {
         children: [
           Text(
             title,
-            style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w700, color: p.body),
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: p.body,
+            ),
           ),
           for (final c in children) ...[const SizedBox(height: 12), c],
         ],
@@ -310,14 +332,25 @@ class FieldLabel extends StatelessWidget {
       child: Text.rich(
         TextSpan(
           text: text,
-          style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: p.text),
+          style: StockpileFonts.satoshi(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: p.text,
+          ),
           children: [
             if (required)
-              TextSpan(text: ' *', style: StockpileFonts.satoshi(fontSize: 13, color: _danger)),
+              TextSpan(
+                text: ' *',
+                style: StockpileFonts.satoshi(fontSize: 13, color: _danger),
+              ),
             if (aside != null)
               TextSpan(
                 text: '  ·  $aside',
-                style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w400, color: p.muted),
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w400,
+                  color: p.muted,
+                ),
               ),
           ],
         ),
@@ -344,7 +377,10 @@ class LabeledField extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     mainAxisSize: MainAxisSize.min,
-    children: [FieldLabel(label, required: required, aside: aside), child],
+    children: [
+      FieldLabel(label, required: required, aside: aside),
+      child,
+    ],
   );
 }
 
@@ -354,7 +390,12 @@ class FieldPair extends StatelessWidget {
   final Widget first;
   final Widget second;
   final bool keepPaired;
-  const FieldPair(this.first, this.second, {super.key, this.keepPaired = false});
+  const FieldPair(
+    this.first,
+    this.second, {
+    super.key,
+    this.keepPaired = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -432,20 +473,20 @@ class NumberStepper extends StatelessWidget {
     final field = Container(
       height: 48,
       decoration: BoxDecoration(
-        color: hasError ? (p.dark ? _danger.withAlpha(30) : const Color(0xFFFEF2F2)) : p.field,
+        color: hasError
+            ? (p.dark ? _danger.withAlpha(30) : const Color(0xFFFEF2F2))
+            : p.field,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: hasError ? _danger : p.line, width: hasError ? 2 : 1),
+        border: Border.all(
+          color: hasError ? _danger : p.line,
+          width: hasError ? 2 : 1,
+        ),
       ),
       child: Row(
         mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         children: [
           stepButton(Icons.remove_rounded, 'One less', -1),
-          SizedBox(
-            width: expand ? null : 64,
-            child: expand
-                ? null
-                : _input(p),
-          ),
+          SizedBox(width: expand ? null : 64, child: expand ? null : _input(p)),
           if (expand) Expanded(child: _input(p)),
           stepButton(Icons.add_rounded, 'One more', 1),
         ],
@@ -453,35 +494,45 @@ class NumberStepper extends StatelessWidget {
     );
 
     final under = errorText ?? helperText;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        field,
-        if (under != null) ...[
-          const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (hasError) ...[
-                const Icon(Icons.error_outline_rounded, size: 15, color: _danger),
-                const SizedBox(width: 6),
-              ],
-              Flexible(
-                child: Text(
-                  under,
-                  style: StockpileFonts.satoshi(
-                    fontSize: 12,
-                    fontWeight: hasError ? FontWeight.w600 : FontWeight.w400,
-                    color: hasError ? _danger : p.muted,
+    // A fixed width unless [expand]: placed in a Row (beside a preview) it
+    // would otherwise get unbounded width, and the Flexible message below
+    // throws as soon as an error appears.
+    return SizedBox(
+      width: expand ? null : btnW * 2 + 64,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          field,
+          if (under != null) ...[
+            const SizedBox(height: 6),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (hasError) ...[
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    size: 15,
+                    color: _danger,
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Flexible(
+                  child: Text(
+                    under,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 12,
+                      fontWeight: hasError ? FontWeight.w600 : FontWeight.w400,
+                      color: hasError ? _danger : p.muted,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
@@ -494,7 +545,11 @@ class NumberStepper extends StatelessWidget {
       keyboardType: TextInputType.number,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       textAlign: TextAlign.center,
-      style: StockpileFonts.satoshi(fontSize: 17, fontWeight: FontWeight.w700, color: p.text),
+      style: StockpileFonts.satoshi(
+        fontSize: 17,
+        fontWeight: FontWeight.w700,
+        color: p.text,
+      ),
       decoration: const InputDecoration(
         isDense: true,
         filled: false,
@@ -524,7 +579,10 @@ class SegmentedChoice<T> extends StatelessWidget {
     final p = _Palette.of(context);
     return Container(
       padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(color: p.track, borderRadius: BorderRadius.circular(14)),
+      decoration: BoxDecoration(
+        color: p.track,
+        borderRadius: BorderRadius.circular(14),
+      ),
       child: Row(
         children: [
           for (final (v, label) in options)
@@ -547,7 +605,9 @@ class SegmentedChoice<T> extends StatelessWidget {
                           label,
                           style: StockpileFonts.satoshi(
                             fontSize: 14,
-                            fontWeight: v == value ? FontWeight.w700 : FontWeight.w400,
+                            fontWeight: v == value
+                                ? FontWeight.w700
+                                : FontWeight.w400,
                             color: v == value ? p.text : p.body,
                           ),
                         ),
@@ -589,7 +649,9 @@ class ChoicePills extends StatelessWidget {
             button: true,
             child: Material(
               color: o == value
-                  ? (p.dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50)
+                  ? (p.dark
+                        ? StockpileColors.primary900.withAlpha(30)
+                        : StockpileColors.primary50)
                   : p.surface,
               shape: StadiumBorder(
                 side: BorderSide(
@@ -608,8 +670,12 @@ class ChoicePills extends StatelessWidget {
                     o,
                     style: StockpileFonts.satoshi(
                       fontSize: 14,
-                      fontWeight: o == value ? FontWeight.w600 : FontWeight.w400,
-                      color: o == value ? (p.dark ? StockpileColors.primary500 : _orangeText) : p.text,
+                      fontWeight: o == value
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                      color: o == value
+                          ? (p.dark ? StockpileColors.primary500 : _orangeText)
+                          : p.text,
                     ),
                   ),
                 ),
@@ -631,11 +697,15 @@ enum ModalTone {
 
   (Color bg, Color fg) colors(bool dark) => switch (this) {
     ModalTone.info => (
-      dark ? StockpileColors.secondary500.withAlpha(40) : StockpileColors.secondary50,
+      dark
+          ? StockpileColors.secondary500.withAlpha(40)
+          : StockpileColors.secondary50,
       dark ? StockpileColors.secondary200 : StockpileColors.secondary600,
     ),
     ModalTone.warn => (
-      dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+      dark
+          ? StockpileColors.primary900.withAlpha(30)
+          : StockpileColors.primary50,
       dark ? StockpileColors.primary500 : _orangeText,
     ),
     ModalTone.danger => (
@@ -668,7 +738,10 @@ class ModalNote extends StatelessWidget {
     final (bg, fg) = tone.colors(p.dark);
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -689,7 +762,11 @@ class ModalNote extends StatelessWidget {
                   TextSpan(text: body),
                 ],
               ),
-              style: StockpileFonts.satoshi(fontSize: 13, color: p.text, height: 1.45),
+              style: StockpileFonts.satoshi(
+                fontSize: 13,
+                color: p.text,
+                height: 1.45,
+              ),
             ),
           ),
         ],
@@ -720,7 +797,14 @@ class DangerZone extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(title, style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w700, color: _danger)),
+        Text(
+          title,
+          style: StockpileFonts.satoshi(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: _danger,
+          ),
+        ),
         const SizedBox(height: 2),
         Text(body, style: StockpileFonts.satoshi(fontSize: 13, color: p.body)),
       ],
@@ -738,14 +822,22 @@ class DangerZone extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: p.dark ? _danger.withAlpha(120) : const Color(0xFFF5B4B4)),
+        border: Border.all(
+          color: p.dark ? _danger.withAlpha(120) : const Color(0xFFF5B4B4),
+        ),
       ),
       child: compact
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [text, const SizedBox(height: 10), button],
             )
-          : Row(children: [Expanded(child: text), const SizedBox(width: 16), button]),
+          : Row(
+              children: [
+                Expanded(child: text),
+                const SizedBox(width: 16),
+                button,
+              ],
+            ),
     );
   }
 }
@@ -770,7 +862,10 @@ Future<bool> confirmDestructive(
     final p = _Palette.of(ctx);
     final (bg, fg) = ModalTone.danger.colors(p.dark);
     final confirm = FilledButton(
-      style: FilledButton.styleFrom(backgroundColor: _danger, foregroundColor: Colors.white),
+      style: FilledButton.styleFrom(
+        backgroundColor: _danger,
+        foregroundColor: Colors.white,
+      ),
       onPressed: () => Navigator.of(ctx).pop(true),
       child: Text(confirmLabel),
     );
@@ -796,9 +891,23 @@ Future<bool> confirmDestructive(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: StockpileFonts.satoshi(fontSize: 19, fontWeight: FontWeight.w700, color: p.text)),
+                  Text(
+                    title,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: p.text,
+                    ),
+                  ),
                   const SizedBox(height: 6),
-                  Text(message, style: StockpileFonts.satoshi(fontSize: 14, color: p.body, height: 1.5)),
+                  Text(
+                    message,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 14,
+                      color: p.body,
+                      height: 1.5,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -808,8 +917,14 @@ Future<bool> confirmDestructive(
           const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(color: p.field, borderRadius: BorderRadius.circular(10)),
-            child: Text(detail, style: StockpileFonts.satoshi(fontSize: 14, color: p.text)),
+            decoration: BoxDecoration(
+              color: p.field,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              detail,
+              style: StockpileFonts.satoshi(fontSize: 14, color: p.text),
+            ),
           ),
         ],
         const SizedBox(height: 20),

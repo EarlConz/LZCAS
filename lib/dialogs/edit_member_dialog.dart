@@ -1,7 +1,17 @@
+// lib/dialogs/edit_member_dialog.dart
+//
+// Edit Member, from the "Staff Modals Redesign" canvas. A dialog on
+// desktop, a full screen on a phone (widgets/modal_kit.dart). The package
+// can only be kept or removed here (removal = demotion, confirmed in the
+// danger zone); what is handed to onMemberUpdated is unchanged.
+
 import 'package:flutter/material.dart';
 import 'package:lzcas/dialogs/birthday_picker_dialog.dart';
 import 'package:lzcas/db/db.dart' show repository, Member, Package;
 import 'package:lzcas/utils/phone_formatter.dart';
+import 'package:lzcas/theme.dart';
+import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/widgets/modal_kit.dart';
 
 class EditMemberDialog extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -148,341 +158,326 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     return valid;
   }
 
+  // ── Change tracking ────────────────────────────────────────────────
+
+  /// Field values when the dialog opened, to count unsaved changes.
+  late final Map<String, Object?> _initial = _snapshot();
+
+  /// Set once the demotion was confirmed (from the danger zone), so Save
+  /// doesn't ask a second time.
+  bool _demoteConfirmed = false;
+
+  Map<String, Object?> _snapshot() => {
+    'last': lastNameController.text.trim(),
+    'first': firstNameController.text.trim(),
+    'middle': middleNameController.text.trim(),
+    'contact': contactController.text.replaceAll(' ', '').trim(),
+    'birthday': birthdayController.text.trim(),
+    'address': addressController.text.trim(),
+    'referrer': _selectedReferrerId,
+    'package': _selectedPackageId,
+  };
+
+  int get _changeCount {
+    final now = _snapshot();
+    return now.keys.where((k) => now[k] != _initial[k]).length;
+  }
+
+  Future<void> _askDemote() async {
+    final ok = await confirmDestructive(
+      context,
+      title: 'Demote to Member?',
+      message: 'Removing the package demotes this Verified Reseller back to a '
+          'standard Member and revokes their reseller access. It takes effect '
+          'when you save.',
+      confirmLabel: 'Demote',
+      cancelLabel: 'Keep reseller',
+      icon: Icons.person_remove_outlined,
+    );
+    if (!ok || !mounted) return;
+    setState(() {
+      _selectedPackageId = null;
+      _demoteConfirmed = true;
+    });
+  }
+
+  // ── UI ─────────────────────────────────────────────────────────────
+
+  String _memberName(Member m) => '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
+
+  String get _initials {
+    String first(String? s) => (s ?? '').trim().isEmpty ? '' : s!.trim()[0].toUpperCase();
+    final i = '${first(widget.member['firstName']?.toString())}${first(widget.member['lastName']?.toString())}';
+    return i.isEmpty ? '?' : i;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isNarrow = MediaQuery.sizeOf(context).width < 500;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final muted = dark ? StockpileColors.darkTextMuted : const Color(0xFF6E6E7A);
+    final screenW = MediaQuery.sizeOf(context).width;
+    final fullName = '${widget.member['firstName'] ?? ''} ${widget.member['lastName'] ?? ''}'.trim();
+    final memberId = widget.member['id'];
+    final wasReseller = _originalPackageId != null;
+    final changes = _changeCount;
 
-    final inputBorder = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(10),
-    );
-
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Row(
-        children: [
-          Icon(Icons.edit_note_rounded, color: colorScheme.primary, size: 28),
-          const SizedBox(width: 10),
-          Text(
-            'Edit Member',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
+    return AppModal(
+      title: fullName.isEmpty ? 'Edit member' : fullName,
+      subtitle: [
+        wasReseller ? 'Verified Reseller' : 'Member',
+        if (memberId != null) 'Member #$memberId',
+      ].join(' · '),
+      leading: CircleAvatar(
+        radius: 24,
+        backgroundColor: dark ? StockpileColors.darkTextPrimary : StockpileColors.darkText,
+        foregroundColor: dark ? StockpileColors.darkBg : Colors.white,
+        child: Text(_initials, style: StockpileFonts.satoshi(fontSize: 16, fontWeight: FontWeight.w700)),
       ),
-      content: SizedBox(
-        width: isNarrow ? double.maxFinite : 460,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Name section ──────────────────────────────
-              _sectionLabel('Name', theme, colorScheme),
-              const SizedBox(height: 10),
-              TextFormField(
-                key: _lastNameKey,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                controller: lastNameController,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-                decoration: InputDecoration(
-                  labelText: 'Last Name',
-                  prefixIcon: const Icon(Icons.badge_outlined),
-                  border: inputBorder,
+      maxWidth: 760,
+      body: [
+        ModalSection(
+          title: 'Personal',
+          children: [
+            FieldPair(
+              LabeledField(
+                label: 'Last name',
+                required: true,
+                child: TextFormField(
+                  key: _lastNameKey,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  controller: lastNameController,
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  textCapitalization: TextCapitalization.words,
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => setState(() {}),
                 ),
-                textInputAction: TextInputAction.next,
               ),
-              const SizedBox(height: 14),
-              TextFormField(
-                key: _firstNameKey,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                controller: firstNameController,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-                decoration: InputDecoration(
-                  labelText: 'First Name',
-                  prefixIcon: const Icon(Icons.person_outline),
-                  border: inputBorder,
+              LabeledField(
+                label: 'First name',
+                required: true,
+                child: TextFormField(
+                  key: _firstNameKey,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  controller: firstNameController,
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  textCapitalization: TextCapitalization.words,
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => setState(() {}),
                 ),
-                textInputAction: TextInputAction.next,
               ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: middleNameController,
-                decoration: InputDecoration(
-                  labelText: 'Middle Name',
-                  hintText: 'Optional',
-                  prefixIcon: const Icon(Icons.person_outline),
-                  border: inputBorder,
+            ),
+            FieldPair(
+              LabeledField(
+                label: 'Middle name',
+                child: TextFormField(
+                  controller: middleNameController,
+                  decoration: const InputDecoration(hintText: 'Optional'),
+                  textCapitalization: TextCapitalization.words,
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => setState(() {}),
                 ),
-                textInputAction: TextInputAction.next,
               ),
-
-              const SizedBox(height: 20),
-              // ── Role & status section ─────────────────────
-              // Role is derived from the package selection below.
-              _sectionLabel('Role & Status', theme, colorScheme),
-              const SizedBox(height: 10),
-              TextFormField(
-                key: ValueKey(_isReseller),
-                initialValue: _isReseller ? 'Verified Reseller' : 'Member',
-                readOnly: true,
-                decoration: InputDecoration(
-                  labelText: 'Role',
-                  helperText: 'Set by the package below',
-                  prefixIcon: const Icon(Icons.shield_outlined),
-                  border: inputBorder,
-                  filled: true,
-                  fillColor: colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.5,
+              LabeledField(
+                label: 'Birthday',
+                child: TextFormField(
+                  controller: birthdayController,
+                  readOnly: true,
+                  onTap: () async {
+                    await _pickBirthday();
+                    if (mounted) setState(() {});
+                  },
+                  decoration: const InputDecoration(
+                    hintText: 'Tap to pick',
+                    suffixIcon: Icon(Icons.calendar_month_outlined),
                   ),
                 ),
               ),
-
-              const SizedBox(height: 20),
-              // ── Contact section ───────────────────────────
-              _sectionLabel('Contact', theme, colorScheme),
-              const SizedBox(height: 10),
-              TextFormField(
-                key: _contactKey,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                controller: contactController,
-                validator: (v) {
-                  if (v != null &&
-                      v.trim().isNotEmpty &&
-                      !RegExp(r'^[0-9 ]+$').hasMatch(v.trim())) {
-                    return 'Numbers only';
-                  }
-                  return null;
-                },
-                inputFormatters: [PhilippinePhoneFormatter()],
-                decoration: InputDecoration(
-                  labelText: 'Contact No.',
-                  hintText: '0912 345 6789',
-                  prefixIcon: const Icon(Icons.phone_outlined),
-                  border: inputBorder,
-                ),
-                keyboardType: TextInputType.phone,
-                textInputAction: TextInputAction.next,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: birthdayController,
-                readOnly: true,
-                onTap: _pickBirthday,
-                decoration: InputDecoration(
-                  labelText: 'Birthday',
-                  hintText: 'Tap to pick',
-                  prefixIcon: const Icon(Icons.cake_outlined),
-                  suffixIcon: const Icon(Icons.calendar_month_outlined),
-                  border: inputBorder,
+              keepPaired: true,
+            ),
+          ],
+        ),
+        ModalSection(
+          title: 'Contact',
+          children: [
+            FieldPair(
+              LabeledField(
+                label: 'Contact number',
+                child: TextFormField(
+                  key: _contactKey,
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  controller: contactController,
+                  validator: (v) {
+                    if (v != null && v.trim().isNotEmpty && !RegExp(r'^[0-9 ]+$').hasMatch(v.trim())) {
+                      return 'Numbers only';
+                    }
+                    return null;
+                  },
+                  inputFormatters: [PhilippinePhoneFormatter()],
+                  decoration: const InputDecoration(hintText: '0912 345 6789'),
+                  keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => setState(() {}),
                 ),
               ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: addressController,
-                decoration: InputDecoration(
-                  labelText: 'Address',
-                  hintText: 'Optional',
-                  prefixIcon: const Icon(Icons.home_outlined),
-                  border: inputBorder,
+              LabeledField(
+                label: 'Address',
+                child: TextFormField(
+                  controller: addressController,
+                  decoration: const InputDecoration(hintText: 'Optional'),
+                  textInputAction: TextInputAction.next,
+                  onChanged: (_) => setState(() {}),
                 ),
-                textInputAction: TextInputAction.next,
               ),
-
-              const SizedBox(height: 20),
-              // ── Referrer section ──────────────────────────
-              _sectionLabel('Referral', theme, colorScheme),
-              const SizedBox(height: 10),
-              Autocomplete<Member>(
-                optionsBuilder: (textEditingValue) {
-                  if (textEditingValue.text.isEmpty) return [];
-                  final query = textEditingValue.text.toLowerCase();
-                  final memberId = widget.member['id'] as int?;
-                  return _members.where((m) {
-                    if (m.id == memberId) return false; // exclude self
-                    final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'
-                        .toLowerCase();
-                    return name.contains(query);
-                  });
-                },
-                displayStringForOption: (m) =>
-                    '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim(),
-                fieldViewBuilder: (context, controller, focusNode, onSubmit) {
-                  return TextFormField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    decoration: InputDecoration(
-                      labelText: 'Referrer',
-                      hintText: 'Type a name to search...',
-                      prefixIcon: const Icon(Icons.search_outlined),
-                      suffixIcon: _selectedReferrerId != null
-                          ? IconButton(
-                              icon: const Icon(Icons.close),
-                              onPressed: () {
-                                controller.clear();
-                                setState(() => _selectedReferrerId = null);
-                              },
-                            )
-                          : null,
-                      border: inputBorder,
-                    ),
-                  );
-                },
-                optionsViewBuilder: (context, onSelected, options) {
-                  return Align(
-                    alignment: Alignment.topLeft,
-                    child: Material(
-                      elevation: 4,
-                      borderRadius: BorderRadius.circular(10),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: 200,
-                          maxWidth: MediaQuery.of(context).size.width * 0.4,
-                        ),
-                        child: ListView.builder(
-                          padding: EdgeInsets.zero,
-                          itemCount: options.length,
-                          itemBuilder: (context, index) {
-                            final m = options.elementAt(index);
-                            final label =
-                                '${m.firstName ?? ''} ${m.lastName ?? ''}'
-                                    .trim();
-                            final count = _referralCounts[m.id] ?? 0;
-                            final display = count > 0
-                                ? '$label • $count referral${count == 1 ? '' : 's'}'
-                                : label;
-                            return ListTile(
-                              dense: true,
-                              title: Text(
-                                display,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              onTap: () {
-                                onSelected(m);
-                                referrerSearchController.text = label;
-                                setState(() => _selectedReferrerId = m.id);
-                              },
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  );
-                },
-                onSelected: (m) {
-                  final label = '${m.firstName ?? ''} ${m.lastName ?? ''}'
-                      .trim();
-                  referrerSearchController.text = label;
-                  setState(() => _selectedReferrerId = m.id);
-                },
-              ),
-
-              const SizedBox(height: 20),
-              // ── Package section ────────────────────────────
-              // A package registers the member as a Verified Reseller;
-              // None keeps them a standard Member.
-              _sectionLabel('Package', theme, colorScheme),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<int?>(
-                initialValue: _selectedPackageId,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: 'Package',
-                  prefixIcon: const Icon(Icons.card_giftcard_outlined),
-                  border: inputBorder,
-                ),
-                items: [
-                  const DropdownMenuItem<int?>(
-                    value: null,
-                    child: Text(
-                      'None (Standard Member)',
-                      overflow: TextOverflow.ellipsis,
-                    ),
+            ),
+          ],
+        ),
+        ModalSection(
+          title: 'Membership',
+          children: [
+            FieldPair(
+              LabeledField(
+                label: 'Package',
+                // Read-only: edit may only keep or remove the package (the
+                // danger zone below), never add or change one. Upgrades go
+                // through Package Upgrade, which applies rank rules and pays
+                // the referral bonus.
+                child: InputDecorator(
+                  decoration: const InputDecoration(enabled: false),
+                  child: Text(
+                    !wasReseller
+                        ? 'None — standard Member'
+                        : _selectedPackageId == null
+                        ? 'None (after you save)'
+                        : _currentPackageLabel().replaceAll(' (keep)', ''),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  // Edit may only keep the current package or remove it. No
-                  // other package is offered — upgrades/downgrades must go
-                  // through the guarded Package Upgrade flow so rank rules and
-                  // the referral bonus always run.
-                  if (_originalPackageId != null)
-                    DropdownMenuItem<int?>(
-                      value: _originalPackageId,
-                      child: Text(
-                        _currentPackageLabel(),
-                        overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              LabeledField(label: 'Referred by', child: _referrerField(screenW)),
+            ),
+            Text(
+              wasReseller
+                  ? 'To change their package tier, use Package Upgrade.'
+                  : 'To enroll them in a package, use Package Upgrade: it applies '
+                        'rank rules and pays the referral bonus.',
+              style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+            ),
+          ],
+        ),
+        if (wasReseller)
+          _demoteConfirmed
+              ? Row(
+                  children: [
+                    const Expanded(
+                      child: ModalNote(
+                        tone: ModalTone.danger,
+                        icon: Icons.person_remove_outlined,
+                        title: 'Will be demoted to Member',
+                        body: 'when you save.',
                       ),
                     ),
-                ],
-                // A member with no package can't gain one here; the field is
-                // locked and they must be enrolled via the Upgrade flow.
-                onChanged: _originalPackageId == null
-                    ? null
-                    : (v) => setState(() => _selectedPackageId = v),
-              ),
-              const SizedBox(height: 8),
-              Builder(
-                builder: (context) {
-                  if (_originalPackageId == null) {
-                    return Text(
-                      'To enroll this member in a package, use the Package '
-                      'Upgrade action — it applies rank rules and pays the '
-                      'referral bonus.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    );
-                  }
-                  if (_selectedPackageId == null) {
-                    return Text(
-                      '⚠ Removing the package demotes this Verified Reseller to '
-                      'a standard Member and revokes reseller access.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.error,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    );
-                  }
-                  return Text(
-                    'This member is a Verified Reseller. To change tiers, use '
-                    'the Package Upgrade action instead.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.primary,
-                      fontStyle: FontStyle.italic,
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: () => setState(() {
+                        _selectedPackageId = _originalPackageId;
+                        _demoteConfirmed = false;
+                      }),
+                      child: const Text('Undo'),
                     ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-      actionsPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      actions: [
-        OutlinedButton(
-          onPressed: () => Navigator.pop(context),
-          style: OutlinedButton.styleFrom(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-          child: const Text('Cancel'),
-        ),
-        const SizedBox(width: 10),
-        FilledButton.icon(
-          onPressed: _submit,
-          icon: const Icon(Icons.save, size: 18),
-          label: const Text('Save'),
-          style: FilledButton.styleFrom(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        ),
+                  ],
+                )
+              : DangerZone(
+                  title: 'Demote to Member',
+                  body: 'Takes away the reseller role. You\'ll be asked to confirm.',
+                  actionLabel: 'Demote…',
+                  onPressed: _askDemote,
+                ),
       ],
+      footerNote: Text(
+        changes == 0
+            ? 'No changes yet'
+            : '$changes change${changes == 1 ? '' : 's'} not saved',
+        style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+      ),
+      primaryAction: FilledButton(
+        onPressed: changes == 0 ? null : _submit,
+        child: const Text('Save changes'),
+      ),
+    );
+  }
+
+  /// Search members by name (never this member); suggestions show how many
+  /// each has already referred. Opens on the current referrer's name.
+  Widget _referrerField(double screenW) {
+    return Autocomplete<Member>(
+      initialValue: TextEditingValue(text: referrerSearchController.text),
+      optionsBuilder: (value) {
+        if (value.text.isEmpty) return const Iterable<Member>.empty();
+        final query = value.text.toLowerCase();
+        final memberId = widget.member['id'] as int?;
+        return _members.where(
+          (m) => m.id != memberId && _memberName(m).toLowerCase().contains(query),
+        );
+      },
+      displayStringForOption: _memberName,
+      fieldViewBuilder: (context, controller, focusNode, onSubmit) {
+        return TextFormField(
+          controller: controller,
+          focusNode: focusNode,
+          decoration: InputDecoration(
+            hintText: 'Search a member',
+            prefixIcon: const Icon(Icons.search_rounded),
+            suffixIcon: _selectedReferrerId != null
+                ? IconButton(
+                    tooltip: 'Clear',
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () {
+                      controller.clear();
+                      referrerSearchController.clear();
+                      setState(() => _selectedReferrerId = null);
+                    },
+                  )
+                : null,
+          ),
+        );
+      },
+      optionsViewBuilder: (context, onSelected, options) {
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(12),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: 220,
+                maxWidth: (screenW - 32).clamp(200.0, 360.0),
+              ),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (context, index) {
+                  final m = options.elementAt(index);
+                  final count = _referralCounts[m.id] ?? 0;
+                  return ListTile(
+                    dense: true,
+                    minTileHeight: 44,
+                    title: Text(_memberName(m), overflow: TextOverflow.ellipsis),
+                    subtitle: count > 0
+                        ? Text('$count referral${count == 1 ? '' : 's'}')
+                        : null,
+                    onTap: () => onSelected(m),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+      onSelected: (m) {
+        referrerSearchController.text = _memberName(m);
+        setState(() => _selectedReferrerId = m.id);
+      },
     );
   }
 
@@ -492,28 +487,19 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     // Removing an existing package demotes a Verified Reseller — confirm it,
     // since it stops their reseller income and revokes their access.
     final isDemotion = _originalPackageId != null && _selectedPackageId == null;
-    if (isDemotion) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Demote to Member?'),
-          content: const Text(
-            'Removing the package demotes this Verified Reseller back to a '
-            'standard Member and revokes their reseller access. Continue?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Demote'),
-            ),
-          ],
-        ),
+    // Normally confirmed already, from the danger zone. Asked here only if
+    // the package was removed some other way.
+    if (isDemotion && !_demoteConfirmed) {
+      final confirmed = await confirmDestructive(
+        context,
+        title: 'Demote to Member?',
+        message: 'Removing the package demotes this Verified Reseller back to a '
+            'standard Member and revokes their reseller access.',
+        confirmLabel: 'Demote',
+        cancelLabel: 'Keep reseller',
+        icon: Icons.person_remove_outlined,
       );
-      if (confirmed != true || !mounted) return;
+      if (!confirmed || !mounted) return;
     }
 
     final updatedMember = {
@@ -553,28 +539,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
 
     widget.onMemberUpdated(updatedMember);
     Navigator.pop(context);
-  }
-
-  Widget _sectionLabel(String text, ThemeData theme, ColorScheme colorScheme) {
-    return Row(
-      children: [
-        Text(
-          text.toUpperCase(),
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: colorScheme.primary,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Divider(
-            color: colorScheme.outline.withValues(alpha: 0.3),
-            endIndent: 4,
-          ),
-        ),
-      ],
-    );
   }
 
   /// Pre-format a raw digits-only phone number for display in the field.

@@ -4,7 +4,7 @@ import 'package:lzcas/utils/animations.dart';
 import '../widgets/memberstable.dart';
 import '../widgets/memberdetails.dart';
 import '../dialogs/edit_member_dialog.dart';
-import '../dialogs/confirmation_dialog.dart';
+import '../widgets/modal_kit.dart' show confirmDestructive;
 import '../theme.dart';
 import '../utils/fonts.dart';
 
@@ -164,21 +164,20 @@ class _SuppliersPageState extends State<SuppliersPage>
     );
   }
 
-  void _confirmDelete(Map<String, dynamic> member) {
-    showDialog<bool>(
-      context: context,
-      builder: (_) => ConfirmationDialog(
-        title: 'Confirm Delete',
-        content: 'Delete ${member['firstName'] ?? 'this member'}?',
-        onConfirm: () {
-          _tableKey.currentState?.removeMember(member);
-          if (_selectedMember?['id'] == member['id']) {
-            setState(() => _selectedMember = null);
-          }
-          BotToast.showText(text: 'Member deleted');
-        },
-      ),
+  Future<void> _confirmDelete(Map<String, dynamic> member) async {
+    final name = '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'.trim();
+    final ok = await confirmDestructive(
+      context,
+      title: 'Delete ${name.isEmpty ? 'this member' : name}?',
+      message: "Their member record is removed. This can't be undone.",
+      confirmLabel: 'Delete member',
     );
+    if (!ok || !mounted) return;
+    _tableKey.currentState?.removeMember(member);
+    if (_selectedMember?['id'] == member['id']) {
+      setState(() => _selectedMember = null);
+    }
+    BotToast.showText(text: 'Member deleted');
   }
 
   void _closePanel() {

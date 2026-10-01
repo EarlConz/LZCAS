@@ -14,6 +14,7 @@ import 'package:lzcas/dialogs/edit_stock_dialog.dart' show EditProductDialog;
 import 'package:lzcas/dialogs/add_product_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
+import 'package:lzcas/widgets/modal_kit.dart' show confirmDestructive;
 import '../theme.dart';
 import '../utils/formatters.dart';
 import '../services/config_service.dart';
@@ -969,7 +970,18 @@ class _InventoryTableState extends State<InventoryTable> {
     final needsApproval = role == UserRole.inventory;
 
     final reasonController = TextEditingController();
-    final confirm = await showDialog<bool>(
+    final stock = item['stock'] as int? ?? 0;
+    // An admin's delete is a plain confirmation; an inventory user's is a
+    // request with a required reason, so it keeps its own form.
+    final confirm = !needsApproval
+        ? await confirmDestructive(
+            context,
+            title: 'Delete ${item['name'] ?? 'this product'}?',
+            message: "It disappears from the POS and inventory. This can't be undone.",
+            detail: stock > 0 ? '$stock still in stock will be removed with it.' : null,
+            confirmLabel: 'Delete product',
+          )
+        : await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
