@@ -2189,6 +2189,7 @@ class _EarningsTabState extends State<_EarningsTab> {
           else
             _EarningsLedgerCard(
               history: _history,
+              sources: _sources,
               isDark: isDark,
               currencySymbol: currencySymbol,
               isCompact: isMobile,
@@ -2307,12 +2308,17 @@ class _EarningsTabState extends State<_EarningsTab> {
 /// Each row is a snapshot recorded when the computed values changed.
 class _EarningsLedgerCard extends StatelessWidget {
   final List<EarningsSnapshot> history;
+
+  /// The itemised ledger, to name the delivery payments and refunds a
+  /// snapshot cannot attribute on its own.
+  final List<EarningsSource> sources;
   final bool isDark;
   final String currencySymbol;
   final bool isCompact;
 
   const _EarningsLedgerCard({
     required this.history,
+    this.sources = const [],
     required this.isDark,
     required this.currencySymbol,
     this.isCompact = false,
@@ -2505,6 +2511,24 @@ class _EarningsLedgerCard extends StatelessWidget {
     return (bucket == EarningsBucket.other ? prefix : bucket.label, reason);
   }
 
+  /// The delivery payments (negative) and refunds (positive) recorded after
+  /// [from] and up to [to], as (Balance wallet, Total Earnings wallet).
+  (int, int) _orderMoves(DateTime? from, DateTime? to) {
+    if (to == null) return (0, 0);
+    var bal = 0, earn = 0;
+    for (final s in sources) {
+      final at = s.timestamp;
+      if (s.bucket != EarningsBucket.deliveryPurchase || at == null) continue;
+      if (at.isAfter(to) || (from != null && !at.isAfter(from))) continue;
+      if (s.rawLabel.contains('(Balance)')) {
+        bal += s.amount;
+      } else {
+        earn += s.amount;
+      }
+    }
+    return (bal, earn);
+  }
+
   /// One ledger entry: direction icon, source chips + date, running totals.
   Widget _historyRow(
     EarningsSnapshot h,
@@ -2522,6 +2546,15 @@ class _EarningsLedgerCard extends StatelessWidget {
 
     List<Widget> chips;
     final netDelta = h.earningsDelta + h.balanceDelta;
+    // Delivery payments and their refunds in this window, per wallet. A
+    // snapshot only stores how much Balance moved, so without this a
+    // refund back to Balance read as a Direct Referral bonus.
+    final (ordersBal, ordersEarn) = _orderMoves(prev?.recordedAt, h.recordedAt);
+    final orders = ordersBal + ordersEarn;
+    final orderChip = _deltaChip(
+      orders,
+      orders > 0 ? 'Order refund' : 'Delivery purchase',
+    );
     if (noteReason != null) {
       chips = <Widget>[?_deltaChip(netDelta, noteBucket ?? 'Correction')];
     } else if (netDelta < 0) {
@@ -2529,8 +2562,12 @@ class _EarningsLedgerCard extends StatelessWidget {
       // (a negative ledger row). A snapshot only records the delta, not its
       // cause, so this used to guess "Withdrawal" — which mislabels a
       // correction as money paid out. Use a neutral term instead; the
-      // Sources view names the exact entry and its reason.
-      chips = <Widget>[?_deltaChip(netDelta, 'Deduction')];
+      // Sources view names the exact entry and its reason. Delivery
+      // purchases are known, so they are named.
+      chips = <Widget>[
+        ?orderChip,
+        ?_deltaChip(netDelta - orders, 'Deduction'),
+      ];
     } else if (h.isLegacy || (prev?.isLegacy ?? false)) {
       // Rows from before component tracking — sources unknown.
       chips = <Widget>[
@@ -2539,7 +2576,12 @@ class _EarningsLedgerCard extends StatelessWidget {
       ];
     } else if (prev != null || firstEver) {
       chips = <Widget>[
-        ?_deltaChip(h.balanceDelta, 'Direct Referral', positiveOnly: true),
+        ?orderChip,
+        ?_deltaChip(
+          h.balanceDelta - ordersBal,
+          'Direct Referral',
+          positiveOnly: true,
+        ),
         ?_deltaChip(
           h.indirectBonus - (prev?.indirectBonus ?? 0),
           'Indirect Referral',

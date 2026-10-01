@@ -46,6 +46,9 @@ class DeliveryOrdersPage extends StatefulWidget {
 class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   List<DeliveryOrder> _orders = const [];
   List<UserProfile> _riders = const [];
+
+  /// Rider → orders they carry, across every cashier (v62).
+  Map<String, Set<String>> _busy = const {};
   CashierLocation? _branch;
 
   /// Every main cashier's saved store. An admin has no store of their own,
@@ -99,6 +102,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
       try {
         riders = await repository.fetchRiders();
       } catch (_) {}
+      final busy = await repository.fetchBusyRiders();
       CashierLocation? branch = _branch;
       if (uid != null) {
         try {
@@ -115,6 +119,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
       setState(() {
         _orders = orders;
         _riders = riders;
+        _busy = busy;
         _branch = branch;
         _stores = stores;
         _loading = false;
@@ -193,10 +198,13 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   static double _sum(List<DeliveryOrder> os) =>
       os.fold(0, (s, o) => s + (o.finalTotal ?? 0));
 
-  /// Riders carrying an order other than [exceptId].
+  /// Riders carrying an order other than [exceptId]: from this list, and
+  /// from the server's, which also sees other cashiers' orders (v62).
   Set<String> _busyRiders(String exceptId) => {
     for (final o in _orders)
       if (o.id != exceptId && o.isWithRider && o.deliveryId != null) o.deliveryId!,
+    for (final e in _busy.entries)
+      if (e.value.any((id) => id != exceptId)) e.key,
   };
 
   /// The payment details most recently sent on any order (v61), to start
@@ -570,8 +578,8 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   /// decides which order to open next.
   (String, String?, bool) _rowFacts(DeliveryOrder o) {
     switch (o.stage) {
-      case OrderStage.toDispatch when o.isCourier && !o.needsCashier:
-        return ('With member', 'to pay · ${o.routeLabel}', false);
+      case OrderStage.toDispatch when !o.needsCashier:
+        return ('With member', o.isCourier ? 'to pay · ${o.routeLabel}' : 'to pay', false);
       case OrderStage.toPrice || OrderStage.toDispatch:
         return (formatWaiting(o.waiting), 'waiting', o.waiting >= kWaitingTooLong);
       case OrderStage.negotiating:

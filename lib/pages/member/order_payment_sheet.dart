@@ -235,15 +235,26 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         const SizedBox(height: 14),
         // The digits are the fallback for a cracked screen or a camera that
         // will not focus: the rider can type them instead of scanning.
+        // v62 codes are 8 characters, shown in two halves so they can be
+        // read out; older 32-character codes are shown as they are.
         Center(
           child: SelectableText(
-            code,
+            code.length == 8
+                ? '${code.substring(0, 4)}-${code.substring(4)}'
+                : code,
             textAlign: TextAlign.center,
-            style: StockpileFonts.satoshi(
-              fontSize: 12,
-              color: muted,
-              letterSpacing: 0.5,
-            ),
+            style: code.length == 8
+                ? StockpileFonts.satoshi(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: text,
+                    letterSpacing: 2,
+                  )
+                : StockpileFonts.satoshi(
+                    fontSize: 12,
+                    color: muted,
+                    letterSpacing: 0.5,
+                  ),
           ),
         ),
         const SizedBox(height: 6),

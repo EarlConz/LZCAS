@@ -1660,6 +1660,10 @@ class DeliveryOrder {
 
   /// Resolved client-side (not stored on `orders`).
   final String? memberName;
+
+  /// The buyer's package tier, or null when they hold none (a plain
+  /// Member). Resolved client-side like [memberName].
+  final String? memberPackage;
   final String? cashierName;
   final String? deliveryName;
 
@@ -1711,6 +1715,7 @@ class DeliveryOrder {
     this.routeOriginLat,
     this.routeOriginLng,
     this.memberName,
+    this.memberPackage,
     this.cashierName,
     this.deliveryName,
   });
@@ -1926,6 +1931,7 @@ class DeliveryOrder {
     double? finalTotal,
     List<DeliveryOrderItem>? items,
     String? memberName,
+    String? memberPackage,
     String? cashierName,
     String? deliveryName,
     DateTime? etaAt,
@@ -1977,6 +1983,7 @@ class DeliveryOrder {
     routeOriginLat: routeOriginLat,
     routeOriginLng: routeOriginLng,
     memberName: memberName ?? this.memberName,
+    memberPackage: memberPackage ?? this.memberPackage,
     cashierName: cashierName ?? this.cashierName,
     deliveryName: deliveryName ?? this.deliveryName,
   );

@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:csv/csv.dart';
 import 'package:flutter/foundation.dart' hide Category;
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/feature_flags.dart';
 import '../utils/app_clock.dart';
@@ -55,11 +56,19 @@ class SupabaseRepository {
   /// so realtime must (re)subscribe when the user actually signs in.
   StreamSubscription? _authSub;
 
+  /// Reloads open screens when the app returns to the foreground: realtime
+  /// does not replay what changed while it was in the background.
+  AppLifecycleListener? _lifecycle;
+
   SupabaseRepository({required SupabaseClient supabase})
     : _supabase = supabase {
     _initRealtime();
     _authSub = _supabase.auth.onAuthStateChange.listen((state) {
       switch (state.event) {
+        // A session restored at startup arrives as initialSession, not
+        // signedIn. Without it, a phone reopened while still signed in had
+        // no live updates until its token next refreshed, up to an hour.
+        case AuthChangeEvent.initialSession:
         case AuthChangeEvent.signedIn:
         case AuthChangeEvent.tokenRefreshed:
           if (_channels.isEmpty) _initRealtime();
@@ -71,6 +80,16 @@ class SupabaseRepository {
           break;
       }
     });
+    _lifecycle = AppLifecycleListener(onResume: _onResume);
+  }
+
+  void _onResume() {
+    if (_supabase.auth.currentUser == null) return;
+    if (_channels.isEmpty) _initRealtime();
+    if (enableDeliverySystem) {
+      _changes.add('order_updated');
+      _changes.add('orders_changed');
+    }
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1225,6 +1244,27 @@ class SupabaseRepository {
     return (data as List)
         .map((j) => UserProfile.fromJson(Map<String, dynamic>.from(j)))
         .toList();
+  }
+
+  /// Riders carrying an order right now, as rider id → the ids of the
+  /// orders they carry, whoever dispatched them (v62). A cashier's own
+  /// order list cannot tell: it holds only their orders and unclaimed ones.
+  /// Empty on failure or before v62; callers also check their own list.
+  Future<Map<String, Set<String>>> fetchBusyRiders() async {
+    try {
+      final rows = await _supabase.rpc('delivery_busy_rider_ids');
+      final out = <String, Set<String>>{};
+      for (final r in (rows as List).cast<Map<String, dynamic>>()) {
+        final rider = r['rider_id']?.toString();
+        final order = r['order_id']?.toString();
+        if (rider == null || order == null) continue;
+        out.putIfAbsent(rider, () => {}).add(order);
+      }
+      return out;
+    } catch (e) {
+      debugPrint('[fetchBusyRiders] failed: $e');
+      return const {};
+    }
   }
 
   /// The saved location for one profile (null when never set).
@@ -3992,6 +4032,7 @@ class SupabaseRepository {
   }) async {
     final itemNames = <int, String>{};
     final memberNames = <int, String>{};
+    final memberPackages = <int, String>{};
     var cashierNames = <String, String>{};
     try {
       final items = await fetchItems();
@@ -4005,6 +4046,8 @@ class SupabaseRepository {
         if (m.id == null) continue;
         final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
         memberNames[m.id!] = name.isEmpty ? 'Member #${m.id}' : name;
+        final pkg = (m.packageName ?? '').trim();
+        if (pkg.isNotEmpty) memberPackages[m.id!] = pkg;
       }
     } catch (_) {}
     try {
@@ -4033,6 +4076,7 @@ class SupabaseRepository {
       return order.copyWith(
         items: lines,
         memberName: memberNames[order.memberId],
+        memberPackage: memberPackages[order.memberId],
         cashierName: order.cashierId == null
             ? null
             : cashierNames[order.cashierId],
@@ -4292,6 +4336,7 @@ class SupabaseRepository {
     _teardownRealtime();
     _supabase.removeAllChannels();
     _authSub?.cancel();
+    _lifecycle?.dispose();
     _changes.close();
     _orderEvents.close();
   }

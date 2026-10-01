@@ -9,11 +9,18 @@
 // A session that simply expires, rather than signing out, leaves the token
 // registered: the phone keeps receiving that account's alerts until someone
 // signs in on it (register_push_token moves the token to them) or signs out.
+//
+// The token is registered again every time the app comes to the
+// foreground. Registering is an upsert, so it costs one small call, and it
+// covers what a once-per-sign-in registration missed: a first attempt that
+// failed (no network yet, or a session still being restored after an app
+// update), and a token Firebase rotated in the meantime.
 
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
 import '../auth/auth.dart';
 import '../db/db.dart';
@@ -27,6 +34,10 @@ class PushService {
   /// registers once rather than on every auth notification.
   String? _registeredFor;
 
+  /// Whether the permission prompt has been shown this run: asked once,
+  /// not on every return to the app.
+  bool _askedPermission = false;
+
   static bool get _supported => !kIsWeb && Platform.isAndroid;
 
   /// Follow sign-in and sign-out. Safe to call once at startup.
@@ -35,7 +46,16 @@ class PushService {
     _auth = auth;
     auth.beforeLogout = unregister;
     auth.addListener(_onAuthChanged);
+    // Lives as long as the app: PushService is started once, at boot.
+    AppLifecycleListener(onResume: _onResume);
     _onAuthChanged();
+  }
+
+  void _onResume() {
+    final auth = _auth;
+    if (auth == null || !auth.isAuthenticated || auth.userId == null) return;
+    _registeredFor = auth.userId;
+    _register();
   }
 
   void _onAuthChanged() {
@@ -52,15 +72,25 @@ class PushService {
 
   Future<void> _register() async {
     try {
-      // Declining is fine: the app works, it just stays quiet while closed.
-      await _channel.invokeMethod<bool>('requestPermission');
+      // The token first: it does not depend on the permission, and a prompt
+      // left open must not hold up the registration.
       final token = await _channel.invokeMethod<String>('getToken');
-      if (token == null || token.isEmpty) return;
-      await repository.registerPushToken(token);
+      if (token != null && token.isNotEmpty) {
+        await repository.registerPushToken(token);
+      }
     } catch (e) {
-      // No Firebase, no network, or a database without v58: log only.
+      // No Firebase, no network, or a database without v58: log only. The
+      // next return to the app tries again.
       debugPrint('[PushService] register failed: $e');
       _registeredFor = null;
+    }
+    if (_askedPermission) return;
+    _askedPermission = true;
+    try {
+      // Declining is fine: the app works, it just stays quiet while closed.
+      await _channel.invokeMethod<bool>('requestPermission');
+    } catch (e) {
+      debugPrint('[PushService] permission request failed: $e');
     }
   }
 

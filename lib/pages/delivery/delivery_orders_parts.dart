@@ -136,7 +136,10 @@ class StagePill extends StatelessWidget {
                 : o.isOutside && o.paymentDetailsAt == null
                 ? 'Send pay details'
                 : 'Awaiting payment')
-          : 'Ready to dispatch',
+          // v59: no rider until paid or cash chosen, so it isn't ready yet.
+          : o.readyForRider
+          ? 'Ready to dispatch'
+          : 'Awaiting payment',
       DeliveryOrderStatus.shipped => 'Shipped · ${o.routeLabel}',
       DeliveryOrderStatus.assigned => 'Rider assigned',
       DeliveryOrderStatus.pickedUp => 'On the way',

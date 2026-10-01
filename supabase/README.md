@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v61)
+├── migrations/    Ordered, apply-once changes (v2 … v62)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -530,6 +530,15 @@ route._
   `stock_taken_at`), and v57's refund into `_order_refund_funds`. The push
   trigger also fires on the three outside-payment steps and sends `event`.
   Decisions: the "Courier Delivery Flow (LBC / J&T)" doc (2026-10-01).
+
+**Short cash code, busy riders (v62)** — _requires v61; ship with the app
+build that formats the code._
+
+- v62 — new cash-on-delivery codes are 8 characters (0-9, A-F), shown as
+  `AB12-CD34`; `confirm_cod_delivery` ignores dashes, spaces and case, so
+  older 32-character codes still work. `delivery_busy_rider_ids()` returns
+  (rider, order) for every order on the road, so a cashier sees a rider as
+  busy even when another cashier or an admin dispatched them.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

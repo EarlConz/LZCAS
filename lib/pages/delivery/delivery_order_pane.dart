@@ -778,6 +778,25 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
                       ),
                     ),
                     StagePill.forOrder(_o, isDark: _dark),
+                    // The buyer's package tier: what a reseller pays may
+                    // depend on it.
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: _line),
+                      ),
+                      child: Text(
+                        _o.memberPackage == null
+                            ? 'Member · no package'
+                            : '${_o.memberPackage} package',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _body,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -1645,7 +1664,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     final selected = c.rider.id == _riderId;
     final at = c.rider.locationUpdatedAt;
     final parts = <String>[
-      c.busy ? 'On a delivery' : 'Free',
+      c.busy ? 'Busy · on another delivery' : 'Free',
       if (c.meters != null) '${formatDistance(c.meters!)} from $_fromWhere',
       if (c.meters == null) 'no position yet',
     ];

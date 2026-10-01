@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:bot_toast/bot_toast.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../../db/db.dart';
 import '../../services/config_service.dart';
 import '../../theme.dart';
@@ -176,6 +177,94 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
     } catch (_) {
       if (!mounted) return;
       BotToast.showText(text: 'Could not send the counter-offer.');
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  /// A member may back out until the goods are moving: not once a rider
+  /// has picked it up, nor once a courier has it. `cancel_delivery_order`
+  /// enforces the same.
+  bool _canCancel(DeliveryOrder order) =>
+      order.isOpen || order.isAgreed || (order.isAssigned && !order.isCourier);
+
+  /// Cancel with an optional reason, like the store's and the rider's
+  /// cancel. Funds come back by themselves (v57); an outside payment is
+  /// refunded the way it was paid.
+  Future<void> _cancel(DeliveryOrder order) async {
+    final currency = context.read<ConfigService>().currencySymbol;
+    final total = formatMoney(order.finalTotal, symbol: currency);
+    final reason = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel this order?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              order.isFunds && order.isPaid
+                  ? 'Your $total goes back to your funds.'
+                  : order.isOutside && order.isPaid
+                  ? 'You paid outside the app, so the store refunds you the '
+                        'same way.'
+                  : order.isAssigned
+                  ? 'The rider assigned to it will see it cancelled.'
+                  : 'The store will see it cancelled.',
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: reason,
+              decoration: const InputDecoration(
+                labelText: 'Reason (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep order'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: StockpileColors.danger,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cancel order'),
+          ),
+        ],
+      ),
+    );
+    final why = reason.text.trim();
+    reason.dispose();
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = order.id);
+    try {
+      if (why.isEmpty) {
+        await repository.cancelDeliveryOrder(order.id);
+      } else {
+        await repository.cancelDeliveryOrderWithReason(
+          orderId: order.id,
+          reason: why,
+        );
+      }
+      if (!mounted) return;
+      BotToast.showText(text: 'Order cancelled.');
+      await _load();
+    } on PostgrestException catch (e) {
+      // The database's sentence, e.g. "already on its way".
+      if (!mounted) return;
+      BotToast.showText(
+        text: e.message.trim().isEmpty ? 'Could not cancel.' : e.message,
+        duration: const Duration(seconds: 5),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      BotToast.showText(text: 'Could not cancel. Please try again.');
     } finally {
       if (mounted) setState(() => _busy = null);
     }
@@ -558,6 +647,21 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
             ] else if (order.isPaid || order.canStillPay) ...[
               const SizedBox(height: 12),
               _paymentRow(order, currency, text, muted, busy),
+            ],
+
+            // ── Backing out, until the order is on its way ─────────────
+            if (_canCancel(order)) ...[
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: busy ? null : () => _cancel(order),
+                  style: TextButton.styleFrom(
+                    foregroundColor: StockpileColors.danger,
+                  ),
+                  child: const Text('Cancel order'),
+                ),
+              ),
             ],
 
             // ── Cancelled: why, and where the money went ───────────────
