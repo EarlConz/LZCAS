@@ -21,9 +21,12 @@
 //
 // Body (from the trigger):
 //   { order_id, type: 'insert'|'update', old_status, old_delivery_id,
-//     old_payment_status, old_payment_method, actor }
+//     old_payment_status, old_payment_method, event, actor }
 // The payment fields arrive from v59 on: paying or choosing cash does not
 // change the status, but it is what makes an order ready for a rider.
+// `event` arrives from v61 on and names an outside-payment step
+// ('payment_details', 'payment_sent', 'payment_rejected'), none of which
+// changes the status either.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -43,16 +46,30 @@ const S = {
   assigned: "Assigned",
   pickedUp: "Picked Up",
   delivered: "Delivered",
+  shipped: "Shipped",
   completed: "Completed",
   cancelled: "Cancelled",
 } as const;
 
 const ON_THE_ROAD = new Set<string>([S.assigned, S.pickedUp, S.delivered]);
 
-// Agreed, and paid or cash on delivery chosen: what cashier_assign_rider
-// (v59) requires. Mirrors DeliveryOrder.readyForRider in the app.
-const readyForRider = (status: string | null, paid: string | null, method: string | null) =>
-  status === S.agreed && (paid === "paid" || method === "cod");
+// A rider order, agreed, and paid or cash on delivery chosen: what
+// cashier_assign_rider (v59) requires. Mirrors DeliveryOrder.readyForRider.
+// The route never changes after Agreed, so the current one serves for the
+// "before" side too.
+const readyForRider = (
+  status: string | null,
+  paid: string | null,
+  method: string | null,
+  route: string,
+) => route === "rider" && status === S.agreed && (paid === "paid" || method === "cod");
+
+// A courier order, agreed and paid: what cashier_mark_shipped (v61)
+// requires. Mirrors DeliveryOrder.readyToShip.
+const readyToShip = (status: string | null, paid: string | null, route: string) =>
+  route !== "rider" && status === S.agreed && paid === "paid";
+
+const courierName = (route: string) => (route === "jnt" ? "J&T" : "LBC");
 
 type OrderRow = {
   id: string;
@@ -63,6 +80,9 @@ type OrderRow = {
   cancel_reason: string | null;
   payment_status: string | null;
   payment_method: string | null;
+  delivery_route: string | null;
+  payment_rejected_note: string | null;
+  tracking_number: string | null;
 };
 
 type Push = { to: string[]; title: string; body: string };
@@ -160,9 +180,11 @@ async function decide(
   oldRider: string | null,
   oldPaid: string | null,
   oldMethod: string | null,
+  event: string | null,
 ): Promise<Push[]> {
   const ref = `Order ${order.id.split("-")[0].toUpperCase()}`;
   const status = order.status;
+  const route = order.delivery_route ?? "rider";
   const pushes: Push[] = [];
 
   const idsWhere = async (column: string, value: unknown) => {
@@ -181,8 +203,21 @@ async function decide(
     pushes.push({ to: await staff(), title: "New delivery order", body: "A member just placed an order." });
   } else if (status === S.countered && before !== S.countered) {
     pushes.push({ to: await staff(), title: "Delivery counter-offer", body: `${ref}: the member countered the fee.` });
-  } else if (readyForRider(status, order.payment_status, order.payment_method) &&
-             !readyForRider(before, oldPaid, oldMethod)) {
+  } else if (event === "payment_sent") {
+    pushes.push({
+      to: await staff(),
+      title: "Payment sent",
+      body: `${ref}: the member says they sent the payment. Check it arrived, then confirm it.`,
+    });
+  } else if (readyToShip(status, order.payment_status, route) &&
+             !readyToShip(before, oldPaid, route)) {
+    pushes.push({
+      to: await staff(),
+      title: "Ready to ship",
+      body: `${ref}: paid. Book it with ${courierName(route)} and mark it shipped.`,
+    });
+  } else if (readyForRider(status, order.payment_status, order.payment_method, route) &&
+             !readyForRider(before, oldPaid, oldMethod, route)) {
     // v59: a rider can be assigned only once the order is paid or cash is
     // chosen, so this is the moment the cashier can act, whichever came
     // last: the agreement, or the payment.
@@ -203,6 +238,19 @@ async function decide(
   }
 
   // ── The member ──
+  // The outside-payment steps change no status (v61).
+  if (order.member_id != null && status === before) {
+    const member = await idsWhere("member_id", order.member_id);
+    const say = (title: string, body: string) => pushes.push({ to: member, title, body });
+    if (event === "payment_details") {
+      say("Where to pay", "The store sent where to send your payment. Open the app to see it.");
+    } else if (event === "payment_rejected") {
+      const why = (order.payment_rejected_note ?? "").trim();
+      say("Payment not received", why ? `The store could not confirm your payment: ${why}` : "The store could not confirm your payment.");
+    } else if (order.payment_method === "outside" && order.payment_status === "paid" && oldPaid !== "paid") {
+      say("Payment confirmed", `The store received your payment. They will send your order by ${courierName(route)}.`);
+    }
+  }
   if (order.member_id != null && status !== before) {
     const member = await idsWhere("member_id", order.member_id);
     let rider = "A rider";
@@ -222,6 +270,12 @@ async function decide(
       say("On the way", "Your order has left the store.");
     } else if (status === S.delivered) {
       say("Delivered", 'Your order was handed over. Open the app and tap "Yes, I received it".');
+    } else if (status === S.shipped) {
+      const tracking = (order.tracking_number ?? "").trim();
+      say(
+        "Shipped",
+        `Your order was sent by ${courierName(route)}${tracking ? ` (tracking ${tracking})` : ""}. Tap "I received it" when it arrives.`,
+      );
     } else if (status === S.cancelled) {
       const why = (order.cancel_reason ?? "").trim();
       say(
@@ -267,6 +321,7 @@ serve(async (req: Request) => {
     old_delivery_id?: string | null;
     old_payment_status?: string | null;
     old_payment_method?: string | null;
+    event?: string | null;
     actor?: string | null;
   };
   try {
@@ -296,7 +351,10 @@ serve(async (req: Request) => {
 
   const { data: order } = await service
     .from("orders")
-    .select("id, status, member_id, cashier_id, delivery_id, cancel_reason, payment_status, payment_method")
+    .select(
+      "id, status, member_id, cashier_id, delivery_id, cancel_reason, payment_status, payment_method, " +
+        "delivery_route, payment_rejected_note, tracking_number",
+    )
     .eq("id", body.order_id)
     .single<OrderRow>();
   if (!order) return json({ error: "Order not found" }, 404);
@@ -309,6 +367,7 @@ serve(async (req: Request) => {
     body.old_delivery_id ?? null,
     body.old_payment_status ?? null,
     body.old_payment_method ?? null,
+    body.event ?? null,
   );
 
   // Whoever made the change already knows. Everyone else, once per push.

@@ -1420,8 +1420,29 @@ abstract class DeliveryOrderStatus {
   static const pickedUp = 'Picked Up';
   static const delivered = 'Delivered';
 
+  /// Courier state (v61): booked with LBC or J&T, on its way to the
+  /// member. Completed once the member taps "I received it".
+  static const shipped = 'Shipped';
+
   static const completed = 'Completed';
   static const cancelled = 'Cancelled';
+}
+
+/// How an order travels (`orders.delivery_route`, v61). Chosen by the
+/// cashier or admin with each quote.
+abstract class DeliveryRoute {
+  DeliveryRoute._();
+  static const rider = 'rider';
+  static const lbc = 'lbc';
+  static const jnt = 'jnt';
+
+  static const all = [rider, lbc, jnt];
+
+  static String label(String route) => switch (route) {
+    lbc => 'LBC',
+    jnt => 'J&T',
+    _ => 'Rider',
+  };
 }
 
 /// How an order was confirmed complete (`orders.confirmation_method`).
@@ -1594,6 +1615,31 @@ class DeliveryOrder {
   final DateTime? codRemittedAt;
   final String? codRemittedTo;
 
+  // ── Courier and outside payment (v61) ─────────────────────────────
+  /// One of [DeliveryRoute]. 'rider' for every order before v61.
+  final String deliveryRoute;
+
+  /// Where the member sends an outside payment (number, name, amount),
+  /// typed by the staff. Null until they send it.
+  final String? paymentDetails;
+  final DateTime? paymentDetailsAt;
+
+  /// The member said they sent the outside payment, with the reference
+  /// number if they gave one. Cleared when the staff send it back.
+  final DateTime? paymentSentAt;
+  final String? paymentReference;
+
+  /// Why the staff could not confirm the last outside payment.
+  final String? paymentRejectedNote;
+  final DateTime? paymentRejectedAt;
+
+  final String? trackingNumber;
+  final DateTime? shippedAt;
+
+  /// When the goods left the shelf: at Shipped for a courier order, at
+  /// completion for every other. Null again if a parcel came back.
+  final DateTime? stockTakenAt;
+
   // ── Road route (v53) ──────────────────────────────────────────────
   /// Branch to member along the roads, `[lat, lng]` pairs in travel order.
   /// Written once by the `order-route` Edge Function and never by the app;
@@ -1648,6 +1694,16 @@ class DeliveryOrder {
     this.salesRecordedAt,
     this.codRemittedAt,
     this.codRemittedTo,
+    this.deliveryRoute = DeliveryRoute.rider,
+    this.paymentDetails,
+    this.paymentDetailsAt,
+    this.paymentSentAt,
+    this.paymentReference,
+    this.paymentRejectedNote,
+    this.paymentRejectedAt,
+    this.trackingNumber,
+    this.shippedAt,
+    this.stockTakenAt,
     this.routePoints,
     this.routeDistanceM,
     this.routeDurationS,
@@ -1696,6 +1752,16 @@ class DeliveryOrder {
     salesRecordedAt: _ts(json['sales_recorded_at']),
     codRemittedAt: _ts(json['cod_remitted_at']),
     codRemittedTo: json['cod_remitted_to'] as String?,
+    deliveryRoute: json['delivery_route'] as String? ?? DeliveryRoute.rider,
+    paymentDetails: json['payment_details'] as String?,
+    paymentDetailsAt: _ts(json['payment_details_at']),
+    paymentSentAt: _ts(json['payment_sent_at']),
+    paymentReference: json['payment_reference'] as String?,
+    paymentRejectedNote: json['payment_rejected_note'] as String?,
+    paymentRejectedAt: _ts(json['payment_rejected_at']),
+    trackingNumber: json['tracking_number'] as String?,
+    shippedAt: _ts(json['shipped_at']),
+    stockTakenAt: _ts(json['stock_taken_at']),
     routePoints: _routePoints(json['route_points']),
     routeDistanceM: _intFromJson(json['route_distance_m']),
     routeDurationS: _intFromJson(json['route_duration_s']),
@@ -1725,6 +1791,7 @@ class DeliveryOrder {
   /// screens do not keep asking. 'failed' is retried by the function
   /// itself after its cool-down.
   bool get routeWorthRequesting =>
+      !isCourier &&
       deliveryLatitude != null &&
       deliveryLongitude != null &&
       (routeStatus == null || routeStatus == 'failed');
@@ -1750,34 +1817,63 @@ class DeliveryOrder {
   bool get isAssigned => status == DeliveryOrderStatus.assigned;
   bool get isPickedUp => status == DeliveryOrderStatus.pickedUp;
   bool get isDelivered => status == DeliveryOrderStatus.delivered;
+  bool get isShipped => status == DeliveryOrderStatus.shipped;
   bool get isCompleted => status == DeliveryOrderStatus.completed;
   bool get isCancelled => status == DeliveryOrderStatus.cancelled;
+
+  /// Sent by LBC or J&T instead of a rider (v61).
+  bool get isCourier => deliveryRoute != DeliveryRoute.rider;
+
+  /// 'Rider', 'LBC' or 'J&T'.
+  String get routeLabel => DeliveryRoute.label(deliveryRoute);
 
   bool get isCod => paymentMethod == 'cod';
   bool get isFunds => paymentMethod == 'funds';
   bool get isPaid => paymentStatus == 'paid';
 
+  /// GCash or another payment made outside the app, confirmed by the
+  /// staff (v61). Courier orders only.
+  bool get isOutside => paymentMethod == 'outside';
+
   /// A funds payment given back when the order was cancelled (v57).
   bool get isRefunded => paymentStatus == 'refunded';
 
-  /// Agreed and ready for a rider: paid from funds, or cash on delivery
-  /// chosen. `cashier_assign_rider` (v59) refuses every other Agreed
-  /// order; the member has to do one of the two first. Handing over at the
-  /// counter needs neither, since the member pays there.
-  bool get readyForRider => isAgreed && (isPaid || isCod);
+  /// A rider order, agreed and ready for a rider: paid from funds, or cash
+  /// on delivery chosen. `cashier_assign_rider` (v59) refuses every other
+  /// Agreed order; the member has to do one of the two first. Handing over
+  /// at the counter needs neither, since the member pays there.
+  bool get readyForRider => !isCourier && isAgreed && (isPaid || isCod);
+
+  /// A courier order, agreed and paid: the staff can book it with the
+  /// courier and mark it shipped (`cashier_mark_shipped`, v61).
+  bool get readyToShip => isCourier && isAgreed && isPaid;
 
   /// Agreed, but the member hasn't paid or chosen cash yet (v59).
   bool get waitingForPayment => isAgreed && !isPaid && !isCod;
+
+  /// An outside payment the staff still have to act on: send where to pay,
+  /// or check one the member says they sent.
+  bool get outsidePaymentNeedsStaff =>
+      isAgreed &&
+      isOutside &&
+      !isPaid &&
+      (paymentDetailsAt == null || paymentSentAt != null);
+
+  /// The member said they sent an outside payment; the staff haven't
+  /// confirmed or sent it back yet.
+  bool get outsidePaymentSent => isOutside && !isPaid && paymentSentAt != null;
 
   /// Funds can only be spent while the order is still Agreed —
   /// `pay_order_with_funds` refuses every later status. Once a rider has
   /// it, the member pays the rider in cash.
   bool get canPayWithFunds => isAgreed && !isPaid;
 
-  /// Whether the member can still pay at all from the app: funds while
-  /// Agreed, or a cash code up to the moment of handover
-  /// (`member_order_cod_code` accepts Agreed, Assigned and Picked Up).
-  bool get canStillPay => !isPaid && (isAgreed || isAssigned || isPickedUp);
+  /// Whether the member can still pay at all from the app: funds (or, for
+  /// a courier, an outside payment) while Agreed, or a cash code up to the
+  /// moment of handover (`member_order_cod_code` accepts Agreed, Assigned
+  /// and Picked Up).
+  bool get canStillPay =>
+      !isPaid && (isAgreed || (!isCourier && (isAssigned || isPickedUp)));
 
   /// Cash a rider collected that no cashier has yet confirmed receiving.
   /// This is the queue behind the cashier's "Cash to Remit" filter.
@@ -1789,12 +1885,15 @@ class DeliveryOrder {
   String get paymentLabel {
     if (isRefunded) return 'Refunded to member funds';
     if (isPaid) {
+      if (isOutside && isCancelled) return 'Paid outside the app (refund it outside the app)';
       return switch (paymentMethod) {
         'cod' => 'Cash on delivery',
         'counter' => 'Paid at the counter',
+        'outside' => 'Paid outside the app',
         _ => 'Member funds',
       };
     }
+    if (isOutside && !isCompleted) return 'Outside payment (to confirm)';
     // Completed and unpaid happens two ways. Before v54 a counter sale
     // recorded no payment, so an old one reads as the counter. After v54
     // it is a Delivered order a cashier closed without confirmation, which
@@ -1861,6 +1960,16 @@ class DeliveryOrder {
     salesRecordedAt: salesRecordedAt,
     codRemittedAt: codRemittedAt,
     codRemittedTo: codRemittedTo,
+    deliveryRoute: deliveryRoute,
+    paymentDetails: paymentDetails,
+    paymentDetailsAt: paymentDetailsAt,
+    paymentSentAt: paymentSentAt,
+    paymentReference: paymentReference,
+    paymentRejectedNote: paymentRejectedNote,
+    paymentRejectedAt: paymentRejectedAt,
+    trackingNumber: trackingNumber,
+    shippedAt: shippedAt,
+    stockTakenAt: stockTakenAt,
     routePoints: routePoints,
     routeDistanceM: routeDistanceM,
     routeDurationS: routeDurationS,

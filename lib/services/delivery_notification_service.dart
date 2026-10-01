@@ -6,9 +6,14 @@
 //   * Cashier / Admin  — a new order; the member countered the fee; the
 //                        member agreed (ready to dispatch); an order was
 //                        cancelled while a rider had it (goods come back).
+//                        Courier orders (v61): the member says they sent
+//                        an outside payment; the order is paid and ready
+//                        to ship.
 //   * Member / Reseller — prices quoted; counter-offer accepted; a rider
 //                        assigned; on the way; delivered (please confirm);
-//                        cancelled (with the refund, if any).
+//                        cancelled (with the refund, if any). Courier
+//                        orders: where to pay; payment not received;
+//                        payment confirmed; shipped.
 //   * Rider            — an order assigned to them; one of theirs
 //                        cancelled or completed.
 //
@@ -44,6 +49,10 @@ class DeliveryNotificationService extends ChangeNotifier {
   /// AND paid or cash chosen). Paying changes no status, so this is how
   /// the cashier's "Ready to dispatch" knows the moment it happens.
   final Map<String, bool> _lastReady = {};
+
+  /// The order as last seen, for the outside-payment steps (v61), which
+  /// change no status either.
+  final Map<String, DeliveryOrder> _lastOrder = {};
 
   /// Who the seed was taken for, so signing in as someone else re-seeds.
   String? _seededFor;
@@ -84,12 +93,14 @@ class DeliveryNotificationService extends ChangeNotifier {
     _seededFor = uid;
     _lastStatus.clear();
     _lastReady.clear();
+    _lastOrder.clear();
     if (uid == null || !(_isStaff || _isMember || _isRider)) return;
     try {
       final orders = await repository.fetchDeliveryOrders();
       for (final o in orders) {
         _lastStatus.putIfAbsent(o.id, () => o.status);
-        _lastReady.putIfAbsent(o.id, () => o.readyForRider);
+        _lastReady.putIfAbsent(o.id, () => _ready(o));
+        _lastOrder.putIfAbsent(o.id, () => o);
       }
     } catch (_) {}
   }
@@ -103,28 +114,52 @@ class DeliveryNotificationService extends ChangeNotifier {
 
   bool get _isRider => _auth?.userRole == UserRole.delivery;
 
+  /// Ready for the staff's next step: a rider (v59) or the courier (v61).
+  static bool _ready(DeliveryOrder o) => o.readyForRider || o.readyToShip;
+
+  /// Which outside-payment step [order] just took since [prev], if any.
+  static String? _paymentStep(DeliveryOrder? prev, DeliveryOrder order) {
+    if (prev == null) return null;
+    if (order.paymentDetailsAt != null &&
+        order.paymentDetailsAt != prev.paymentDetailsAt) {
+      return 'details';
+    }
+    if (order.paymentSentAt != null &&
+        order.paymentSentAt != prev.paymentSentAt) {
+      return 'sent';
+    }
+    if (order.paymentRejectedAt != null &&
+        order.paymentRejectedAt != prev.paymentRejectedAt) {
+      return 'rejected';
+    }
+    if (order.isOutside && order.isPaid && !prev.isPaid) return 'confirmed';
+    return null;
+  }
+
   void _onOrderEvent(DeliveryOrderRealtimeEvent event) {
     final order = event.order;
     if (order.id.isEmpty || event.type == 'deleted') return;
 
     final before = _lastStatus[order.id];
     final wasReady = _lastReady[order.id] ?? false;
+    final step = _paymentStep(_lastOrder[order.id], order);
     _lastStatus[order.id] = order.status;
-    _lastReady[order.id] = order.readyForRider;
+    _lastReady[order.id] = _ready(order);
+    _lastOrder[order.id] = order;
     final statusChanged = before != order.status;
-    final becameReady = order.readyForRider && !wasReady;
-    // Neither moved: a route, ETA or cash-code write. Nothing new for
+    final becameReady = _ready(order) && !wasReady;
+    // Nothing moved: a route, ETA or cash-code write. Nothing new for
     // anyone to act on.
-    if (!statusChanged && !becameReady) return;
+    if (!statusChanged && !becameReady && step == null) return;
 
     final ref = 'Order ${order.shortId}';
     if (_isStaff) {
-      _forStaff(event, order, before, ref, statusChanged, becameReady);
+      _forStaff(event, order, before, ref, statusChanged, becameReady, step);
     } else if (_isMember) {
       // Ignore other members' orders, should any arrive.
-      if (!statusChanged) return;
+      if (!statusChanged && step == null) return;
       if (_myMemberId == null || order.memberId != _myMemberId) return;
-      _forMember(order, before);
+      _forMember(order, before, statusChanged, step);
     } else if (_isRider) {
       if (!statusChanged) return;
       if (order.deliveryId != _auth?.userId) return;
@@ -139,6 +174,7 @@ class DeliveryNotificationService extends ChangeNotifier {
     String ref,
     bool statusChanged,
     bool becameReady,
+    String? step,
   ) {
     // A cashier hears about the orders they hold and the ones nobody has
     // picked up yet; an admin, about all of them.
@@ -159,6 +195,20 @@ class DeliveryNotificationService extends ChangeNotifier {
     } else if (statusChanged &&
         order.status == DeliveryOrderStatus.memberNegotiating) {
       _notify('Delivery counter-offer', '$ref: the member countered the fee.');
+    } else if (step == 'sent') {
+      _notify(
+        'Payment sent',
+        '$ref: the member says they sent the payment. Check it arrived, '
+            'then confirm it.',
+      );
+    } else if (becameReady && order.isCourier) {
+      // Confirming an outside payment is the staff's own act: no alert.
+      if (step != 'confirmed') {
+        _notify(
+          'Ready to ship',
+          '$ref: paid. Book it with ${order.routeLabel} and mark it shipped.',
+        );
+      }
     } else if (becameReady) {
       // v59: ready for a rider once agreed AND paid or cash chosen,
       // whichever came last.
@@ -180,7 +230,35 @@ class DeliveryNotificationService extends ChangeNotifier {
     }
   }
 
-  void _forMember(DeliveryOrder order, String? before) {
+  void _forMember(
+    DeliveryOrder order,
+    String? before,
+    bool statusChanged,
+    String? step,
+  ) {
+    if (!statusChanged) {
+      if (step == 'details') {
+        _notify(
+          'Where to pay',
+          'The store sent where to send your payment. See it in Active Orders.',
+        );
+      } else if (step == 'rejected') {
+        final why = (order.paymentRejectedNote ?? '').trim();
+        _notify(
+          'Payment not received',
+          why.isEmpty
+              ? 'The store could not confirm your payment.'
+              : 'The store could not confirm your payment: $why',
+        );
+      } else if (step == 'confirmed') {
+        _notify(
+          'Payment confirmed',
+          'The store received your payment. They will send your order by '
+              '${order.routeLabel}.',
+        );
+      }
+      return;
+    }
     final status = order.status;
     if (status == DeliveryOrderStatus.cashierPricing) {
       _notify(
@@ -204,6 +282,14 @@ class DeliveryNotificationService extends ChangeNotifier {
       _notify(
         'Delivered',
         'Your order was handed over. Tap "Yes, I received it" in Active Orders.',
+      );
+    } else if (status == DeliveryOrderStatus.shipped) {
+      final tracking = (order.trackingNumber ?? '').trim();
+      _notify(
+        'Shipped',
+        'Your order was sent by ${order.routeLabel}'
+            '${tracking.isEmpty ? '' : ' (tracking $tracking)'}. Tap "I '
+            'received it" in Active Orders when it arrives.',
       );
     } else if (status == DeliveryOrderStatus.cancelled) {
       final why = (order.cancelReason ?? '').trim();

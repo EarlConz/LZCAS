@@ -4105,14 +4105,16 @@ class SupabaseRepository {
     }
   }
 
-  /// Cashier "Send Quote" — fixes every item price and proposes the initial
-  /// delivery fee via `cashier_send_quote`.
+  /// Cashier "Send Quote" — fixes every item price, proposes the delivery
+  /// fee and says how it travels ([route], one of [DeliveryRoute], v61)
+  /// via `cashier_send_quote`.
   Future<void> sendDeliveryQuote({
     required String orderId,
     required String cashierId,
     required double itemsTotal,
     required double deliveryFee,
     required List<Map<String, dynamic>> lines,
+    String route = DeliveryRoute.rider,
   }) async {
     await _supabase.rpc(
       'cashier_send_quote',
@@ -4122,7 +4124,100 @@ class SupabaseRepository {
         'p_items_total': itemsTotal,
         'p_delivery_fee': deliveryFee,
         'p_lines': lines,
+        'p_route': route,
       },
+    );
+    _changes.add('order_updated');
+  }
+
+  // ── Courier and outside payment (v61) ──────────────────────────────
+  // The staff calls throw, like the rest of the cashier's: the order pane
+  // shows the database's sentence. The member's return it, like
+  // payOrderWithFunds.
+
+  /// Member pays a courier order by GCash or another way outside the app.
+  Future<String?> memberChooseOutsidePayment(String orderId) =>
+      _memberOrderCall('member_choose_outside_payment', {'p_order_id': orderId});
+
+  /// Member says they sent the outside payment.
+  Future<String?> memberMarkPaymentSent({
+    required String orderId,
+    String? reference,
+  }) => _memberOrderCall('member_mark_payment_sent', {
+    'p_order_id': orderId,
+    'p_reference': reference,
+  });
+
+  Future<String?> _memberOrderCall(String fn, Map<String, dynamic> params) async {
+    try {
+      await _supabase.rpc(fn, params: params);
+      _changes.add('order_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[$fn] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'That did not go through.' : msg;
+    } catch (e) {
+      debugPrint('[$fn] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// Staff tell the member where to send an outside payment.
+  Future<void> cashierSendPaymentDetails({
+    required String orderId,
+    required String details,
+  }) async {
+    await _supabase.rpc(
+      'cashier_send_payment_details',
+      params: {'p_order_id': orderId, 'p_details': details},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Staff checked: the outside payment arrived.
+  Future<void> cashierConfirmOutsidePayment(String orderId) async {
+    await _supabase.rpc(
+      'cashier_confirm_outside_payment',
+      params: {'p_order_id': orderId},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Staff checked: it did not arrive, or does not match. [note] says why.
+  Future<void> cashierRejectOutsidePayment({
+    required String orderId,
+    required String note,
+  }) async {
+    await _supabase.rpc(
+      'cashier_reject_outside_payment',
+      params: {'p_order_id': orderId, 'p_note': note},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Booked with the courier. The goods leave the shelf now.
+  Future<void> cashierMarkShipped({
+    required String orderId,
+    required String tracking,
+  }) async {
+    await _supabase.rpc(
+      'cashier_mark_shipped',
+      params: {'p_order_id': orderId, 'p_tracking': tracking},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// A shipped parcel that never reached the member. [returned]: it came
+  /// back, so its goods go back on the shelf.
+  Future<void> cashierCancelShippedOrder({
+    required String orderId,
+    required String reason,
+    required bool returned,
+  }) async {
+    await _supabase.rpc(
+      'cashier_cancel_shipped_order',
+      params: {'p_order_id': orderId, 'p_reason': reason, 'p_returned': returned},
     );
     _changes.add('order_updated');
   }

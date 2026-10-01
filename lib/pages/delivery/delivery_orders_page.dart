@@ -199,6 +199,17 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
       if (o.id != exceptId && o.isWithRider && o.deliveryId != null) o.deliveryId!,
   };
 
+  /// The payment details most recently sent on any order (v61), to start
+  /// the next one from: the store's GCash number rarely changes.
+  String? get _lastPaymentDetails {
+    DeliveryOrder? latest;
+    for (final o in _orders) {
+      if (o.paymentDetailsAt == null) continue;
+      if (latest == null || o.paymentDetailsAt!.isAfter(latest.paymentDetailsAt!)) latest = o;
+    }
+    return latest?.paymentDetails;
+  }
+
   String _m(num? v) => formatMoney(v, symbol: context.read<ConfigService>().currencySymbol);
 
   // ── Build ──────────────────────────────────────────────────────────
@@ -559,6 +570,8 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   /// decides which order to open next.
   (String, String?, bool) _rowFacts(DeliveryOrder o) {
     switch (o.stage) {
+      case OrderStage.toDispatch when o.isCourier && !o.needsCashier:
+        return ('With member', 'to pay · ${o.routeLabel}', false);
       case OrderStage.toPrice || OrderStage.toDispatch:
         return (formatWaiting(o.waiting), 'waiting', o.waiting >= kWaitingTooLong);
       case OrderStage.negotiating:
@@ -570,6 +583,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
           DeliveryOrderStatus.assigned => ('Pickup', o.deliveryName, false),
           DeliveryOrderStatus.pickedUp =>
             (o.etaAt == null ? 'On the way' : 'ETA ${formatTimeOfDay(o.etaAt)}', o.deliveryName, false),
+          DeliveryOrderStatus.shipped => ('Shipped', '${o.routeLabel} · ${formatWaiting(o.waiting)}', false),
           _ => ('Awaiting member', formatWaiting(o.waiting), false),
         };
       case OrderStage.cash:
@@ -741,6 +755,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
       branch: _branch,
       stores: _stores,
       busyRiderIds: _busyRiders(o.id),
+      lastPaymentDetails: _lastPaymentDetails,
       onChanged: _load,
     );
   }
@@ -757,6 +772,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
           branch: _branch,
           stores: _stores,
           busyRiderIds: _busyRiders(o.id),
+          lastPaymentDetails: _lastPaymentDetails,
         ),
       ),
     );
@@ -779,6 +795,7 @@ class _OrderScreen extends StatefulWidget {
   final CashierLocation? branch;
   final List<CashierLocation> stores;
   final Set<String> busyRiderIds;
+  final String? lastPaymentDetails;
 
   const _OrderScreen({
     required this.orderId,
@@ -787,6 +804,7 @@ class _OrderScreen extends StatefulWidget {
     required this.branch,
     required this.stores,
     required this.busyRiderIds,
+    this.lastPaymentDetails,
   });
 
   @override
@@ -832,6 +850,7 @@ class _OrderScreenState extends State<_OrderScreen> {
           branch: widget.branch,
           stores: widget.stores,
           busyRiderIds: widget.busyRiderIds,
+          lastPaymentDetails: widget.lastPaymentDetails,
           onChanged: _reload,
           compact: true,
         ),

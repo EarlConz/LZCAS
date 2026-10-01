@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v60)
+├── migrations/    Ordered, apply-once changes (v2 … v61)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -508,6 +508,28 @@ with the app build that calls it._
   Stock and by approving an inventory user's reduction request; before this
   both read and wrote from the app, and an over-large reduction was skipped
   silently. POS sales still lower stock from the app (see the file's header).
+
+**Courier delivery (v61)** — _requires v59; deploy
+`order-push` from the same commit; ship with the app build that sends the
+route._
+
+- v61 — while pricing, the cashier or admin chooses Rider, LBC or J&T
+  (`cashier_send_quote` gains `p_route`, default `'rider'`, so older builds
+  still quote). A courier order has no cash on delivery: the member pays
+  from Balance / Total Earnings, or outside the app (GCash or similar:
+  `member_choose_outside_payment` → staff `cashier_send_payment_details` →
+  member `member_mark_payment_sent` → staff
+  `cashier_confirm_outside_payment` or `cashier_reject_outside_payment`).
+  Staff then book it and `cashier_mark_shipped` with the tracking number:
+  status `Shipped`, and the **stock leaves now**. The sale and Group Sales
+  commissions still wait for the member's "I received it"
+  (`member_confirm_received`, or staff `complete_delivery_order` as an
+  override). `cashier_cancel_shipped_order` cancels a parcel that never
+  arrived, returning the stock only if it came back. Stock-taking moved out
+  of `order_record_sales` into `_order_take_stock` (idempotent via
+  `stock_taken_at`), and v57's refund into `_order_refund_funds`. The push
+  trigger also fires on the three outside-payment steps and sends `event`.
+  Decisions: the "Courier Delivery Flow (LBC / J&T)" doc (2026-10-01).
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

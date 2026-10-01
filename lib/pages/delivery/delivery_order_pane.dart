@@ -79,6 +79,10 @@ class DeliveryOrderPane extends StatefulWidget {
   /// its cashier nor this viewer has a location (an admin handling it).
   final List<CashierLocation> stores;
 
+  /// The payment details last sent on any order, to start this one's from
+  /// (v61): the store's GCash number rarely changes.
+  final String? lastPaymentDetails;
+
   /// Riders already carrying ANOTHER order. Still assignable — the cashier
   /// may know something the app does not — but marked busy.
   final Set<String> busyRiderIds;
@@ -97,6 +101,7 @@ class DeliveryOrderPane extends StatefulWidget {
     required this.onChanged,
     this.stores = const [],
     this.busyRiderIds = const {},
+    this.lastPaymentDetails,
     this.compact = false,
   });
 
@@ -108,6 +113,11 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
   final Map<int, TextEditingController> _price = {};
   late final TextEditingController _fee;
   late final TextEditingController _counter;
+  late final TextEditingController _details;
+  late final TextEditingController _tracking;
+
+  /// How the order travels, while it is being priced (v61).
+  late String _sendBy = _o.deliveryRoute;
 
   List<DeliveryFeeOffer> _offers = const [];
   String? _riderId;
@@ -127,6 +137,11 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     _fee = TextEditingController(text: _amountText(_o.deliveryFee))
       ..addListener(_rebuild);
     _counter = TextEditingController()..addListener(_rebuild);
+    _details = TextEditingController(
+      text: _o.paymentDetails ?? widget.lastPaymentDetails ?? '',
+    )..addListener(_rebuild);
+    _tracking = TextEditingController(text: _o.trackingNumber ?? '')
+      ..addListener(_rebuild);
 
     if (_o.status == DeliveryOrderStatus.cashierPricing ||
         _o.status == DeliveryOrderStatus.memberNegotiating) {
@@ -162,6 +177,8 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     }
     _fee.dispose();
     _counter.dispose();
+    _details.dispose();
+    _tracking.dispose();
     super.dispose();
   }
 
@@ -310,6 +327,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         itemsTotal: _itemsTyped,
         deliveryFee: _feeTyped!,
         lines: lines,
+        route: _sendBy,
       ),
       success: 'Quote sent to ${_o.memberFirstName}',
     );
@@ -332,6 +350,201 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     success: 'New fee sent to ${_o.memberFirstName}',
   );
 
+  // ── Courier and outside payment (v61) ─────────────────────────────
+
+  String get _courier => _o.routeLabel;
+
+  Future<void> _sendDetails() => _run(
+    () => repository.cashierSendPaymentDetails(
+      orderId: _o.id,
+      details: _details.text.trim(),
+    ),
+    success: 'Payment details sent to ${_o.memberFirstName}',
+  );
+
+  Future<void> _confirmPayment() async {
+    final ref = (_o.paymentReference ?? '').trim();
+    final ok = await _confirm(
+      title: 'Payment received?',
+      body: 'Only confirm once ${_m(_o.finalTotal)} has arrived'
+          '${ref.isEmpty ? '' : ' (reference $ref)'}. You can then book '
+          'it with $_courier.',
+      confirm: 'Confirm payment',
+    );
+    if (!ok) return;
+    await _run(
+      () => repository.cashierConfirmOutsidePayment(_o.id),
+      success: 'Payment confirmed',
+    );
+  }
+
+  Future<void> _rejectPayment() async {
+    final note = await _askText(
+      title: 'Payment not received?',
+      body: '${_o.memberFirstName} is told why, and can send it again or '
+          'pay from their funds instead.',
+      label: 'What was wrong',
+      hint: 'e.g. Nothing arrived, or the amount was short',
+      confirm: 'Send back',
+    );
+    if (note == null) return;
+    await _run(
+      () => repository.cashierRejectOutsidePayment(orderId: _o.id, note: note),
+      success: '${_o.memberFirstName} was told',
+    );
+  }
+
+  Future<void> _markShipped() async {
+    final tracking = _tracking.text.trim();
+    if (tracking.isEmpty) return;
+    final ok = await _confirm(
+      title: 'Mark as shipped?',
+      body: 'Booked with $_courier, tracking $tracking. The items leave '
+          'your stock now. The sale and commissions are recorded when '
+          '${_o.memberFirstName} confirms they received it.',
+      confirm: 'Mark shipped',
+    );
+    if (!ok) return;
+    await _run(
+      () => repository.cashierMarkShipped(orderId: _o.id, tracking: tracking),
+      success: 'Marked shipped',
+    );
+  }
+
+  /// A parcel that never reached the member: lost, refused, or sent back
+  /// by the courier. Whether it came back decides the stock.
+  Future<void> _cancelShipped() async {
+    final reason = TextEditingController();
+    bool? returned;
+    final refund = _o.isFunds && _o.isPaid
+        ? 'Their ${_m(_o.finalTotal)} goes back to their funds.'
+        : _o.isOutside && _o.isPaid
+        ? 'They paid outside the app, so refund them outside the app too.'
+        : null;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          Widget choice(bool value, String title, String sub) => RadioListTile<bool>(
+            value: value,
+            // ignore: deprecated_member_use
+            groupValue: returned,
+            // ignore: deprecated_member_use
+            onChanged: (v) => setLocal(() => returned = v),
+            contentPadding: EdgeInsets.zero,
+            title: Text(title),
+            subtitle: Text(sub),
+          );
+          final ready = returned != null && reason.text.trim().isNotEmpty;
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            title: const Text('Cancel this shipped order?'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_o.memberFirstName} will see it cancelled.'
+                    '${refund == null ? '' : ' $refund'}',
+                    style: Theme.of(ctx).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: reason,
+                    onChanged: (_) => setLocal(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'What happened',
+                      hintText: 'e.g. Refused by the receiver',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  choice(true, 'The parcel came back', 'Its items go back into stock.'),
+                  choice(false, 'The parcel was lost', 'Stock stays as it is.'),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Keep order'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: kDangerText),
+                onPressed: ready ? () => Navigator.pop(ctx, true) : null,
+                child: const Text('Cancel order'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    final why = reason.text.trim();
+    reason.dispose();
+    if (ok != true || returned == null) return;
+    await _run(
+      () => repository.cashierCancelShippedOrder(
+        orderId: _o.id,
+        reason: why,
+        returned: returned!,
+      ),
+      success: 'Order cancelled',
+    );
+  }
+
+  /// A dialog asking for one line of text. Null when dismissed.
+  Future<String?> _askText({
+    required String title,
+    required String body,
+    required String label,
+    required String hint,
+    required String confirm,
+  }) async {
+    final c = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(body, style: Theme.of(ctx).textTheme.bodyMedium),
+              const SizedBox(height: 14),
+              TextField(
+                controller: c,
+                autofocus: true,
+                onChanged: (_) => setLocal(() {}),
+                decoration: InputDecoration(
+                  labelText: label,
+                  hintText: hint,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Not yet'),
+            ),
+            FilledButton(
+              onPressed: c.text.trim().isEmpty ? null : () => Navigator.pop(ctx, true),
+              child: Text(confirm),
+            ),
+          ],
+        ),
+      ),
+    );
+    final text = c.text.trim();
+    c.dispose();
+    return ok == true && text.isNotEmpty ? text : null;
+  }
+
   Future<void> _assign() async {
     final chosen = _candidates.where((c) => c.rider.id == _riderId).firstOrNull;
     if (chosen == null) return;
@@ -349,17 +562,25 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
   /// confirmation (Delivered). The receipt opens before the page reloads.
   Future<void> _complete({required bool override}) async {
     final ok = await _confirm(
-      title: override ? 'Close without confirmation?' : 'Hand over at the counter?',
+      title: override
+          ? (_o.isShipped ? 'Close as received?' : 'Close without confirmation?')
+          : 'Hand over at the counter?',
       body: override
-          ? '$_riderName marked this delivered but ${_o.memberFirstName} has '
-                'not confirmed. Closing it is recorded as your override.'
+          ? _o.isShipped
+                ? 'Only do this once $_courier shows it delivered. '
+                      '${_o.memberFirstName} has not confirmed. Closing records '
+                      'the sale and pays the commissions, as your override.'
+                : '$_riderName marked this delivered but ${_o.memberFirstName} has '
+                      'not confirmed. Closing it is recorded as your override.'
           : _o.isPaid
           ? '${_o.memberFirstName} already paid from their funds. This '
                 'records the sale and prints the receipt.'
           : '${_o.memberFirstName} pays ${_m(_o.finalTotal)} now, at the '
                 'counter. This records the payment and the sale, and prints '
                 'the receipt.',
-      confirm: override ? 'Close order' : 'Complete sale',
+      confirm: override
+          ? (_o.isShipped ? 'Close as received' : 'Close order')
+          : 'Complete sale',
     );
     if (!ok) return;
     final receiptOf = _o; // the pane may be replaced by the reload
@@ -373,6 +594,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
   }
 
   Future<void> _cancel() async {
+    if (_o.isShipped) return _cancelShipped();
     final reason = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
@@ -387,6 +609,12 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
               _o.isWithRider
                   ? '$_riderName is carrying it. They will see it cancelled '
                         'and bring the goods back.'
+                  : _o.isOutside && _o.isPaid
+                  ? '${_o.memberFirstName} will see it cancelled. They paid '
+                        'outside the app, so refund them outside the app too.'
+                  : _o.isFunds && _o.isPaid
+                  ? '${_o.memberFirstName} will see it cancelled, and their '
+                        '${_m(_o.finalTotal)} goes back to their funds.'
                   : '${_o.memberFirstName} will see it cancelled.',
               style: Theme.of(ctx).textTheme.bodyMedium,
             ),
@@ -521,6 +749,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     final n = _o.items.length;
     final parts = [
       'Order ${_o.shortId}',
+      if (_o.isCourier && !_o.isOpen) 'By ${_o.routeLabel}',
       if (_o.finalTotal != null) _m(_o.finalTotal),
       '$n item${n == 1 ? '' : 's'}',
       if (_o.createdAt != null) 'Placed ${formatTimeOfDay(_o.createdAt)}',
@@ -580,7 +809,8 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     DeliveryOrderStatus.orderPlaced => _pricing(),
     DeliveryOrderStatus.cashierPricing ||
     DeliveryOrderStatus.memberNegotiating => _negotiation(),
-    DeliveryOrderStatus.agreed => _dispatch(),
+    DeliveryOrderStatus.agreed => _o.isCourier ? _courierAgreed() : _dispatch(),
+    DeliveryOrderStatus.shipped => _shipped(),
     DeliveryOrderStatus.assigned => _reassigning ? _dispatch() : _onTheWay(),
     DeliveryOrderStatus.pickedUp || DeliveryOrderStatus.delivered => _onTheWay(),
     DeliveryOrderStatus.completed => _completed(),
@@ -642,13 +872,19 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     final side = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _deliverTo(),
+        _routePicker(),
+        const SizedBox(height: 14),
+        _deliverTo(showMap: _sendBy == DeliveryRoute.rider),
         const SizedBox(height: 14),
         PaneNote(
           icon: Icons.payments_outlined,
           title: 'Payment',
-          body: '${_o.memberFirstName} chooses funds or cash on delivery '
-              'once they agree.',
+          body: _sendBy == DeliveryRoute.rider
+              ? '${_o.memberFirstName} chooses funds or cash on delivery '
+                    'once they agree.'
+              : '${_o.memberFirstName} pays from Balance, Total Earnings or '
+                    'outside the app (GCash or similar) once they agree. No '
+                    'cash on delivery.',
           dashed: true,
           iconColor: _body,
           isDark: _dark,
@@ -796,12 +1032,15 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Delivery fee',
+                  _sendBy == DeliveryRoute.rider ? 'Delivery fee' : 'Shipping fee',
                   style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w700, color: _text),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'The only part ${_o.memberFirstName} can counter',
+                  _sendBy == DeliveryRoute.rider
+                      ? 'The only part ${_o.memberFirstName} can counter'
+                      : "${DeliveryRoute.label(_sendBy)}'s fee. The only part "
+                            '${_o.memberFirstName} can counter',
                   style: StockpileFonts.satoshi(fontSize: 12, color: _body),
                 ),
               ],
@@ -981,11 +1220,13 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     return '${formatDistance(m)} from $_fromWhere, in a straight line';
   }
 
-  Widget _deliverTo() {
-    final dest = _dest;
+  /// Where it goes. [showMap] false for a courier order (v61): the
+  /// address and receiver are what the booking needs, not the road.
+  Widget _deliverTo({bool showMap = true}) {
+    final dest = showMap ? _dest : null;
     final b = _branchPoint;
     final facts = [
-      ?_distanceLine,
+      if (showMap) ?_distanceLine,
       'Receiver: ${_o.receiverDisplayName}',
     ];
     return PaneSection(
@@ -1017,6 +1258,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
             spacing: 8,
             runSpacing: 8,
             children: [
+              if (showMap)
               OutlinedButton.icon(
                 onPressed: _openMaps,
                 style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40), padding: const EdgeInsets.symmetric(horizontal: 16)),
@@ -1288,7 +1530,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       return PaneNote(
         icon: Icons.verified_rounded,
         title: '${_o.paymentLabel} · $total, paid',
-        body: _o.isCod ? null : 'Nothing to collect at the door.',
+        body: _o.isCod || _o.isCourier ? null : 'Nothing to collect at the door.',
         tint: StockpileColors.successBg,
         iconColor: const Color(0xFF16A34A),
         isDark: _dark,
@@ -1641,8 +1883,19 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       _ => (Icons.storefront_outlined, 'Handed over at the counter', '', false),
     };
 
+    final tracking = (_o.trackingNumber ?? '').trim();
     final facts = <(IconData, String, String, bool)>[
       confirmation,
+      if (_o.isCourier)
+        (
+          Icons.local_shipping_outlined,
+          'Sent by $_courier',
+          [
+            if (tracking.isNotEmpty) 'Tracking $tracking',
+            if (_o.shippedAt != null) 'Shipped ${formatTimeOfDay(_o.shippedAt)}',
+          ].join(' · '),
+          false,
+        ),
       (
         Icons.payments_outlined,
         _o.paymentLabel,
@@ -1744,8 +1997,284 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           iconColor: kDangerText,
           isDark: _dark,
         ),
+        if (_o.isOutside && _o.isPaid) ...[
+          const SizedBox(height: 12),
+          PaneNote(
+            icon: Icons.undo_rounded,
+            title: 'Paid ${_m(_o.finalTotal)} outside the app',
+            body: 'Refund ${_o.memberFirstName} the same way they paid. The '
+                'app did not hold this money, so it cannot return it.',
+            tint: _dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+            iconColor: _dark ? StockpileColors.primary500 : kOrangeText,
+            isDark: _dark,
+          ),
+        ],
+        if (_o.isRefunded) ...[
+          const SizedBox(height: 12),
+          PaneNote(
+            icon: Icons.undo_rounded,
+            title: '${_m(_o.finalTotal)} returned to ${_o.memberFirstName}\'s funds',
+            tint: StockpileColors.successBg,
+            iconColor: const Color(0xFF16A34A),
+            isDark: _dark,
+          ),
+        ],
         const SizedBox(height: 18),
         _itemsSummary(),
+      ],
+    );
+  }
+
+  // ── How it travels (v61) ───────────────────────────────────────────
+
+  Widget _routePicker() {
+    return PaneSection(
+      title: 'Send by',
+      trailing: 'Part of the quote',
+      isDark: _dark,
+      child: SizedBox(
+        width: double.infinity,
+        child: SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(
+              value: DeliveryRoute.rider,
+              label: Text('Rider'),
+              icon: Icon(Icons.two_wheeler_rounded),
+            ),
+            ButtonSegment(
+              value: DeliveryRoute.lbc,
+              label: Text('LBC'),
+              icon: Icon(Icons.local_shipping_outlined),
+            ),
+            ButtonSegment(
+              value: DeliveryRoute.jnt,
+              label: Text('J&T'),
+              icon: Icon(Icons.local_shipping_outlined),
+            ),
+          ],
+          selected: {_sendBy},
+          showSelectedIcon: false,
+          onSelectionChanged: _busy ? null : (s) => setState(() => _sendBy = s.first),
+        ),
+      ),
+    );
+  }
+
+  // ── Courier: paying, then shipping (v61) ───────────────────────────
+
+  Widget _courierAgreed() {
+    final first = _o.memberFirstName;
+    final Widget payment;
+    if (_o.isPaid) {
+      payment = _paymentNote();
+    } else if (!_o.isOutside) {
+      payment = PaneNote(
+        icon: Icons.hourglass_top_rounded,
+        title: 'Waiting for $first to pay',
+        body: '$first pays from Balance or Total Earnings, or chooses to pay '
+            'outside the app (GCash or similar). There is no cash on '
+            'delivery for $_courier. You\'ll get an alert either way.',
+        tint: _dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+        iconColor: _dark ? StockpileColors.primary500 : kOrangeText,
+        isDark: _dark,
+      );
+    } else {
+      payment = _outsidePayment();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        payment,
+        if (_o.isPaid) ...[
+          const SizedBox(height: 18),
+          PaneSection(
+            title: 'Ship with $_courier',
+            trailing: 'Book it, then enter the tracking number',
+            isDark: _dark,
+            child: TextField(
+              controller: _tracking,
+              enabled: !_busy,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: 'Tracking number',
+                hintText: 'From the $_courier receipt',
+                prefixIcon: const Icon(Icons.local_shipping_outlined),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 18),
+        _deliverTo(showMap: false),
+        const SizedBox(height: 18),
+        _itemsSummary(),
+        const SizedBox(height: 4),
+        _totals(
+          items: _o.itemsTotal ?? 0,
+          fee: _o.deliveryFee,
+          total: _o.finalTotal,
+          feeLabel: 'Shipping',
+          locked: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _outsidePayment() {
+    final first = _o.memberFirstName;
+    final total = _m(_o.finalTotal);
+    final sent = _o.paymentDetailsAt != null;
+    final ref = (_o.paymentReference ?? '').trim();
+    final rejected = (_o.paymentRejectedNote ?? '').trim();
+
+    final Widget state;
+    if (_o.outsidePaymentSent) {
+      state = PaneNote(
+        icon: Icons.mark_email_unread_outlined,
+        title: '$first says they sent $total',
+        body: 'Sent ${formatAgo(_o.paymentSentAt)}'
+            '${ref.isEmpty ? '' : ' · reference $ref'}. Check it arrived, '
+            'then confirm it.',
+        tint: _dark ? StockpileColors.secondary500.withAlpha(40) : StockpileColors.secondary50,
+        iconColor: StockpileColors.secondary500,
+        isDark: _dark,
+      );
+    } else if (rejected.isNotEmpty) {
+      state = PaneNote(
+        icon: Icons.error_outline_rounded,
+        title: 'You sent the payment back',
+        body: '"$rejected" · Waiting for $first to pay again.',
+        tint: _dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+        iconColor: _body,
+        isDark: _dark,
+      );
+    } else if (sent) {
+      state = PaneNote(
+        icon: Icons.hourglass_top_rounded,
+        title: 'Waiting for $first to pay',
+        body: 'They see the details below and tell you once they have sent '
+            '$total. You can also confirm it as soon as it arrives.',
+        tint: _dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+        iconColor: _body,
+        isDark: _dark,
+      );
+    } else {
+      state = PaneNote(
+        icon: Icons.payments_outlined,
+        title: '$first will pay outside the app',
+        body: 'Tell them where to send $total: your GCash number and '
+            'account name, or another way to pay.',
+        tint: _dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+        iconColor: _dark ? StockpileColors.primary500 : kOrangeText,
+        isDark: _dark,
+      );
+    }
+
+    return PaneSection(
+      title: 'Payment outside the app',
+      trailing: sent ? 'Details sent ${formatAgo(_o.paymentDetailsAt)}' : null,
+      isDark: _dark,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          state,
+          const SizedBox(height: 12),
+          TextField(
+            controller: _details,
+            enabled: !_busy,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: 'Where to pay',
+              hintText: 'e.g. GCash 0917 123 4567 · Juan Dela Cruz',
+              helperText: '$first also sees the amount, $total.',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _shipped() {
+    final first = _o.memberFirstName;
+    final tracking = (_o.trackingNumber ?? '').trim();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _line),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(color: Color(0xFFB24800), shape: BoxShape.circle),
+                child: const Icon(Icons.local_shipping_rounded, size: 20, color: Colors.white),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sent by $_courier',
+                      style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w700, color: _text),
+                    ),
+                    const SizedBox(height: 2),
+                    SelectableText(
+                      tracking.isEmpty ? 'No tracking number' : 'Tracking $tracking',
+                      style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: _text),
+                    ),
+                    Text(
+                      'Shipped ${formatTimeOfDay(_o.shippedAt)} · ${formatAgo(_o.shippedAt)}',
+                      style: StockpileFonts.satoshi(fontSize: 12, color: _body),
+                    ),
+                  ],
+                ),
+              ),
+              if (tracking.isNotEmpty)
+                IconButton(
+                  tooltip: 'Copy tracking number',
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: tracking));
+                    showSuccessToast('Tracking number copied');
+                  },
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _paymentNote(),
+        const SizedBox(height: 12),
+        PaneNote(
+          icon: Icons.inventory_2_outlined,
+          title: 'Waiting for $first to confirm',
+          body: 'The sale and commissions are recorded when they tap "I '
+              'received it". If $_courier shows it delivered and they don\'t '
+              'confirm, close it yourself. If it never arrived, use Cancel order.',
+          tint: _dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+          iconColor: _body,
+          isDark: _dark,
+        ),
+        const SizedBox(height: 18),
+        _deliverTo(showMap: false),
+        const SizedBox(height: 18),
+        _itemsSummary(),
+        const SizedBox(height: 4),
+        _totals(
+          items: _o.itemsTotal ?? 0,
+          fee: _o.deliveryFee,
+          total: _o.finalTotal,
+          feeLabel: 'Shipping',
+          locked: true,
+        ),
       ],
     );
   }
@@ -1845,6 +2374,20 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           ],
         );
 
+      case DeliveryOrderStatus.agreed when _o.isCourier:
+        return _courierActions();
+
+      case DeliveryOrderStatus.shipped:
+        return (
+          'Waiting for $first to confirm they received it.',
+          [
+            OutlinedButton(
+              onPressed: busy ? null : () => _complete(override: true),
+              child: const Text('Close as received'),
+            ),
+          ],
+        );
+
       case DeliveryOrderStatus.agreed:
         final chosen = _candidates.where((c) => c.rider.id == _riderId).firstOrNull;
         final ready = _o.readyForRider;
@@ -1927,6 +2470,66 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         return (null, const []);
     }
   }
+
+  /// The action bar while a courier order is Agreed: settle the payment,
+  /// then ship it.
+  (String?, List<Widget>) _courierActions() {
+    final first = _o.memberFirstName;
+    final busy = _busy;
+    final counter = OutlinedButton(
+      onPressed: busy ? null : () => _complete(override: false),
+      child: const Text('Hand over at counter'),
+    );
+
+    if (_o.isPaid) {
+      final t = _tracking.text.trim();
+      return (
+        t.isEmpty ? 'Book it with $_courier, then enter the tracking number.' : null,
+        [
+          counter,
+          FilledButton(
+            onPressed: busy || t.isEmpty ? null : _markShipped,
+            child: const Text('Mark shipped'),
+          ),
+        ],
+      );
+    }
+    if (!_o.isOutside) return ('Waiting for $first to pay.', [counter]);
+
+    final typed = _details.text.trim();
+    if (_o.paymentDetailsAt == null) {
+      return (
+        typed.isEmpty ? 'Write where $first should send the payment.' : null,
+        [
+          FilledButton(
+            onPressed: busy || typed.isEmpty ? null : _sendDetails,
+            child: const Text('Send payment details'),
+          ),
+        ],
+      );
+    }
+    final changed = typed.isNotEmpty && typed != (_o.paymentDetails ?? '').trim();
+    return (
+      _o.outsidePaymentSent ? null : 'Confirm once the money arrives.',
+      [
+        if (changed)
+          OutlinedButton(
+            onPressed: busy ? null : _sendDetails,
+            child: const Text('Resend details'),
+          ),
+        if (_o.outsidePaymentSent)
+          OutlinedButton(
+            onPressed: busy ? null : _rejectPayment,
+            child: const Text('Not received'),
+          ),
+        FilledButton(
+          onPressed: busy ? null : _confirmPayment,
+          child: const Text('Confirm payment'),
+        ),
+      ],
+    );
+  }
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

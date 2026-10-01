@@ -48,18 +48,22 @@ extension OrderStageOf on DeliveryOrder {
       DeliveryOrderStatus.agreed => OrderStage.toDispatch,
       DeliveryOrderStatus.assigned ||
       DeliveryOrderStatus.pickedUp ||
-      DeliveryOrderStatus.delivered => OrderStage.onTheWay,
+      DeliveryOrderStatus.delivered ||
+      DeliveryOrderStatus.shipped => OrderStage.onTheWay,
       _ => OrderStage.history,
     };
   }
 
   /// Whether the cashier is the one holding things up. A quote waiting on
   /// the member, an agreed order waiting for the member to pay (v59), or an
-  /// order on a rider's bike, is not.
+  /// order on a rider's bike or with a courier, is not. An outside payment
+  /// waiting for its details or its check (v61) is.
   bool get needsCashier =>
       status == DeliveryOrderStatus.orderPlaced ||
       status == DeliveryOrderStatus.memberNegotiating ||
       readyForRider ||
+      readyToShip ||
+      outsidePaymentNeedsStaff ||
       awaitingRemittance;
 
   /// How long it has sat in its current status. `updated_at` is touched by
@@ -124,7 +128,16 @@ class StagePill extends StatelessWidget {
       DeliveryOrderStatus.orderPlaced => 'To price',
       DeliveryOrderStatus.cashierPricing => 'Quote sent',
       DeliveryOrderStatus.memberNegotiating => 'Counter-offer',
-      DeliveryOrderStatus.agreed => 'Ready to dispatch',
+      DeliveryOrderStatus.agreed => o.isCourier
+          ? (o.readyToShip
+                ? 'Ready to ship'
+                : o.outsidePaymentSent
+                ? 'Check payment'
+                : o.isOutside && o.paymentDetailsAt == null
+                ? 'Send pay details'
+                : 'Awaiting payment')
+          : 'Ready to dispatch',
+      DeliveryOrderStatus.shipped => 'Shipped · ${o.routeLabel}',
       DeliveryOrderStatus.assigned => 'Rider assigned',
       DeliveryOrderStatus.pickedUp => 'On the way',
       DeliveryOrderStatus.delivered => 'Awaiting member',
@@ -304,7 +317,7 @@ class OrderStepper extends StatelessWidget {
     this.compact = false,
   });
 
-  static const _labels = [
+  static const _riderLabels = [
     'Placed',
     'Quote',
     'Agreed',
@@ -313,12 +326,27 @@ class OrderStepper extends StatelessWidget {
     'Completed',
   ];
 
+  /// A courier order (v61) has no rider steps: it is paid, then shipped.
+  static const _courierLabels = [
+    'Placed',
+    'Quote',
+    'Agreed',
+    'Paid',
+    'Shipped',
+    'Completed',
+  ];
+
+  List<String> get _labels => order.isCourier ? _courierLabels : _riderLabels;
+
   /// Index of the step in progress; 6 when everything is done, null when
   /// cancelled (no step is "current" on an order that stopped).
   int? get _current => switch (order.status) {
     DeliveryOrderStatus.orderPlaced ||
     DeliveryOrderStatus.cashierPricing ||
     DeliveryOrderStatus.memberNegotiating => 1,
+    // Courier: Agreed waits on payment (step 3), then on shipping (4).
+    DeliveryOrderStatus.agreed when order.isCourier => order.isPaid ? 4 : 3,
+    DeliveryOrderStatus.shipped => 5,
     DeliveryOrderStatus.agreed || DeliveryOrderStatus.assigned => 3,
     DeliveryOrderStatus.pickedUp => 4,
     DeliveryOrderStatus.delivered => 5,
@@ -328,6 +356,9 @@ class OrderStepper extends StatelessWidget {
 
   /// Who the current step is waiting on.
   String? get _waitingOn => switch (order.status) {
+    DeliveryOrderStatus.agreed when order.isCourier =>
+      order.isPaid || order.outsidePaymentNeedsStaff ? 'You' : 'Member',
+    DeliveryOrderStatus.shipped => 'Member',
     DeliveryOrderStatus.orderPlaced ||
     DeliveryOrderStatus.memberNegotiating ||
     DeliveryOrderStatus.agreed => 'You',
@@ -340,7 +371,15 @@ class OrderStepper extends StatelessWidget {
   };
 
   /// The time under a finished step, where the order records one.
-  DateTime? _timeOf(int i) => switch (i) {
+  DateTime? _timeOf(int i) => order.isCourier
+      ? switch (i) {
+          0 => order.createdAt,
+          3 => order.paidAt,
+          4 => order.shippedAt,
+          5 => order.confirmedAt,
+          _ => null,
+        }
+      : switch (i) {
     0 => order.createdAt,
     3 => order.assignedAt,
     4 => order.deliveredAt,

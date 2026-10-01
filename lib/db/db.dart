@@ -27,6 +27,7 @@ export '../data/models.dart'
         DeliveryOrder,
         DeliveryOrderItem,
         DeliveryOrderStatus,
+        DeliveryRoute,
         DeliveryOrderRealtimeEvent,
         DeliveryFeeOffer,
         OrderConfirmation,

@@ -14,7 +14,12 @@
 //   Cash  — the member shows a single-use code; the rider scans it at
 //           handover. That one scan is both the receipt confirmation and
 //           the payment record, which is why there is no separate "I paid"
-//           button anywhere.
+//           button for it.
+//
+// An order sent by LBC or J&T (v61) has no cash on delivery. Its third
+// way is paying OUTSIDE the app (GCash or similar): choosing it here only
+// records the choice. The store then sends where to pay, and the rest
+// happens on the order card in Active Orders.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -104,13 +109,33 @@ class _PaymentSheetState extends State<_PaymentSheet> {
       // way forward: since v59 the order waits until they pay or pick cash.
       final reason = error.endsWith('.') ? error.substring(0, error.length - 1) : error;
       BotToast.showText(
-        text: '$reason. You can choose Cash on delivery instead.',
+        text: widget.order.isCourier
+            ? '$reason. You can pay outside the app instead.'
+            : '$reason. You can choose Cash on delivery instead.',
         duration: const Duration(seconds: 6),
       );
       return;
     }
     Navigator.pop(context, true);
     BotToast.showText(text: 'Paid ${formatMoney(_total, symbol: widget.currencySymbol)} from your funds');
+  }
+
+  /// Courier orders only (v61): record the choice; the store sends where
+  /// to pay next.
+  Future<void> _payOutside() async {
+    setState(() => _busy = true);
+    final error = await repository.memberChooseOutsidePayment(widget.order.id);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (error != null) {
+      BotToast.showText(text: error, duration: const Duration(seconds: 6));
+      return;
+    }
+    Navigator.pop(context, true);
+    BotToast.showText(
+      text: 'The store will send you where to pay. You will get a notification.',
+      duration: const Duration(seconds: 5),
+    );
   }
 
   Future<void> _showCode() async {
@@ -345,16 +370,31 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         onTap: () => _payWithFunds('total_earnings'),
       ),
       const SizedBox(height: 10),
-      _optionCard(
-        isDark: isDark,
-        text: text,
-        muted: muted,
-        icon: Icons.local_atm_rounded,
-        title: 'Cash on delivery',
-        subtitle: 'Pay the rider when your order arrives',
-        enabled: !_busy,
-        onTap: _showCode,
-      ),
+      if (widget.order.isCourier)
+        _optionCard(
+          isDark: isDark,
+          text: text,
+          muted: muted,
+          icon: Icons.phone_iphone_rounded,
+          title: widget.order.isOutside
+              ? 'GCash or other (chosen)'
+              : 'GCash or other, outside the app',
+          subtitle: 'The store sends where to pay. Sent by '
+              '${widget.order.routeLabel}, so there is no cash on delivery.',
+          enabled: !_busy && !widget.order.isOutside,
+          onTap: _payOutside,
+        )
+      else
+        _optionCard(
+          isDark: isDark,
+          text: text,
+          muted: muted,
+          icon: Icons.local_atm_rounded,
+          title: 'Cash on delivery',
+          subtitle: 'Pay the rider when your order arrives',
+          enabled: !_busy,
+          onTap: _showCode,
+        ),
       if (_busy) ...[
         const SizedBox(height: 16),
         const Center(child: CircularProgressIndicator()),

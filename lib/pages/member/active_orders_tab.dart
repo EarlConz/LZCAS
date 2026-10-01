@@ -6,6 +6,7 @@
 
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:bot_toast/bot_toast.dart';
 import '../../db/db.dart';
@@ -13,7 +14,7 @@ import '../../services/config_service.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../utils/formatters.dart'
-    show formatMoney, formatRelativeDate, formatTimeOfDay;
+    show formatAgo, formatMoney, formatRelativeDate, formatTimeOfDay;
 import 'order_payment_sheet.dart';
 
 class ActiveOrdersTab extends StatefulWidget {
@@ -99,6 +100,64 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
     } finally {
       if (mounted) setState(() => _busy = null);
     }
+  }
+
+  /// Outside payment (v61): the member says they sent it, with the
+  /// reference number if they have one.
+  Future<void> _markSent(DeliveryOrder order) async {
+    final controller = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sent your payment?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'The store checks it arrived, then sends your order. The '
+              'reference number helps them find it.',
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Reference number (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not yet'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("I've sent it"),
+          ),
+        ],
+      ),
+    );
+    final reference = controller.text.trim();
+    controller.dispose();
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = order.id);
+    final error = await repository.memberMarkPaymentSent(
+      orderId: order.id,
+      reference: reference.isEmpty ? null : reference,
+    );
+    if (!mounted) return;
+    setState(() => _busy = null);
+    if (error != null) {
+      BotToast.showText(text: error, duration: const Duration(seconds: 6));
+      return;
+    }
+    BotToast.showText(text: 'The store was told. They will confirm it soon.');
+    await _load();
   }
 
   Future<void> _counter(DeliveryOrder order) async {
@@ -308,7 +367,9 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
             ),
             const SizedBox(height: 6),
             _totalsRow(
-              'Delivery fee',
+              order.isCourier
+                  ? 'Shipping fee · ${order.routeLabel}'
+                  : 'Delivery fee',
               formatMoney(order.deliveryFee, symbol: currency),
               order.deliveryFee == null ? muted : text,
             ),
@@ -319,6 +380,15 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
                 formatMoney(order.finalTotal, symbol: currency),
                 StockpileColors.primary900,
                 bold: true,
+              ),
+            ],
+            if (order.isCourier && order.isOpen) ...[
+              const SizedBox(height: 10),
+              _riderLine(
+                Icons.local_shipping_outlined,
+                'Sent by ${order.routeLabel}. Pay from your funds or outside '
+                'the app (GCash or similar); there is no cash on delivery.',
+                muted,
               ),
             ],
             if (order.status == DeliveryOrderStatus.cashierPricing) ...[
@@ -361,6 +431,20 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
                 'Counter-offer sent — waiting for the cashier…',
                 style: StockpileFonts.satoshi(fontSize: 13, color: muted),
               ),
+            ] else if (order.isAgreed && order.isCourier) ...[
+              const SizedBox(height: 12),
+              Text(
+                order.isPaid
+                    ? 'Paid — the store is booking your order with '
+                          '${order.routeLabel}.'
+                    : order.isOutside
+                    ? 'Agreed — pay outside the app, below. The store sends '
+                          'it by ${order.routeLabel} once your payment is '
+                          'confirmed.'
+                    : 'Agreed — now choose how to pay. The store sends it by '
+                          '${order.routeLabel} once you have paid.',
+                style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+              ),
             ] else if (order.isAgreed) ...[
               const SizedBox(height: 12),
               Text(
@@ -369,6 +453,58 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
                     : 'Agreed — now choose how to pay. The store sends your '
                           'order once you pay or choose cash on delivery.',
                 style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+              ),
+            ] else if (order.isShipped) ...[
+              const SizedBox(height: 12),
+              _riderLine(
+                Icons.local_shipping_rounded,
+                'Sent by ${order.routeLabel}'
+                '${order.shippedAt == null ? '' : ' ${formatAgo(order.shippedAt)}'}'
+                '${(order.trackingNumber ?? '').trim().isEmpty ? '.' : '. Tracking number:'}',
+                muted,
+              ),
+              if ((order.trackingNumber ?? '').trim().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 26),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: SelectableText(
+                          order.trackingNumber!.trim(),
+                          style: StockpileFonts.satoshi(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: text,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Copy tracking number',
+                        icon: const Icon(Icons.copy_rounded, size: 18),
+                        onPressed: () {
+                          Clipboard.setData(
+                            ClipboardData(text: order.trackingNumber!.trim()),
+                          );
+                          BotToast.showText(text: 'Tracking number copied');
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: busy ? null : () => _confirmReceived(order),
+                  icon: busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check_circle_rounded, size: 18),
+                  label: const Text('I received it'),
+                ),
               ),
             ] else if (order.isAssigned) ...[
               // (payment row is rendered below for every unpaid stage)
@@ -416,7 +552,10 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
             // there is a total to pay (plan §7). Deliberately outside the
             // status chain above: an unpaid order needs this whether it is
             // sitting with the cashier or already on a rider's bike.
-            if (order.isPaid || order.canStillPay) ...[
+            if (order.isOutside && order.canStillPay) ...[
+              const SizedBox(height: 12),
+              _outsidePayment(order, currency, text, muted, busy),
+            ] else if (order.isPaid || order.canStillPay) ...[
               const SizedBox(height: 12),
               _paymentRow(order, currency, text, muted, busy),
             ],
@@ -428,6 +567,15 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
               Text(
                 'Cancelled: ${order.cancelReason!.trim()}',
                 style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+              ),
+            ],
+            if (order.isCancelled && order.isOutside && order.isPaid) ...[
+              const SizedBox(height: 8),
+              _riderLine(
+                Icons.undo_rounded,
+                'You paid outside the app, so the store refunds you the '
+                'same way.',
+                muted,
               ),
             ],
             if (order.isRefunded) ...[
@@ -480,6 +628,7 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
               switch (order.paymentMethod) {
                 'cod' => 'Paid in cash on delivery.',
                 'counter' => 'Paid at the counter.',
+                'outside' => 'Paid outside the app, confirmed by the store.',
                 _ => 'Paid from your funds.',
               },
               style: StockpileFonts.satoshi(fontSize: 13, color: muted),
@@ -520,6 +669,145 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
       currencySymbol: context.read<ConfigService>().currencySymbol,
     );
     if (changed && mounted) _load();
+  }
+
+  /// A courier order being paid outside the app (v61): where to send it,
+  /// and the one thing the member does next.
+  Widget _outsidePayment(
+    DeliveryOrder order,
+    String currency,
+    Color text,
+    Color muted,
+    bool busy,
+  ) {
+    final total = formatMoney(order.finalTotal, symbol: currency);
+    final details = (order.paymentDetails ?? '').trim();
+    final rejected = (order.paymentRejectedNote ?? '').trim();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final children = <Widget>[];
+    if (details.isEmpty) {
+      children.add(
+        _riderLine(
+          Icons.hourglass_top_rounded,
+          'You chose to pay outside the app. The store will send where to '
+          'send $total. You will get a notification.',
+          muted,
+        ),
+      );
+    } else {
+      children.addAll([
+        Text(
+          'Send $total to:',
+          style: StockpileFonts.satoshi(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: text,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+          decoration: BoxDecoration(
+            color: isDark
+                ? StockpileColors.primary900.withAlpha(30)
+                : StockpileColors.primary50,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: SelectableText(
+                  details,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    height: 1.45,
+                    fontWeight: FontWeight.w600,
+                    color: text,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Copy',
+                icon: const Icon(Icons.copy_rounded, size: 18),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: details));
+                  BotToast.showText(text: 'Copied');
+                },
+              ),
+            ],
+          ),
+        ),
+      ]);
+      if (rejected.isNotEmpty && order.paymentSentAt == null) {
+        children.addAll([
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.error_outline_rounded,
+                size: 18,
+                color: StockpileColors.danger,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'The store could not confirm your last payment: $rejected',
+                  style: StockpileFonts.satoshi(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: StockpileColors.danger,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ]);
+      }
+      children.add(const SizedBox(height: 10));
+      if (order.paymentSentAt != null) {
+        children.add(
+          _riderLine(
+            Icons.mark_email_read_outlined,
+            'You said you sent it ${formatAgo(order.paymentSentAt)}'
+            '${(order.paymentReference ?? '').trim().isEmpty ? '' : ' (reference ${order.paymentReference!.trim()})'}. '
+            'Waiting for the store to confirm.',
+            muted,
+          ),
+        );
+      } else {
+        children.add(
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: busy ? null : () => _markSent(order),
+              icon: const Icon(Icons.send_rounded, size: 18),
+              label: const Text("I've sent the payment"),
+            ),
+          ),
+        );
+      }
+    }
+    // Funds stay open until the store confirms: a member short on GCash
+    // credit can still switch.
+    if (order.paymentSentAt == null) {
+      children.add(
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: busy ? null : () => _openPayment(order),
+            child: const Text('Pay from my funds instead'),
+          ),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
   }
 
   /// One line about the rider, with an icon so it reads as a status rather
@@ -590,7 +878,8 @@ class _StatusBadge extends StatelessWidget {
       DeliveryOrderStatus.memberNegotiating ||
       DeliveryOrderStatus.assigned ||
       DeliveryOrderStatus.pickedUp ||
-      DeliveryOrderStatus.delivered => (
+      DeliveryOrderStatus.delivered ||
+      DeliveryOrderStatus.shipped => (
         StockpileColors.secondary500,
         StockpileColors.secondary500.withAlpha(30),
       ),
