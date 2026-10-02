@@ -177,11 +177,24 @@ class DeliveryNotificationService extends ChangeNotifier {
     String? step,
   ) {
     // A cashier hears about the orders they hold and the ones nobody has
-    // picked up yet; an admin, about all of them.
-    final mine =
-        _auth?.userRole == UserRole.admin ||
-        order.cashierId == null ||
-        order.cashierId == _auth?.userId;
+    // picked up yet. An admin hears about every new order and every
+    // completed one, and the rest only while no cashier holds the order
+    // (client decision 2026-10-03: admins were getting too many alerts).
+    final isAdmin = _auth?.userRole == UserRole.admin;
+    if (isAdmin &&
+        statusChanged &&
+        order.status == DeliveryOrderStatus.completed) {
+      // Not for the admin who closed it themselves.
+      if (order.confirmedBy != _auth?.userId) {
+        _notify('Order completed', '$ref is complete.');
+      }
+      return;
+    }
+    final isNew =
+        event.type == 'added' && order.status == DeliveryOrderStatus.orderPlaced;
+    final mine = isAdmin
+        ? (isNew || order.cashierId == null)
+        : (order.cashierId == null || order.cashierId == _auth?.userId);
     if (!mine) return;
 
     final onTheRoad =

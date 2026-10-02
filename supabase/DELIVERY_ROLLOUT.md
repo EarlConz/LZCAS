@@ -68,7 +68,7 @@ Every migration has a rollback in `supabase/rollbacks/`, named after it.
 |---|:-:|:-:|
 | `order-route` deployed | ✅ | ❌ |
 | secret `ORS_API_KEY` (openrouteservice) | ✅ | ❌ |
-| `order-push` deployed **with `--no-verify-jwt`** | ✅ (v61 version) | ❌ |
+| `order-push` deployed **with `--no-verify-jwt`** | ⚠️ v61 version; **redeploy** for the 2026-10-03 admin rules | ❌ |
 | secrets `PUSH_WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT`, `SERVICE_ROLE_KEY` | ✅ | ❌ |
 | Vault `order_push_url` = the production `order-push` URL | ✅ | ❌ |
 | Vault `order_push_secret` = the same value as `PUSH_WEBHOOK_SECRET` | ✅ | ❌ |
@@ -110,3 +110,4 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-02 | Production app is v1.5.1: delivery off; v48 status unknown. |
 | 2026-10-02 | Added v63 (product pictures), written but not applied anywhere yet. |
 | 2026-10-03 | Added v64 (POS sale guard, admin Edit Sale), not applied anywhere yet. |
+| 2026-10-03 | order-push changed (admins: new + completed orders, the rest only when no cashier holds it); staging needs a redeploy. |

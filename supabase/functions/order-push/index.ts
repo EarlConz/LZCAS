@@ -195,12 +195,22 @@ async function decide(
 
   // ── Cashiers and admins ──
   // The cashier holding the order, or every cashier while nobody does.
+  // Admins hear every new order and every completed one; the rest only
+  // while no cashier holds the order (client decision 2026-10-03: admins
+  // were getting too many alerts).
   const staff = async () => [
     ...(order.cashier_id ? [order.cashier_id] : await idsWhere("role", "cashier")),
-    ...(await admins()),
+    ...(order.cashier_id ? [] : await admins()),
   ];
+  if (status === S.completed && before !== S.completed) {
+    pushes.push({ to: await admins(), title: "Order completed", body: `${ref} is complete.` });
+  }
   if (type === "insert" && status === S.placed) {
-    pushes.push({ to: await staff(), title: "New delivery order", body: "A member just placed an order." });
+    pushes.push({
+      to: [...(await staff()), ...(await admins())],
+      title: "New delivery order",
+      body: "A member just placed an order.",
+    });
   } else if (status === S.countered && before !== S.countered) {
     pushes.push({ to: await staff(), title: "Delivery counter-offer", body: `${ref}: the member countered the fee.` });
   } else if (event === "payment_sent") {
