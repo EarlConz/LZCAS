@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v64)
+├── migrations/    Ordered, apply-once changes (v2 … v65)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -560,6 +560,13 @@ uses them: checkout calls `pos_record_sale`._
   admins only, replaces one checkout and moves stock by the difference;
   refused for delivery-order, package and branch sales. Group Sales follow
   through the v19 triggers.
+
+**Central Delivery Orders (v65)** — _apply with the app build that shows
+another cashier's order read-only._
+
+- v65 — `orders_select` lets every admin and main cashier see every order
+  (was: their own plus unclaimed). Changing an order still needs its cashier
+  or an admin. `order_items` and `order_fee_offers` follow the parent.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

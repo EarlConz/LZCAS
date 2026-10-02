@@ -66,6 +66,19 @@ extension OrderStageOf on DeliveryOrder {
       outsidePaymentNeedsStaff ||
       awaitingRemittance;
 
+  /// Who is handling this open order, by name, when that is a cashier
+  /// other than [me] and [me] is not an admin. Every cashier sees every
+  /// order (v65), but only its cashier or an admin may change it, so such
+  /// an order is shown read-only. Null when [me] may act on it. A finished
+  /// order has nothing left to change but its receipt, so it is never
+  /// held.
+  String? handledByOther({required String? me, required bool isAdmin}) {
+    final id = cashierId;
+    if (isAdmin || id == null || id == me || isCompleted || isCancelled) return null;
+    final n = (cashierName ?? '').trim();
+    return n.isEmpty ? 'another cashier' : n;
+  }
+
   /// How long it has sat in its current status. `updated_at` is touched by
   /// every write (v48's trigger), which is exactly "since the last move".
   Duration get waiting =>

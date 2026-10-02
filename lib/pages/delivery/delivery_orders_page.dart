@@ -150,11 +150,21 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
     }
   }
 
+  /// The other cashier handling [o], when the viewer may only look at it
+  /// (see [OrderStageOf.handledByOther]).
+  String? _heldBy(DeliveryOrder o) {
+    final auth = context.read<AuthState>();
+    return o.handledByOther(me: auth.userId, isAdmin: auth.userRole == UserRole.admin);
+  }
+
+  /// Waiting on THIS viewer. Another cashier's order is theirs to move.
+  bool _needsMe(DeliveryOrder o) => o.needsCashier && _heldBy(o) == null;
+
   /// Open on the first stage where the cashier is the one holding things
   /// up; failing that, what is on the road; failing that, history.
   OrderStage _defaultStage() {
     for (final s in [OrderStage.toPrice, OrderStage.negotiating, OrderStage.toDispatch, OrderStage.cash]) {
-      if (_inStage(s).any((o) => o.needsCashier)) return s;
+      if (_inStage(s).any(_needsMe)) return s;
     }
     if (_inStage(OrderStage.onTheWay).isNotEmpty) return OrderStage.onTheWay;
     return OrderStage.toPrice;
@@ -409,10 +419,17 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
         final oldest = list.map((o) => o.waiting).reduce((a, b) => a > b ? a : b);
         return (value: '${list.length}', hint: 'Oldest waiting ${formatWaiting(oldest)}', urgent: oldest >= kWaitingTooLong);
       case OrderStage.negotiating:
-        final mine = list.where((o) => o.needsCashier).length;
+        final mine = list.where(_needsMe).length;
+        final others = list.where((o) => _heldBy(o) != null).length;
         return (
           value: '${list.length}',
-          hint: list.isEmpty ? 'No open quotes' : '$mine need${mine == 1 ? 's' : ''} you · ${list.length - mine} with member',
+          hint: list.isEmpty
+              ? 'No open quotes'
+              : [
+                  '$mine need${mine == 1 ? 's' : ''} you',
+                  '${list.length - mine - others} with member',
+                  if (others > 0) '$others with other cashiers',
+                ].join(' · '),
           urgent: mine > 0,
         );
       case OrderStage.toDispatch:
@@ -495,7 +512,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   /// Orders in [s] waiting on the cashier.
   int _needsYou(OrderStage s) => s == OrderStage.cash || s == OrderStage.history
       ? 0
-      : _inStage(s).where((o) => o.needsCashier).length;
+      : _inStage(s).where(_needsMe).length;
 
   /// What a chip or picker row says after the stage's name, when it has no
   /// orange count: how many, or for cash how much.
@@ -700,7 +717,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
     // not miss a counter-offer sitting in the next.
     final elsewhere = OrderStage.values
         .where((s) => s != stage && s != OrderStage.history)
-        .map((s) => (s, _inStage(s).where((o) => o.needsCashier).length))
+        .map((s) => (s, _inStage(s).where(_needsMe).length))
         .where((e) => e.$2 > 0)
         .firstOrNull;
 
@@ -890,7 +907,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
                           dot(
                             id: o.id,
                             tooltip: '${o.memberName ?? 'Member order'} · ${_rowFacts(o).$1}',
-                            needsYou: o.needsCashier,
+                            needsYou: _needsMe(o),
                             child: Text(
                               _initials(o.memberName),
                               style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w700, color: _text),
@@ -942,13 +959,19 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   /// What the right-hand side of a row says, by stage — the one fact that
   /// decides which order to open next.
   (String, String?, bool) _rowFacts(DeliveryOrder o) {
+    // Another cashier's quote or dispatch: who has it, not what it needs.
+    final held = _heldBy(o);
+    if (held != null && (o.stage == OrderStage.negotiating || o.stage == OrderStage.toDispatch)) {
+      final who = held == 'another cashier' ? held : held.split(RegExp(r'\s+')).first;
+      return ('With $who', formatWaiting(o.waiting), false);
+    }
     switch (o.stage) {
-      case OrderStage.toDispatch when !o.needsCashier:
+      case OrderStage.toDispatch when !_needsMe(o):
         return ('With member', o.isCourier ? 'to pay · ${o.routeLabel}' : 'to pay', false);
       case OrderStage.toPrice || OrderStage.toDispatch:
         return (formatWaiting(o.waiting), 'waiting', o.waiting >= kWaitingTooLong);
       case OrderStage.negotiating:
-        return o.needsCashier
+        return _needsMe(o)
             ? (formatWaiting(o.waiting), 'countered', o.waiting >= kWaitingTooLong)
             : ('With member', formatWaiting(o.waiting), false);
       case OrderStage.onTheWay:

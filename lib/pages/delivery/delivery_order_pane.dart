@@ -786,8 +786,16 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
 
   // ── Header ─────────────────────────────────────────────────────────
 
+  /// Another cashier's order: shown, but nothing on it can be changed here.
+  String? get _heldBy {
+    final auth = context.read<AuthState>();
+    return _o.handledByOther(me: auth.userId, isAdmin: auth.userRole == UserRole.admin);
+  }
+
+  bool get _viewOnly => _heldBy != null;
+
   bool get _canCancel =>
-      !_o.isCompleted && !_o.isCancelled && !_o.isDelivered;
+      !_o.isCompleted && !_o.isCancelled && !_o.isDelivered && !_viewOnly;
 
   Widget _header() {
     final n = _o.items.length;
@@ -1150,7 +1158,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         textField: true,
         child: TextField(
           controller: c,
-          enabled: !_busy,
+          enabled: !_busy && !_viewOnly,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
           textAlign: TextAlign.right,
@@ -1863,7 +1871,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
-            onTap: _busy ? null : () => setState(() => _riderId = c.rider.id),
+            onTap: _busy || _viewOnly ? null : () => setState(() => _riderId = c.rider.id),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
@@ -2264,7 +2272,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           ],
           selected: {_sendBy},
           showSelectedIcon: false,
-          onSelectionChanged: _busy ? null : (s) => setState(() => _sendBy = s.first),
+          onSelectionChanged: _busy || _viewOnly ? null : (s) => setState(() => _sendBy = s.first),
         ),
       ),
     );
@@ -2304,7 +2312,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
             isDark: _dark,
             child: TextField(
               controller: _tracking,
-              enabled: !_busy,
+              enabled: !_busy && !_viewOnly,
               textInputAction: TextInputAction.done,
               decoration: InputDecoration(
                 labelText: 'Tracking number',
@@ -2384,7 +2392,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           const SizedBox(height: 12),
           TextField(
             controller: _details,
-            enabled: !_busy,
+            enabled: !_busy && !_viewOnly,
             minLines: 2,
             maxLines: 4,
             decoration: InputDecoration(
@@ -2476,11 +2484,27 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
   // ── Action bar ─────────────────────────────────────────────────────
 
   Widget _actionBar() {
-    final (hint, actions) = _actions();
+    final held = _heldBy;
+    final (hint, actions) = held != null
+        ? ('$held is handling this order. Only they or an admin can change it.', const <Widget>[])
+        : _actions();
     if (hint == null && actions.isEmpty) return const SizedBox.shrink();
 
     final hintText = hint == null
         ? null
+        : held != null
+        ? Row(
+            children: [
+              const Icon(Icons.lock_outline_rounded, size: 18, color: kCaption),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hint,
+                  style: StockpileFonts.satoshi(fontSize: 13, height: 1.4, color: _body),
+                ),
+              ),
+            ],
+          )
         : Text(
             hint,
             style: StockpileFonts.satoshi(
