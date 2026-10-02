@@ -4193,6 +4193,9 @@ class SupabaseRepository {
   // also catches renamed profiles (no realtime on that table).
 
   final Map<int, String> _itemNameCache = {};
+
+  /// Product pictures (v63), filled with the names; null = none.
+  final Map<int, String?> _itemImageCache = {};
   final Map<int, ({String name, String? package})> _memberNameCache = {};
 
   /// Null for an id that came back with no row (deleted, or not visible to
@@ -4204,7 +4207,10 @@ class SupabaseRepository {
 
   void _watchNameCache() {
     _nameCacheSub ??= _changes.stream.listen((e) {
-      if (e.startsWith('item_')) _itemNameCache.clear();
+      if (e.startsWith('item_')) {
+        _itemNameCache.clear();
+        _itemImageCache.clear();
+      }
       if (e.startsWith('member_') || e.startsWith('package_')) {
         _memberNameCache.clear();
       }
@@ -4231,6 +4237,7 @@ class SupabaseRepository {
     final now = DateTime.now();
     if (now.difference(_nameCacheAt) > _nameCacheTtl) {
       _itemNameCache.clear();
+      _itemImageCache.clear();
       _memberNameCache.clear();
       _profileNameCache.clear();
       _nameCacheAt = now;
@@ -4245,10 +4252,19 @@ class SupabaseRepository {
       () async {
         try {
           for (final ids in _chunks(items)) {
-            final data = await _supabase.from('items').select('id, name').inFilter('id', ids);
-            for (final r in (data as List)) {
+            List data;
+            try {
+              data = await _supabase.from('items').select('id, name, image_path').inFilter('id', ids);
+            } on PostgrestException {
+              // A database before v63 has no image_path: names still matter.
+              data = await _supabase.from('items').select('id, name').inFilter('id', ids);
+            }
+            for (final r in data) {
               final id = _intOrNull(r['id']);
-              if (id != null) _itemNameCache[id] = r['name'] as String? ?? 'Item #$id';
+              if (id == null) continue;
+              _itemNameCache[id] = r['name'] as String? ?? 'Item #$id';
+              final img = (r['image_path'] as String?)?.trim();
+              _itemImageCache[id] = (img == null || img.isEmpty) ? null : img;
             }
           }
         } catch (e) {
@@ -4301,6 +4317,14 @@ class SupabaseRepository {
     ]);
   }
 
+  /// Pictures (v63) for products by id, from the same cache as the names on
+  /// delivery orders: for screens that list POS sales, like My Purchases.
+  Future<Map<int, String?>> productImages(Iterable<int> ids) async {
+    final wanted = ids.where((id) => id > 0).toSet();
+    await _loadOrderNames(productIds: wanted, memberIds: const {}, profileIds: const {});
+    return {for (final id in wanted) id: _itemImageCache[id]};
+  }
+
   /// Resolves display names (product / member / cashier / rider) client-side
   /// and attaches [itemRows] to their orders — no reliance on PostgREST
   /// nested selects or foreign keys.
@@ -4350,6 +4374,7 @@ class SupabaseRepository {
           .map(
             (it) => it.copyWith(
               productName: itemNames[it.productId] ?? 'Item #${it.productId}',
+              productImagePath: _itemImageCache[it.productId],
             ),
           )
           .toList();

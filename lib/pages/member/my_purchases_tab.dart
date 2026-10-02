@@ -60,6 +60,9 @@ class MyPurchasesTab extends StatefulWidget {
 
 class _MyPurchasesTabState extends State<MyPurchasesTab> {
   List<Sale> _sales = [];
+
+  /// Product id → picture (v63), filled after the sales arrive.
+  Map<int, String?> _images = const {};
   bool _loading = true;
   String? _error;
   _Source? _filter; // null = all
@@ -96,6 +99,11 @@ class _MyPurchasesTabState extends State<MyPurchasesTab> {
         _loading = false;
         _error = null;
       });
+      // Pictures after the list: the rows show at once, letters first.
+      try {
+        final images = await repository.productImages(sales.map((s) => s.itemId));
+        if (mounted) setState(() => _images = images);
+      } catch (_) {}
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -379,7 +387,7 @@ class _MyPurchasesTabState extends State<MyPurchasesTab> {
               padding: const EdgeInsets.only(top: 12),
               child: Row(
                 children: [
-                  ProductTile(s.itemName, size: 36),
+                  ProductTile(s.itemName, imagePath: _images[s.itemId], size: 48),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(

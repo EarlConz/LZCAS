@@ -311,6 +311,8 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
         children: [
           _cardHead(c, o, _placed(o)),
           const SizedBox(height: 12),
+          ProductStrip(o.productStrip),
+          const SizedBox(height: 12),
           ..._activeBody(c, o, busy),
         ],
       ),
@@ -612,7 +614,9 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
               OrderPill(o),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
+          ProductStrip(o.productStrip, size: 44),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(

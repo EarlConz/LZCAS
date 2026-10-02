@@ -19,7 +19,7 @@ import '../../utils/fonts.dart';
 import '../../utils/formatters.dart' show formatMoney;
 import 'order_payment_sheet.dart';
 
-export '../../widgets/product_tile.dart' show ProductTile;
+export '../../widgets/product_tile.dart' show ProductTile, ProductStrip;
 
 // ─── Colours ────────────────────────────────────────────────────────────────
 
@@ -122,6 +122,16 @@ extension MemberOrderView on DeliveryOrder {
       : const ['Placed', 'Priced', 'Agreed', 'On the way', 'Delivered'];
 
   int get itemCount => items.fold(0, (n, it) => n + it.quantity);
+
+  /// The order's products for a [ProductStrip].
+  List<({String name, String? imagePath, int quantity})> get productStrip => [
+    for (final it in items)
+      (
+        name: it.productName ?? 'Item #${it.productId}',
+        imagePath: it.productImagePath,
+        quantity: it.quantity,
+      ),
+  ];
 
   /// A member may back out until the goods are moving.
   bool get memberCanCancel => isOpen || isAgreed || (isAssigned && !isCourier);

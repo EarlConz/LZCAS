@@ -322,7 +322,11 @@ class _MemberOrderDetailPageState extends State<MemberOrderDetailPage> {
               padding: const EdgeInsets.only(top: 8),
               child: Row(
                 children: [
-                  ProductTile(it.productName ?? 'Item', size: 36),
+                  ProductTile(
+                    it.productName ?? 'Item',
+                    imagePath: it.productImagePath,
+                    size: 48,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(

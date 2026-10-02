@@ -9,6 +9,83 @@ import 'package:flutter/material.dart';
 import '../db/db.dart';
 import '../utils/fonts.dart';
 
+/// What an order holds at a glance, Shopee style: one product shows its
+/// picture, name and quantity; several show up to four pictures and "+N".
+class ProductStrip extends StatelessWidget {
+  final List<({String name, String? imagePath, int quantity})> products;
+  final double size;
+
+  const ProductStrip(this.products, {super.key, this.size = 48});
+
+  static const _max = 4;
+
+  @override
+  Widget build(BuildContext context) {
+    if (products.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+
+    if (products.length == 1) {
+      final p = products.first;
+      return Row(
+        children: [
+          ProductTile(p.name, imagePath: p.imagePath, size: size),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  p.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: StockpileFonts.satoshi(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text('× ${p.quantity}', style: StockpileFonts.satoshi(fontSize: 12, color: muted)),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    final shown = products.take(_max).toList();
+    final more = products.length - shown.length;
+    return Semantics(
+      label: '${products.length} products: ${products.map((p) => p.name).join(', ')}',
+      child: ExcludeSemantics(
+        child: Row(
+          children: [
+            for (final p in shown) ...[
+              ProductTile(p.name, imagePath: p.imagePath, size: size),
+              const SizedBox(width: 6),
+            ],
+            if (more > 0)
+              Container(
+                width: size,
+                height: size,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(size / 4),
+                ),
+                child: Text(
+                  '+$more',
+                  style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w700, color: muted),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// The picture (v63) when the product has one; otherwise its first letter.
 /// The tint follows the name, so a product keeps its colour across the
 /// shop, the order and the purchases. The letter also shows while the

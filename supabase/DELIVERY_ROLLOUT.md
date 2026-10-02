@@ -7,7 +7,7 @@ applied to either project.
 - Staging: `sisyujbpcueifeonnzfw`
 - Production: `cyfyydzxdsdzycbpvqox`
 
-> **Last updated 2026-10-02.** Staging is at **v62**. Production, as far as
+> **Last updated 2026-10-03.** Staging is at **v64**. Production, as far as
 > these notes know, is at v46 plus v47 and v51. **Confirm production before
 > starting** (query below): this file only knows what someone wrote down.
 >
@@ -54,8 +54,8 @@ order by version;
 | v60 | `migration_v60_reduce_item_stock.sql` | ✅ | ❌ | Independent of delivery, but the app's Edit Product calls it: apply before the new app ships. |
 | v61 | `migration_v61_courier_delivery.sql` | ✅ 2026-10-02 | ❌ | — |
 | v62 | `migration_v62_short_cod_code_and_busy_riders.sql` | ✅ 2026-10-02 | ❌ | — |
-| v63 | `migration_v63_product_images.sql` | ⏳ not yet | ❌ | Product pictures; independent of delivery. Creates the public `product-images` bucket. Apply before an app build with picture upload reaches admins (older builds ignore it). |
-| v64 | `migration_v64_pos_sale_guard_and_edit_sale.sql` | ⏳ not yet | ❌ | POS checkout and Edit Sale call its functions: apply before the app build that has them, or checkout fails. Independent of delivery. |
+| v63 | `migration_v63_product_images.sql` | ✅ 2026-10-03 | ❌ | Product pictures; independent of delivery. Creates the public `product-images` bucket. Apply before an app build with picture upload reaches admins (older builds ignore it). |
+| v64 | `migration_v64_pos_sale_guard_and_edit_sale.sql` | ✅ 2026-10-03 | ❌ | POS checkout and Edit Sale call its functions: apply before the app build that has them, or checkout fails. Independent of delivery. |
 
 ¹ Staging's ledger names v52 `saved_items_policy_repair`; its changes are in
 place. On production it will record itself correctly.

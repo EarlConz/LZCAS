@@ -1538,6 +1538,10 @@ class DeliveryOrderItem {
   /// `order_items`) so history survives item renames/deletion.
   final String? productName;
 
+  /// The product's picture (v63), resolved like [productName]; null shows
+  /// the letter tile.
+  final String? productImagePath;
+
   const DeliveryOrderItem({
     this.id,
     this.orderId,
@@ -1546,6 +1550,7 @@ class DeliveryOrderItem {
     this.unitPrice,
     this.subtotal,
     this.productName,
+    this.productImagePath,
   });
 
   factory DeliveryOrderItem.fromJson(Map<String, dynamic> json) =>
@@ -1560,6 +1565,7 @@ class DeliveryOrderItem {
 
   DeliveryOrderItem copyWith({
     String? productName,
+    String? productImagePath,
     double? unitPrice,
     double? subtotal,
   }) => DeliveryOrderItem(
@@ -1570,6 +1576,7 @@ class DeliveryOrderItem {
     unitPrice: unitPrice ?? this.unitPrice,
     subtotal: subtotal ?? this.subtotal,
     productName: productName ?? this.productName,
+    productImagePath: productImagePath ?? this.productImagePath,
   );
 }
 

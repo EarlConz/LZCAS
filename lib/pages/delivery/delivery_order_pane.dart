@@ -41,6 +41,7 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/map_kit.dart';
+import 'package:lzcas/widgets/product_tile.dart';
 
 /// A message fit to show a cashier. The RPCs raise sentences written for
 /// people ("This order has not been paid…"), so those pass through; anything
@@ -1001,6 +1002,8 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: _line.withAlpha(140)))),
       child: Row(
         children: [
+          ProductTile(it.productName ?? 'Item', imagePath: it.productImagePath, size: 40),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               it.productName ?? 'Item #${it.productId}',
@@ -1050,9 +1053,17 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            it.productName ?? 'Item #${it.productId}',
-            style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w600, color: _text),
+          Row(
+            children: [
+              ProductTile(it.productName ?? 'Item', imagePath: it.productImagePath, size: 40),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  it.productName ?? 'Item #${it.productId}',
+                  style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w600, color: _text),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Row(
@@ -1270,9 +1281,11 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       children: [
         for (final it in _o.items)
           Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.only(bottom: 8),
             child: Row(
               children: [
+                ProductTile(it.productName ?? 'Item', imagePath: it.productImagePath, size: 36),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     '${it.productName ?? 'Item #${it.productId}'} × ${it.quantity}',
