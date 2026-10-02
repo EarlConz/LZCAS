@@ -75,6 +75,8 @@ class SupabaseRepository {
           break;
         case AuthChangeEvent.signedOut:
           _teardownRealtime();
+          // The next account may see other names (RLS): start fresh.
+          _nameCacheAt = DateTime.fromMillisecondsSinceEpoch(0);
           break;
         default:
           break;
@@ -4099,6 +4101,123 @@ class SupabaseRepository {
     }
   }
 
+  // ── Names on delivery orders, cached ───────────────────────────────
+  //
+  // Every order list reload used to download every product, every member
+  // (with their package) and every profile just to put names on a few
+  // orders. Now only the ids those orders use are asked for, and only the
+  // ones not already known. Names are dropped when realtime says a product,
+  // member or package changed, and all of them after [_nameCacheTtl], which
+  // also catches renamed profiles (no realtime on that table).
+
+  final Map<int, String> _itemNameCache = {};
+  final Map<int, ({String name, String? package})> _memberNameCache = {};
+
+  /// Null for an id that came back with no row (deleted, or not visible to
+  /// this account), so it is not asked for again until the cache expires.
+  final Map<String, String?> _profileNameCache = {};
+  DateTime _nameCacheAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _nameCacheTtl = Duration(minutes: 30);
+  StreamSubscription<String>? _nameCacheSub;
+
+  void _watchNameCache() {
+    _nameCacheSub ??= _changes.stream.listen((e) {
+      if (e.startsWith('item_')) _itemNameCache.clear();
+      if (e.startsWith('member_') || e.startsWith('package_')) {
+        _memberNameCache.clear();
+      }
+    });
+  }
+
+  static int? _intOrNull(Object? v) =>
+      v is int ? v : (v is num ? v.toInt() : int.tryParse('${v ?? ''}'));
+
+  /// PostgREST puts `in.(…)` in the URL, so long id lists go in batches.
+  static Iterable<List<T>> _chunks<T>(List<T> all, [int size = 150]) sync* {
+    for (var i = 0; i < all.length; i += size) {
+      yield all.sublist(i, i + size > all.length ? all.length : i + size);
+    }
+  }
+
+  Future<void> _loadOrderNames({
+    required Set<int> productIds,
+    required Set<int> memberIds,
+    required Set<String> profileIds,
+  }) async {
+    _watchNameCache();
+    final now = DateTime.now();
+    if (now.difference(_nameCacheAt) > _nameCacheTtl) {
+      _itemNameCache.clear();
+      _memberNameCache.clear();
+      _profileNameCache.clear();
+      _nameCacheAt = now;
+    }
+
+    final items = productIds.where((id) => !_itemNameCache.containsKey(id)).toList();
+    final members = memberIds.where((id) => !_memberNameCache.containsKey(id)).toList();
+    final profiles = profileIds.where((id) => !_profileNameCache.containsKey(id)).toList();
+
+    // Each lookup on its own: one failing must not blank the other names.
+    await Future.wait([
+      () async {
+        try {
+          for (final ids in _chunks(items)) {
+            final data = await _supabase.from('items').select('id, name').inFilter('id', ids);
+            for (final r in (data as List)) {
+              final id = _intOrNull(r['id']);
+              if (id != null) _itemNameCache[id] = r['name'] as String? ?? 'Item #$id';
+            }
+          }
+        } catch (e) {
+          debugPrint('[orderNames] items: $e');
+        }
+      }(),
+      () async {
+        try {
+          for (final ids in _chunks(members)) {
+            final data = await _supabase
+                .from('members')
+                .select('id, first_name, last_name, packages(name)')
+                .inFilter('id', ids);
+            for (final r in (data as List)) {
+              final id = _intOrNull(r['id']);
+              if (id == null) continue;
+              final name = '${r['first_name'] ?? ''} ${r['last_name'] ?? ''}'.trim();
+              final p = r['packages'];
+              final pkg = (p is Map ? p['name'] : (p is List && p.isNotEmpty ? p.first['name'] : null))
+                  ?.toString()
+                  .trim();
+              _memberNameCache[id] = (
+                name: name.isEmpty ? 'Member #$id' : name,
+                package: (pkg == null || pkg.isEmpty) ? null : pkg,
+              );
+            }
+          }
+        } catch (e) {
+          debugPrint('[orderNames] members: $e');
+        }
+      }(),
+      () async {
+        try {
+          for (final ids in _chunks(profiles)) {
+            final data = await _supabase.from('profiles').select('id, username').inFilter('id', ids);
+            final found = <String>{};
+            for (final r in (data as List)) {
+              final id = r['id'] as String;
+              found.add(id);
+              _profileNameCache[id] = r['username'] as String? ?? 'Unknown';
+            }
+            for (final id in ids) {
+              if (!found.contains(id)) _profileNameCache[id] = null;
+            }
+          }
+        } catch (e) {
+          debugPrint('[orderNames] profiles: $e');
+        }
+      }(),
+    ]);
+  }
+
   /// Resolves display names (product / member / cashier / rider) client-side
   /// and attaches [itemRows] to their orders — no reliance on PostgREST
   /// nested selects or foreign keys.
@@ -4106,29 +4225,31 @@ class SupabaseRepository {
     List<dynamic> rows, {
     List<Map<String, dynamic>> itemRows = const [],
   }) async {
-    final itemNames = <int, String>{};
-    final memberNames = <int, String>{};
-    final memberPackages = <int, String>{};
-    var cashierNames = <String, String>{};
-    try {
-      final items = await fetchItems();
-      for (final i in items) {
-        if (i.id != null) itemNames[i.id!] = i.name;
-      }
-    } catch (_) {}
-    try {
-      final members = await fetchMembers(includeDeleted: true);
-      for (final m in members) {
-        if (m.id == null) continue;
-        final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
-        memberNames[m.id!] = name.isEmpty ? 'Member #${m.id}' : name;
-        final pkg = (m.packageName ?? '').trim();
-        if (pkg.isNotEmpty) memberPackages[m.id!] = pkg;
-      }
-    } catch (_) {}
-    try {
-      cashierNames = await fetchProfilesMap();
-    } catch (_) {}
+    final maps = rows.cast<Map<String, dynamic>>();
+    await _loadOrderNames(
+      productIds: {
+        for (final r in itemRows) ?_intOrNull(r['product_id']),
+      },
+      memberIds: {for (final r in maps) ?_intOrNull(r['member_id'])},
+      profileIds: {
+        for (final r in maps) ...[
+          ?r['cashier_id']?.toString(),
+          ?r['delivery_id']?.toString(),
+        ],
+      },
+    );
+    final itemNames = _itemNameCache;
+    final memberNames = {
+      for (final e in _memberNameCache.entries) e.key: e.value.name,
+    };
+    final memberPackages = {
+      for (final e in _memberNameCache.entries)
+        if (e.value.package != null) e.key: e.value.package!,
+    };
+    final cashierNames = {
+      for (final e in _profileNameCache.entries)
+        if (e.value != null) e.key: e.value!,
+    };
 
     // Group lines by order_id, then attach each order's lines in memory.
     final itemsByOrder = <String, List<DeliveryOrderItem>>{};
