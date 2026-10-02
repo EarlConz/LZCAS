@@ -22,6 +22,7 @@ import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 import 'package:lzcas/widgets/stockpile_topbar.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/memberstable.dart';
+import 'package:lzcas/widgets/member_screen.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/pages/admin/branch_stock_page.dart';
@@ -4149,19 +4150,69 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     BuildContext context,
     Map<String, dynamic> member,
   ) async {
-    // Resolve package name client-side from the member's packageId.
-    String packageName = '';
-    try {
-      final pkgIdRaw = member['packageId'];
-      final pkgId = pkgIdRaw is int ? pkgIdRaw : int.tryParse('$pkgIdRaw');
-      if (pkgId != null) {
-        final packages = await repository.fetchPackages();
-        final pkg = packages.where((p) => p.id == pkgId).firstOrNull;
-        if (pkg != null) packageName = pkg.name;
-      }
-    } catch (_) {}
+    // The list now carries the package name; packages are only read (once
+    // per session) for a row that came without it.
+    String packageName = (member['packageName']?.toString() ?? '').trim();
+    if (packageName.isEmpty) {
+      try {
+        final pkgIdRaw = member['packageId'];
+        final pkgId = pkgIdRaw is int ? pkgIdRaw : int.tryParse('$pkgIdRaw');
+        if (pkgId != null) {
+          final packages = await repository.fetchPackagesCached();
+          final pkg = packages.where((p) => p.id == pkgId).firstOrNull;
+          if (pkg != null) packageName = pkg.name;
+        }
+      } catch (_) {}
+    }
 
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
+
+    // A phone gets the member as a full screen, with the same actions as
+    // the dialog below.
+    if (MediaQuery.sizeOf(context).width < kMemberScreenBreakpoint) {
+      final fullName = [
+        member['firstName'],
+        member['middleName'],
+        member['lastName'],
+      ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+      final hasAccount = (member['email']?.toString() ?? '').trim().isNotEmpty;
+      final canAdjust =
+          context.read<AuthState>().userRole?.canAdjustFunds ?? false;
+      if (packageName.isNotEmpty) member['packageName'] = packageName;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MemberScreen(
+            member: member,
+            onHistory: (ctx, _) => _showTransactionHistory(ctx, member),
+            onEdit: (ctx, _) {
+              Navigator.pop(ctx);
+              _openEditDialog(member);
+            },
+            onUpgrade: (ctx, refresh) => _showUpgradePackageDialog(
+              ctx,
+              member,
+              onUpgraded: (pkg) {
+                member['packageId'] = pkg.id;
+                member['role'] = 'Verified Reseller';
+                member['packageName'] = pkg.name;
+                refresh();
+              },
+            ),
+            onCreateAccount: hasAccount
+                ? null
+                : (ctx, _) => _showCreateAccountDialog(ctx, member),
+            onViewPassword: hasAccount
+                ? (ctx, _) => _viewMemberPassword(ctx, member, fullName)
+                : null,
+            onAdjustFunds: canAdjust
+                ? (ctx, _) => _openAdjustFundsDialog(ctx, member, fullName)
+                : null,
+            onDelete: (ctx, _) => _confirmDeleteMemberDialog(ctx, member),
+          ),
+        ),
+      );
+      return;
+    }
 
     showAnimatedDialog(
       context,
@@ -7978,55 +8029,27 @@ class _ReferralModalCardState extends State<_ReferralModalCard> {
       return;
     }
 
-    final memberName =
-        '${widget.member['firstName'] ?? ''} ${widget.member['lastName'] ?? ''}'
-            .trim()
-            .toLowerCase();
-
-    final all = await repository.fetchMembers();
-    if (!mounted) return;
-
-    // Resolve referrer name
-    String referrerName = '';
-    final referrerIdRaw = widget.member['referrerId'] as int?;
-    if (referrerIdRaw != null) {
-      final refMember = all.where((m) => m.id == referrerIdRaw).firstOrNull;
-      if (refMember != null) {
-        referrerName = [
-          refMember.firstName,
-          refMember.lastName,
-        ].where((p) => p != null && p.isNotEmpty).join(' ');
-      }
+    // Asked for this one member: the old way downloaded every member.
+    try {
+      final r = await repository.fetchReferralSummary(
+        memberId: memberId,
+        referrerId: widget.member['referrerId'] as int?,
+        referrerText: widget.member['referrer']?.toString(),
+        fullName:
+            '${widget.member['firstName'] ?? ''} ${widget.member['lastName'] ?? ''}'
+                .trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _referrerName = r.referrerName;
+        _directReferrals = r.direct;
+        _indirectReferrals = r.indirect;
+        _referralCount = r.direct.length + r.indirect.length;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
-    if (referrerName.isEmpty) {
-      referrerName = (widget.member['referrer']?.toString() ?? '').trim();
-    }
-
-    // Direct referrals
-    final direct = all.where((m) {
-      if (m.referrerId == memberId) return true;
-      if (memberName.isNotEmpty) {
-        final ref = (m.referrer ?? '').trim().toLowerCase();
-        if (ref.isNotEmpty && ref == memberName) return true;
-      }
-      return false;
-    }).toList();
-
-    // Indirect referrals
-    final directIds = direct.map((d) => d.id).whereType<int>().toSet();
-    final indirect = all.where((m) {
-      if (m.referrerId != null && directIds.contains(m.referrerId)) return true;
-      return false;
-    }).toList();
-
-    if (!mounted) return;
-    setState(() {
-      _referrerName = referrerName;
-      _directReferrals = direct;
-      _indirectReferrals = indirect;
-      _referralCount = direct.length + indirect.length;
-      _loading = false;
-    });
   }
 
   @override

@@ -45,10 +45,29 @@ class MembersTableState extends State<MembersTable> {
 
   late final StreamSubscription<String> _changesSub;
 
+  /// Search runs once typing pauses, not on every letter.
+  Timer? _searchDebounce;
+
+  /// A burst of member changes (an import, say) refreshes once.
+  Timer? _changeDebounce;
+
+  /// The phone's filter chips: how many in each, for the current search.
+  ({int all, int resellers, int members})? _counts;
+  bool _countsLoading = false;
+  DateTime? _loadedAt;
+
+  static bool _isMemberChange(String e) =>
+      e == 'member_added' ||
+      e == 'member_imported' ||
+      e == 'member_deleted' ||
+      e == 'member_updated';
+
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController();
+    _MembersSnapshot.watch();
+    final snap = _MembersSnapshot.take();
+    _scrollController = ScrollController(initialScrollOffset: snap?.offset ?? 0);
     _scrollController.addListener(_onScroll);
     _membersSource = _MembersDataSource(
       _serverPage,
@@ -57,16 +76,98 @@ class MembersTableState extends State<MembersTable> {
       _selectedMemberIds,
       _setMemberSelected,
     );
-    _loadMembers();
+    if (snap != null) {
+      // Back on the tab: show what was there at once. Only if a member
+      // changed meanwhile is anything asked for, and then in place.
+      _items.addAll(snap.items);
+      _serverPage.addAll(snap.items);
+      _currentPage = snap.page;
+      _totalCount = snap.total;
+      _hasMore = snap.hasMore;
+      roleFilter = snap.role;
+      _counts = snap.counts;
+      _loadedAt = snap.at;
+      _isInitialLoading = false;
+      _pendingNeeded = _serverPage.length;
+      if (snap.dirty) _refreshLoaded();
+    } else {
+      _loadMembers();
+    }
     _changesSub = repository.changes.listen((e) {
-      if (e == 'member_added' ||
-          e == 'member_imported' ||
-          e == 'member_deleted' ||
-          e == 'member_updated' ||
-          e == 'item_updated') {
-        _loadMembers();
-      }
+      if (!_isMemberChange(e)) return;
+      _changeDebounce?.cancel();
+      _changeDebounce = Timer(const Duration(milliseconds: 800), _refreshLoaded);
     });
+  }
+
+  void _onSearchChanged(String value) {
+    searchTerm = value;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) _loadMembers();
+    });
+  }
+
+  void _setRole(String? role) {
+    setState(() => roleFilter = role);
+    _loadMembers();
+  }
+
+  /// Re-read the rows already loaded, in one request, and swap them in
+  /// place: the list keeps its scroll position and length.
+  Future<void> _refreshLoaded() async {
+    if (!mounted) return;
+    final n = [_items.length, _serverPage.length, _pageSize].reduce((a, b) => a > b ? a : b);
+    try {
+      final res = await repository.fetchMembersPaginated(
+        page: 1,
+        pageSize: n,
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        roleFilter: (roleFilter != null && roleFilter!.isNotEmpty) ? roleFilter : null,
+        sortColumn: 'last_name',
+        sortAscending: true,
+      );
+      if (!mounted) return;
+      final rows = membersFromRows(res.rows);
+      setState(() {
+        _items
+          ..clear()
+          ..addAll(rows);
+        _serverPage
+          ..clear()
+          ..addAll(rows);
+        _pendingNeeded = _serverPage.length;
+        _currentPage = (rows.length / _pageSize).ceil().clamp(1, 1 << 30);
+        _totalCount = res.totalCount;
+        _hasMore = rows.length < res.totalCount;
+        _counts = null;
+        _loadedAt = DateTime.now();
+        _error = null;
+        final ids = rows.map((m) => m['id']).whereType<int>().toSet();
+        _selectedMemberIds.removeWhere((id) => !ids.contains(id));
+      });
+      _membersSource.refresh();
+    } catch (e) {
+      debugPrint('[MembersTable] refresh failed: $e');
+    }
+  }
+
+  Future<void> _loadCounts() async {
+    if (_countsLoading) return;
+    _countsLoading = true;
+    final search = searchTerm.isNotEmpty ? searchTerm : null;
+    try {
+      final r = await Future.wait([
+        repository.countMembers(search: search),
+        repository.countMembers(search: search, roleFilter: 'Verified Reseller'),
+        repository.countMembers(search: search, roleFilter: 'Member'),
+      ]);
+      if (mounted) setState(() => _counts = (all: r[0], resellers: r[1], members: r[2]));
+    } catch (e) {
+      debugPrint('[MembersTable] counts failed: $e');
+    } finally {
+      _countsLoading = false;
+    }
   }
 
   void _onScroll() {
@@ -101,12 +202,17 @@ class MembersTableState extends State<MembersTable> {
             : null,
         sortColumn: 'last_name',
         sortAscending: true,
+        // The total comes with the first page only.
+        withCount: page == 1,
+        knownTotal: _totalCount,
       );
       if (!mounted) return;
       final newMembers = membersFromRows(result.rows);
 
       setState(() {
         if (page == 1) {
+          _counts = null;
+          _loadedAt = DateTime.now();
           _items.clear();
           _serverPage.clear();
           _serverPage.addAll(newMembers);
@@ -191,6 +297,8 @@ class MembersTableState extends State<MembersTable> {
             : null,
         sortColumn: 'last_name',
         sortAscending: true,
+        withCount: false,
+        knownTotal: _totalCount,
       );
       if (!mounted) return;
       final newItems = membersFromRows(page.rows);
@@ -497,10 +605,7 @@ class MembersTableState extends State<MembersTable> {
                       children: [
                         Expanded(
                           child: SearchBarWidget(
-                            onChanged: (value) => setState(() {
-                              searchTerm = value;
-                              _loadMembers();
-                            }),
+                            onChanged: _onSearchChanged,
                             hintText: "Search members...",
                             borderRadius: 12,
                             contentPadding: const EdgeInsets.symmetric(
@@ -534,10 +639,7 @@ class MembersTableState extends State<MembersTable> {
                                 child: Text('Member'),
                               ),
                             ],
-                            onChanged: (v) {
-                              setState(() => roleFilter = v);
-                              _loadMembers();
-                            },
+                            onChanged: _setRole,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -558,69 +660,7 @@ class MembersTableState extends State<MembersTable> {
                         ),
                       ],
                     )
-                  : Column(
-                      children: [
-                        SearchBarWidget(
-                          onChanged: (value) => setState(() {
-                            searchTerm = value;
-                            _loadMembers();
-                          }),
-                          hintText: "Search members...",
-                          borderRadius: 12,
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 8,
-                            horizontal: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: DropdownButtonFormField<String?>(
-                            value: roleFilter,
-                            decoration: const InputDecoration(
-                              labelText: 'Filter by Role',
-                              isDense: true,
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 8,
-                              ),
-                            ),
-                            items: const [
-                              DropdownMenuItem(value: null, child: Text('All')),
-                              DropdownMenuItem(
-                                value: 'Verified Reseller',
-                                child: Text('Verified Reseller'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'Member',
-                                child: Text('Member'),
-                              ),
-                            ],
-                            onChanged: (v) {
-                              setState(() => roleFilter = v);
-                              _loadMembers();
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        CustomElevatedButton(
-                          icon: Icon(
-                            Icons.person_add,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                          label: const Text(
-                            "Add Member",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          backgroundColor: Colors.blue[700],
-                          onPressed: _onAddMemberPressed,
-                        ),
-                      ],
-                    ),
+                  : _phoneHeader(context),
             ),
             Expanded(
               child: isDesktop
@@ -723,42 +763,433 @@ class MembersTableState extends State<MembersTable> {
         ),
       );
     }
-    if (_items.isEmpty) {
-      return const Center(child: Text('No members found'));
-    }
-    return ListView.separated(
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-      itemCount: _items.length + (_hasMore ? 1 : 0),
-      separatorBuilder: (_, index) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        if (index >= _items.length) {
-          return const Padding(
-            padding: EdgeInsets.all(12),
-            child: Center(child: CircularProgressIndicator()),
+    final q = searchTerm.trim();
+    final groups = _letterGroups();
+    final list = _items.isEmpty
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                q.isEmpty ? 'No members yet.' : 'No members match "$q".',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          )
+        : ListView.builder(
+            controller: _scrollController,
+            // Room under the last row for the Add member button.
+            padding: const EdgeInsets.fromLTRB(0, 0, 0, 96),
+            itemCount: groups.length + (_hasMore ? 1 : 0),
+            itemBuilder: (context, i) {
+              if (i >= groups.length) {
+                return const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final g = groups[i];
+              return _MemberGroup(
+                letter: g.letter,
+                members: g.members,
+                selectedIds: _selectedMemberIds,
+                onTap: widget.onRowSelected,
+              );
+            },
           );
-        }
-        final member = _items[index];
-        return StaggeredItem(
-          index: index,
-          child: _MemberListCard(
-            member: member,
-            selected:
-                (member['id'] as int?) != null &&
-                _selectedMemberIds.contains(member['id'] as int),
-            onTap: () => widget.onRowSelected(member),
+
+    return Stack(
+      children: [
+        Positioned.fill(child: list),
+        Positioned(
+          right: 4,
+          bottom: 12,
+          child: FloatingActionButton.extended(
+            heroTag: null,
+            onPressed: _onAddMemberPressed,
+            backgroundColor: const Color(0xFFCC4900),
+            foregroundColor: Colors.white,
+            icon: const Icon(Icons.person_add_alt_1_rounded),
+            label: const Text('Add member', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
-        );
-      },
+        ),
+      ],
     );
+  }
+
+  /// Rows under their last name's first letter, in the order loaded (the
+  /// server sorts by last name).
+  List<({String letter, List<Map<String, dynamic>> members})> _letterGroups() {
+    final groups = <({String letter, List<Map<String, dynamic>> members})>[];
+    for (final m in _items) {
+      final last = (m['lastName'] ?? '').toString().trim();
+      final first = last.isEmpty ? '' : last[0].toUpperCase();
+      final letter = RegExp(r'[A-Z]').hasMatch(first) ? first : '#';
+      if (groups.isEmpty || groups.last.letter != letter) {
+        groups.add((letter: letter, members: [m]));
+      } else {
+        groups.last.members.add(m);
+      }
+    }
+    return groups;
+  }
+
+  /// Phone: the search box, then All / Resellers / Members with counts.
+  Widget _phoneHeader(BuildContext context) {
+    final counts = _counts;
+    if (counts == null && !_countsLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadCounts();
+      });
+    }
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+
+    Widget chip(String label, String? value, int? n) {
+      final on = roleFilter == value;
+      final ink = theme.colorScheme.onSurface;
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: Material(
+          color: on ? ink : theme.colorScheme.surface,
+          shape: StadiumBorder(side: BorderSide(color: on ? ink : theme.dividerColor)),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: on ? null : () => _setRole(value),
+            child: SizedBox(
+              height: 40,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Center(
+                  widthFactor: 1,
+                  child: Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(text: label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        if (n != null)
+                          TextSpan(
+                            text: '  $n',
+                            style: TextStyle(color: on ? theme.colorScheme.surface : muted),
+                          ),
+                      ],
+                    ),
+                    style: TextStyle(fontSize: 14, color: on ? theme.colorScheme.surface : ink),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SearchBarWidget(
+          onChanged: _onSearchChanged,
+          hintText: 'Search name or contact number',
+          borderRadius: 12,
+          contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        ),
+        const SizedBox(height: 10),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              chip('All', null, counts?.all),
+              chip('Resellers', 'Verified Reseller', counts?.resellers),
+              chip('Members', 'Member', counts?.members),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                searchTerm.trim().isEmpty
+                    ? 'A to Z by last name'
+                    : '$_totalCount match${_totalCount == 1 ? '' : 'es'}',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: muted),
+              ),
+            ),
+            if (_loadedAt != null)
+              Text(
+                'Updated ${_ago(_loadedAt!)}',
+                style: TextStyle(fontSize: 12, color: muted),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  static String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes} min ago';
+    return '${d.inHours} h ago';
   }
 
   @override
   void dispose() {
+    // Keep the list for when this tab opens again (not mid-search: the
+    // search box would come back empty over filtered rows).
+    if (searchTerm.trim().isEmpty && _items.isNotEmpty) {
+      _MembersSnapshot.save(
+        items: List.of(_items),
+        page: _currentPage,
+        total: _totalCount,
+        hasMore: _hasMore,
+        role: roleFilter,
+        counts: _counts,
+        at: _loadedAt ?? DateTime.now(),
+        offset: _scrollController.hasClients ? _scrollController.offset : 0,
+      );
+    }
+    _searchDebounce?.cancel();
+    _changeDebounce?.cancel();
     _scrollController.dispose();
     _changesSub.cancel();
 
     super.dispose();
+  }
+}
+
+/// The members list as it was when its tab closed, so reopening it shows
+/// rows at once. Dropped after 10 minutes, or for another signed-in
+/// account; marked dirty by any member change meanwhile (the reopened list
+/// then refreshes its rows in place).
+class _MembersSnapshot {
+  static ({
+    List<Map<String, dynamic>> items,
+    int page,
+    int total,
+    bool hasMore,
+    String? role,
+    ({int all, int resellers, int members})? counts,
+    DateTime at,
+    double offset,
+    String? uid,
+  })? _saved;
+  static bool _dirty = false;
+  static StreamSubscription<String>? _sub;
+
+  static void watch() {
+    _sub ??= repository.changes.listen((e) {
+      if (MembersTableState._isMemberChange(e) || e.startsWith('package_')) {
+        _dirty = true;
+      }
+    });
+  }
+
+  static void save({
+    required List<Map<String, dynamic>> items,
+    required int page,
+    required int total,
+    required bool hasMore,
+    required String? role,
+    required ({int all, int resellers, int members})? counts,
+    required DateTime at,
+    required double offset,
+  }) {
+    _saved = (
+      items: items,
+      page: page,
+      total: total,
+      hasMore: hasMore,
+      role: role,
+      counts: counts,
+      at: at,
+      offset: offset,
+      uid: repository.supabase.auth.currentUser?.id,
+    );
+    _dirty = false;
+  }
+
+  /// The saved list, once, if still fresh for this account.
+  static ({
+    List<Map<String, dynamic>> items,
+    int page,
+    int total,
+    bool hasMore,
+    String? role,
+    ({int all, int resellers, int members})? counts,
+    DateTime at,
+    double offset,
+    bool dirty,
+  })? take() {
+    final s = _saved;
+    _saved = null;
+    if (s == null) return null;
+    if (DateTime.now().difference(s.at) > const Duration(minutes: 10)) return null;
+    if (s.uid != repository.supabase.auth.currentUser?.id) return null;
+    return (
+      items: s.items,
+      page: s.page,
+      total: s.total,
+      hasMore: s.hasMore,
+      role: s.role,
+      counts: _dirty ? null : s.counts,
+      at: s.at,
+      offset: s.offset,
+      dirty: _dirty,
+    );
+  }
+}
+
+/// One letter's members on a phone: the letter, then the rows in a card.
+class _MemberGroup extends StatelessWidget {
+  final String letter;
+  final List<Map<String, dynamic>> members;
+  final Set<int> selectedIds;
+  final void Function(Map<String, dynamic>) onTap;
+
+  const _MemberGroup({
+    required this.letter,
+    required this.members,
+    required this.selectedIds,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final line = theme.dividerColor.withValues(alpha: 0.6);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
+          child: Text(
+            letter,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Material(
+          color: theme.colorScheme.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: line),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              for (var i = 0; i < members.length; i++) ...[
+                if (i > 0) Divider(height: 1, color: line),
+                _MemberRow(
+                  member: members[i],
+                  selected: selectedIds.contains(members[i]['id']),
+                  onTap: () => onTap(members[i]),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MemberRow extends StatelessWidget {
+  final Map<String, dynamic> member;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _MemberRow({required this.member, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    String s(String k) => (member[k] ?? '').toString().trim();
+    final last = s('lastName'), first = s('firstName');
+    final name = [last, first].where((p) => p.isNotEmpty).join(', ');
+    final initials = [first, last].where((p) => p.isNotEmpty).map((p) => p[0].toUpperCase()).join();
+    final reseller = s('role') == 'Verified Reseller';
+    final pkg = s('packageName');
+    final sub = [
+      pkg.isEmpty ? 'No package' : '$pkg package',
+      if (s('contactNo').isNotEmpty) s('contactNo'),
+    ].join(' · ');
+    const orangeText = Color(0xFFB24800);
+    const cream = Color(0xFFFFF7DF);
+
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        color: selected ? theme.colorScheme.primaryContainer : null,
+        constraints: const BoxConstraints(minHeight: 64),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: reseller
+                  ? (dark ? orangeText.withAlpha(60) : cream)
+                  : theme.colorScheme.surfaceContainerHighest,
+              child: Text(
+                initials.isEmpty ? '?' : initials,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: reseller && !dark ? orangeText : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name.isEmpty ? 'Unnamed member' : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    sub,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 13,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (reseller) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: dark ? orangeText.withAlpha(60) : cream,
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: Text(
+                  'Reseller',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: dark ? Colors.white : orangeText,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right_rounded, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -880,151 +1311,25 @@ class _MembersDataSource extends DataTableSource {
   void refresh() => notifyListeners();
 }
 
-class _MemberListCard extends StatelessWidget {
-  const _MemberListCard({
-    required this.member,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final Map<String, dynamic> member;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final fullName =
-        [member['firstName'], member['middleName'], member['lastName']]
-            .where((part) => part != null && part.toString().trim().isNotEmpty)
-            .join(' ');
-    final contact = (member['contactNo'] ?? '').toString().trim();
-    final address = (member['address'] ?? '').toString().trim();
-
-    return Card(
-      margin: EdgeInsets.zero,
-      color: selected
-          ? colorScheme.primaryContainer
-          : colorScheme.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.45)),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      fullName.isEmpty ? 'Unnamed Member' : fullName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if ((member['role'] ?? '') == 'Verified Reseller')
-                    _MemberMetaPill(icon: Icons.stars_outlined, text: ''),
-                  const SizedBox(width: 4),
-                  _QrIconButton(member: member),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  _MemberMetaPill(
-                    icon: Icons.badge_outlined,
-                    text: (member['role'] ?? 'Member').toString(),
-                  ),
-                  if (contact.isNotEmpty)
-                    _MemberMetaPill(icon: Icons.phone_outlined, text: contact),
-                ],
-              ),
-              if (address.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.home_outlined,
-                      size: 16,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        address,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MemberMetaPill extends StatelessWidget {
-  const _MemberMetaPill({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(width: 5),
-            Text(
-              text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelMedium,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// Small icon button that opens a dialog showing the member's QR code.
 class _QrIconButton extends StatelessWidget {
   final Map<String, dynamic> member;
 
   const _QrIconButton({required this.member});
 
-  void _showQrDialog(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: 'Show QR code',
+      icon: Icon(Icons.qr_code, color: Theme.of(context).colorScheme.primary),
+      onPressed: () => showMemberQrDialog(context, member),
+    );
+  }
+}
+
+/// The member's QR code in a dialog: from the table's QR column and the
+/// phone's member screen.
+void showMemberQrDialog(BuildContext context, Map<String, dynamic> member) {
     final fullName = [
       member['firstName'],
       member['middleName'],
@@ -1077,14 +1382,4 @@ class _QrIconButton extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: 'Show QR code',
-      icon: Icon(Icons.qr_code, color: Theme.of(context).colorScheme.primary),
-      onPressed: () => _showQrDialog(context),
-    );
-  }
 }

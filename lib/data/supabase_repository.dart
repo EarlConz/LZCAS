@@ -508,7 +508,27 @@ class SupabaseRepository {
     return categories.toList()..sort();
   }
 
-  /// Fetch a page of members with optional search and role filter.
+  /// The `or=(…)` filter for a member search: names, and the contact number
+  /// (so "0917 555" finds someone). Commas and brackets would end the
+  /// PostgREST list early, so they are dropped from what was typed.
+  static String? _memberSearchFilter(String? search) {
+    final q = (search ?? '').replaceAll(RegExp(r'[,()*%\\]'), ' ').trim();
+    if (q.isEmpty) return null;
+    // Numbers are stored as typed; match the digits however they are spaced.
+    final digits = q.replaceAll(RegExp(r'\D'), '');
+    return [
+      'first_name.ilike.%$q%',
+      'last_name.ilike.%$q%',
+      'middle_name.ilike.%$q%',
+      if (digits.length >= 3) 'contact_no.ilike.%${digits.split('').join('%')}%',
+    ].join(',');
+  }
+
+  /// Fetch a page of members with optional search and role filter. Each
+  /// carries its package name (joined, as [fetchMembers] does).
+  ///
+  /// [withCount] false skips the total: the list asks for it with the first
+  /// page and reuses it, passing it back as [knownTotal].
   Future<PageResult<Member>> fetchMembersPaginated({
     int page = 1,
     int pageSize = 100,
@@ -516,26 +536,19 @@ class SupabaseRepository {
     String? roleFilter,
     String sortColumn = 'last_name',
     bool sortAscending = true,
+    bool withCount = true,
+    int? knownTotal,
   }) async {
     // Hide soft-deleted members from paginated lists (server-side so the
     // total count stays accurate). Requires the is_deleted migration.
     dynamic dataQuery = _supabase
         .from('members')
-        .select('*')
-        .neq('is_deleted', true);
-    dynamic countQuery = _supabase
-        .from('members')
-        .select('id')
+        .select('*, packages(name)')
         .neq('is_deleted', true);
 
-    if (search != null && search.isNotEmpty) {
-      final orFilter =
-          'first_name.ilike.%$search%,last_name.ilike.%$search%,middle_name.ilike.%$search%';
-      countQuery = countQuery.or(orFilter);
-      dataQuery = dataQuery.or(orFilter);
-    }
+    final orFilter = _memberSearchFilter(search);
+    if (orFilter != null) dataQuery = dataQuery.or(orFilter);
     if (roleFilter != null && roleFilter.isNotEmpty) {
-      countQuery = countQuery.eq('role', roleFilter);
       dataQuery = dataQuery.eq('role', roleFilter);
     }
 
@@ -544,14 +557,17 @@ class SupabaseRepository {
         .range((page - 1) * pageSize, page * pageSize - 1);
 
     final results = await Future.wait<dynamic>([
-      countQuery.count(CountOption.exact),
+      if (withCount) Future<int?>(() => countMembers(search: search, roleFilter: roleFilter)),
       dataQuery,
     ]);
 
-    final totalCount = (results[0] as PostgrestResponse).count;
-    final rows = (results[1] as List)
+    final rows = (results.last as List)
         .map((j) => Member.fromJson(j as Map<String, dynamic>))
         .toList();
+    final loaded = (page - 1) * pageSize + rows.length;
+    final totalCount = withCount
+        ? (results.first as int? ?? loaded)
+        : (knownTotal ?? (rows.length == pageSize ? loaded + 1 : loaded));
 
     return PageResult(
       rows: rows,
@@ -559,6 +575,75 @@ class SupabaseRepository {
       page: page,
       pageSize: pageSize,
     );
+  }
+
+  /// How many members match, without downloading them: an exact count
+  /// with a one-row limit (the count covers every match regardless).
+  Future<int> countMembers({String? search, String? roleFilter}) async {
+    dynamic q = _supabase.from('members').select('id').neq('is_deleted', true);
+    final orFilter = _memberSearchFilter(search);
+    if (orFilter != null) q = q.or(orFilter);
+    if (roleFilter != null && roleFilter.isNotEmpty) q = q.eq('role', roleFilter);
+    final res = await q.limit(1).count(CountOption.exact);
+    return (res as PostgrestResponse).count;
+  }
+
+  /// Packages, read once and kept until one changes (realtime) or the
+  /// session ends: they change rarely and several screens name them.
+  List<Package>? _packagesCache;
+
+  Future<List<Package>> fetchPackagesCached() async {
+    _watchNameCache();
+    return _packagesCache ??= await fetchPackages();
+  }
+
+  /// Who referred [memberId], and whom they referred directly and through
+  /// those (indirect), asked for this one member instead of downloading
+  /// every member. Direct referrals match on `referrer_id`, or on the old
+  /// free-text `referrer` holding this member's full name, as before.
+  Future<({String referrerName, List<Member> direct, List<Member> indirect})>
+  fetchReferralSummary({
+    required int memberId,
+    int? referrerId,
+    String? referrerText,
+    required String fullName,
+  }) async {
+    const cols = 'id, first_name, last_name, role, referrer_id';
+    Future<String> referrer() async {
+      if (referrerId != null) {
+        final r = await _supabase
+            .from('members')
+            .select('first_name, last_name')
+            .eq('id', referrerId)
+            .maybeSingle();
+        final n = '${r?['first_name'] ?? ''} ${r?['last_name'] ?? ''}'.trim();
+        if (n.isNotEmpty) return n;
+      }
+      return (referrerText ?? '').trim();
+    }
+
+    final name = fullName.replaceAll(RegExp(r'[,()*%\\"]'), ' ').trim();
+    dynamic directQ = _supabase.from('members').select(cols).neq('is_deleted', true);
+    directQ = name.isEmpty
+        ? directQ.eq('referrer_id', memberId)
+        : directQ.or('referrer_id.eq.$memberId,referrer.ilike."$name"');
+    final results = await Future.wait<dynamic>([referrer(), directQ]);
+    final direct = (results[1] as List)
+        .map((j) => Member.fromJson(j as Map<String, dynamic>))
+        .toList();
+    final ids = direct.map((m) => m.id).whereType<int>().toList();
+    var indirect = <Member>[];
+    if (ids.isNotEmpty) {
+      final data = await _supabase
+          .from('members')
+          .select(cols)
+          .neq('is_deleted', true)
+          .inFilter('referrer_id', ids);
+      indirect = (data as List)
+          .map((j) => Member.fromJson(j as Map<String, dynamic>))
+          .toList();
+    }
+    return (referrerName: results[0] as String, direct: direct, indirect: indirect);
   }
 
   /// Fetch a page of sales with optional search.
@@ -4126,6 +4211,7 @@ class SupabaseRepository {
       if (e.startsWith('member_') || e.startsWith('package_')) {
         _memberNameCache.clear();
       }
+      if (e.startsWith('package_')) _packagesCache = null;
     });
   }
 
