@@ -49,30 +49,6 @@ class ShopColors {
   Color get accent => StockpileColors.primary900;
 }
 
-// ─── Desktop text ───────────────────────────────────────────────────────────
-
-/// The shop's text sizes are set for a phone held close. On a monitor at
-/// arm's length they read small (client feedback on the cashier PC,
-/// 2026-10-02), so [child] gets all its text 25% larger. On top of the
-/// person's own text size setting, never instead of it.
-class ShopDesktopText extends StatelessWidget {
-  static const double scale = 1.25;
-
-  final Widget child;
-  const ShopDesktopText({super.key, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    final mq = MediaQuery.of(context);
-    return MediaQuery(
-      data: mq.copyWith(
-        textScaler: TextScaler.linear(mq.textScaler.scale(1) * scale),
-      ),
-      child: child,
-    );
-  }
-}
-
 // ─── How an order reads to a member ─────────────────────────────────────────
 
 enum OrderTone { needsYou, inProgress, done, stopped }

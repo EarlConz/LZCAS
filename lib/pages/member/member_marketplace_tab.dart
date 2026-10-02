@@ -225,9 +225,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
     return ColoredBox(
       color: c.ground,
       child: LayoutBuilder(
-        builder: (context, box) => box.maxWidth >= 980
-            ? ShopDesktopText(child: _wide(c))
-            : _narrow(c),
+        builder: (context, box) => box.maxWidth >= 980 ? _wide(c) : _narrow(c),
       ),
     );
   }
@@ -281,10 +279,9 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
   Widget _wide(ShopColors c) {
     final shown = _filteredItems;
     // A card is its picture, name, stock line and button; the two lines of
-    // text grow with the text size (desktop's 25% and the person's own).
-    final textScale =
-        MediaQuery.textScalerOf(context).scale(1) * ShopDesktopText.scale;
-    final cardHeight = 252 + (15 + 12) * 1.4 * textScale;
+    // text grow with the person's text size setting.
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final cardHeight = 236 + (15 + 12) * 1.4 * textScale;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1081,9 +1078,7 @@ class _ReviewOrderPageState extends State<_ReviewOrderPage> {
       'Your order arrives, and you confirm you received it.',
     ];
 
-    // Same desktop text as the Marketplace it was opened from.
-    final wide = MediaQuery.sizeOf(context).width >= 980;
-    final page = Scaffold(
+    return Scaffold(
       backgroundColor: c.ground,
       appBar: AppBar(
         title: const Text('Review your order'),
@@ -1365,7 +1360,6 @@ class _ReviewOrderPageState extends State<_ReviewOrderPage> {
         ),
       ),
     );
-    return wide ? ShopDesktopText(child: page) : page;
   }
 }
 
