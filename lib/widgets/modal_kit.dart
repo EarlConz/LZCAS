@@ -132,7 +132,8 @@ class AppModal extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           subtitle!,
-          maxLines: 2,
+          // The phone header is one 56 px bar: a second line would overflow it.
+          maxLines: compact ? 1 : 2,
           overflow: TextOverflow.ellipsis,
           style: StockpileFonts.satoshi(
             fontSize: compact ? 12 : 13,

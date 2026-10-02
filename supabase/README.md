@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v63)
+├── migrations/    Ordered, apply-once changes (v2 … v64)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -549,6 +549,17 @@ uploads pictures._
   Public because every Marketplace member sees every product, so no signed
   URLs; file names are random, so a replaced picture never serves stale.
   Rollback leaves the bucket (Supabase will not delete one with files).
+
+**POS sale guard and Edit Sale (v64)** — _apply before the app build that
+uses them: checkout calls `pos_record_sale`._
+
+- v64 — `pos_record_sale(lines, buyer, name, ts)` locks each product, refuses
+  the whole cart if any line wants more than is left, then subtracts and
+  inserts every line in one transaction (central POS; branch cashiers keep
+  `record_branch_sale`). `admin_edit_sale_group(user, ts, buyer, lines)`,
+  admins only, replaces one checkout and moves stock by the difference;
+  refused for delivery-order, package and branch sales. Group Sales follow
+  through the v19 triggers.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

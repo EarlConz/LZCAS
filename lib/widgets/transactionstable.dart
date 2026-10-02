@@ -7,6 +7,9 @@ import '../widgets/search.dart';
 import '../buttons/sellbutton.dart';
 import '../dialogs/receipt_dialog.dart';
 import '../theme.dart';
+import 'package:provider/provider.dart';
+import '../auth/auth_state.dart';
+import '../dialogs/edit_sale_dialog.dart';
 
 // ── Grouped transaction model ─────────────────────────────────────────
 
@@ -82,6 +85,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
       () => _serverHasMore,
       onDelete: _deleteTransaction,
       onReceipt: _viewReceipt,
+      onEdit: _editTransaction,
+      canEdit: _canEdit,
     );
     _loadData();
     _sub = repository.changes.listen((e) {
@@ -283,6 +288,21 @@ class _TransactionsTableState extends State<TransactionsTable> {
   }
 
   // ── Actions ─────────────────────────────────────────────────────────
+
+  /// Edit Sale is for admins (v64), and only counter sales by one cashier:
+  /// not delivery orders or package availments (see [isEditableSale]).
+  bool _canEdit(TransactionGroup group) =>
+      mounted &&
+      context.read<AuthState>().userRole == UserRole.admin &&
+      isEditableSale(group.sales);
+
+  Future<void> _editTransaction(TransactionGroup group) async {
+    if (!_canEdit(group)) return;
+    await showAnimatedDialog(
+      context,
+      builder: (_) => EditSaleDialog(sales: group.sales, onSaved: _loadData),
+    );
+  }
 
   Future<void> _deleteTransaction(TransactionGroup group) async {
     final localCtx = context;
@@ -538,6 +558,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
             group: _items[index],
             onDelete: _deleteTransaction,
             onReceipt: _viewReceipt,
+            onEdit: _canEdit(_items[index]) ? _editTransaction : null,
           ),
         );
       },
@@ -552,11 +573,15 @@ class _TxnListCard extends StatelessWidget {
     required this.group,
     required this.onDelete,
     required this.onReceipt,
+    this.onEdit,
   });
 
   final TransactionGroup group;
   final Future<void> Function(TransactionGroup) onDelete;
   final Future<void> Function(TransactionGroup) onReceipt;
+
+  /// Null hides Edit (not an admin, or not an editable sale).
+  final Future<void> Function(TransactionGroup)? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -594,16 +619,20 @@ class _TxnListCard extends StatelessWidget {
                   onSelected: (value) async {
                     if (value == 'receipt') {
                       await onReceipt(group);
+                    } else if (value == 'edit') {
+                      await onEdit?.call(group);
                     } else if (value == 'delete') {
                       await onDelete(group);
                     }
                   },
-                  itemBuilder: (ctx) => const [
-                    PopupMenuItem(
+                  itemBuilder: (ctx) => [
+                    const PopupMenuItem(
                       value: 'receipt',
                       child: Text('View Receipt'),
                     ),
-                    PopupMenuItem(value: 'delete', child: Text('Delete')),
+                    if (onEdit != null)
+                      const PopupMenuItem(value: 'edit', child: Text('Edit Sale')),
+                    const PopupMenuItem(value: 'delete', child: Text('Delete')),
                   ],
                   icon: const Icon(Icons.more_vert),
                 ),
@@ -690,6 +719,8 @@ class _TxnDataSource extends DataTableSource {
   final bool Function() _getHasMore;
   final Future<void> Function(TransactionGroup)? onDelete;
   final Future<void> Function(TransactionGroup)? onReceipt;
+  final Future<void> Function(TransactionGroup)? onEdit;
+  final bool Function(TransactionGroup)? canEdit;
 
   _TxnDataSource(
     this._items,
@@ -697,6 +728,8 @@ class _TxnDataSource extends DataTableSource {
     this._getHasMore, {
     this.onDelete,
     this.onReceipt,
+    this.onEdit,
+    this.canEdit,
   });
 
   @override
@@ -752,13 +785,17 @@ class _TxnDataSource extends DataTableSource {
       onSelected: (value) async {
         if (value == 'receipt') {
           if (onReceipt != null) await onReceipt!(group);
+        } else if (value == 'edit') {
+          if (onEdit != null) await onEdit!(group);
         } else if (value == 'delete') {
           if (onDelete != null) await onDelete!(group);
         }
       },
-      itemBuilder: (ctx) => const [
-        PopupMenuItem(value: 'receipt', child: Text('View Receipt')),
-        PopupMenuItem(value: 'delete', child: Text('Delete')),
+      itemBuilder: (ctx) => [
+        const PopupMenuItem(value: 'receipt', child: Text('View Receipt')),
+        if (onEdit != null && (canEdit?.call(group) ?? false))
+          const PopupMenuItem(value: 'edit', child: Text('Edit Sale')),
+        const PopupMenuItem(value: 'delete', child: Text('Delete')),
       ],
       icon: const Icon(Icons.more_vert),
     );

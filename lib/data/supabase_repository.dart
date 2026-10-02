@@ -3542,79 +3542,68 @@ class SupabaseRepository {
   }
 
   /// Edit a grouped sale atomically.
-  Future<String?> editSaleGroup({
-    required DateTime timestamp,
+  /// A central POS checkout (v64): the database locks each product, refuses
+  /// the whole sale if any line wants more than is left, then subtracts and
+  /// records every line together. Null on success, else a sentence to show.
+  Future<String?> recordPosSale({
+    required List<({int itemId, int quantity, int price})> lines,
     int? buyerId,
-    required List<Sale> newLines,
+    String? buyerName,
+    required DateTime timestamp,
   }) async {
     try {
-      final allSales = await fetchSales();
-      final timestampStr = timestamp.toUtc().toIso8601String();
-      final originals = allSales
-          .where((s) => s.timestamp?.toUtc().toIso8601String() == timestampStr)
-          .toList();
-
-      // Compute per-item quantity deltas
-      final Map<int, int> origQty = {};
-      for (final o in originals) {
-        origQty[o.itemId] = (origQty[o.itemId] ?? 0) + o.quantity;
-      }
-      final Map<int, int> newQty = {};
-      for (final n in newLines) {
-        newQty[n.itemId] = (newQty[n.itemId] ?? 0) + n.quantity;
-      }
-
-      final items = await fetchItems();
-      final now = DateTime.now();
-
-      // Validate stock
-      for (final itemId in {...origQty.keys, ...newQty.keys}) {
-        final before = origQty[itemId] ?? 0;
-        final after = newQty[itemId] ?? 0;
-        final deltaQ = after - before;
-        final item = items.cast<Item?>().firstWhere(
-          (it) => it!.id == itemId,
-          orElse: () => null,
-        );
-        if (item == null) return 'Item id=$itemId not found';
-        if (deltaQ > 0 && item.stock < deltaQ) {
-          return 'Insufficient stock for ${item.name}';
-        }
-      }
-
-      // Apply stock adjustments
-      for (final itemId in {...origQty.keys, ...newQty.keys}) {
-        final before = origQty[itemId] ?? 0;
-        final after = newQty[itemId] ?? 0;
-        final deltaQ = after - before;
-        final item = items.firstWhere((it) => it.id == itemId);
-        if (deltaQ != 0) {
-          final updated = item.copyWith(
-            stock: item.stock - deltaQ,
-            lastUpdated: now,
-          );
-          await updateItem(updated);
-        }
-      }
-
-      // Remove original grouped sales
-      await _supabase.from('sales').delete().eq('timestamp', timestampStr);
-
-      // Insert new sale rows
-      for (final n in newLines) {
-        await addSale(
-          itemId: n.itemId,
-          itemName: n.itemName,
-          quantity: n.quantity,
-          price: n.price,
-          timestamp: timestamp,
-          buyerId: buyerId,
-        );
-      }
-
+      await _supabase.rpc(
+        'pos_record_sale',
+        params: {
+          'p_lines': [
+            for (final l in lines)
+              {'item_id': l.itemId, 'quantity': l.quantity, 'price': l.price},
+          ],
+          'p_buyer_id': buyerId,
+          'p_buyer_name': buyerName,
+          'p_timestamp': timestamp.toUtc().toIso8601String(),
+        },
+      );
+      _changes.add('item_updated');
+      _changes.add('sale_added');
       return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[recordPosSale] ${e.code} ${e.message}');
+      return e.message.trim().isEmpty ? _friendlyError(e) : e.message.trim();
     } catch (e) {
-      print('[Stockpile] editSaleGroup failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// Edit Sale, admins only (v64): replace one checkout's lines (the rows
+  /// [userId] recorded at [timestamp]) and move stock by the difference, in
+  /// one transaction. Commissions follow through the sales triggers.
+  Future<String?> adminEditSaleGroup({
+    required String userId,
+    required DateTime timestamp,
+    int? buyerId,
+    required List<({int itemId, int quantity, int price})> lines,
+  }) async {
+    try {
+      await _supabase.rpc(
+        'admin_edit_sale_group',
+        params: {
+          'p_user_id': userId,
+          'p_timestamp': timestamp.toUtc().toIso8601String(),
+          'p_buyer_id': buyerId,
+          'p_lines': [
+            for (final l in lines)
+              {'item_id': l.itemId, 'quantity': l.quantity, 'price': l.price},
+          ],
+        },
+      );
+      _changes.add('item_updated');
+      _changes.add('sale_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[adminEditSaleGroup] ${e.code} ${e.message}');
+      return e.message.trim().isEmpty ? _friendlyError(e) : e.message.trim();
+    } catch (e) {
       return _friendlyError(e);
     }
   }

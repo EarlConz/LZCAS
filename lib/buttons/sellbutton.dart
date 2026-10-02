@@ -690,45 +690,46 @@ class _SellDialogState extends State<_SellDialog> {
                     return;
                   }
 
-                  for (var entry in cart) {
-                    final dbItem = allItems.firstWhere(
-                      (r) => r.name == entry['item'],
-                    );
-                    final q = entry['quantity'] as int;
-                    final priceStr = (entry['price'] ?? '').toString();
-                    final price = int.tryParse(priceStr) ?? 0;
+                  final lines = [
+                    for (var entry in cart)
+                      (
+                        itemId: allItems
+                            .firstWhere((r) => r.name == entry['item'])
+                            .id!,
+                        quantity: entry['quantity'] as int,
+                        price:
+                            int.tryParse((entry['price'] ?? '').toString()) ??
+                            0,
+                      ),
+                  ];
 
-                    if (widget.branchOwnerId != null) {
-                      // Branch POS: decrement the cashier's own allocation and
-                      // record the sale atomically via the RPC.
+                  if (widget.branchOwnerId != null) {
+                    // Branch POS: decrement the cashier's own allocation and
+                    // record each line atomically via the RPC.
+                    for (final l in lines) {
                       await repository.recordBranchSale(
-                        itemId: dbItem.id!,
-                        quantity: q,
-                        price: price,
+                        itemId: l.itemId,
+                        quantity: l.quantity,
+                        price: l.price,
                         buyerId: selectedBuyerId,
                         buyerName: buyerName,
                         timestamp: transactionTs,
                       );
-                    } else {
-                      // Central POS: decrement global stock and record the sale.
-                      final newStock = dbItem.stock - q;
-                      final newStatus = statusFromStock(newStock);
-                      final updated = dbItem.copyWith(
-                        stock: newStock,
-                        lastUpdated: DateTime.now(),
-                        status: newStatus,
-                      );
-                      await repository.updateItem(updated);
-
-                      await repository.addSale(
-                        itemId: dbItem.id!,
-                        itemName: dbItem.name,
-                        quantity: q,
-                        price: price,
-                        timestamp: transactionTs,
-                        buyerId: selectedBuyerId,
-                        buyerName: buyerName,
-                      );
+                    }
+                  } else {
+                    // Central POS (v64): the database checks and subtracts
+                    // the whole cart in one go, so two checkouts at once
+                    // can't both sell the last one.
+                    final error = await repository.recordPosSale(
+                      lines: lines,
+                      buyerId: selectedBuyerId,
+                      buyerName: buyerName,
+                      timestamp: transactionTs,
+                    );
+                    if (!mounted) return;
+                    if (error != null) {
+                      _showError(error);
+                      return;
                     }
                   }
 
