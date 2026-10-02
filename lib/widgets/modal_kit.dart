@@ -499,7 +499,9 @@ class NumberStepper extends StatelessWidget {
     // would otherwise get unbounded width, and the Flexible message below
     // throws as soon as an error appears.
     return SizedBox(
-      width: expand ? null : btnW * 2 + 64,
+      // + 4: the border (2 px a side when it shows an error) sits inside
+      // this width, and the buttons and input need their full 2 × btnW + 64.
+      width: expand ? null : btnW * 2 + 64 + 4,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
