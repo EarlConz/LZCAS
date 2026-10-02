@@ -3875,11 +3875,19 @@ class SupabaseRepository {
 
   /// Items shown in the Member Marketplace. Products carry NO fixed price —
   /// they are listed "Price set upon order" and the Cashier prices each line
-  /// when the order arrives. Only in-stock items are offered.
+  /// when the order arrives.
+  ///
+  /// Sold-out products are included, after everything in stock, so a
+  /// member sees the whole range and knows one is only out for now; the
+  /// Marketplace shows them greyed out and they can't be added.
   Future<List<Item>> fetchMarketplaceItems() async {
     final items = await fetchItems();
-    return items.where((i) => i.stock > 0).toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    return [...items]
+      ..sort((a, b) {
+        final outA = a.stock <= 0, outB = b.stock <= 0;
+        if (outA != outB) return outA ? 1 : -1;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
   }
 
   /// Delivery orders. Unscoped for the Cashier/Admin module; scoped to one

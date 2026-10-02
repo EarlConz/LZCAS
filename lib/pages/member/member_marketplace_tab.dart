@@ -116,8 +116,11 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
         _items = items;
         _member = member;
         _loading = false;
-        // Drop what sold out or went away since it was added.
-        _cart.removeWhere((id, _) => !items.any((i) => i.id == id));
+        // Drop what sold out or went away since it was added, and keep
+        // the rest within what is left.
+        final stock = {for (final i in items) i.id: i.stock};
+        _cart.removeWhere((id, _) => (stock[id] ?? 0) <= 0);
+        _cart.updateAll((id, q) => q.clamp(1, stock[id]!));
       });
     } catch (_) {
       if (!mounted) return;
@@ -134,7 +137,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
     final id = item.id;
     if (id == null) return;
     setState(() {
-      if (q <= 0) {
+      if (q <= 0 || item.stock <= 0) {
         _cart.remove(id);
       } else {
         _cart[id] = q.clamp(1, item.stock);
@@ -251,7 +254,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
                   _tip(c, dismissible: true),
                 ],
                 const SizedBox(height: 14),
-                _countLine(c, shown.length),
+                _countLine(c, shown),
                 const SizedBox(height: 8),
                 if (shown.isEmpty)
                   _noResults(c)
@@ -302,7 +305,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
               const SizedBox(height: 14),
               _chips(c, scroll: false),
               const SizedBox(height: 14),
-              _countLine(c, shown.length),
+              _countLine(c, shown),
               const SizedBox(height: 10),
               if (shown.isEmpty)
                 _noResults(c)
@@ -552,24 +555,35 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
     );
   }
 
-  Widget _countLine(ShopColors c, int n) => Row(
-    children: [
-      Expanded(
-        child: Text(
-          '$n product${n == 1 ? '' : 's'}',
-          style: StockpileFonts.satoshi(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: c.muted,
+  Widget _countLine(ShopColors c, List<Item> shown) {
+    final n = shown.length;
+    final out = shown.where((i) => i.stock <= 0).length;
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            [
+              '$n product${n == 1 ? '' : 's'}',
+              if (out > 0) '$out out of stock',
+            ].join(' · '),
+            style: StockpileFonts.satoshi(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: c.muted,
+            ),
           ),
         ),
-      ),
-      Text(
-        'A to Z',
-        style: StockpileFonts.satoshi(fontSize: 12, color: c.muted),
-      ),
-    ],
-  );
+        Text(
+          out > 0 ? 'In stock first, A to Z' : 'A to Z',
+          style: StockpileFonts.satoshi(fontSize: 12, color: c.muted),
+        ),
+      ],
+    );
+  }
+
+  /// A sold-out product's picture, faded so the eye skips it.
+  Widget _faded(Item item, Widget child) =>
+      item.stock <= 0 ? Opacity(opacity: 0.45, child: child) : child;
 
   Widget _noResults(ShopColors c) {
     final q = _searchQuery.trim();
@@ -711,7 +725,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
-          ProductTile(item.name, imagePath: item.imagePath, size: 56),
+          _faded(item, ProductTile(item.name, imagePath: item.imagePath, size: 56)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -744,7 +758,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ProductTile(item.name, imagePath: item.imagePath, height: 140),
+          _faded(item, ProductTile(item.name, imagePath: item.imagePath, height: 140)),
           const SizedBox(height: 12),
           Text(
             item.name,
@@ -753,7 +767,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
             style: StockpileFonts.satoshi(
               fontSize: 15,
               fontWeight: FontWeight.w600,
-              color: c.text,
+              color: item.stock <= 0 ? c.muted : c.text,
             ),
           ),
           const SizedBox(height: 2),
