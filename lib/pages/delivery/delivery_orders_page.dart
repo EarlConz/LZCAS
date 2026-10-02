@@ -29,12 +29,18 @@ import 'package:lzcas/db/db.dart';
 import 'package:lzcas/pages/delivery/delivery_order_pane.dart';
 import 'package:lzcas/pages/delivery/delivery_orders_parts.dart';
 import 'package:lzcas/services/config_service.dart';
+import 'package:lzcas/services/ui_prefs.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart';
 
 /// Wider than this, the list and the order pane sit side by side.
 const _kSideBySide = 1000.0;
+
+/// On a wide screen every text on the page is this much larger: read at
+/// arm's length from a counter PC, the phone sizes were too small (client
+/// feedback, 2026-10-02). On top of the person's own text size setting.
+const _kDesktopText = 1.2;
 
 class DeliveryOrdersPage extends StatefulWidget {
   const DeliveryOrdersPage({super.key});
@@ -71,9 +77,16 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   StreamSubscription<String>? _sub;
   Timer? _tick;
 
+  void _onPrefs() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    // Which parts this device folded away; redraws when the file lands.
+    UiPrefs.instance.addListener(_onPrefs);
+    UiPrefs.instance.load();
     _load();
     _sub = repository.changes.listen((e) {
       if (e.startsWith('order_') || e == 'orders_changed') _load();
@@ -89,6 +102,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
     _sub?.cancel();
     _tick?.cancel();
     _search.dispose();
+    UiPrefs.instance.removeListener(_onPrefs);
     super.dispose();
   }
 
@@ -249,21 +263,24 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
           );
         }
 
-        return Padding(
+        final page = Padding(
           padding: EdgeInsets.fromLTRB(pad, 16, pad, wide ? 24 : 0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _header(wide),
               const SizedBox(height: 14),
-              _tiles(wide),
+              wide ? _tiles(wide) : _stagePicker(),
               const SizedBox(height: 14),
               Expanded(
                 child: wide
                     ? Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          SizedBox(width: 400, child: _list(wide)),
+                          if (DeliveryFolds.isOpen(DeliveryFolds.list))
+                            SizedBox(width: 400, child: _list(wide))
+                          else
+                            _rail(),
                           const SizedBox(width: 16),
                           Expanded(child: _pane()),
                         ],
@@ -272,6 +289,14 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
               ),
             ],
           ),
+        );
+        if (!wide) return page;
+        final mq = MediaQuery.of(context);
+        return MediaQuery(
+          data: mq.copyWith(
+            textScaler: TextScaler.linear(mq.textScaler.scale(1) * _kDesktopText),
+          ),
+          child: page,
         );
       },
     );
@@ -333,14 +358,32 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
     );
 
     if (wide) {
+      final summaryOpen = DeliveryFolds.isOpen(DeliveryFolds.summary);
       return Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Expanded(child: title),
+          Expanded(
+            child: Text(
+              'Delivery Orders',
+              style: StockpileFonts.satoshi(fontSize: 20, fontWeight: FontWeight.w800, color: _text),
+            ),
+          ),
           const SizedBox(width: 24),
           Text('Updated ${formatAgo(_loadedAt)}', style: StockpileFonts.satoshi(fontSize: 12, color: kCaption)),
           const SizedBox(width: 10),
           SizedBox(width: 320, child: search),
+          const SizedBox(width: 10),
+          OutlinedButton.icon(
+            onPressed: () => DeliveryFolds.toggle(DeliveryFolds.summary),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 44),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              foregroundColor: _text,
+              side: BorderSide(color: _line),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            icon: const Icon(Icons.grid_view_rounded, size: 18),
+            label: Text(summaryOpen ? 'Hide summary' : 'Summary'),
+          ),
           const SizedBox(width: 10),
           refresh,
         ],
@@ -400,59 +443,249 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
     _selected = null;
   });
 
+  /// Wide screens: the six tiles, or (folded, the default) a row of chips.
   Widget _tiles(bool wide) {
-    Widget tile(OrderStage s, {bool compact = false}) {
-      final f = _tileFacts(s);
-      return StageTile(
-        stage: s,
-        value: f.value,
-        hint: f.hint,
-        hintUrgent: f.urgent && s != OrderStage.toDispatch,
-        selected: _stage == s,
-        compact: compact,
-        isDark: _dark,
-        onTap: () => _pickStage(s),
-      );
-    }
-
-    if (wide) {
+    if (!DeliveryFolds.isOpen(DeliveryFolds.summary)) {
       return Row(
         children: [
-          for (var i = 0; i < OrderStage.values.length; i++) ...[
-            if (i > 0) const SizedBox(width: 12),
-            Expanded(child: tile(OrderStage.values[i])),
-          ],
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var i = 0; i < OrderStage.values.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 8),
+                    _chip(OrderStage.values[i]),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text('Orange counts need you', style: StockpileFonts.satoshi(fontSize: 12, color: kCaption)),
         ],
       );
     }
-    return SizedBox(
-      height: 76,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: OrderStage.values.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (_, i) => SizedBox(width: 128, child: tile(OrderStage.values[i], compact: true)),
+    return Row(
+      children: [
+        for (var i = 0; i < OrderStage.values.length; i++) ...[
+          if (i > 0) const SizedBox(width: 12),
+          Expanded(
+            child: Builder(
+              builder: (_) {
+                final s = OrderStage.values[i];
+                final f = _tileFacts(s);
+                return StageTile(
+                  stage: s,
+                  value: f.value,
+                  hint: f.hint,
+                  hintUrgent: f.urgent && s != OrderStage.toDispatch,
+                  selected: _stage == s,
+                  isDark: _dark,
+                  onTap: () => _pickStage(s),
+                );
+              },
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Orders in [s] waiting on the cashier.
+  int _needsYou(OrderStage s) => s == OrderStage.cash || s == OrderStage.history
+      ? 0
+      : _inStage(s).where((o) => o.needsCashier).length;
+
+  /// What a chip or picker row says after the stage's name, when it has no
+  /// orange count: how many, or for cash how much.
+  String? _stageSuffix(OrderStage s) {
+    final list = _inStage(s);
+    if (list.isEmpty || s == OrderStage.history) return null;
+    if (s == OrderStage.cash) return _m(_sum(list));
+    return _needsYou(s) > 0 ? null : '${list.length}';
+  }
+
+  Widget _chip(OrderStage s) => StageChip(
+    stage: s,
+    needsYou: _needsYou(s),
+    suffix: _stageSuffix(s),
+    selected: _stage == s,
+    isDark: _dark,
+    onTap: () => _pickStage(s),
+  );
+
+  /// "2 more need you: 1 counter-offer, 1 to dispatch", for the stages
+  /// other than the one shown; null when nothing else is waiting.
+  ({String text, OrderStage first})? get _needsElsewhere {
+    final parts = <String>[];
+    OrderStage? first;
+    var total = 0;
+    for (final s in OrderStage.values) {
+      if (s == _stage) continue;
+      final n = s == OrderStage.cash
+          ? _inStage(s).map((o) => o.deliveryId).toSet().length
+          : _needsYou(s);
+      if (n == 0) continue;
+      first ??= s;
+      total += n;
+      parts.add(switch (s) {
+        OrderStage.toPrice => '$n to price',
+        OrderStage.negotiating => '$n counter-offer${n == 1 ? '' : 's'}',
+        OrderStage.toDispatch => '$n to dispatch',
+        OrderStage.cash => '$n rider${n == 1 ? '' : 's'} with cash',
+        _ => '$n in ${s.label}',
+      });
+    }
+    if (first == null) return null;
+    return (text: '$total more need you: ${parts.join(', ')}', first: first);
+  }
+
+  /// Phone: one stage at a time, picked from a sheet, and a line naming
+  /// what waits in the others.
+  Widget _stagePicker() {
+    final stage = _stage ?? OrderStage.toPrice;
+    final count = stage == OrderStage.cash
+        ? _cashByRider.length
+        : _inStage(stage).length;
+    final elsewhere = _needsElsewhere;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: _dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: StockpileColors.primary900, width: 1.5),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: _openStageSheet,
+            child: SizedBox(
+              height: 48,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(color: stage.dot, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '${stage.label} · $count',
+                        style: StockpileFonts.satoshi(fontSize: 15, fontWeight: FontWeight.w700, color: _text),
+                      ),
+                    ),
+                    Text('Change stage', style: StockpileFonts.satoshi(fontSize: 12, color: _body)),
+                    const SizedBox(width: 4),
+                    Icon(Icons.expand_more_rounded, size: 20, color: _body),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (elsewhere != null) ...[
+          const SizedBox(height: 8),
+          Material(
+            color: _dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => _pickStage(elsewhere.first),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 40),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          elsewhere.text,
+                          style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: _text),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, size: 20, color: _body),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _openStageSheet() async {
+    final picked = await showModalBottomSheet<OrderStage>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final s in OrderStage.values)
+              ListTile(
+                minTileHeight: 52,
+                selected: s == _stage,
+                leading: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(color: s.dot, shape: BoxShape.circle),
+                ),
+                title: Text(s.label, style: StockpileFonts.satoshi(fontSize: 15, fontWeight: FontWeight.w600)),
+                subtitle: Text(_tileFacts(s).hint, style: StockpileFonts.satoshi(fontSize: 12, color: kCaption)),
+                trailing: _needsYou(s) > 0
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFCC4900),
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                        child: Text(
+                          '${_needsYou(s)}',
+                          style: StockpileFonts.satoshi(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
+                        ),
+                      )
+                    : Text(_tileFacts(s).value, style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w700)),
+                onTap: () => Navigator.pop(ctx, s),
+              ),
+          ],
+        ),
       ),
     );
+    if (picked != null && mounted) _pickStage(picked);
   }
 
   // ── The list ───────────────────────────────────────────────────────
 
-  Widget _list(bool wide) {
-    final stage = _stage ?? OrderStage.toPrice;
-    final isCash = stage == OrderStage.cash;
+  /// The rows of the shown stage. On a wide screen it also keeps a
+  /// selection, so the pane is never empty while there is something to show.
+  ({
+    bool isCash,
+    List<DeliveryOrder> orders,
+    List<({String riderId, String name, List<DeliveryOrder> orders})> cash,
+  }) _rows(bool wide) {
+    final isCash = (_stage ?? OrderStage.toPrice) == OrderStage.cash;
     final orders = isCash ? const <DeliveryOrder>[] : _visible;
     final cash = isCash ? _cashByRider : const <({String riderId, String name, List<DeliveryOrder> orders})>[];
-    final count = isCash ? cash.length : orders.length;
-
-    // Keep a selection on a wide screen so the pane is never empty while
-    // there is something to show.
-    if (wide && count > 0) {
+    if (wide && (isCash ? cash.isNotEmpty : orders.isNotEmpty)) {
       final ids = isCash ? cash.map((r) => 'rider:${r.riderId}') : orders.map((o) => o.id);
       if (_selected == null || !ids.contains(_selected)) {
         _selected = ids.first;
       }
     }
+    return (isCash: isCash, orders: orders, cash: cash);
+  }
+
+  Widget _list(bool wide) {
+    final stage = _stage ?? OrderStage.toPrice;
+    final (:isCash, :orders, :cash) = _rows(wide);
+    final count = isCash ? cash.length : orders.length;
 
     final heading = switch (stage) {
       OrderStage.toPrice => '$count to price',
@@ -501,6 +734,12 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
                       style: StockpileFonts.satoshi(fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                   ),
+                if (wide)
+                  IconButton(
+                    tooltip: 'Hide the list',
+                    onPressed: () => DeliveryFolds.toggle(DeliveryFolds.list),
+                    icon: Icon(Icons.keyboard_double_arrow_left_rounded, size: 20, color: _body),
+                  ),
               ],
             ),
           ),
@@ -516,7 +755,8 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
                         : _orderRow(orders[i], wide),
                   ),
           ),
-          if (elsewhere != null)
+          // A phone says this above the list, under the stage picker.
+          if (elsewhere != null && wide)
             Material(
               color: _dark ? StockpileColors.secondary500.withAlpha(30) : StockpileColors.secondary50,
               child: InkWell(
@@ -537,6 +777,131 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  /// The list folded to a narrow rail of initials, so the open order gets
+  /// the width. Each one still opens its order; hover says who it is.
+  Widget _rail() {
+    final stage = _stage ?? OrderStage.toPrice;
+    final (:isCash, :orders, :cash) = _rows(true);
+
+    Widget dot({
+      required String id,
+      required String tooltip,
+      required Widget child,
+      bool needsYou = false,
+    }) {
+      final selected = _selected == id;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Tooltip(
+          message: tooltip,
+          child: Semantics(
+            button: true,
+            selected: selected,
+            label: tooltip,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => setState(() => _selected = id),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected
+                          ? (_dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50)
+                          : (_dark ? StockpileColors.darkInputBg : StockpileColors.inputBg),
+                      border: Border.all(
+                        color: selected ? stage.dot : _line,
+                        width: selected ? 2 : 1,
+                      ),
+                    ),
+                    child: ExcludeSemantics(child: child),
+                  ),
+                  if (needsYou)
+                    Positioned(
+                      right: 0,
+                      top: 0,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFCC4900),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: _surface, width: 2),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 64,
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _line),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          IconButton.filledTonal(
+            tooltip: 'Show the list',
+            onPressed: () => DeliveryFolds.toggle(DeliveryFolds.list),
+            style: IconButton.styleFrom(
+              minimumSize: const Size(44, 44),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            icon: const Icon(Icons.keyboard_double_arrow_right_rounded, size: 20),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: SizedBox(width: 32, child: Divider(height: 1, color: _line)),
+          ),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                Center(
+                  child: Column(
+                    children: [
+                      if (isCash)
+                        for (final r in cash)
+                          dot(
+                            id: 'rider:${r.riderId}',
+                            tooltip: '${r.name} · ${_m(_sum(r.orders))}',
+                            needsYou: true,
+                            child: const Icon(Icons.two_wheeler_rounded, size: 20, color: kOrangeText),
+                          )
+                      else
+                        for (final o in orders)
+                          dot(
+                            id: o.id,
+                            tooltip: '${o.memberName ?? 'Member order'} · ${_rowFacts(o).$1}',
+                            needsYou: o.needsCashier,
+                            child: Text(
+                              _initials(o.memberName),
+                              style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w700, color: _text),
+                            ),
+                          ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
