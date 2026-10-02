@@ -2035,6 +2035,70 @@ class SupabaseRepository {
     }
   }
 
+  // ── Product pictures (v63) ──────────────────────────────────────────
+  //
+  // A PUBLIC bucket, unlike the posters: every member who can open the
+  // Marketplace sees every product, so there is nothing to sign. Names are
+  // random, so a replaced picture gets a new URL and the old one is never
+  // served from a cache.
+
+  static const String _productBucket = 'product-images';
+
+  /// The URL to draw a product's picture from, or null when it has none.
+  /// No network call: a public URL is built from the path.
+  String? productImageUrl(String? path) {
+    if (path == null || path.trim().isEmpty) return null;
+    return _supabase.storage.from(_productBucket).getPublicUrl(path.trim());
+  }
+
+  /// Upload a prepared picture and return the path to store on the item.
+  Future<String> uploadProductImage(
+    Uint8List bytes, {
+    required String extension,
+    required String contentType,
+  }) async {
+    final rand = Random.secure();
+    final name = List.generate(
+      16,
+      (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final path = 'products/$name.$extension';
+    await _supabase.storage
+        .from(_productBucket)
+        .uploadBinary(
+          path,
+          bytes,
+          // A path is never reused, so its file never changes: let the CDN
+          // and devices keep it for a year.
+          fileOptions: FileOptions(
+            contentType: contentType,
+            upsert: false,
+            cacheControl: '31536000',
+          ),
+        );
+    return path;
+  }
+
+  /// Point a product at a picture, or at none when [path] is null.
+  Future<void> setItemImage(int itemId, String? path) async {
+    await _supabase
+        .from('items')
+        .update({'image_path': path})
+        .eq('id', itemId);
+    _changes.add('item_updated');
+  }
+
+  /// Remove a picture's file after the product stopped pointing at it.
+  /// Swallows failures, like [deletePoster]: the worst case is an orphan.
+  Future<void> deleteProductImage(String? path) async {
+    if (path == null || path.trim().isEmpty) return;
+    try {
+      await _supabase.storage.from(_productBucket).remove([path.trim()]);
+    } catch (e) {
+      debugPrint('[deleteProductImage] failed for $path: $e');
+    }
+  }
+
   /// Announcements the CURRENT account may see, newest first, each carrying
   /// whether this account has saved it.
   ///
@@ -2535,8 +2599,20 @@ class SupabaseRepository {
   // ── Delete Methods ───────────────────────────────────────────────────────
 
   Future<int> deleteItemById(int id) async {
+    // Its picture's file goes too. Read first; a failure here (say, before
+    // v63) only leaves a file behind.
+    String? imagePath;
+    try {
+      final row = await _supabase
+          .from('items')
+          .select('image_path')
+          .eq('id', id)
+          .maybeSingle();
+      imagePath = row?['image_path'] as String?;
+    } catch (_) {}
     await _supabase.from('items').delete().eq('id', id);
     _changes.add('item_deleted');
+    await deleteProductImage(imagePath);
     return 1;
   }
 

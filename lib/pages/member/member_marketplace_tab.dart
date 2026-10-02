@@ -225,7 +225,9 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
     return ColoredBox(
       color: c.ground,
       child: LayoutBuilder(
-        builder: (context, box) => box.maxWidth >= 980 ? _wide(c) : _narrow(c),
+        builder: (context, box) => box.maxWidth >= 980
+            ? ShopDesktopText(child: _wide(c))
+            : _narrow(c),
       ),
     );
   }
@@ -278,6 +280,11 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
 
   Widget _wide(ShopColors c) {
     final shown = _filteredItems;
+    // A card is its picture, name, stock line and button; the two lines of
+    // text grow with the text size (desktop's 25% and the person's own).
+    final textScale =
+        MediaQuery.textScalerOf(context).scale(1) * ShopDesktopText.scale;
+    final cardHeight = 252 + (15 + 12) * 1.4 * textScale;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -306,9 +313,9 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
                 GridView(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 300,
-                    mainAxisExtent: 196,
+                    mainAxisExtent: cardHeight,
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
                   ),
@@ -707,7 +714,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
-          ProductTile(item.name),
+          ProductTile(item.name, imagePath: item.imagePath, size: 56),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -740,10 +747,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: ProductTile(item.name, size: 56),
-          ),
+          ProductTile(item.name, imagePath: item.imagePath, height: 140),
           const SizedBox(height: 12),
           Text(
             item.name,
@@ -867,7 +871,11 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Row(
                             children: [
-                              ProductTile(l.item.name, size: 32),
+                              ProductTile(
+                                l.item.name,
+                                imagePath: l.item.imagePath,
+                                size: 36,
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
@@ -1073,7 +1081,9 @@ class _ReviewOrderPageState extends State<_ReviewOrderPage> {
       'Your order arrives, and you confirm you received it.',
     ];
 
-    return Scaffold(
+    // Same desktop text as the Marketplace it was opened from.
+    final wide = MediaQuery.sizeOf(context).width >= 980;
+    final page = Scaffold(
       backgroundColor: c.ground,
       appBar: AppBar(
         title: const Text('Review your order'),
@@ -1109,7 +1119,11 @@ class _ReviewOrderPageState extends State<_ReviewOrderPage> {
                         padding: const EdgeInsets.only(top: 8),
                         child: Row(
                           children: [
-                            ProductTile(l.item.name, size: 32),
+                            ProductTile(
+                              l.item.name,
+                              imagePath: l.item.imagePath,
+                              size: 36,
+                            ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
@@ -1351,6 +1365,7 @@ class _ReviewOrderPageState extends State<_ReviewOrderPage> {
         ),
       ),
     );
+    return wide ? ShopDesktopText(child: page) : page;
   }
 }
 

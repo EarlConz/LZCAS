@@ -14,9 +14,12 @@ import 'package:provider/provider.dart';
 import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/config_service.dart';
+import 'package:lzcas/services/poster_service.dart' show PreparedPoster;
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/modal_kit.dart';
+import 'package:lzcas/widgets/poster_picker_field.dart';
+import 'package:lzcas/widgets/product_tile.dart';
 
 class EditProductDialog extends StatefulWidget {
   final Map<String, dynamic> item;
@@ -53,6 +56,12 @@ class _EditProductDialogState extends State<EditProductDialog> {
 
   bool _saving = false;
 
+  /// A newly chosen picture, not uploaded yet (v63, admins only).
+  PreparedPoster? _photo;
+
+  /// The stored picture was removed and nothing chosen in its place.
+  bool _photoCleared = false;
+
   static const _reasons = [
     'Damaged',
     'Expired',
@@ -75,6 +84,15 @@ class _EditProductDialogState extends State<EditProductDialog> {
 
   bool get _stockChanged => _mode != _StockMode.none && _amountValue > 0;
 
+  String? get _storedPhoto => widget.item['imagePath'] as String?;
+
+  bool get _photoChanged =>
+      _photo != null || (_photoCleared && (_storedPhoto ?? '').isNotEmpty);
+
+  /// Only admins may write to the picture bucket (v63).
+  bool get _canEditPhoto =>
+      context.read<AuthState>().userRole == UserRole.admin;
+
   /// Checked as the amount is typed, so an amount over the stock can never
   /// reach Save. Before this, it was skipped silently: the dialog closed as
   /// if it had worked and the stock never moved.
@@ -96,7 +114,9 @@ class _EditProductDialogState extends State<EditProductDialog> {
     if (_isReduce && _amountValue > 0 && _reason == null) {
       return 'Pick a reason for the reduction.';
     }
-    if (!_detailsChanged && !_stockChanged) return 'Nothing changed yet.';
+    if (!_detailsChanged && !_stockChanged && !_photoChanged) {
+      return 'Nothing changed yet.';
+    }
     return null;
   }
 
@@ -186,6 +206,11 @@ class _EditProductDialogState extends State<EditProductDialog> {
     final needsApproval = _needsApproval;
     var sentForApproval = false;
 
+    // The picture first: if it fails, nothing else has changed yet. Once
+    // saved it is cleared from the form, so saving again after a refused
+    // reduction does not upload it twice.
+    if (_photoChanged && !await _savePhoto(id)) return;
+
     final row = await repository.getItemById(id);
     if (row == null) {
       if (!mounted) return;
@@ -265,6 +290,43 @@ class _EditProductDialogState extends State<EditProductDialog> {
     Navigator.pop(context);
   }
 
+  /// Upload the chosen picture (or none), point the product at it, then
+  /// delete the file it replaced. False, with a toast, when it failed.
+  Future<bool> _savePhoto(int id) async {
+    final old = _storedPhoto;
+    final photo = _photo;
+    String? path;
+    try {
+      if (photo != null) {
+        path = await repository.uploadProductImage(
+          photo.bytes,
+          extension: photo.extension,
+          contentType: photo.contentType,
+        );
+      }
+      await repository.setItemImage(id, path);
+    } catch (e) {
+      debugPrint('Saving product picture failed: $e');
+      // Uploaded but not linked: don't leave the file behind.
+      await repository.deleteProductImage(path);
+      if (mounted) {
+        BotToast.showText(
+          text: 'Could not save the picture. Nothing was changed.',
+        );
+      }
+      return false;
+    }
+    await repository.deleteProductImage(old);
+    widget.item['imagePath'] = path;
+    if (mounted) {
+      setState(() {
+        _photo = null;
+        _photoCleared = false;
+      });
+    }
+    return true;
+  }
+
   // ── UI ─────────────────────────────────────────────────────────────
 
   @override
@@ -314,6 +376,38 @@ class _EditProductDialogState extends State<EditProductDialog> {
             ),
           ],
         ),
+        if (_canEditPhoto && widget.item['id'] != null)
+          ModalSection(
+            title: 'Picture',
+            children: [
+              PosterPickerField(
+                storedPath: _storedPhoto,
+                pending: _photo,
+                cleared: _photoCleared,
+                enabled: !_saving,
+                isDark: dark,
+                label: 'Shown in the Marketplace',
+                addLabel: 'Add picture',
+                emptyLabel: 'No picture: members see its letter instead',
+                helper: 'JPG or PNG. It is resized for you. A square photo '
+                    'fits best.',
+                maxEdge: 800,
+                storedPreview: ProductTile(
+                  _originalName,
+                  imagePath: _storedPhoto,
+                  height: 180,
+                ),
+                onPicked: (p) => setState(() {
+                  _photo = p;
+                  _photoCleared = false;
+                }),
+                onCleared: () => setState(() {
+                  _photo = null;
+                  _photoCleared = true;
+                }),
+              ),
+            ],
+          ),
         ModalSection(
           title: 'Change stock',
           children: [

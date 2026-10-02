@@ -14,6 +14,11 @@ class Item {
   final String? status;
   final String? userId; // Supabase auth.uid()
 
+  /// The product's picture in the 'product-images' bucket (v63), or null.
+  /// Written only by `setItemImage`, never by [toJson], so saving a product
+  /// from a screen that did not load its picture cannot clear it.
+  final String? imagePath;
+
   const Item({
     this.id,
     required this.name,
@@ -22,6 +27,7 @@ class Item {
     this.lastUpdated,
     this.status,
     this.userId,
+    this.imagePath,
   });
 
   factory Item.fromJson(Map<String, dynamic> json) => Item(
@@ -34,6 +40,9 @@ class Item {
         : null,
     status: json['status'] as String?,
     userId: json['user_id'] as String?,
+    imagePath: (json['image_path'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (json['image_path'] as String).trim(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -61,6 +70,7 @@ class Item {
     lastUpdated: lastUpdated ?? this.lastUpdated,
     status: status ?? this.status,
     userId: userId ?? this.userId,
+    imagePath: imagePath,
   );
 }
 
@@ -1340,6 +1350,7 @@ List<Map<String, dynamic>> inventoryItemsFromRows(List<Item> rows) {
           'stock': r.stock,
           'lastUpdated': r.lastUpdated?.toIso8601String() ?? '',
           'status': r.status ?? statusFromStock(r.stock),
+          'imagePath': r.imagePath,
         },
       )
       .toList();

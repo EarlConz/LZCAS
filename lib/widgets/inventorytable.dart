@@ -15,6 +15,8 @@ import 'package:lzcas/dialogs/add_product_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'package:lzcas/widgets/modal_kit.dart' show confirmDestructive;
+import 'package:lzcas/services/poster_service.dart' show PreparedPoster;
+import 'package:lzcas/widgets/product_tile.dart';
 import '../theme.dart';
 import '../utils/formatters.dart';
 import '../services/config_service.dart';
@@ -941,7 +943,7 @@ class _InventoryTableState extends State<InventoryTable> {
       parentCtx,
       builder: (context) => AddProductDialog(
         onProductAdded: (p) async {
-          await repository.addItem(
+          final id = await repository.addItem(
             name: p['name']?.toString() ?? '',
             category: p['category']?.toString(),
             stock: (p['stock'] ?? 0) is int
@@ -951,9 +953,33 @@ class _InventoryTableState extends State<InventoryTable> {
                 ? p['lastUpdated'] as DateTime
                 : null,
           );
+          // The picture goes up once the product exists. If it fails, the
+          // product is still added and the picture can be added from Edit.
+          final photo = p['photo'];
+          var photoFailed = false;
+          if (photo is PreparedPoster && id > 0) {
+            String? path;
+            try {
+              path = await repository.uploadProductImage(
+                photo.bytes,
+                extension: photo.extension,
+                contentType: photo.contentType,
+              );
+              await repository.setItemImage(id, path);
+            } catch (e) {
+              debugPrint('Adding product picture failed: $e');
+              await repository.deleteProductImage(path);
+              photoFailed = true;
+            }
+          }
           _loadItems();
           if (!mounted) return;
-          BotToast.showText(text: 'Product added');
+          BotToast.showText(
+            text: photoFailed
+                ? 'Product added, but the picture could not be saved. '
+                      'Add it from Edit product.'
+                : 'Product added',
+          );
         },
       ),
     );
@@ -1096,6 +1122,12 @@ class _InventoryListCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                ProductTile(
+                  name,
+                  imagePath: item['imagePath'] as String?,
+                  size: 40,
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     name.isEmpty ? 'Unnamed Product' : name,
@@ -1265,7 +1297,20 @@ class _InventoryDataSource extends DataTableSource {
         return null;
       }),
       cells: [
-        DataCell(Text(item["name"] ?? "")),
+        DataCell(
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ProductTile(
+                item["name"] ?? "",
+                imagePath: item["imagePath"] as String?,
+                size: 32,
+              ),
+              const SizedBox(width: 10),
+              Flexible(child: Text(item["name"] ?? "")),
+            ],
+          ),
+        ),
         DataCell(Text(item["category"] ?? "")),
         DataCell(Text((item["stock"] ?? 0).toString())),
         DataCell(Text(_formatLastUpdated(item["lastUpdated"]))),

@@ -37,6 +37,15 @@ class PosterPickerField extends StatefulWidget {
 
   final String label;
   final String helper;
+  final String addLabel;
+  final String emptyLabel;
+
+  /// Draws the stored image. Null draws it as a poster, from the private
+  /// announcement bucket; product pictures live elsewhere (v63).
+  final Widget? storedPreview;
+
+  /// Passed to [pickPoster]; null keeps the poster size.
+  final int? maxEdge;
 
   const PosterPickerField({
     super.key,
@@ -49,6 +58,10 @@ class PosterPickerField extends StatefulWidget {
     required this.onCleared,
     this.label = 'Poster',
     this.helper = 'Optional. JPG or PNG — it is resized for you.',
+    this.addLabel = 'Add poster',
+    this.emptyLabel = 'No poster — text only',
+    this.storedPreview,
+    this.maxEdge,
   });
 
   /// Whether anything is currently attached, from either source.
@@ -66,7 +79,7 @@ class _PosterPickerFieldState extends State<PosterPickerField> {
     if (_picking || !widget.enabled) return;
     setState(() => _picking = true);
     try {
-      final poster = await pickPoster();
+      final poster = await pickPoster(maxEdge: widget.maxEdge);
       if (poster != null) widget.onPicked(poster);
     } on PosterException catch (e) {
       // Written to be shown as-is: "That image is 41.2 MB. Pick one under…"
@@ -135,7 +148,7 @@ class _PosterPickerFieldState extends State<PosterPickerField> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.upload_rounded, size: 18),
-                label: Text(widget._hasPoster ? 'Replace' : 'Add poster'),
+                label: Text(widget._hasPoster ? 'Replace' : widget.addLabel),
               ),
               if (widget._hasPoster)
                 TextButton.icon(
@@ -177,13 +190,14 @@ class _PosterPickerFieldState extends State<PosterPickerField> {
               width: double.infinity,
               child: pending != null
                   ? Image.memory(pending.bytes, fit: BoxFit.contain)
-                  : PosterImage(
-                      path: widget.storedPath,
-                      isDark: isDark,
-                      fit: BoxFit.contain,
-                      borderRadius: 10,
-                      openOnTap: true,
-                    ),
+                  : widget.storedPreview ??
+                        PosterImage(
+                          path: widget.storedPath,
+                          isDark: isDark,
+                          fit: BoxFit.contain,
+                          borderRadius: 10,
+                          openOnTap: true,
+                        ),
             ),
           ),
         ),
@@ -216,7 +230,7 @@ class _PosterPickerFieldState extends State<PosterPickerField> {
       ),
       alignment: Alignment.center,
       child: Text(
-        'No poster — text only',
+        widget.emptyLabel,
         style: StockpileFonts.satoshi(fontSize: 12, color: muted),
       ),
     );

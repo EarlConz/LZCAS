@@ -19,6 +19,8 @@ import '../../utils/fonts.dart';
 import '../../utils/formatters.dart' show formatMoney;
 import 'order_payment_sheet.dart';
 
+export '../../widgets/product_tile.dart' show ProductTile;
+
 // ─── Colours ────────────────────────────────────────────────────────────────
 
 /// The shop's colours, light and dark. Text colours are the darker variants:
@@ -45,6 +47,30 @@ class ShopColors {
   Color get accentSoft =>
       dark ? StockpileColors.primary900.withAlpha(36) : const Color(0xFFFFF7DF);
   Color get accent => StockpileColors.primary900;
+}
+
+// ─── Desktop text ───────────────────────────────────────────────────────────
+
+/// The shop's text sizes are set for a phone held close. On a monitor at
+/// arm's length they read small (client feedback on the cashier PC,
+/// 2026-10-02), so [child] gets all its text 25% larger. On top of the
+/// person's own text size setting, never instead of it.
+class ShopDesktopText extends StatelessWidget {
+  static const double scale = 1.25;
+
+  final Widget child;
+  const ShopDesktopText({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    return MediaQuery(
+      data: mq.copyWith(
+        textScaler: TextScaler.linear(mq.textScaler.scale(1) * scale),
+      ),
+      child: child,
+    );
+  }
 }
 
 // ─── How an order reads to a member ─────────────────────────────────────────
@@ -261,46 +287,6 @@ class OrderProgressSteps extends StatelessWidget {
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A product's letter on a tinted tile. The tint follows the name, so a
-/// product keeps its colour across the shop, the order and the purchases.
-class ProductTile extends StatelessWidget {
-  final String name;
-  final double size;
-  const ProductTile(this.name, {super.key, this.size = 48});
-
-  static const _light = [
-    (Color(0xFFFFF7DF), Color(0xFFB24800)),
-    (Color(0xFFE9EBFF), Color(0xFF0029CC)),
-    (Color(0xFFDCFCE7), Color(0xFF15803D)),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final c = ShopColors.of(context);
-    final t = name.trim();
-    final letter = t.isEmpty ? '?' : t[0].toUpperCase();
-    final (bg, fg) =
-        _light[t.codeUnits.fold<int>(0, (a, b) => a + b) % _light.length];
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: c.dark ? fg.withAlpha(48) : bg,
-        borderRadius: BorderRadius.circular(size / 4),
-      ),
-      child: Text(
-        letter,
-        style: StockpileFonts.satoshi(
-          fontSize: size * 0.38,
-          fontWeight: FontWeight.w700,
-          color: c.dark ? Colors.white : fg,
         ),
       ),
     );

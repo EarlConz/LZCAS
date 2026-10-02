@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v62)
+├── migrations/    Ordered, apply-once changes (v2 … v63)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -539,6 +539,16 @@ build that formats the code._
   older 32-character codes still work. `delivery_busy_rider_ids()` returns
   (rider, order) for every order on the road, so a cashier sees a rider as
   busy even when another cashier or an admin dispatched them.
+
+**Product pictures (v63)** — _independent; apply before the app build that
+uploads pictures._
+
+- v63 — `items.image_path` (a storage path; null shows the letter tile),
+  `items_with_status` rebuilt so the column reaches the inventory list, and a
+  PUBLIC `product-images` bucket (5 MB, JPEG/PNG) that only admins write to.
+  Public because every Marketplace member sees every product, so no signed
+  URLs; file names are random, so a replaced picture never serves stale.
+  Rollback leaves the bucket (Supabase will not delete one with files).
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

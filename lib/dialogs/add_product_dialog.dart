@@ -7,11 +7,14 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../auth/auth_state.dart';
 import '../db/db.dart';
 import '../services/config_service.dart';
+import '../services/poster_service.dart' show PreparedPoster;
 import '../theme.dart';
 import '../utils/fonts.dart';
 import '../widgets/modal_kit.dart';
+import '../widgets/poster_picker_field.dart';
 
 class AddProductDialog extends StatefulWidget {
   final Function(Map<String, dynamic>) onProductAdded;
@@ -27,6 +30,9 @@ class _AddProductDialogState extends State<AddProductDialog> {
   final _stock = TextEditingController(text: '0');
   String? _category;
   List<Category> _categories = [];
+
+  /// A picture to upload once the product exists (v63, admins only).
+  PreparedPoster? _photo;
 
   @override
   void initState() {
@@ -64,6 +70,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
       'name': name,
       'category': category,
       'stock': stock,
+      'photo': _photo,
       'lastUpdated': DateTime.now(),
       'status': stock <= 0
           ? 'Out of Stock'
@@ -144,6 +151,23 @@ class _AddProductDialogState extends State<AddProductDialog> {
             ],
           ),
         ),
+        // Only admins may write to the picture bucket (v63).
+        if (context.read<AuthState>().userRole == UserRole.admin)
+          PosterPickerField(
+            storedPath: null,
+            pending: _photo,
+            cleared: false,
+            enabled: true,
+            isDark: dark,
+            label: 'Picture for the Marketplace',
+            addLabel: 'Add picture',
+            emptyLabel: 'No picture: members see its letter instead',
+            helper: 'Optional. JPG or PNG, resized for you. A square photo '
+                'fits best.',
+            maxEdge: 800,
+            onPicked: (p) => setState(() => _photo = p),
+            onCleared: () => setState(() => _photo = null),
+          ),
       ],
       footerNote: Text(
         blocker ?? '',

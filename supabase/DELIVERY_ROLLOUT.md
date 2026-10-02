@@ -54,6 +54,7 @@ order by version;
 | v60 | `migration_v60_reduce_item_stock.sql` | ✅ | ❌ | Independent of delivery, but the app's Edit Product calls it: apply before the new app ships. |
 | v61 | `migration_v61_courier_delivery.sql` | ✅ 2026-10-02 | ❌ | — |
 | v62 | `migration_v62_short_cod_code_and_busy_riders.sql` | ✅ 2026-10-02 | ❌ | — |
+| v63 | `migration_v63_product_images.sql` | ⏳ not yet | ❌ | Product pictures; independent of delivery. Creates the public `product-images` bucket. Apply before an app build with picture upload reaches admins (older builds ignore it). |
 
 ¹ Staging's ledger names v52 `saved_items_policy_repair`; its changes are in
 place. On production it will record itself correctly.
@@ -106,3 +107,4 @@ must know v59's payment events and v61's `event` field.
 |---|---|
 | 2026-10-02 | Created. Staging at v62; production at v46 + v47 + v51 (unconfirmed). |
 | 2026-10-02 | Production app is v1.5.1: delivery off; v48 status unknown. |
+| 2026-10-02 | Added v63 (product pictures), written but not applied anywhere yet. |

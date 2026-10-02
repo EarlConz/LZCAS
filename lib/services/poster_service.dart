@@ -69,12 +69,15 @@ class PosterException implements Exception {
 
 /// Open the system file picker and prepare whatever was chosen.
 ///
+/// [maxEdge] overrides the 1600 px poster size: a product picture is shown
+/// small, so it is kept at 800.
+///
 /// Returns null when the picker was dismissed — that is a cancel, not an
 /// error, and callers should do nothing.
 ///
 /// Throws [PosterException] with a displayable message when the file is too
 /// large or is not an image we can decode.
-Future<PreparedPoster?> pickPoster() async {
+Future<PreparedPoster?> pickPoster({int? maxEdge}) async {
   const typeGroup = XTypeGroup(
     label: 'Images',
     extensions: <String>['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'],
@@ -106,11 +109,13 @@ Future<PreparedPoster?> pickPoster() async {
   // Decode, resize and re-encode off the UI thread: a 4000px source takes
   // long enough that doing it inline drops frames on a phone, and the admin
   // form animates while this runs.
-  return compute(_prepare, source);
+  return compute(_prepare, (source: source, maxEdge: maxEdge ?? _maxEdge));
 }
 
 /// Runs in a background isolate — must not touch anything Flutter.
-PreparedPoster _prepare(Uint8List source) {
+PreparedPoster _prepare(({Uint8List source, int maxEdge}) job) {
+  final source = job.source;
+  final maxEdge = job.maxEdge;
   final decoded = img.decodeImage(source);
   if (decoded == null) {
     throw const PosterException(
@@ -124,12 +129,12 @@ PreparedPoster _prepare(Uint8List source) {
 
   // Only ever shrink. Upscaling a small poster would inflate the upload
   // without adding a single pixel of detail.
-  final resized = longest <= _maxEdge
+  final resized = longest <= maxEdge
       ? decoded
       : img.copyResize(
           decoded,
-          width: decoded.width >= decoded.height ? _maxEdge : null,
-          height: decoded.height > decoded.width ? _maxEdge : null,
+          width: decoded.width >= decoded.height ? maxEdge : null,
+          height: decoded.height > decoded.width ? maxEdge : null,
           interpolation: img.Interpolation.average,
         );
 
