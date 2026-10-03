@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v68)
+├── migrations/    Ordered, apply-once changes (v2 … v69)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -584,6 +584,12 @@ another cashier's order read-only._
 - v68 — adds every table the app subscribes to (items, members, sales,
   pending_requests, withdrawal_requests, orders) to `supabase_realtime`
   when missing; the ledger note records which, for the rollback.
+
+**Unique tracking numbers (v69)** — _needs v61._
+
+- v69 — trigger `orders_guard_tracking_number` refuses a tracking number
+  another order already has, compared by `_tracking_key()` (upper case, no
+  spaces or dashes). Existing duplicates are left alone.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

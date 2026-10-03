@@ -20,6 +20,7 @@
 // Also: [CashRemitPane], the rider-grouped "cash handed in" view.
 
 import 'dart:async';
+import 'dart:math' show Random;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -424,6 +425,20 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       () => repository.cashierMarkShipped(orderId: _o.id, tracking: tracking),
       success: 'Marked shipped',
     );
+  }
+
+  /// A store reference for a parcel the courier gave no number for, e.g.
+  /// LZ-251004-7K2Q: the day it ships and four characters that can't be
+  /// misread (no 0/O, 1/I). Two orders never share one: the database
+  /// refuses a repeat (v69), and the cashier just generates again.
+  void _generateTracking() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final r = Random.secure();
+    final now = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final day = '${two(now.year % 100)}${two(now.month)}${two(now.day)}';
+    final code = List.generate(4, (_) => chars[r.nextInt(chars.length)]).join();
+    _tracking.text = 'LZ-$day-$code';
   }
 
   /// A parcel that never reached the member: lost, refused, or sent back
@@ -2317,7 +2332,13 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
               decoration: InputDecoration(
                 labelText: 'Tracking number',
                 hintText: 'From the $_courier receipt',
+                helperText: 'No number on the receipt? Generate one.',
                 prefixIcon: const Icon(Icons.local_shipping_outlined),
+                suffixIcon: IconButton(
+                  tooltip: 'Generate a tracking number',
+                  onPressed: _busy || _viewOnly ? null : _generateTracking,
+                  icon: const Icon(Icons.auto_awesome_outlined),
+                ),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),

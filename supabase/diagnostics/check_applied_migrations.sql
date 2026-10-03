@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which migrations are actually applied to THIS project? (v35 … v68)
+-- Which migrations are actually applied to THIS project? (v35 … v69)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -318,6 +318,13 @@ select 'v68  realtime tables',
                               'withdrawal_requests', 'orders')
        ) = 6 then 'APPLIED' else 'MISSING' end,
        'all 6 app tables in supabase_realtime'
+
+union all
+select 'v69  unique tracking numbers',
+       case when exists (select 1 from pg_trigger
+                          where tgname = 'orders_guard_tracking_number' and not tgisinternal)
+            then 'APPLIED' else 'MISSING' end,
+       'orders_guard_tracking_number trigger'
 
 order by 1;
 
