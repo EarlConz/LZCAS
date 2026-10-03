@@ -1,5 +1,8 @@
 # Prod Rollout Checklist
 
+> **Historical:** this was the branch-cashier release (v1.3, August 2026).
+> For the delivery release use [`prod_rollout_delivery.md`](prod_rollout_delivery.md).
+
 Everything below was built and verified on the **staging** Supabase project
 (`sisyujbpcueifeonnzfw`). This is the ordered list of what must be applied to
 **prod** (`cyfyydzxdsdzycbpvqox`) once the client signs off.

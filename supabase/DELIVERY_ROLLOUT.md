@@ -34,6 +34,10 @@ order by version;
   recorded, so production stops it today. It would not after this rollout.)
 - `supabase/schema/schema.sql`: destructive. Staging only.
 
+> **Doing the rollout?** Follow the step-by-step runbook,
+> [`docs/prod_rollout_delivery.md`](../docs/prod_rollout_delivery.md). This
+> file is the status board it ticks off.
+
 ## 1. Migrations, in this order
 
 | # | File | Staging | Production | Before applying on production |
@@ -123,3 +127,4 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-04 | Added v68 (realtime tables), not applied anywhere yet. |
 | 2026-10-04 | Added v69 (unique tracking numbers), not applied anywhere yet. |
 | 2026-10-04 | v66–v69 applied on staging. |
+| 2026-10-04 | Production runbook written: `docs/prod_rollout_delivery.md`. |
