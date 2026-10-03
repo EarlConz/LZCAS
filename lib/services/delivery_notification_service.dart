@@ -96,7 +96,14 @@ class DeliveryNotificationService extends ChangeNotifier {
     _lastOrder.clear();
     if (uid == null || !(_isStaff || _isMember || _isRider)) return;
     try {
-      final orders = await repository.fetchDeliveryOrders();
+      // Staff see every order (v65): not the whole history, only what can
+      // still move, plus the last month. Members and riders see only their
+      // own (RLS).
+      final orders = _isStaff
+          ? await repository.fetchStaffDeliveryOrders(
+              historySince: DateTime.now().subtract(const Duration(days: 30)),
+            )
+          : await repository.fetchDeliveryOrders();
       for (final o in orders) {
         _lastStatus.putIfAbsent(o.id, () => o.status);
         _lastReady.putIfAbsent(o.id, () => _ready(o));

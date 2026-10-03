@@ -65,6 +65,27 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   String? _error;
   DateTime? _loadedAt;
 
+  /// When the riders and the stores were last read. They change far less
+  /// often than orders, so a live update reloads only the orders and these
+  /// follow every couple of minutes.
+  DateTime? _slowLoadedAt;
+  static const _slowEvery = Duration(minutes: 2);
+
+  /// History goes back to here; "Load 30 more days" moves it back. Open
+  /// orders and cash still with riders load whatever their age.
+  DateTime _historySince = _daysAgo(30);
+  bool _loadingOlder = false;
+
+  static DateTime _daysAgo(int days) {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day).subtract(Duration(days: days));
+  }
+
+  /// One change arrives as several events (`order_updated` and
+  /// `orders_changed`, one set per order an action touches): they make one
+  /// reload.
+  Timer? _reloadSoon;
+
   /// Null until the first load picks where the work is.
   OrderStage? _stage;
   String _query = '';
@@ -87,17 +108,25 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
     // Which parts this device folded away; redraws when the file lands.
     UiPrefs.instance.addListener(_onPrefs);
     UiPrefs.instance.load();
-    _load();
+    _load(full: true);
     _sub = repository.changes.listen((e) {
-      if (e.startsWith('order_') || e == 'orders_changed') _load();
+      if (e.startsWith('order_') || e == 'orders_changed') {
+        _reloadSoon?.cancel();
+        _reloadSoon = Timer(const Duration(milliseconds: 300), _load);
+      }
     });
     // Waiting times and "updated 12 s ago" move on their own. A list that
     // has not loaded for a minute also reloads: a safety net for a missed
     // live update (Part 3: a member's counter-offer not showing).
     _tick = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted) return;
+      final now = DateTime.now();
+      final slow = _slowLoadedAt;
       final at = _loadedAt;
-      if (at != null && DateTime.now().difference(at) >= const Duration(seconds: 60)) {
+      if (slow != null && now.difference(slow) >= _slowEvery) {
+        // Riders move: their positions decide who is nearest.
+        _load(full: true);
+      } else if (at != null && now.difference(at) >= const Duration(seconds: 60)) {
         _load();
       } else {
         setState(() {});
@@ -109,34 +138,40 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
   void dispose() {
     _sub?.cancel();
     _tick?.cancel();
+    _reloadSoon?.cancel();
     _search.dispose();
     UiPrefs.instance.removeListener(_onPrefs);
     super.dispose();
   }
 
-  Future<void> _load() async {
+  /// The orders, and which riders are busy (that moves with them), every
+  /// time; with [full], also the riders and the stores, which rarely change.
+  Future<void> _load({bool full = false}) async {
     final uid = context.read<AuthState>().userId;
+    full = full || _slowLoadedAt == null;
     try {
-      final orders = await repository.fetchDeliveryOrders();
-      // Riders and the branch location only enrich the view; failing to get
-      // them must not blank the orders.
-      List<UserProfile> riders = _riders;
-      try {
-        riders = await repository.fetchRiders();
-      } catch (_) {}
+      final orders = await repository.fetchStaffDeliveryOrders(historySince: _historySince);
       final busy = await repository.fetchBusyRiders();
+      // Riders and the stores only enrich the view; failing to get them
+      // must not blank the orders.
+      List<UserProfile> riders = _riders;
       CashierLocation? branch = _branch;
-      if (uid != null) {
+      List<CashierLocation> stores = _stores;
+      if (full) {
         try {
-          branch = await repository.fetchCashierLocation(uid);
+          riders = await repository.fetchRiders();
+        } catch (_) {}
+        if (uid != null) {
+          try {
+            branch = await repository.fetchCashierLocation(uid);
+          } catch (_) {}
+        }
+        try {
+          stores = (await repository.fetchCashierLocations())
+              .where((s) => !s.isBranchCashier)
+              .toList();
         } catch (_) {}
       }
-      List<CashierLocation> stores = _stores;
-      try {
-        stores = (await repository.fetchCashierLocations())
-            .where((s) => !s.isBranchCashier)
-            .toList();
-      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _orders = orders;
@@ -147,6 +182,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
         _loading = false;
         _error = null;
         _loadedAt = DateTime.now();
+        if (full) _slowLoadedAt = _loadedAt;
         _stage ??= _defaultStage();
       });
     } catch (_) {
@@ -156,6 +192,17 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
         _loading = false;
       });
     }
+  }
+
+  /// History 30 days further back.
+  Future<void> _loadOlder() async {
+    if (_loadingOlder) return;
+    setState(() {
+      _loadingOlder = true;
+      _historySince = _historySince.subtract(const Duration(days: 30));
+    });
+    await _load();
+    if (mounted) setState(() => _loadingOlder = false);
   }
 
   /// The other cashier handling [o], when the viewer may only look at it
@@ -275,7 +322,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
               children: [
                 Text(_error!, style: StockpileFonts.satoshi(fontSize: 14, color: _body)),
                 const SizedBox(height: 12),
-                FilledButton(onPressed: _load, child: const Text('Retry')),
+                FilledButton(onPressed: () => _load(full: true), child: const Text('Retry')),
               ],
             ),
           );
@@ -366,7 +413,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
 
     final refresh = IconButton.outlined(
       tooltip: 'Refresh',
-      onPressed: _load,
+      onPressed: () => _load(full: true),
       icon: const Icon(Icons.refresh_rounded, size: 20),
       style: IconButton.styleFrom(
         minimumSize: const Size(44, 44),
@@ -780,6 +827,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
                         : _orderRow(orders[i], wide),
                   ),
           ),
+          if (stage == OrderStage.history) _olderBar(),
           // A phone says this above the list, under the stage picker.
           if (elsewhere != null && wide)
             Material(
@@ -932,6 +980,33 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
     );
   }
 
+  /// Under History: how far back it goes, and a way further back.
+  Widget _olderBar() {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final d = _historySince;
+    final year = d.year == DateTime.now().year ? '' : ' ${d.year}';
+    final since = '${d.day} ${months[d.month - 1]}$year';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+      decoration: BoxDecoration(border: Border(top: BorderSide(color: _line))),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Finished since $since',
+              style: StockpileFonts.satoshi(fontSize: 12, color: kCaption),
+            ),
+          ),
+          TextButton(
+            onPressed: _loadingOlder ? null : _loadOlder,
+            style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
+            child: Text(_loadingOlder ? 'Loading…' : 'Load 30 more days'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _empty(OrderStage stage) {
     final text = _query.trim().isNotEmpty
         ? 'No matches for "${_query.trim()}".'
@@ -941,7 +1016,7 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
             OrderStage.toDispatch => 'Nothing waiting to be sent out.',
             OrderStage.onTheWay => 'No orders on the road.',
             OrderStage.cash => 'Every rider has handed in their cash.',
-            OrderStage.history => 'No completed or cancelled orders yet.',
+            OrderStage.history => 'No orders finished in this period.',
           };
     return Center(
       child: Padding(
@@ -1235,8 +1310,7 @@ class _OrderScreenState extends State<_OrderScreen> {
 
   Future<void> _reload() async {
     try {
-      final all = await repository.fetchDeliveryOrders();
-      final fresh = all.where((o) => o.id == widget.orderId).firstOrNull;
+      final fresh = await repository.fetchDeliveryOrderById(widget.orderId);
       if (fresh != null && mounted) setState(() => _order = fresh);
     } catch (_) {}
   }
@@ -1285,7 +1359,8 @@ class _CashScreenState extends State<_CashScreen> {
 
   Future<void> _reload() async {
     try {
-      final all = await repository.fetchDeliveryOrders();
+      // Cash still with a rider loads whatever its age.
+      final all = await repository.fetchStaffDeliveryOrders(historySince: DateTime.now());
       if (!mounted) return;
       final mine = all.where((o) => o.awaitingRemittance && o.deliveryId == widget.riderId).toList();
       // Everything handed in: nothing left to show here.

@@ -3930,21 +3930,56 @@ class SupabaseRepository {
       debugPrint('fetchDeliveryOrders first row: ${rows.first}');
     }
 
-    // Fetch the lines for exactly the returned orders, then join in memory.
+    return _withOrderItems(rows);
+  }
+
+  /// What the staff's Delivery Orders page needs, without every order ever
+  /// placed: every order still open, every order whose cash a rider still
+  /// holds (whatever its age), and orders finished since [historySince].
+  /// History is the only part that grows without end, so only it is cut.
+  /// Before, the page read the whole table on every refresh, and with every
+  /// cashier seeing every order (v65) that grew with each day of trading.
+  Future<List<DeliveryOrder>> fetchStaffDeliveryOrders({
+    required DateTime historySince,
+  }) async {
+    final since = historySince.toUtc().toIso8601String();
+    final rows = await _supabase
+        .from('orders')
+        .select()
+        .or(
+          'status.not.in.(Completed,Cancelled),'
+          'and(payment_method.eq.cod,payment_status.eq.paid,cod_remitted_at.is.null),'
+          'updated_at.gte."$since"',
+        )
+        .order('created_at', ascending: false);
+    return _withOrderItems(rows as List);
+  }
+
+  /// One order with its lines, or null when it is gone or not visible to
+  /// this account. For a screen showing a single order, which used to read
+  /// every order to find it.
+  Future<DeliveryOrder?> fetchDeliveryOrderById(String id) async {
+    final row = await _supabase.from('orders').select().eq('id', id).maybeSingle();
+    if (row == null) return null;
+    final orders = await _withOrderItems([row]);
+    return orders.firstOrNull;
+  }
+
+  /// Fetches the lines for exactly [rows], then joins them in memory. In
+  /// batches: PostgREST puts the ids in the URL.
+  Future<List<DeliveryOrder>> _withOrderItems(List<dynamic> rows) async {
     final orderIds = rows
         .map((j) => (j as Map<String, dynamic>)['id']?.toString() ?? '')
         .where((id) => id.isNotEmpty)
         .toList();
     final itemRows = <Map<String, dynamic>>[];
-    if (orderIds.isNotEmpty) {
+    for (final batch in _chunks(orderIds)) {
       final data = await _supabase
           .from('order_items')
           .select()
-          .inFilter('order_id', orderIds);
+          .inFilter('order_id', batch);
       itemRows.addAll((data as List).cast<Map<String, dynamic>>());
-      debugPrint('fetchDeliveryOrders → ${itemRows.length} order_item row(s)');
     }
-
     return _hydrateDeliveryOrders(rows, itemRows: itemRows);
   }
 
