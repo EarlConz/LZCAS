@@ -7,7 +7,7 @@ applied to either project.
 - Staging: `sisyujbpcueifeonnzfw`
 - Production: `cyfyydzxdsdzycbpvqox`
 
-> **Last updated 2026-10-03.** Staging is at **v69**. Production, as far as
+> **Last updated 2026-10-04.** Staging is at **v69**. Production, as far as
 > these notes know, is at v46 plus v47 and v51. **Confirm production before
 > starting** (query below): this file only knows what someone wrote down.
 >
