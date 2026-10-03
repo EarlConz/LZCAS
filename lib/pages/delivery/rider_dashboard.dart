@@ -267,8 +267,10 @@ class _RiderDashboardState extends State<RiderDashboard> {
     final onTheWay = _orders.where((o) => o.isPickedUp).toList();
     final assigned = _orders.where((o) => o.isAssigned).toList();
     final delivered = _orders.where((o) => o.isDelivered).toList();
+    // Only cash the cashier has not taken in yet: once they mark it
+    // remitted it is no longer the rider's to carry (Part 3: it lingered).
     final codToRemit = _orders
-        .where((o) => o.isCod && (o.isDelivered || o.isCompleted))
+        .where((o) => o.isCod && (o.isDelivered || o.isCompleted) && o.codRemittedAt == null)
         .fold<double>(0, (s, o) => s + (o.finalTotal ?? 0));
 
     if (onTheWay.isEmpty && assigned.isEmpty && delivered.isEmpty) {
@@ -354,13 +356,16 @@ class _RiderDashboardState extends State<RiderDashboard> {
     );
   }
 
-  /// Collected / remitted / outstanding cash. Remittance is recorded by the
-  /// cashier (v51's `cod_remitted_at`), so until then everything CoD is
-  /// "to remit" — which is the honest number for a rider to see.
+  /// Collected / outstanding cash. Remittance is recorded by the cashier
+  /// (v52's `cod_remitted_at`); until they do, an order's cash is "to
+  /// remit". Once they do, it no longer counts.
   Widget _codTally(List<DeliveryOrder> done, bool isDark) {
     final cod = done.where((o) => o.isCod && o.isCompleted).toList();
     if (cod.isEmpty) return const SizedBox.shrink();
     final collected = cod.fold<double>(0, (s, o) => s + (o.finalTotal ?? 0));
+    final toRemit = cod
+        .where((o) => o.codRemittedAt == null)
+        .fold<double>(0, (s, o) => s + (o.finalTotal ?? 0));
 
     return _card(
       isDark,
@@ -386,7 +391,7 @@ class _RiderDashboardState extends State<RiderDashboard> {
                   ),
                   child: _stat(
                     'To remit',
-                    formatMoney(collected),
+                    formatMoney(toRemit),
                     isDark,
                     labelColor: const Color(0xFFB24800),
                   ),
