@@ -391,7 +391,7 @@ class _EditProductDialogState extends State<EditProductDialog> {
                 emptyLabel: 'No picture: members see its letter instead',
                 helper: 'JPG or PNG. It is resized for you. A square photo '
                     'fits best.',
-                maxEdge: 800,
+                maxEdge: 1200,
                 storedPreview: ProductTile(
                   _originalName,
                   imagePath: _storedPhoto,

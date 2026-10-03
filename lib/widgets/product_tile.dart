@@ -148,8 +148,23 @@ class ProductTile extends StatelessWidget {
     final url = repository.productImageUrl(imagePath);
     if (url == null) return tile;
 
-    // Decoded at the size it is drawn, not the uploaded 800 px.
-    final px = (side * MediaQuery.devicePixelRatioOf(context)).round();
+    // Decoded near the size it is drawn, not the full upload, but never
+    // smaller than BoxFit.cover needs, or it is stretched and blurs (Part 3).
+    // Only the width can be set without knowing the picture's shape, so it
+    // is set with room to spare: a square tile decodes twice its width,
+    // enough for a picture up to 2:1 to still fill its height; a banner
+    // decodes its full width, enough for any picture narrower than the
+    // banner itself (about 2.5:1).
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    Widget picture(double boxWidth) => Image.network(
+      url,
+      fit: BoxFit.cover,
+      cacheWidth: (boxWidth * dpr * (banner ? 1 : 2)).round(),
+      filterQuality: FilterQuality.medium,
+      frameBuilder: (_, child, frame, sync) =>
+          frame == null && !sync ? tile : child,
+      errorBuilder: (_, _, _) => tile,
+    );
     return Semantics(
       image: true,
       label: t,
@@ -158,15 +173,13 @@ class ProductTile extends StatelessWidget {
         child: SizedBox(
           width: banner ? double.infinity : size,
           height: side,
-          child: Image.network(
-            url,
-            fit: BoxFit.cover,
-            cacheWidth: banner ? null : px,
-            cacheHeight: banner ? px : null,
-            frameBuilder: (_, child, frame, sync) =>
-                frame == null && !sync ? tile : child,
-            errorBuilder: (_, _, _) => tile,
-          ),
+          child: banner
+              ? LayoutBuilder(
+                  builder: (_, c) => picture(
+                    c.maxWidth.isFinite ? c.maxWidth : side * 2.5,
+                  ),
+                )
+              : picture(size),
         ),
       ),
     );

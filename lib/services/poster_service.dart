@@ -69,8 +69,8 @@ class PosterException implements Exception {
 
 /// Open the system file picker and prepare whatever was chosen.
 ///
-/// [maxEdge] overrides the 1600 px poster size: a product picture is shown
-/// small, so it is kept at 800.
+/// [maxEdge] overrides the 1600 px poster size. Product pictures use 1200:
+/// 800 looked soft on the Marketplace's full-width cards (Part 3).
 ///
 /// Returns null when the picker was dismissed — that is a cancel, not an
 /// error, and callers should do nothing.

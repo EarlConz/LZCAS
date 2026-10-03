@@ -164,7 +164,7 @@ class _AddProductDialogState extends State<AddProductDialog> {
             emptyLabel: 'No picture: members see its letter instead',
             helper: 'Optional. JPG or PNG, resized for you. A square photo '
                 'fits best.',
-            maxEdge: 800,
+            maxEdge: 1200,
             onPicked: (p) => setState(() => _photo = p),
             onCleared: () => setState(() => _photo = null),
           ),
