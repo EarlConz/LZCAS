@@ -1649,9 +1649,12 @@ class _SourcesCache {
   static DateTime? _at;
 
   /// Cached rows for [memberId], or null when absent/stale/for another member.
-  static List<EarningsSource>? get(int memberId) {
+  /// [changedAt] is when the totals last moved (the newest history snapshot):
+  /// rows cached before that cannot explain the change, so they are stale.
+  static List<EarningsSource>? get(int memberId, {DateTime? changedAt}) {
     if (_memberId != memberId || _rows == null || _at == null) return null;
     if (DateTime.now().difference(_at!) > _ttl) return null;
+    if (changedAt != null && changedAt.isAfter(_at!)) return null;
     return _rows;
   }
 
@@ -1722,7 +1725,11 @@ class _EarningsTabState extends State<_EarningsTab> {
         // justify streaming the whole ledger to every device.
         'funds_adjusted',
       };
-      if (invalidating.contains(event)) {
+      // A delivery order paid from funds, or cancelled and refunded (v52,
+      // v57), adds a ledger row too. Missing it, a refund back to Balance
+      // read as a Direct Referral in the history (test N4).
+      final order = event.startsWith('order_') || event == 'orders_changed';
+      if (order || invalidating.contains(event)) {
         _SourcesCache.invalidate();
         _load();
       }
@@ -1763,7 +1770,7 @@ class _EarningsTabState extends State<_EarningsTab> {
     // from the short-lived cache when the member is just flicking between
     // tabs. Failing to load must not break the earnings tab, so fall back to
     // empty (the card then shows its own empty state).
-    var sources = _SourcesCache.get(id);
+    var sources = _SourcesCache.get(id, changedAt: history.firstOrNull?.recordedAt);
     if (sources == null) {
       try {
         sources = await repository.fetchEarningsSources(id);

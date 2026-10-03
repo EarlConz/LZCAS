@@ -1392,6 +1392,8 @@ class _LocationPickerDialog extends StatefulWidget {
 }
 
 class _LocationPickerDialogState extends State<_LocationPickerDialog> {
+  final _picker = GlobalKey<LocationSelectionWidgetState>();
+  bool _confirming = false;
   double? _lat;
   double? _lng;
   String? _address;
@@ -1453,6 +1455,18 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
   }
 
   Future<void> _confirm() async {
+    if (_confirming) return;
+    // A pin moved or an address edited on the map counts even if the
+    // member never tapped "Set my delivery location" (test R3).
+    setState(() => _confirming = true);
+    final saved = await _picker.currentState?.saveIfChanged() ?? true;
+    if (!mounted) return;
+    setState(() => _confirming = false);
+    if (!saved) return;
+    if (!_hasLocation) {
+      BotToast.showText(text: 'Pick your delivery location on the map first.');
+      return;
+    }
     Member? fresh;
     final id = widget.member.id;
     if (id != null) {
@@ -1487,6 +1501,7 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
           children: [
             Expanded(
               child: LocationSelectionWidget(
+                key: _picker,
                 scrollable: true,
                 pinKind: MapPinKind.destination,
                 title: 'Delivery Location',
@@ -1517,7 +1532,7 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                   ),
                   const SizedBox(width: 8),
                   FilledButton(
-                    onPressed: _hasLocation ? _confirm : null,
+                    onPressed: _confirming ? null : _confirm,
                     child: const Text('Use This Location'),
                   ),
                 ],

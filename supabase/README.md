@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v65)
+├── migrations/    Ordered, apply-once changes (v2 … v66)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -567,6 +567,11 @@ another cashier's order read-only._
 - v65 — `orders_select` lets every admin and main cashier see every order
   (was: their own plus unclaimed). Changing an order still needs its cashier
   or an admin. `order_items` and `order_fee_offers` follow the parent.
+
+**Edit Sale fix (v66)** — _no app change; apply any time after v64._
+
+- v66 — `_item_status(bigint, text)`, handing over to the integer version.
+  Edit Sale sums quantities (a bigint) and failed without it.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

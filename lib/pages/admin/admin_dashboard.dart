@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/config/feature_flags.dart';
+import 'package:lzcas/widgets/modal_kit.dart';
 import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
@@ -4760,38 +4761,22 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     );
   }
 
-  void _confirmDeleteMemberDialog(
+  /// The shared delete confirmation (modal_kit): named buttons, and a sheet
+  /// from the bottom on a phone, like Delete product (test T5).
+  Future<void> _confirmDeleteMemberDialog(
     BuildContext ctx,
     Map<String, dynamic> member,
-  ) {
-    showDialog<bool>(
-      context: ctx,
-      builder: (c) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete Member'),
-        content: Text(
-          'Permanently delete ${member['firstName'] ?? 'this member'}? '
-          'This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(c, true);
-              _deleteMember(member);
-              Navigator.pop(ctx); // close the member detail modal
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: StockpileColors.danger,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+  ) async {
+    final name = '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'.trim();
+    final ok = await confirmDestructive(
+      ctx,
+      title: 'Delete ${name.isEmpty ? 'this member' : name}?',
+      message: "Their member record is removed. This can't be undone.",
+      confirmLabel: 'Delete member',
     );
+    if (!ok || !ctx.mounted) return;
+    _deleteMember(member);
+    Navigator.pop(ctx); // close the member detail
   }
 
   void _openEditDialog(Map<String, dynamic> member) {

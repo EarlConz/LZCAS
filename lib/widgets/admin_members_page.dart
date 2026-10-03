@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/widgets/modal_kit.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/action_guard.dart';
@@ -521,34 +522,22 @@ class AdminMembersPageState extends State<AdminMembersPage> {
     );
   }
 
-  void _confirmDeleteMemberDialog(
+  /// The shared delete confirmation (modal_kit): named buttons, and a sheet
+  /// from the bottom on a phone, like Delete product (test T5).
+  Future<void> _confirmDeleteMemberDialog(
     BuildContext ctx,
     Map<String, dynamic> member,
-  ) {
-    showDialog<bool>(
-      context: ctx,
-      builder: (c) => AlertDialog(
-        title: const Text('Delete Member'),
-        content: Text(
-          'Delete ${member['firstName'] ?? 'this member'} permanently?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              Navigator.pop(c, true);
-              _deleteMember(member);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+  ) async {
+    final name = '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'.trim();
+    final ok = await confirmDestructive(
+      ctx,
+      title: 'Delete ${name.isEmpty ? 'this member' : name}?',
+      message: "Their member record is removed. This can't be undone.",
+      confirmLabel: 'Delete member',
     );
+    if (!ok || !ctx.mounted) return;
+    _deleteMember(member);
+    Navigator.pop(ctx); // close the member detail
   }
 
   void _deleteMember(Map<String, dynamic> member) {

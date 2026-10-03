@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which migrations are actually applied to THIS project? (v35 … v65)
+-- Which migrations are actually applied to THIS project? (v35 … v66)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -291,6 +291,15 @@ select 'v65  every cashier sees every order',
            and qual ilike '%can_handle_orders()%' and qual not ilike '%auth.uid()%'
        ) then 'APPLIED' else 'MISSING' end,
        'orders_select has no "own orders only" limit'
+
+union all
+select 'v66  Edit Sale fix (_item_status bigint)',
+       case when exists (
+         select 1 from pg_proc
+         where pronamespace = 'public'::regnamespace and proname = '_item_status'
+           and pg_get_function_identity_arguments(oid) like 'p_stock bigint%'
+       ) then 'APPLIED' else 'MISSING' end,
+       '_item_status(bigint, text) function'
 
 order by 1;
 
