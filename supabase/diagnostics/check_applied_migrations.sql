@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which migrations are actually applied to THIS project? (v35 … v67)
+-- Which migrations are actually applied to THIS project? (v35 … v68)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -307,6 +307,17 @@ select 'v67  no referral loops',
                           where tgname = 'members_guard_referrer' and not tgisinternal)
             then 'APPLIED' else 'MISSING' end,
        'members_guard_referrer trigger'
+
+-- Counts the tables, so it also reads MISSING when someone took one out.
+union all
+select 'v68  realtime tables',
+       case when (
+         select count(*) from pg_publication_tables
+          where pubname = 'supabase_realtime' and schemaname = 'public'
+            and tablename in ('items', 'members', 'sales', 'pending_requests',
+                              'withdrawal_requests', 'orders')
+       ) = 6 then 'APPLIED' else 'MISSING' end,
+       'all 6 app tables in supabase_realtime'
 
 order by 1;
 

@@ -36,6 +36,12 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
   bool _loading = true;
   String? _error;
   StreamSubscription<String>? _sub;
+  Timer? _itemRefresh;
+
+  /// A safety net while a rider is on the way: the arrival time changes
+  /// without the member doing anything, and a missed live update would
+  /// leave an old time on screen (test O3).
+  Timer? _onTheWay;
 
   /// The order an action is running on, so only its buttons wait.
   String? _busy;
@@ -47,12 +53,20 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
     _load();
     _sub = repository.changes.listen((event) {
       if (event.startsWith('order_') || event == 'orders_changed') _load();
+      // A product renamed or re-pictured: the cards show both. Once per
+      // burst, since a POS sale updates every product in its cart.
+      if (event == 'item_updated') {
+        _itemRefresh?.cancel();
+        _itemRefresh = Timer(const Duration(milliseconds: 600), _load);
+      }
     });
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _itemRefresh?.cancel();
+    _onTheWay?.cancel();
     super.dispose();
   }
 
@@ -67,6 +81,13 @@ class _ActiveOrdersTabState extends State<ActiveOrdersTab> {
         _loading = false;
         _error = null;
       });
+      final riding = orders.any((o) => o.isAssigned || o.isPickedUp);
+      if (riding && _onTheWay == null) {
+        _onTheWay = Timer.periodic(const Duration(seconds: 60), (_) => _load());
+      } else if (!riding) {
+        _onTheWay?.cancel();
+        _onTheWay = null;
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {

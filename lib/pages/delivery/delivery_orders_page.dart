@@ -91,9 +91,17 @@ class _DeliveryOrdersPageState extends State<DeliveryOrdersPage> {
     _sub = repository.changes.listen((e) {
       if (e.startsWith('order_') || e == 'orders_changed') _load();
     });
-    // Waiting times and "updated 12 s ago" move on their own.
+    // Waiting times and "updated 12 s ago" move on their own. A list that
+    // has not loaded for a minute also reloads: a safety net for a missed
+    // live update (Part 3: a member's counter-offer not showing).
     _tick = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      final at = _loadedAt;
+      if (at != null && DateTime.now().difference(at) >= const Duration(seconds: 60)) {
+        _load();
+      } else {
+        setState(() {});
+      }
     });
   }
 

@@ -67,6 +67,7 @@ class _MyPurchasesTabState extends State<MyPurchasesTab> {
   String? _error;
   _Source? _filter; // null = all
   StreamSubscription<String>? _sub;
+  Timer? _itemRefresh;
 
   @override
   void initState() {
@@ -79,12 +80,19 @@ class _MyPurchasesTabState extends State<MyPurchasesTab> {
           e == 'orders_changed') {
         _load();
       }
+      // A product re-pictured: the rows show its picture (test U4). Once
+      // per burst, since a POS sale updates every product in its cart.
+      if (e == 'item_updated') {
+        _itemRefresh?.cancel();
+        _itemRefresh = Timer(const Duration(milliseconds: 600), _load);
+      }
     });
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _itemRefresh?.cancel();
     super.dispose();
   }
 

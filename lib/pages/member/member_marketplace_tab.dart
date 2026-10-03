@@ -11,6 +11,8 @@
 // The member's saved location (latitude/longitude/address) is the delivery
 // destination; checkout asks for one when there is none.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
@@ -56,14 +58,27 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
   /// The "you see the price before you pay" note, until dismissed.
   bool _tipHidden = false;
 
+  StreamSubscription<String>? _sub;
+  Timer? _refresh;
+
   @override
   void initState() {
     super.initState();
     _load();
+    // Products added, restocked, sold out, renamed or re-pictured on any
+    // device show here without reopening (test U1). A POS sale moves stock
+    // too, as an item update. Bursts (a whole cart) refresh once.
+    _sub = repository.changes.listen((e) {
+      if (!e.startsWith('item_')) return;
+      _refresh?.cancel();
+      _refresh = Timer(const Duration(milliseconds: 400), () => _load(quiet: true));
+    });
   }
 
   @override
   void dispose() {
+    _sub?.cancel();
+    _refresh?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -103,11 +118,15 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
     });
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  /// [quiet]: a live refresh. The list stays on screen while it loads, and
+  /// a failure keeps what is shown rather than replacing it with an error.
+  Future<void> _load({bool quiet = false}) async {
+    if (!quiet) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final items = await repository.fetchMarketplaceItems();
       final member = await _freshMember();
@@ -123,7 +142,7 @@ class _MemberMarketplaceTabState extends State<MemberMarketplaceTab> {
         _cart.updateAll((id, q) => q.clamp(1, stock[id]!));
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || quiet) return;
       setState(() {
         _error = 'Could not load the marketplace. Please try again.';
         _loading = false;

@@ -58,11 +58,15 @@ class _MemberDashboardState extends State<MemberDashboard> {
     super.initState();
     _loadMemberData();
     _triggerUpdateCheck();
-    if (enableDeliverySystem) {
-      _orderSub = repository.changes.listen((e) {
-        if (e.startsWith('order_') || e == 'orders_changed') _countOrders();
-      });
-    }
+    _orderSub = repository.changes.listen((e) {
+      if (enableDeliverySystem && (e.startsWith('order_') || e == 'orders_changed')) {
+        _countOrders();
+      }
+      // An admin edited this member (name, contact, package) on another
+      // device: show it without reopening the app (test W4). The load is
+      // quiet: it never shows the spinner again.
+      if (e == 'member_updated') _loadMemberData();
+    });
   }
 
   @override

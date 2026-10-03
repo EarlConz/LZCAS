@@ -39,6 +39,11 @@ class _MemberOrderDetailPageState extends State<MemberOrderDetailPage> {
   StreamSubscription<String>? _sub;
   bool _busy = false;
 
+  /// A safety net while a rider is on the way: the arrival time changes
+  /// without the member doing anything, and a missed live update would
+  /// leave an old time on screen (test O3).
+  Timer? _onTheWay;
+
   @override
   void initState() {
     super.initState();
@@ -46,11 +51,15 @@ class _MemberOrderDetailPageState extends State<MemberOrderDetailPage> {
     _sub = repository.changes.listen((e) {
       if (e.startsWith('order_') || e == 'orders_changed') _reload();
     });
+    _onTheWay = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (_o.isAssigned || _o.isPickedUp) _reload();
+    });
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _onTheWay?.cancel();
     super.dispose();
   }
 
