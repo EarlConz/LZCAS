@@ -12,6 +12,7 @@ import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/modal_kit.dart';
+import 'package:lzcas/widgets/address_field.dart';
 
 class EditMemberDialog extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -81,7 +82,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
       text: widget.member['middleName']?.toString() ?? '',
     );
     contactController = TextEditingController(
-      text: _formatPhone(widget.member['contactNo']?.toString() ?? ''),
+      text: formatPhilippinePhone(widget.member['contactNo']?.toString() ?? ''),
     );
     birthdayController = TextEditingController(
       text: widget.member['birthday']?.toString() ?? '',
@@ -346,10 +347,8 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               ),
               LabeledField(
                 label: 'Address',
-                child: TextFormField(
+                child: AddressField(
                   controller: addressController,
-                  decoration: const InputDecoration(hintText: 'Optional'),
-                  textInputAction: TextInputAction.next,
                   onChanged: (_) => setState(() {}),
                 ),
               ),
@@ -589,29 +588,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
 
     widget.onMemberUpdated(updatedMember);
     Navigator.pop(context);
-  }
-
-  /// Pre-format a raw digits-only phone number for display in the field.
-  String _formatPhone(String raw) {
-    final digits = raw.replaceAll(RegExp(r'\D'), '');
-    if (digits.isEmpty) return '';
-    if (digits.startsWith('09')) {
-      return _insertSpaces(digits, [4, 7]);
-    } else if (digits.startsWith('02')) {
-      return _insertSpaces(digits, [2, 6]);
-    } else if (digits.length >= 3) {
-      return _insertSpaces(digits, [3, 6]);
-    }
-    return digits;
-  }
-
-  String _insertSpaces(String digits, List<int> positions) {
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (positions.contains(i)) buffer.write(' ');
-      buffer.write(digits[i]);
-    }
-    return buffer.toString();
   }
 }
 

@@ -2,6 +2,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
@@ -714,7 +715,7 @@ class _MemberProfileSection extends StatelessWidget {
         _DetailLine(
           icon: Icons.phone_outlined,
           label: 'Contact',
-          value: member['contactNo'],
+          value: formatPhilippinePhone(member['contactNo']?.toString() ?? ''),
         ),
         const SizedBox(height: 8),
 

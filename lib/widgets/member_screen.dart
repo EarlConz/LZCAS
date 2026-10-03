@@ -6,6 +6,7 @@
 // screens both keep their detail dialog.
 
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:lzcas/db/db.dart';
@@ -108,7 +109,7 @@ class _MemberScreenState extends State<MemberScreen> {
         .map((p) => p[0].toUpperCase())
         .join();
     final package = _s('packageName');
-    final contact = _s('contactNo');
+    final contact = formatPhilippinePhone(_s('contactNo'));
     final menu = [
       if (widget.onAdjustFunds != null) ('funds', 'Adjust funds'),
       if (widget.onDelete != null) ('delete', 'Delete member'),
@@ -188,7 +189,7 @@ class _MemberScreenState extends State<MemberScreen> {
           const SizedBox(height: 16),
           Row(
             children: [
-              _quick(Icons.call_outlined, 'Call', contact.isEmpty ? null : () => launchUrl(Uri(scheme: 'tel', path: contact))),
+              _quick(Icons.call_outlined, 'Call', contact.isEmpty ? null : () => launchUrl(Uri(scheme: 'tel', path: contact.replaceAll(' ', '')))),
               const SizedBox(width: 8),
               _quick(Icons.qr_code_rounded, 'QR code', () => showMemberQrDialog(context, _m)),
               const SizedBox(width: 8),

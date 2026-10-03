@@ -12,6 +12,7 @@ import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/modal_kit.dart';
+import 'package:lzcas/widgets/address_field.dart';
 
 class AddMemberDialog extends StatefulWidget {
   final Future<int?> Function(Map<String, dynamic>) onMemberAdded;
@@ -228,11 +229,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               ),
               LabeledField(
                 label: 'Address',
-                child: TextFormField(
-                  controller: addressController,
-                  decoration: const InputDecoration(hintText: 'Optional'),
-                  textInputAction: TextInputAction.next,
-                ),
+                child: AddressField(controller: addressController),
               ),
             ),
           ],

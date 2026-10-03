@@ -7,6 +7,7 @@ import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'dart:async';
+import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../theme.dart';
 import 'memberqr.dart';
@@ -814,21 +815,26 @@ class MembersTableState extends State<MembersTable> {
             },
           );
 
+    // Hidden while the keyboard is up (typing a search): it would ride up
+    // over the rows. Kept clear of the screen edge and the system bar.
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
     return Stack(
       children: [
         Positioned.fill(child: list),
-        Positioned(
-          right: 4,
-          bottom: 12,
-          child: FloatingActionButton.extended(
-            heroTag: null,
-            onPressed: _onAddMemberPressed,
-            backgroundColor: const Color(0xFFCC4900),
-            foregroundColor: Colors.white,
-            icon: const Icon(Icons.person_add_alt_1_rounded),
-            label: const Text('Add member', style: TextStyle(fontWeight: FontWeight.w700)),
+        if (!keyboard)
+          Positioned(
+            right: 16,
+            bottom: 16 + safeBottom,
+            child: FloatingActionButton.extended(
+              heroTag: null,
+              onPressed: _onAddMemberPressed,
+              backgroundColor: const Color(0xFFCC4900),
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: const Text('Add member', style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -1132,7 +1138,7 @@ class _MemberRow extends StatelessWidget {
     final pkg = s('packageName');
     final sub = [
       pkg.isEmpty ? 'No package' : '$pkg package',
-      if (s('contactNo').isNotEmpty) s('contactNo'),
+      if (s('contactNo').isNotEmpty) formatPhilippinePhone(s('contactNo')),
     ].join(' · ');
     const orangeText = Color(0xFFB24800);
     const cream = Color(0xFFFFF7DF);
@@ -1302,7 +1308,7 @@ class _MembersDataSource extends DataTableSource {
           onTap: () => onRowSelected(member),
         ),
         DataCell(
-          Text(member["contactNo"] ?? ""),
+          Text(formatPhilippinePhone(member["contactNo"]?.toString() ?? "")),
           onTap: () => onRowSelected(member),
         ),
         DataCell(
