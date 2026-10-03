@@ -18,6 +18,7 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../../db/db.dart';
 import '../../utils/fonts.dart';
+import '../../utils/phone_formatter.dart';
 import '../../widgets/location_selection_widget.dart';
 import '../../widgets/map_kit.dart';
 import 'member_order_kit.dart';
@@ -975,7 +976,7 @@ class _ReviewOrderPageState extends State<_ReviewOrderPage> {
 
   String get _ownName =>
       '${widget.member.firstName ?? ''} ${widget.member.lastName ?? ''}'.trim();
-  String get _ownContact => (widget.member.contactNo ?? '').trim();
+  String get _ownContact => formatPhilippinePhone(widget.member.contactNo ?? '');
 
   @override
   void initState() {
@@ -1281,6 +1282,7 @@ class _ReviewOrderPageState extends State<_ReviewOrderPage> {
                       controller: _receiverContact,
                       enabled: !_submitting,
                       keyboardType: TextInputType.phone,
+                      inputFormatters: [PhilippinePhoneFormatter()],
                       textInputAction: TextInputAction.done,
                       decoration: field('Contact number'),
                     ),

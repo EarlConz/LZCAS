@@ -12,6 +12,7 @@ import '../../auth/auth.dart';
 import '../../db/db.dart';
 import '../../router/route_guard.dart';
 import '../../services/config_service.dart';
+import '../../utils/phone_formatter.dart';
 import '../../config/feature_flags.dart';
 import '../../utils/formatters.dart' show formatDisplayDate;
 import '../../services/updater_service.dart';
@@ -3150,7 +3151,7 @@ class _ProfileTabState extends State<_ProfileTab> {
     super.initState();
     _firstNameCtrl = TextEditingController(text: widget.member.firstName ?? '');
     _lastNameCtrl = TextEditingController(text: widget.member.lastName ?? '');
-    _contactCtrl = TextEditingController(text: widget.member.contactNo ?? '');
+    _contactCtrl = TextEditingController(text: formatPhilippinePhone(widget.member.contactNo ?? ''));
     _addressCtrl = TextEditingController(text: widget.member.address ?? '');
   }
 
@@ -3167,7 +3168,8 @@ class _ProfileTabState extends State<_ProfileTab> {
     final updated = widget.member.copyWith(
       firstName: _firstNameCtrl.text.trim(),
       lastName: _lastNameCtrl.text.trim(),
-      contactNo: _contactCtrl.text.trim(),
+      // Digits only, as the admin forms store it; shown as 0917 123 4567.
+      contactNo: philippinePhoneDigits(_contactCtrl.text),
       address: _addressCtrl.text.trim(),
     );
     await repository.updateMember(updated);
@@ -3457,8 +3459,10 @@ class _ProfileTabState extends State<_ProfileTab> {
             const SizedBox(height: 12),
             TextField(
               controller: _contactCtrl,
+              inputFormatters: [PhilippinePhoneFormatter()],
               decoration: InputDecoration(
                 labelText: 'Contact Number',
+                hintText: '0912 345 6789',
                 prefixIcon: const Icon(Icons.phone_outlined, size: 20),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),

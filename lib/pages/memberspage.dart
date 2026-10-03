@@ -82,16 +82,18 @@ class _MembersPageState extends State<MembersPage>
     if (ok) _deleteMember(member);
   }
 
-  void _updateMember(
+  /// The details pane changes only once the save went through; the table
+  /// says "Member updated" itself.
+  Future<void> _updateMember(
     Map<String, dynamic> oldMember,
     Map<String, dynamic> updatedMember,
-  ) {
-    _tableKey.currentState?.updateMember(oldMember, updatedMember);
+  ) async {
+    final ok =
+        await _tableKey.currentState?.updateMember(oldMember, updatedMember) ?? false;
+    if (!ok || !mounted) return;
     setState(() {
       selectedMember = {...oldMember, ...updatedMember};
     });
-
-    BotToast.showText(text: 'Member updated successfully!');
   }
 
   void _deleteMember(Map<String, dynamic> member) {

@@ -153,12 +153,14 @@ class _SuppliersPageState extends State<SuppliersPage>
       context,
       builder: (_) => EditMemberDialog(
         member: member,
-        onMemberUpdated: (updated) {
-          _tableKey.currentState?.updateMember(member, updated);
+        onMemberUpdated: (updated) async {
+          // The table says "Member updated" once it is saved.
+          final ok =
+              await _tableKey.currentState?.updateMember(member, updated) ?? false;
+          if (!ok || !mounted) return;
           setState(() {
             _selectedMember = {...member, ...updated};
           });
-          BotToast.showText(text: 'Member updated successfully!');
         },
       ),
     );

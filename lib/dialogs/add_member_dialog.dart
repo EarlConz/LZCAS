@@ -11,6 +11,7 @@ import 'package:lzcas/db/db.dart' show repository, Member, Package;
 import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/modal_kit.dart';
 import 'package:lzcas/widgets/address_field.dart';
 
@@ -37,6 +38,12 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   List<Package> _packages = [];
   Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
+
+  /// What is typed in Referred by. A name typed but never picked from the
+  /// list links no one, so saving is held until it is picked or cleared
+  /// (Part 3, G2: a referrer typed but not picked got no commission).
+  String _referrerTyped = '';
+  final _referrerKey = GlobalKey<FormFieldState>();
   int? _selectedPackageId;
   bool _createAccount = false;
   bool _obscurePassword = true;
@@ -359,18 +366,33 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
       displayStringForOption: _memberName,
       fieldViewBuilder: (context, controller, focusNode, onSubmit) {
         return TextFormField(
+          key: _referrerKey,
           controller: controller,
           focusNode: focusNode,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          validator: (_) => _referrerUnpicked
+              ? 'Pick a name from the list, or clear it'
+              : null,
+          onChanged: (text) => setState(() {
+            _referrerTyped = text.trim();
+            // Typing over a picked name un-picks it.
+            if (_referrerTyped != referrerSearchController.text.trim()) {
+              _selectedReferrerId = null;
+            }
+          }),
           decoration: InputDecoration(
             hintText: 'Search a member',
             prefixIcon: const Icon(Icons.search_rounded),
-            suffixIcon: _selectedReferrerId != null
+            suffixIcon: _selectedReferrerId != null || _referrerTyped.isNotEmpty
                 ? IconButton(
                     tooltip: 'Clear',
                     icon: const Icon(Icons.close_rounded),
                     onPressed: () {
                       controller.clear();
-                      setState(() => _selectedReferrerId = null);
+                      setState(() {
+                        _selectedReferrerId = null;
+                        _referrerTyped = '';
+                      });
                     },
                   )
                 : null,
@@ -414,14 +436,26 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
       },
       onSelected: (m) {
         referrerSearchController.text = _memberName(m);
-        setState(() => _selectedReferrerId = m.id);
+        setState(() {
+          _selectedReferrerId = m.id;
+          _referrerTyped = _memberName(m).trim();
+        });
+        _referrerKey.currentState?.validate();
       },
     );
   }
 
+  bool get _referrerUnpicked =>
+      _referrerTyped.isNotEmpty && _selectedReferrerId == null;
+
   Future<void> _submit() async {
     if (_submitting) return;
     if (!_validateAll()) return;
+    if (_referrerUnpicked) {
+      _referrerKey.currentState?.validate();
+      showErrorToast('Pick the referrer from the list, or clear the field.');
+      return;
+    }
     setState(() => _submitting = true);
 
     final newMember = {

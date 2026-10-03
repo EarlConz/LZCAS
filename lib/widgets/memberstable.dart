@@ -511,14 +511,17 @@ class MembersTableState extends State<MembersTable> {
     );
   }
 
-  Future<void> updateMember(
+  /// Saves an edit. True once it is saved; the "Member updated" toast is
+  /// shown here, after the save, never before it (a refused save used to
+  /// read as a success).
+  Future<bool> updateMember(
     Map<String, dynamic> oldMember,
     Map<String, dynamic> updatedMember,
   ) async {
     final id = oldMember['id'] as int?;
-    if (id == null) return;
+    if (id == null) return false;
     final row = await repository.getMemberById(id);
-    if (row == null) return;
+    if (row == null) return false;
 
     // Reseller status is derived purely from package availment.
     final newPackageId = updatedMember['packageId'] is int
@@ -556,8 +559,9 @@ class MembersTableState extends State<MembersTable> {
             : 'Could not save the member. Please try again.',
       );
       _loadMembers();
-      return;
+      return false;
     }
+    showSuccessToast('Member updated');
 
     // Keep the member's LOGIN role in sync with their reseller status so
     // gaining/losing a package updates the tabs they can see.
@@ -592,6 +596,7 @@ class MembersTableState extends State<MembersTable> {
     }
 
     _loadMembers();
+    return true;
   }
 
   Future<void> removeMember(Map<String, dynamic> member) async {
