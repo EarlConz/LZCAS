@@ -7,6 +7,7 @@ import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../theme.dart';
 import 'memberqr.dart';
 
@@ -539,7 +540,23 @@ class MembersTableState extends State<MembersTable> {
           : null,
       packageId: newPackageId,
     );
-    await repository.updateMember(updated);
+    try {
+      await repository.updateMember(updated);
+      // copyWith and toJson both skip a null referrer, so clearing one
+      // needs its own write.
+      if (updatedMember['referrerId'] == null && row.referrerId != null) {
+        await repository.clearMemberReferrer(id);
+      }
+    } on PostgrestException catch (e) {
+      // v67 refuses a referrer from the member's own downline.
+      showErrorToast(
+        e.message.contains('downline') || e.message.contains('own referrer')
+            ? e.message
+            : 'Could not save the member. Please try again.',
+      );
+      _loadMembers();
+      return;
+    }
 
     // Keep the member's LOGIN role in sync with their reseller status so
     // gaining/losing a package updates the tabs they can see.

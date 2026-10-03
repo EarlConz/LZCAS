@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v66)
+├── migrations/    Ordered, apply-once changes (v2 … v67)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -572,6 +572,12 @@ another cashier's order read-only._
 
 - v66 — `_item_status(bigint, text)`, handing over to the integer version.
   Edit Sale sums quantities (a bigint) and failed without it.
+
+**No referral loops (v67)** — _independent; apply any time._
+
+- v67 — trigger `members_guard_referrer`: on insert or a changed
+  `referrer_id`, refuses the member themselves or anyone in their downline.
+  Existing loops are left alone and don't block other edits.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

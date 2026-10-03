@@ -1556,6 +1556,16 @@ class SupabaseRepository {
     return true;
   }
 
+  /// Removes a member's referrer. [updateMember] can't: [Member.toJson]
+  /// leaves out a null referrer_id, so an update keeps the old one.
+  Future<void> clearMemberReferrer(int memberId) async {
+    await _supabase
+        .from('members')
+        .update({'referrer_id': null})
+        .eq('id', memberId);
+    _changes.add('member_updated');
+  }
+
   Future<bool> updateSale(Sale sale) async {
     if (sale.id == null) return false;
     await _supabase.from('sales').update(sale.toJson()).eq('id', sale.id!);

@@ -37,6 +37,11 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   late final TextEditingController referrerSearchController;
   List<Member> _members = [];
   Map<int, int> _referralCounts = {};
+
+  /// Everyone below this member: their referrals, those members' referrals,
+  /// and so on. None of them may become the member's referrer: it would make
+  /// a loop that pays commissions on the member's own purchases (v67).
+  Set<int> _downline = {};
   int? _selectedReferrerId;
 
   // Reseller status is derived purely from package availment.
@@ -107,7 +112,27 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
               (_referralCounts[m.referrerId!] ?? 0) + 1;
         }
       }
+      _downline = _downlineOf(widget.member['id'] as int?, rows);
     });
+  }
+
+  static Set<int> _downlineOf(int? id, List<Member> members) {
+    if (id == null) return {};
+    final children = <int, List<int>>{};
+    for (final m in members) {
+      if (m.id != null && m.referrerId != null) {
+        children.putIfAbsent(m.referrerId!, () => []).add(m.id!);
+      }
+    }
+    final out = <int>{};
+    final queue = [id];
+    while (queue.isNotEmpty) {
+      for (final c in children[queue.removeLast()] ?? const <int>[]) {
+        // add() is false for one already seen: an old loop ends here.
+        if (c != id && out.add(c)) queue.add(c);
+      }
+    }
+    return out;
   }
 
   Future<void> _loadPackages() async {
@@ -353,7 +378,28 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
                   ),
                 ),
               ),
-              LabeledField(label: 'Referred by', child: _referrerField(screenW)),
+              LabeledField(
+                label: 'Referred by',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _referrerField(screenW),
+                    // An old loop, from before this check (staging, 2026-10-03).
+                    if (_downline.contains(_selectedReferrerId))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'This referrer was referred by this member, which '
+                          'makes a loop. Clear it or pick someone else.',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            color: StockpileColors.danger,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
             Text(
               wasReseller
@@ -406,7 +452,8 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     );
   }
 
-  /// Search members by name (never this member); suggestions show how many
+  /// Search members by name (never this member, never anyone in their
+  /// downline); suggestions show how many
   /// each has already referred. Opens on the current referrer's name.
   Widget _referrerField(double screenW) {
     return Autocomplete<Member>(
@@ -416,7 +463,10 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
         final query = value.text.toLowerCase();
         final memberId = widget.member['id'] as int?;
         return _members.where(
-          (m) => m.id != memberId && _memberName(m).toLowerCase().contains(query),
+          (m) =>
+              m.id != memberId &&
+              !_downline.contains(m.id) &&
+              _memberName(m).toLowerCase().contains(query),
         );
       },
       displayStringForOption: _memberName,

@@ -58,6 +58,7 @@ order by version;
 | v64 | `migration_v64_pos_sale_guard_and_edit_sale.sql` | ✅ 2026-10-03 | ❌ | POS checkout and Edit Sale call its functions: apply before the app build that has them, or checkout fails. Independent of delivery. |
 | v65 | `migration_v65_orders_seen_by_all_staff.sql` | ✅ 2026-10-03 | ❌ | Every cashier sees every delivery order (client decision 2026-10-03); only its cashier or an admin can change it. Apply with or before the app build that shows "Handled by"; older builds just show more orders, with buttons the database refuses. |
 | v66 | `migration_v66_item_status_bigint.sql` | ❌ | ❌ | Fixes Edit Sale ("_item_status(bigint, text) does not exist", tests X1–X3). Needs v64. No app change. |
+| v67 | `migration_v67_no_referral_loops.sql` | ❌ | ❌ | Refuses a referrer from the member's own downline (referral loops, X6). Existing loops untouched; the app also hides those choices. |
 
 ¹ Staging's ledger names v52 `saved_items_policy_repair`; its changes are in
 place. On production it will record itself correctly.
@@ -116,3 +117,4 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-03 | Added v65 (every cashier sees every order), not applied anywhere yet. |
 | 2026-10-03 | v65 applied on staging; ledger confirms v45–v65. |
 | 2026-10-03 | Added v66 (Edit Sale fix), not applied anywhere yet. |
+| 2026-10-03 | Added v67 (no referral loops), not applied anywhere yet. |

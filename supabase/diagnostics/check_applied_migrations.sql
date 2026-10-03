@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which migrations are actually applied to THIS project? (v35 … v66)
+-- Which migrations are actually applied to THIS project? (v35 … v67)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -300,6 +300,13 @@ select 'v66  Edit Sale fix (_item_status bigint)',
            and pg_get_function_identity_arguments(oid) like 'p_stock bigint%'
        ) then 'APPLIED' else 'MISSING' end,
        '_item_status(bigint, text) function'
+
+union all
+select 'v67  no referral loops',
+       case when exists (select 1 from pg_trigger
+                          where tgname = 'members_guard_referrer' and not tgisinternal)
+            then 'APPLIED' else 'MISSING' end,
+       'members_guard_referrer trigger'
 
 order by 1;
 
