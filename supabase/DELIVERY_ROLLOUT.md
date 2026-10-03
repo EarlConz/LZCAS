@@ -7,7 +7,7 @@ applied to either project.
 - Staging: `sisyujbpcueifeonnzfw`
 - Production: `cyfyydzxdsdzycbpvqox`
 
-> **Last updated 2026-10-03.** Staging is at **v64**. Production, as far as
+> **Last updated 2026-10-03.** Staging is at **v65**. Production, as far as
 > these notes know, is at v46 plus v47 and v51. **Confirm production before
 > starting** (query below): this file only knows what someone wrote down.
 >
@@ -56,7 +56,7 @@ order by version;
 | v62 | `migration_v62_short_cod_code_and_busy_riders.sql` | ✅ 2026-10-02 | ❌ | — |
 | v63 | `migration_v63_product_images.sql` | ✅ 2026-10-03 | ❌ | Product pictures; independent of delivery. Creates the public `product-images` bucket. Apply before an app build with picture upload reaches admins (older builds ignore it). |
 | v64 | `migration_v64_pos_sale_guard_and_edit_sale.sql` | ✅ 2026-10-03 | ❌ | POS checkout and Edit Sale call its functions: apply before the app build that has them, or checkout fails. Independent of delivery. |
-| v65 | `migration_v65_orders_seen_by_all_staff.sql` | ❌ | ❌ | Every cashier sees every delivery order (client decision 2026-10-03); only its cashier or an admin can change it. Apply with or before the app build that shows "Handled by"; older builds just show more orders, with buttons the database refuses. |
+| v65 | `migration_v65_orders_seen_by_all_staff.sql` | ✅ 2026-10-03 | ❌ | Every cashier sees every delivery order (client decision 2026-10-03); only its cashier or an admin can change it. Apply with or before the app build that shows "Handled by"; older builds just show more orders, with buttons the database refuses. |
 
 ¹ Staging's ledger names v52 `saved_items_policy_repair`; its changes are in
 place. On production it will record itself correctly.
@@ -113,3 +113,4 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-03 | Added v64 (POS sale guard, admin Edit Sale), not applied anywhere yet. |
 | 2026-10-03 | order-push changed (admins: new + completed orders, the rest only when no cashier holds it); staging needs a redeploy. |
 | 2026-10-03 | Added v65 (every cashier sees every order), not applied anywhere yet. |
+| 2026-10-03 | v65 applied on staging; ledger confirms v45–v65. |
