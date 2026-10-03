@@ -18,6 +18,7 @@ import 'package:lzcas/db/db.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart' show formatDisplayDate;
+import 'package:lzcas/utils/member_search.dart';
 import 'package:lzcas/widgets/modal_kit.dart';
 
 /// Whether [sales] (one checkout) can be edited here: counter sales by one
@@ -71,8 +72,15 @@ class _EditSaleDialogState extends State<EditSaleDialog> {
   late String _buyerName = (widget.sales.first.buyerName ?? '').trim();
 
   List<Item> _items = const [];
-  List<Member> _members = const [];
   bool _loading = true;
+
+  /// Buyer suggestions come from the database as you type.
+  final _buyerSearch = MemberSearch();
+
+  /// What the buyer field shows. A name typed but not picked holds Save:
+  /// it would otherwise keep the old buyer, or record a walk-in.
+  late String _buyerTyped = _buyerName;
+  bool get _buyerUnpicked => _buyerId == null && _buyerTyped.trim().isNotEmpty;
   bool _saving = false;
 
   /// What this sale took of each product: it comes back if the line shrinks.
@@ -100,17 +108,16 @@ class _EditSaleDialogState extends State<EditSaleDialog> {
 
   Future<void> _load() async {
     try {
-      final r = await Future.wait([repository.fetchItems(), repository.fetchMembers()]);
+      final items = await repository.fetchItems();
       if (!mounted) return;
       setState(() {
-        _items = (r[0] as List<Item>)..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-        _members = r[1] as List<Member>;
+        _items = items..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      BotToast.showText(text: 'Could not load products and members.');
+      BotToast.showText(text: 'Could not load the products.');
     }
   }
 
@@ -157,6 +164,7 @@ class _EditSaleDialogState extends State<EditSaleDialog> {
       if (l.itemId == null) return 'Pick a product for line ${i + 1}.';
       if (_lineError(l) != null) return 'Fix $n to save.';
     }
+    if (_buyerUnpicked) return 'Pick the buyer from the list, or clear it for a walk-in.';
     if (!_changed) return 'Nothing changed yet.';
     return null;
   }
@@ -248,22 +256,24 @@ class _EditSaleDialogState extends State<EditSaleDialog> {
           Autocomplete<Member>(
             initialValue: TextEditingValue(text: _buyerName),
             displayStringForOption: _name,
-            optionsBuilder: (v) {
-              final q = v.text.trim().toLowerCase();
-              if (q.isEmpty) return const Iterable<Member>.empty();
-              return _members.where((m) => _name(m).toLowerCase().contains(q)).take(20);
-            },
+            optionsBuilder: (v) => _buyerSearch(v.text),
             onSelected: (m) => setState(() {
               _buyerId = m.id;
               _buyerName = _name(m);
+              _buyerTyped = _buyerName;
             }),
             fieldViewBuilder: (context, controller, focus, onSubmit) => TextField(
               controller: controller,
               focusNode: focus,
+              // Typing over the chosen buyer un-picks them.
+              onChanged: (text) => setState(() {
+                _buyerTyped = text;
+                if (text.trim() != _buyerName) _buyerId = null;
+              }),
               decoration: InputDecoration(
                 hintText: 'Walk-in (no member)',
                 prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _buyerId == null
+                suffixIcon: _buyerTyped.isEmpty
                     ? null
                     : IconButton(
                         tooltip: 'No member',
@@ -272,6 +282,7 @@ class _EditSaleDialogState extends State<EditSaleDialog> {
                           controller.clear();
                           _buyerId = null;
                           _buyerName = '';
+                          _buyerTyped = '';
                         }),
                       ),
               ),

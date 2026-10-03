@@ -12,6 +12,7 @@ import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/utils/member_search.dart';
 import 'package:lzcas/widgets/modal_kit.dart';
 import 'package:lzcas/widgets/address_field.dart';
 
@@ -37,8 +38,8 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   late final TextEditingController birthdayController;
   late final TextEditingController addressController;
   late final TextEditingController referrerSearchController;
-  List<Member> _members = [];
-  Map<int, int> _referralCounts = {};
+  final _referrerSearch = MemberSearch();
+  final Map<int, int> _referralCounts = {};
 
   /// Everyone below this member: their referrals, those members' referrals,
   /// and so on. None of them may become the member's referrer: it would make
@@ -111,40 +112,38 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     _loadPackages();
   }
 
+  /// This member's downline, asked of the database (no full member list).
   Future<void> _loadMembers() async {
-    final rows = await repository.fetchMembers();
-    if (!mounted) return;
-    setState(() {
-      _members = rows;
-      // Compute referral counts: count how many members have each referrerId
-      _referralCounts = {};
-      for (final m in rows) {
-        if (m.referrerId != null) {
-          _referralCounts[m.referrerId!] =
-              (_referralCounts[m.referrerId!] ?? 0) + 1;
-        }
-      }
-      _downline = _downlineOf(widget.member['id'] as int?, rows);
-    });
+    final id = widget.member['id'] as int?;
+    if (id == null) return;
+    try {
+      final downline = await repository.fetchDownlineIds(id);
+      if (!mounted) return;
+      setState(() => _downline = downline);
+    } catch (_) {
+      // The database still refuses a loop (v67); only the hint is missing.
+    }
   }
 
-  static Set<int> _downlineOf(int? id, List<Member> members) {
-    if (id == null) return {};
-    final children = <int, List<int>>{};
-    for (final m in members) {
-      if (m.id != null && m.referrerId != null) {
-        children.putIfAbsent(m.referrerId!, () => []).add(m.id!);
-      }
+  /// Referrer suggestions, asked of the database as you type, each with how
+  /// many members they referred (fetched for the suggestions only). This
+  /// form used to download every member to search and count.
+  Future<Iterable<Member>> _referrerOptions(String text) async {
+    final found = await _referrerSearch(text, exclude: {if (widget.member['id'] is int) widget.member['id'] as int, ..._downline});
+    final missing = found
+        .map((m) => m.id)
+        .whereType<int>()
+        .where((id) => !_referralCounts.containsKey(id))
+        .toList();
+    if (missing.isNotEmpty) {
+      try {
+        final counts = await repository.referralCountsFor(missing);
+        for (final id in missing) {
+          _referralCounts[id] = counts[id] ?? 0;
+        }
+      } catch (_) {}
     }
-    final out = <int>{};
-    final queue = [id];
-    while (queue.isNotEmpty) {
-      for (final c in children[queue.removeLast()] ?? const <int>[]) {
-        // add() is false for one already seen: an old loop ends here.
-        if (c != id && out.add(c)) queue.add(c);
-      }
-    }
-    return out;
+    return found;
   }
 
   Future<void> _loadPackages() async {
@@ -468,17 +467,7 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   Widget _referrerField(double screenW) {
     return Autocomplete<Member>(
       initialValue: TextEditingValue(text: referrerSearchController.text),
-      optionsBuilder: (value) {
-        if (value.text.isEmpty) return const Iterable<Member>.empty();
-        final query = value.text.toLowerCase();
-        final memberId = widget.member['id'] as int?;
-        return _members.where(
-          (m) =>
-              m.id != memberId &&
-              !_downline.contains(m.id) &&
-              _memberName(m).toLowerCase().contains(query),
-        );
-      },
+      optionsBuilder: (value) => _referrerOptions(value.text),
       displayStringForOption: _memberName,
       fieldViewBuilder: (context, controller, focusNode, onSubmit) {
         return TextFormField(
@@ -601,25 +590,10 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
           : contactController.text.replaceAll(' ', '').trim(),
       'birthday': birthdayController.text.trim(),
       'address': addressController.text.trim(),
+      // The name picked from the suggestions (set in onSelected), or the
+      // stored one when the referrer was left as it was.
       'referrer': _selectedReferrerId != null
-          ? (_members
-                .firstWhere(
-                  (m) => m.id == _selectedReferrerId,
-                  orElse: () => Member(
-                    id: 0,
-                    lastName: null,
-                    firstName: null,
-                    middleName: null,
-                    role: null,
-                    contactNo: null,
-                    birthday: null,
-                    address: null,
-                    referrer: null,
-
-                    qr: null,
-                  ),
-                )
-                .let((m) => '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim()))
+          ? referrerSearchController.text.trim()
           : '',
       'referrerId': _selectedReferrerId,
       'packageId': _selectedPackageId,
@@ -628,9 +602,4 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
     widget.onMemberUpdated(updatedMember);
     Navigator.pop(context);
   }
-}
-
-// ── Small extension for cleaner null-safe chaining ───────────────────
-extension _Let<T> on T {
-  R let<R>(R Function(T it) f) => f(this);
 }

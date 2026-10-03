@@ -18,6 +18,7 @@ import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/memberstable.dart';
+import 'package:lzcas/utils/member_search.dart';
 import 'package:lzcas/widgets/admin_members_page.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/pages/admin/announcements_page.dart';
@@ -313,16 +314,16 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
   final _searchCtrl = TextEditingController();
   final _reasonCtrl = TextEditingController();
   final _focusNode = FocusNode();
-  List<Member> _members = [];
+  /// Suggestions come from the database as you type; this tab used to
+  /// download every member to search them.
+  final _memberSearch = MemberSearch();
   Member? _selectedMember;
-  bool _loadingMembers = true;
   bool _submitting = false;
   String? _feedback;
 
   @override
   void initState() {
     super.initState();
-    _loadMembers();
   }
 
   @override
@@ -331,19 +332,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
     _reasonCtrl.dispose();
     _focusNode.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadMembers() async {
-    try {
-      final members = await repository.fetchMembers();
-      if (!mounted) return;
-      setState(() {
-        _members = members;
-        _loadingMembers = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loadingMembers = false);
-    }
   }
 
   Future<void> _submitDeletionRequest() async {
@@ -536,16 +524,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
 
             if (_selectedMember == null)
               Autocomplete<Member>(
-                optionsBuilder: (textEditingValue) {
-                  if (textEditingValue.text.isEmpty) return [];
-                  final query = textEditingValue.text.toLowerCase();
-                  return _members.where((m) {
-                    final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'
-                        .toLowerCase();
-                    final idStr = m.id?.toString() ?? '';
-                    return name.contains(query) || idStr.contains(query);
-                  });
-                },
+                optionsBuilder: (v) => _memberSearch(v.text),
                 displayStringForOption: (m) =>
                     '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim(),
                 fieldViewBuilder: (context, controller, focusNode, onSubmit) {
@@ -634,14 +613,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                 },
               ),
 
-            if (_loadingMembers && _selectedMember == null)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Loading members…',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ),
 
             const SizedBox(height: 12),
 

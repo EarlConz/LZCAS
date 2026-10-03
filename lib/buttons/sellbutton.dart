@@ -7,6 +7,7 @@ import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/receipt_dialog.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
 import 'package:lzcas/theme.dart';
+import 'package:lzcas/utils/member_search.dart';
 
 class SellButton extends StatefulWidget {
   final bool compact;
@@ -24,14 +25,12 @@ class SellButton extends StatefulWidget {
 
 class _SellButtonState extends State<SellButton> {
   List<String> items = [];
-  List<Map<String, dynamic>> members = [];
   Map<String, int> _itemStock = {};
 
   @override
   void initState() {
     super.initState();
     _loadItems();
-    _loadMembers();
   }
 
   Future<void> _loadItems() async {
@@ -51,23 +50,13 @@ class _SellButtonState extends State<SellButton> {
     });
   }
 
-  Future<void> _loadMembers() async {
-    final memberRows = await repository.fetchMembers();
-    if (!mounted) return;
-    setState(() {
-      members = membersFromRows(memberRows);
-    });
-  }
-
   void _showSellDialog(BuildContext context) {
     _loadItems();
-    _loadMembers();
     showAnimatedDialog(
       context,
       builder: (_) => _SellDialog(
         items: items,
         itemStock: _itemStock,
-        members: members,
         onSaleConfirmed: _loadItems,
         branchOwnerId: widget.branchOwnerId,
       ),
@@ -95,7 +84,6 @@ class _SellButtonState extends State<SellButton> {
 class _SellDialog extends StatefulWidget {
   final List<String> items;
   final Map<String, int> itemStock;
-  final List<Map<String, dynamic>> members;
   final VoidCallback onSaleConfirmed;
 
   /// When set, the sale draws from this branch cashier's allocation.
@@ -104,7 +92,6 @@ class _SellDialog extends StatefulWidget {
   const _SellDialog({
     required this.items,
     required this.itemStock,
-    required this.members,
     required this.onSaleConfirmed,
     this.branchOwnerId,
   });
@@ -116,6 +103,31 @@ class _SellDialog extends StatefulWidget {
 class _SellDialogState extends State<_SellDialog> {
   String? selectedItem;
   int? selectedBuyerId;
+
+  /// The chosen buyer's row (as [membersFromRows] shapes it), or null for a
+  /// walk-in sale.
+  Map<String, dynamic>? _buyer;
+
+  /// The buyer field: suggestions come from the database as you type.
+  final _buyerSearch = MemberSearch();
+  TextEditingController? _buyerText;
+
+  /// A name typed but not picked from the list. It must be picked or
+  /// cleared before the sale: otherwise it would quietly be a walk-in sale
+  /// and the member's upline would get no Group Sales.
+  bool get _buyerUnpicked =>
+      selectedBuyerId == null && (_buyerText?.text.trim().isNotEmpty ?? false);
+
+  void _setBuyer(Member? m) {
+    setState(() {
+      _buyer = m == null ? null : membersFromRows([m]).first;
+      selectedBuyerId = m?.id;
+    });
+    _buyerText?.text = m == null ? '' : _buyerLabel(m);
+  }
+
+  static String _buyerLabel(Member m) =>
+      '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
   int quantity = 1;
   List<Map<String, dynamic>> cart = [];
   String? _stockWarning;
@@ -209,13 +221,7 @@ class _SellDialogState extends State<_SellDialog> {
   }
 
   /// The selected buyer's row, or null for a walk-in sale.
-  Map<String, dynamic>? get _selectedBuyer {
-    if (selectedBuyerId == null) return null;
-    return widget.members.cast<Map<String, dynamic>?>().firstWhere(
-      (m) => m?['id'] == selectedBuyerId,
-      orElse: () => null,
-    );
-  }
+  Map<String, dynamic>? get _selectedBuyer => _buyer;
 
   /// Name of the package the selected buyer availed, or null when they have
   /// none (rendered as "None"). Falls back to null if the join didn't return
@@ -230,22 +236,16 @@ class _SellDialogState extends State<_SellDialog> {
     if (scanned == null || scanned.isEmpty) return;
     if (!mounted) return;
 
-    // Try to find a member whose qr token matches the scanned value
-    final memberRow = widget.members.cast<Map<String, dynamic>?>().firstWhere(
-      (m) => (m?['qr'] ?? '').toString() == scanned,
-      orElse: () => null,
-    );
+    // Look the member up by their QR token.
+    Member? member;
+    try {
+      member = await repository.getMemberByQr(scanned);
+    } catch (_) {}
+    if (!mounted) return;
 
-    if (memberRow != null) {
-      setState(() {
-        selectedBuyerId = memberRow['id'] as int?;
-      });
-      if (mounted) {
-        BotToast.showText(
-          text:
-              'Buyer set to ${memberRow['firstName'] ?? ''} ${memberRow['lastName'] ?? ''}',
-        );
-      }
+    if (member != null) {
+      _setBuyer(member);
+      BotToast.showText(text: 'Buyer set to ${_buyerLabel(member)}');
     } else {
       if (mounted) {
         BotToast.showText(text: 'No member matches this QR code');
@@ -297,22 +297,42 @@ class _SellDialogState extends State<_SellDialog> {
                   child: Row(
                     children: [
                       Expanded(
-                        child: DropdownButtonFormField<int?>(
-                          isExpanded: true,
-                          decoration: const InputDecoration(labelText: 'Buyer'),
-                          initialValue: selectedBuyerId,
-                          items: [
-                            ...widget.members.map(
-                              (m) => DropdownMenuItem<int?>(
-                                value: m['id'] as int?,
-                                child: Text(
-                                  '${m['firstName'] ?? ''} ${m['lastName'] ?? ''}'
-                                      .trim(),
-                                ),
+                        child: Autocomplete<Member>(
+                          displayStringForOption: _buyerLabel,
+                          optionsBuilder: (v) => _buyerSearch(v.text),
+                          onSelected: _setBuyer,
+                          fieldViewBuilder: (context, controller, focus, onSubmit) {
+                            _buyerText = controller;
+                            return TextField(
+                              controller: controller,
+                              focusNode: focus,
+                              onChanged: (_) {
+                                // Typing over a picked name un-picks it.
+                                if (selectedBuyerId != null) {
+                                  setState(() {
+                                    _buyer = null;
+                                    selectedBuyerId = null;
+                                  });
+                                } else {
+                                  setState(() {});
+                                }
+                              },
+                              decoration: InputDecoration(
+                                labelText: 'Buyer',
+                                hintText: 'Walk-in, or type a name or number',
+                                errorText: _buyerUnpicked
+                                    ? 'Pick a name from the list, or clear it'
+                                    : null,
+                                suffixIcon: controller.text.isEmpty
+                                    ? null
+                                    : IconButton(
+                                        tooltip: 'Walk-in (no member)',
+                                        icon: const Icon(Icons.close_rounded),
+                                        onPressed: () => _setBuyer(null),
+                                      ),
                               ),
-                            ),
-                          ],
-                          onChanged: (v) => setState(() => selectedBuyerId = v),
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -647,16 +667,19 @@ class _SellDialogState extends State<_SellDialog> {
               // Guard against a double-click creating the sale (and deducting
               // stock) twice.
               ? () => ActionGuard.run('pos_confirm_sale', () async {
+                  if (_buyerUnpicked) {
+                    BotToast.showText(
+                      text: 'Pick the buyer from the list, or clear the field for a walk-in sale.',
+                    );
+                    return;
+                  }
                   final safeContext = context;
                   final transactionTs = DateTime.now();
 
                   // Compute buyer name once before the sale loop
                   String? buyerName;
                   if (selectedBuyerId != null) {
-                    final m = widget.members.firstWhere(
-                      (m) => (m['id'] as int?) == selectedBuyerId,
-                      orElse: () => <String, dynamic>{},
-                    );
+                    final m = _buyer ?? const <String, dynamic>{};
                     final first = (m['firstName'] ?? '').toString().trim();
                     final last = (m['lastName'] ?? '').toString().trim();
                     buyerName = '$first $last'.trim();

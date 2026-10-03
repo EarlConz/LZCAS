@@ -853,16 +853,17 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
     // Members and resellers both live in `members`; branch cashiers are
     // staff accounts in `profiles`, so the two counts come from different
     // places and "Everyone" is their sum.
-    final members = await repository.fetchMembers();
+    // Counted by the database: downloading every member stopped at 1,000.
+    final members = await repository.countMembers();
     final staff = await repository.fetchCashierProfiles();
     if (!mounted) return;
     final branches = staff.where((p) => p.role == 'branch_cashier').length;
     setState(() {
       _reach = {
-        AnnouncementAudience.all: members.length + branches,
+        AnnouncementAudience.all: members + branches,
         AnnouncementAudience.branches: branches,
         // Members AND resellers — no longer split, see migration v38.
-        AnnouncementAudience.members: members.length,
+        AnnouncementAudience.members: members,
       };
     });
   }

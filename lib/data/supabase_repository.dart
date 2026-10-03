@@ -256,9 +256,28 @@ class SupabaseRepository {
 
   // ── Fetch Methods ────────────────────────────────────────────────────────
 
+  /// Every row [query] matches, 1,000 at a time. PostgREST returns at most
+  /// 1,000 rows per request (Supabase's default) and a plain select stops
+  /// there without saying so: past 1,000 members or sales, lists, counts,
+  /// exports and totals were quietly short. [query] builds a fresh filter
+  /// each call; pages are ordered by id so none is skipped or repeated.
+  Future<List<Map<String, dynamic>>> _selectAll(
+    dynamic Function() query, {
+    String orderBy = 'id',
+  }) async {
+    const step = 1000;
+    final out = <Map<String, dynamic>>[];
+    for (var from = 0; ; from += step) {
+      final rows = (await query().order(orderBy).range(from, from + step - 1)) as List;
+      out.addAll(rows.cast<Map<String, dynamic>>());
+      if (rows.length < step) break;
+    }
+    return out;
+  }
+
   Future<List<Item>> fetchItems() async {
-    final data = await _supabase.from('items').select();
-    return (data as List).map((j) => Item.fromJson(j)).toList();
+    final data = await _selectAll(() => _supabase.from('items').select());
+    return data.map((j) => Item.fromJson(j)).toList();
   }
 
   /// Fetch members. Soft-deleted members are hidden by default; pass
@@ -270,8 +289,10 @@ class SupabaseRepository {
     // Join the availed package so Member.packageName is populated (the POS
     // buyer picker and the receipt show it). Members with no package simply
     // get a null `packages`, which _extractPackageName maps to null.
-    final data = await _supabase.from('members').select('*, packages(name)');
-    final members = (data as List).map((j) => Member.fromJson(j)).toList();
+    final data = await _selectAll(
+      () => _supabase.from('members').select('*, packages(name)'),
+    );
+    final members = data.map((j) => Member.fromJson(j)).toList();
     if (includeDeleted) return members;
     return members.where((m) => !m.isDeleted).toList();
   }
@@ -305,17 +326,103 @@ class SupabaseRepository {
   }
 
   Future<List<Sale>> fetchSales() async {
-    final data = await _supabase.from('sales').select();
-    return (data as List).map((j) => Sale.fromJson(j)).toList();
+    final data = await _selectAll(() => _supabase.from('sales').select());
+    return data.map((j) => Sale.fromJson(j)).toList();
   }
 
   Future<List<Sale>> fetchSalesBetween(DateTime start, DateTime end) async {
-    final data = await _supabase
-        .from('sales')
-        .select()
-        .gte('timestamp', start.toIso8601String())
-        .lte('timestamp', end.toIso8601String());
-    return (data as List).map((j) => Sale.fromJson(j)).toList();
+    final data = await _selectAll(
+      () => _supabase
+          .from('sales')
+          .select()
+          .gte('timestamp', start.toIso8601String())
+          .lte('timestamp', end.toIso8601String()),
+    );
+    return data.map((j) => Sale.fromJson(j)).toList();
+  }
+
+  // ── Members, one at a time or a few (no full reads) ──────────────────
+
+  /// Members matching [query] by name or contact number, for a picker:
+  /// the database searches, and only [limit] come back. Pickers used to
+  /// download every member (and stop at 1,000) to search in the app.
+  Future<List<Member>> searchMembers(
+    String query, {
+    int limit = 20,
+    Set<int> excludeIds = const {},
+  }) async {
+    var orFilter = _memberSearchFilter(query);
+    if (orFilter == null) return const [];
+    // A short number may be a member ID, as staff read it off a card.
+    final t = query.trim();
+    if (RegExp(r'^\d{1,9}$').hasMatch(t)) orFilter = '$orFilter,id.eq.$t';
+    dynamic q = _supabase
+        .from('members')
+        .select('*, packages(name)')
+        .neq('is_deleted', true)
+        .or(orFilter);
+    if (excludeIds.isNotEmpty) {
+      q = q.not('id', 'in', '(${excludeIds.join(',')})');
+    }
+    final data = await q.order('last_name').order('first_name').limit(limit);
+    return (data as List).map((j) => Member.fromJson(j)).toList();
+  }
+
+  /// How many members each of [ids] referred directly, for the "N
+  /// referrals" line under a suggestion.
+  Future<Map<int, int>> referralCountsFor(Iterable<int> ids) async {
+    final list = ids.toSet().toList();
+    final counts = <int, int>{};
+    for (final batch in _chunks(list)) {
+      final rows = await _selectAll(
+        () => _supabase
+            .from('members')
+            .select('id, referrer_id')
+            .neq('is_deleted', true)
+            .inFilter('referrer_id', batch),
+      );
+      for (final r in rows) {
+        final id = (r['referrer_id'] as num).toInt();
+        counts[id] = (counts[id] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  /// Everyone below [memberId]: their referrals, those members' referrals,
+  /// and so on, one level per query. None of them may become the member's
+  /// referrer (v67). Stops on a loop or after 50 levels.
+  Future<Set<int>> fetchDownlineIds(int memberId) async {
+    final seen = <int>{};
+    var frontier = <int>[memberId];
+    for (var depth = 0; depth < 50 && frontier.isNotEmpty; depth++) {
+      final next = <int>[];
+      for (final batch in _chunks(frontier)) {
+        final rows = await _selectAll(
+          () => _supabase.from('members').select('id').inFilter('referrer_id', batch),
+        );
+        for (final r in rows) {
+          final id = (r['id'] as num).toInt();
+          if (id != memberId && seen.add(id)) next.add(id);
+        }
+      }
+      frontier = next;
+    }
+    return seen;
+  }
+
+  /// The member whose QR token is [qr], or null. Scanning used to download
+  /// every member to find one.
+  Future<Member?> getMemberByQr(String qr) async {
+    final token = qr.trim();
+    if (token.isEmpty) return null;
+    final row = await _supabase
+        .from('members')
+        .select('*, packages(name)')
+        .eq('qr', token)
+        .neq('is_deleted', true)
+        .maybeSingle();
+    return row == null ? null : Member.fromJson(row);
   }
 
   /// Replace package availment names with the current catalog name so
@@ -703,18 +810,22 @@ class SupabaseRepository {
     required DateTime lastMonthEnd,
   }) async {
     final results = await Future.wait<dynamic>([
-      // This month's sales
-      _supabase
-          .from('sales')
-          .select('price, quantity, package_id')
-          .gte('timestamp', thisMonthStart.toIso8601String())
-          .lt('timestamp', thisMonthEnd.toIso8601String()),
+      // This month's sales (every line: a month can pass 1,000).
+      _selectAll(
+        () => _supabase
+            .from('sales')
+            .select('id, price, quantity, package_id')
+            .gte('timestamp', thisMonthStart.toIso8601String())
+            .lt('timestamp', thisMonthEnd.toIso8601String()),
+      ),
       // Last month's sales
-      _supabase
-          .from('sales')
-          .select('price, quantity, package_id')
-          .gte('timestamp', lastMonthStart.toIso8601String())
-          .lt('timestamp', lastMonthEnd.toIso8601String()),
+      _selectAll(
+        () => _supabase
+            .from('sales')
+            .select('id, price, quantity, package_id')
+            .gte('timestamp', lastMonthStart.toIso8601String())
+            .lt('timestamp', lastMonthEnd.toIso8601String()),
+      ),
       // Low stock items (id only, lightweight) — per-category threshold
       // aware via the items_with_status view.
       _supabase
@@ -2487,15 +2598,17 @@ class SupabaseRepository {
   /// one that says so.
   Future<({int total, int withoutBirthday})> birthdayCoverage() async {
     try {
-      final rows = await _supabase
-          .from('members')
-          .select('birthday')
-          .eq('role', 'Verified Reseller')
-          .eq('is_deleted', false);
+      final rows = await _selectAll(
+        () => _supabase
+            .from('members')
+            .select('id, birthday')
+            .eq('role', 'Verified Reseller')
+            .eq('is_deleted', false),
+      );
 
       var total = 0;
       var missing = 0;
-      for (final r in rows as List) {
+      for (final r in rows) {
         total++;
         if (parseBirthday((r as Map)['birthday'] as String?) == null) {
           missing++;

@@ -12,6 +12,7 @@ import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/utils/member_search.dart';
 import 'package:lzcas/widgets/modal_kit.dart';
 import 'package:lzcas/widgets/address_field.dart';
 
@@ -34,9 +35,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final referrerSearchController = TextEditingController();
   final usernameController = TextEditingController();
   final passwordController = TextEditingController();
-  List<Member> _members = [];
+  final _referrerSearch = MemberSearch();
   List<Package> _packages = [];
-  Map<int, int> _referralCounts = {};
+  final Map<int, int> _referralCounts = {};
   int? _selectedReferrerId;
 
   /// What is typed in Referred by. A name typed but never picked from the
@@ -77,22 +78,32 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   }
 
   Future<void> _loadMembers() async {
-    final rows = await repository.fetchMembers();
     final packages = await repository.fetchPackages();
     if (!mounted) return;
-    setState(() {
-      _members = rows;
-      _packages = packages;
-      // Compute referral counts: count how many members have each referrerId
-      _referralCounts = {};
-      for (final m in rows) {
-        if (m.referrerId != null) {
-          _referralCounts[m.referrerId!] =
-              (_referralCounts[m.referrerId!] ?? 0) + 1;
-        }
-      }
-    });
+    setState(() => _packages = packages);
   }
+
+  /// Referrer suggestions, asked of the database as you type, each with how
+  /// many members they referred (fetched for the suggestions only). This
+  /// form used to download every member to search and count.
+  Future<Iterable<Member>> _referrerOptions(String text) async {
+    final found = await _referrerSearch(text, exclude: const {});
+    final missing = found
+        .map((m) => m.id)
+        .whereType<int>()
+        .where((id) => !_referralCounts.containsKey(id))
+        .toList();
+    if (missing.isNotEmpty) {
+      try {
+        final counts = await repository.referralCountsFor(missing);
+        for (final id in missing) {
+          _referralCounts[id] = counts[id] ?? 0;
+        }
+      } catch (_) {}
+    }
+    return found;
+  }
+
 
   @override
   void dispose() {
@@ -358,11 +369,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   /// already referred.
   Widget _referrerField(double screenW) {
     return Autocomplete<Member>(
-      optionsBuilder: (value) {
-        if (value.text.isEmpty) return const Iterable<Member>.empty();
-        final query = value.text.toLowerCase();
-        return _members.where((m) => _memberName(m).toLowerCase().contains(query));
-      },
+      optionsBuilder: (value) => _referrerOptions(value.text),
       displayStringForOption: _memberName,
       fieldViewBuilder: (context, controller, focusNode, onSubmit) {
         return TextFormField(
@@ -467,25 +474,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           : contactController.text.replaceAll(' ', '').trim(),
       'birthday': birthdayController.text.trim(),
       'address': addressController.text.trim(),
+      // The name picked from the suggestions (set in onSelected).
       'referrer': _selectedReferrerId != null
-          ? () {
-              final sel = _members.firstWhere(
-                (m) => m.id == _selectedReferrerId,
-                orElse: () => Member(
-                  id: 0,
-                  lastName: null,
-                  firstName: null,
-                  middleName: null,
-                  role: null,
-                  contactNo: null,
-                  birthday: null,
-                  address: null,
-                  referrer: null,
-                  qr: null,
-                ),
-              );
-              return '${sel.firstName ?? ''} ${sel.lastName ?? ''}'.trim();
-            }()
+          ? referrerSearchController.text.trim()
           : '',
       'referrerId': _selectedReferrerId,
       'role': 'Member',
