@@ -1989,13 +1989,21 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
         'member_updated',
         'members_changed',
       };
-      if (relevant.contains(e)) _loadData();
+      if (!relevant.contains(e)) return;
+      // Members save their own details too; a burst makes one reload.
+      _reloadSoon?.cancel();
+      _reloadSoon = Timer(const Duration(milliseconds: 800), () {
+        if (mounted) _loadData();
+      });
     });
   }
+
+  Timer? _reloadSoon;
 
   @override
   void dispose() {
     _changeSub?.cancel();
+    _reloadSoon?.cancel();
     super.dispose();
   }
 

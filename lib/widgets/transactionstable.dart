@@ -73,6 +73,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
   int _pendingNeeded = 0; // highest requested row count (coalesces requests)
   bool _didInitialPrefetch = false; // primed page 2 once after first load
   late final _TxnDataSource _txnSource;
+  Timer? _liveRefresh;
 
   @override
   void initState() {
@@ -89,6 +90,9 @@ class _TransactionsTableState extends State<TransactionsTable> {
       canEdit: _canEdit,
     );
     _loadData();
+    // Live changes from any device: one POS cart arrives as a sale and a
+    // stock update per line. They make one refresh, in place, so the list
+    // keeps its place instead of jumping back to the top.
     _sub = repository.changes.listen((e) {
       if (e == 'sale_added' ||
           e == 'item_updated' ||
@@ -96,7 +100,8 @@ class _TransactionsTableState extends State<TransactionsTable> {
           e == 'sale_deleted' ||
           e == 'sale_imported' ||
           e == 'member_updated') {
-        _loadData();
+        _liveRefresh?.cancel();
+        _liveRefresh = Timer(const Duration(milliseconds: 600), _refreshInPlace);
       }
     });
   }
@@ -105,6 +110,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
   void dispose() {
     _scrollController.dispose();
     _sub.cancel();
+    _liveRefresh?.cancel();
     super.dispose();
   }
 
@@ -120,6 +126,37 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   void _loadData() {
     _loadPage(1);
+  }
+
+  /// Re-reads every sale already loaded, in one query, and swaps the rows
+  /// in: same pages, same place on screen. For live changes; a new search
+  /// still starts over at page 1.
+  Future<void> _refreshInPlace() async {
+    final loaded = _currentPage > _serverPageLoaded ? _currentPage : _serverPageLoaded;
+    final pages = loaded < 1 ? 1 : loaded;
+    try {
+      final result = await _fetchPageInternal(1, _searchTerm, pageSize: pages * _pageSize);
+      if (!mounted) return;
+      setState(() {
+        _items
+          ..clear()
+          ..addAll(result.rows);
+        _serverPage
+          ..clear()
+          ..addAll(result.rows);
+        _currentPage = pages;
+        _serverPageLoaded = pages;
+        _serverHasMore = result.hasMore;
+        _hasMore = result.hasMore;
+        _pendingNeeded = _serverPage.length;
+        _totalCount = result.totalCount;
+        _error = null;
+      });
+      _txnSource.refresh();
+    } catch (_) {
+      // Keep showing what is there; the next change or a manual refresh
+      // tries again.
+    }
   }
 
   void _loadMore() {
@@ -220,11 +257,12 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   Future<PageResult<TransactionGroup>> _fetchPageInternal(
     int page,
-    String? search,
-  ) async {
+    String? search, {
+    int pageSize = _pageSize,
+  }) async {
     final salePage = await repository.fetchSalesPaginated(
       page: page,
-      pageSize: _pageSize,
+      pageSize: pageSize,
       search: search,
       sortColumn: 'timestamp',
       sortAscending: false,
@@ -236,20 +274,14 @@ class _TransactionsTableState extends State<TransactionsTable> {
         .whereType<int>()
         .toSet();
 
+    // Only this page's buyers, from the shared name cache. It used to read
+    // every member for a handful of names, on every page and every sale.
     final Map<int, String> memberNames = {};
-    if (buyerIds.isNotEmpty) {
-      final allMembers = await repository.fetchMembers();
-      for (final m in allMembers) {
-        if (m.id != null && buyerIds.contains(m.id)) {
-          final parts = [
-            m.firstName,
-            m.lastName,
-          ].where((p) => p != null && p.trim().isNotEmpty);
-          memberNames[m.id!] = parts.isNotEmpty ? parts.join(' ') : 'Unnamed';
-          // Cached for the receipt's "Package" row.
-          _memberPackages[m.id!] = m.packageName ?? '';
-        }
-      }
+    final found = await repository.memberNamesFor(buyerIds);
+    for (final e in found.entries) {
+      memberNames[e.key] = e.value.name;
+      // Cached for the receipt's "Package" row.
+      _memberPackages[e.key] = e.value.package ?? '';
     }
 
     final filtered = <String, List<Sale>>{};
@@ -283,7 +315,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
       rows: txnfiltered,
       totalCount: salePage.totalCount,
       page: page,
-      pageSize: _pageSize,
+      pageSize: pageSize,
     );
   }
 

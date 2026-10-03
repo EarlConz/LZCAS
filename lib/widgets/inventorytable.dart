@@ -58,6 +58,7 @@ class _InventoryTableState extends State<InventoryTable> {
   bool _sortAscending = true;
 
   late final StreamSubscription<String> _sub;
+  Timer? _liveRefresh;
 
   static const _pageSize = 25;
 
@@ -93,15 +94,21 @@ class _InventoryTableState extends State<InventoryTable> {
     _loadItems();
     _loadCategories();
     _loadSummary();
+    // Live changes from any device: one POS cart arrives as a sale and a
+    // stock update per line. They make one refresh, in place, so the list
+    // keeps its place instead of jumping back to the top.
     _sub = repository.changes.listen((e) {
       if (e == 'item_updated' ||
           e == 'sale_added' ||
           e == 'item_imported' ||
           e == 'item_added' ||
           e == 'item_deleted') {
-        _loadItems();
-        _loadCategories();
-        _loadSummary();
+        _liveRefresh?.cancel();
+        _liveRefresh = Timer(const Duration(milliseconds: 600), () {
+          _refreshInPlace();
+          _loadCategories();
+          _loadSummary();
+        });
       }
     });
   }
@@ -256,6 +263,53 @@ class _InventoryTableState extends State<InventoryTable> {
   }
 
   /// Core page fetcher.  page=1 resets accumulated items; page>1 appends.
+  /// One page of the current search, filters and sort.
+  Future<PageResult<Item>> _fetch(int page, int pageSize) =>
+      repository.fetchItemsPaginated(
+        page: page,
+        pageSize: pageSize,
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        categoryFilter:
+            (selectedCategory != null && selectedCategory!.isNotEmpty)
+            ? selectedCategory
+            : null,
+        statusFilter: (selectedStatus != null && selectedStatus!.isNotEmpty)
+            ? selectedStatus
+            : null,
+        sortColumn: _sortColumn,
+        sortAscending: _sortAscending,
+      );
+
+  /// Re-reads every row already loaded, in one query, and swaps them in:
+  /// same pages, same place on screen. For live changes; a new search,
+  /// filter or sort still starts over at page 1.
+  Future<void> _refreshInPlace() async {
+    final loaded = _items.length > _serverPage.length ? _items.length : _serverPage.length;
+    final pages = loaded <= _pageSize ? 1 : (loaded + _pageSize - 1) ~/ _pageSize;
+    try {
+      final result = await _fetch(1, pages * _pageSize);
+      if (!mounted) return;
+      final rows = inventoryItemsFromRows(result.rows);
+      setState(() {
+        _items
+          ..clear()
+          ..addAll(rows);
+        _serverPage
+          ..clear()
+          ..addAll(rows);
+        _pendingNeeded = _serverPage.length;
+        _currentPage = pages;
+        _totalCount = result.totalCount;
+        _hasMore = result.hasMore;
+        _error = null;
+      });
+      _inventorySource.refresh();
+    } catch (_) {
+      // Keep showing what is there; the next change or a manual refresh
+      // tries again.
+    }
+  }
+
   Future<void> _loadPage(int page) async {
     try {
       final result = await repository.fetchItemsPaginated(
@@ -1081,6 +1135,7 @@ class _InventoryTableState extends State<InventoryTable> {
   void dispose() {
     _scrollController.dispose();
     _sub.cancel();
+    _liveRefresh?.cancel();
     super.dispose();
   }
 }

@@ -1114,18 +1114,23 @@ class SupabaseRepository {
     return true;
   }
 
-  /// Count members who selected each package.
+  /// Count members who selected each package: one count per package,
+  /// counted by the database. It used to download every member's package to
+  /// count them here, which also stops at 1,000 members.
   Future<Map<int, int>> fetchPackageAvailerCounts() async {
-    final data = await _supabase
-        .from('members')
-        .select('package_id')
-        .not('package_id', 'is', null);
-    final counts = <int, int>{};
-    for (final row in (data as List)) {
-      final pid = (row['package_id'] as num).toInt();
-      counts[pid] = (counts[pid] ?? 0) + 1;
-    }
-    return counts;
+    final ids = ((await _supabase.from('packages').select('id')) as List)
+        .map((r) => ((r as Map<String, dynamic>)['id'] as num).toInt())
+        .toList();
+    final counts = await Future.wait(ids.map((id) async {
+      final res = await _supabase
+          .from('members')
+          .select('id')
+          .eq('package_id', id)
+          .limit(1)
+          .count(CountOption.exact);
+      return MapEntry(id, res.count);
+    }));
+    return {for (final e in counts) if (e.value > 0) e.key: e.value};
   }
 
   /// Fetch members who selected a specific package.
@@ -4271,6 +4276,18 @@ class SupabaseRepository {
     for (var i = 0; i < all.length; i += size) {
       yield all.sublist(i, i + size > all.length ? all.length : i + size);
     }
+  }
+
+  /// Names (and package) of just [ids], from the shared name cache. For a
+  /// list that shows a few buyers: it used to read the whole members table
+  /// for them, which also stops at 1,000 rows.
+  Future<Map<int, ({String name, String? package})>> memberNamesFor(Set<int> ids) async {
+    if (ids.isEmpty) return const {};
+    await _loadOrderNames(productIds: const {}, memberIds: ids, profileIds: const {});
+    return {
+      for (final id in ids)
+        if (_memberNameCache[id] != null) id: _memberNameCache[id]!,
+    };
   }
 
   Future<void> _loadOrderNames({
