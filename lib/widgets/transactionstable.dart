@@ -14,7 +14,9 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/utils/csv_file.dart';
 import 'package:lzcas/utils/fonts.dart';
+import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/modal_kit.dart' show confirmDestructive;
 import 'package:lzcas/widgets/product_tile.dart';
 import 'package:lzcas/widgets/staff_table.dart';
@@ -142,6 +144,7 @@ class _TransactionsTableState extends State<TransactionsTable> {
 
   Timer? _liveRefresh;
   Timer? _searchDebounce;
+  bool _exporting = false;
 
   bool get _isBranch => widget.branchOwnerId != null;
 
@@ -452,6 +455,27 @@ class _TransactionsTableState extends State<TransactionsTable> {
     ).show(localCtx);
   }
 
+  /// The sales on screen (range, chip, search; a branch cashier's own),
+  /// every line of them, as a CSV opened in Excel.
+  Future<void> _export() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final csv = await repository.exportSalesCsvFiltered(
+        userId: widget.branchOwnerId,
+        since: _range.since(),
+        kind: _isBranch ? null : _kind,
+        search: _searchTerm.trim().isEmpty ? null : _searchTerm.trim(),
+      );
+      final path = await saveAndOpenCsv(csv, 'sales');
+      showSuccessToast('Exported to $path');
+    } catch (e) {
+      showErrorToast('Export failed: $e');
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   List<StaffMenuItem> _menu(TransactionGroup g) => [
     StaffMenuItem('View receipt', Icons.receipt_long_outlined, () => _viewReceipt(g)),
     if (_canEdit(g)) StaffMenuItem('Edit sale', Icons.edit_outlined, () => _editTransaction(g)),
@@ -586,7 +610,15 @@ class _TransactionsTableState extends State<TransactionsTable> {
               caption: _caption(),
               searchWidth: 320,
               search: StaffSearchField(hint: 'Buyer or product', initialValue: _searchTerm, onChanged: _onSearchChanged),
-              actions: [SellButton(branchOwnerId: widget.branchOwnerId)],
+              actions: [
+                StaffButton(
+                  label: _exporting ? 'Exporting…' : 'Export',
+                  icon: Icons.file_download_outlined,
+                  primary: false,
+                  onPressed: _exporting ? null : _export,
+                ),
+                SellButton(branchOwnerId: widget.branchOwnerId),
+              ],
             ),
             const SizedBox(height: 14),
             StaffChipBar(

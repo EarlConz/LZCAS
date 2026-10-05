@@ -257,6 +257,12 @@ class _EditSaleDialogState extends State<EditSaleDialog> {
             initialValue: TextEditingValue(text: _buyerName),
             displayStringForOption: _name,
             optionsBuilder: (v) => _buyerSearch(v.text),
+            optionsViewBuilder: (context, onSelected, options) => memberOptionsView(
+              context: context,
+              onSelected: onSelected,
+              options: options,
+              label: _name,
+            ),
             onSelected: (m) => setState(() {
               _buyerId = m.id;
               _buyerName = _name(m);

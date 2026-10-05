@@ -1,13 +1,11 @@
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:provider/provider.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/utils/csv_file.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/dialogs/edit_stock_dialog.dart' show EditProductDialog;
 import 'package:lzcas/dialogs/add_product_dialog.dart';
@@ -162,9 +160,6 @@ class _InventoryTableState extends State<InventoryTable> {
     });
   }
 
-  /// Two-digit zero-pad for filename timestamps.
-  String _two(int n) => n.toString().padLeft(2, '0');
-
   /// Export the current filtered/sorted view to a CSV file, then open it
   /// (desktop) so it drops straight into Excel/Sheets.
   Future<void> _exportCsv() async {
@@ -187,36 +182,9 @@ class _InventoryTableState extends State<InventoryTable> {
         sortAscending: _sortAscending,
       );
 
-      // Downloads on desktop; app documents as a fallback (e.g. Android).
-      Directory? dir;
-      try {
-        dir = await getDownloadsDirectory();
-      } catch (_) {}
-      dir ??= await getApplicationDocumentsDirectory();
-
-      final now = DateTime.now();
-      final ts =
-          '${now.year}${_two(now.month)}${_two(now.day)}_'
-          '${_two(now.hour)}${_two(now.minute)}${_two(now.second)}';
-      final file = File(p.join(dir.path, 'inventory_$ts.csv'));
-      await file.writeAsString(csv);
-
-      // Open with the system default app so it lands in Excel/Sheets.
-      if (Platform.isWindows) {
-        await Process.run('cmd', [
-          '/c',
-          'start',
-          '',
-          file.path,
-        ], runInShell: true);
-      } else if (Platform.isMacOS) {
-        await Process.run('open', [file.path]);
-      } else if (Platform.isLinux) {
-        await Process.run('xdg-open', [file.path]);
-      }
-
+      final path = await saveAndOpenCsv(csv, 'inventory');
       if (!mounted) return;
-      BotToast.showText(text: 'Exported to ${file.path}');
+      BotToast.showText(text: 'Exported to $path');
     } catch (e) {
       if (!mounted) return;
       BotToast.showText(text: 'Export failed: $e');

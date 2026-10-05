@@ -943,6 +943,12 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
     final manual = pickedUp && _manual;
     final auto = _autoEta;
     final tripTime = EtaEstimator.mapTime(o);
+    // The working behind the automatic time: from where the rider is once
+    // on the way, the whole route before pickup.
+    final mapNow = pickedUp ? EtaEstimator.mapTime(o, from: widget.myPosition) : tripTime;
+    final working = !manual && mapNow != null && (pickedUp || o.isAssigned)
+        ? _tuning.explain(mapNow)
+        : null;
     final String etaBig;
     final String etaSub;
     if (pickedUp) {
@@ -1009,6 +1015,14 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
             etaSub,
             style: StockpileFonts.satoshi(fontSize: 11, height: 1.35, color: muted),
           ),
+          if (working != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                working,
+                style: StockpileFonts.satoshi(fontSize: 11, height: 1.35, color: muted),
+              ),
+            ),
           if (pickedUp && !manual) smallButton('Change', _editEta),
           if (manual) smallButton('Use automatic', _useAutomatic),
         ],

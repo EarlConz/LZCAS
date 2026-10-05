@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/action_guard.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/utils/csv_file.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
@@ -23,7 +24,6 @@ class MembersTable extends StatefulWidget {
 
 class MembersTableState extends State<MembersTable> {
   String searchTerm = "";
-  String? roleFilter;
 
   /// A to Z by last name, or Z to A (the Member header).
   bool _sortAscending = true;
@@ -48,10 +48,8 @@ class MembersTableState extends State<MembersTable> {
   /// A burst of member changes (an import, say) refreshes once.
   Timer? _changeDebounce;
 
-  /// The phone's filter chips: how many in each, for the current search.
-  ({int all, int resellers, int members})? _counts;
-  bool _countsLoading = false;
   DateTime? _loadedAt;
+  bool _exporting = false;
 
   static bool _isMemberChange(String e) =>
       e == 'member_added' ||
@@ -73,8 +71,6 @@ class MembersTableState extends State<MembersTable> {
       _currentPage = snap.page;
       _totalCount = snap.total;
       _hasMore = snap.hasMore;
-      roleFilter = snap.role;
-      _counts = snap.counts;
       _loadedAt = snap.at;
       _isInitialLoading = false;
       if (snap.dirty) _refreshLoaded();
@@ -96,11 +92,6 @@ class MembersTableState extends State<MembersTable> {
     });
   }
 
-  void _setRole(String? role) {
-    setState(() => roleFilter = role);
-    _loadMembers();
-  }
-
   /// Re-read the rows already loaded, in one request, and swap them in
   /// place: the list keeps its scroll position and length.
   Future<void> _refreshLoaded() async {
@@ -111,7 +102,6 @@ class MembersTableState extends State<MembersTable> {
         page: 1,
         pageSize: n,
         search: searchTerm.isNotEmpty ? searchTerm : null,
-        roleFilter: (roleFilter != null && roleFilter!.isNotEmpty) ? roleFilter : null,
         sortColumn: 'last_name',
         sortAscending: _sortAscending,
       );
@@ -124,7 +114,6 @@ class MembersTableState extends State<MembersTable> {
         _currentPage = (rows.length / _pageSize).ceil().clamp(1, 1 << 30);
         _totalCount = res.totalCount;
         _hasMore = rows.length < res.totalCount;
-        _counts = null;
         _loadedAt = DateTime.now();
         _error = null;
       });
@@ -133,21 +122,18 @@ class MembersTableState extends State<MembersTable> {
     }
   }
 
-  Future<void> _loadCounts() async {
-    if (_countsLoading) return;
-    _countsLoading = true;
-    final search = searchTerm.isNotEmpty ? searchTerm : null;
+  /// Every member (not only the rows loaded) as a CSV, opened in Excel.
+  Future<void> _export() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
     try {
-      final r = await Future.wait([
-        repository.countMembers(search: search),
-        repository.countMembers(search: search, roleFilter: 'Verified Reseller'),
-        repository.countMembers(search: search, roleFilter: 'Member'),
-      ]);
-      if (mounted) setState(() => _counts = (all: r[0], resellers: r[1], members: r[2]));
+      final csv = await repository.exportMembersCsv();
+      final path = await saveAndOpenCsv(csv, 'members');
+      showSuccessToast('Exported to $path');
     } catch (e) {
-      debugPrint('[MembersTable] counts failed: $e');
+      showErrorToast('Export failed: $e');
     } finally {
-      _countsLoading = false;
+      if (mounted) setState(() => _exporting = false);
     }
   }
 
@@ -178,9 +164,6 @@ class MembersTableState extends State<MembersTable> {
         page: page,
         pageSize: _pageSize,
         search: searchTerm.isNotEmpty ? searchTerm : null,
-        roleFilter: (roleFilter != null && roleFilter!.isNotEmpty)
-            ? roleFilter
-            : null,
         sortColumn: 'last_name',
         sortAscending: _sortAscending,
         // The total comes with the first page only.
@@ -192,7 +175,6 @@ class MembersTableState extends State<MembersTable> {
 
       setState(() {
         if (page == 1) {
-          _counts = null;
           _loadedAt = DateTime.now();
           _items.clear();
         }
@@ -505,11 +487,6 @@ class MembersTableState extends State<MembersTable> {
 
   @override
   Widget build(BuildContext context) {
-    if (_counts == null && !_countsLoading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _loadCounts();
-      });
-    }
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < kStaffTableBreakpoint) {
@@ -536,14 +513,18 @@ class MembersTableState extends State<MembersTable> {
               ),
               actions: [
                 StaffButton(
+                  label: _exporting ? 'Exporting…' : 'Export',
+                  icon: Icons.file_download_outlined,
+                  primary: false,
+                  onPressed: _exporting ? null : _export,
+                ),
+                StaffButton(
                   label: 'Add member',
                   icon: Icons.person_add_alt_1_rounded,
                   onPressed: _onAddMemberPressed,
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            StaffChipBar(chips: _roleChips(), hint: 'Click a row to open the member'),
             const SizedBox(height: 14),
             Expanded(child: _buildMembersTable(context)),
           ],
@@ -554,26 +535,11 @@ class MembersTableState extends State<MembersTable> {
 
   /// "1,284 members", or how many match the search.
   String _caption() {
+    if (_isInitialLoading) return 'Members';
     if (searchTerm.trim().isNotEmpty) {
       return '${staffCount(_totalCount)} match${_totalCount == 1 ? '' : 'es'}';
     }
-    final all = _counts?.all ?? (roleFilter == null ? _totalCount : null);
-    if (all == null) return 'Members';
-    return '${staffCount(all)} member${all == 1 ? '' : 's'}';
-  }
-
-  List<Widget> _roleChips() {
-    final c = _counts;
-    return [
-      StaffChip(label: 'All', count: c?.all, selected: roleFilter == null, onTap: () => _setRole(null)),
-      StaffChip(
-        label: 'Resellers',
-        count: c?.resellers,
-        selected: roleFilter == 'Verified Reseller',
-        onTap: () => _setRole('Verified Reseller'),
-      ),
-      StaffChip(label: 'Members', count: c?.members, selected: roleFilter == 'Member', onTap: () => _setRole('Member')),
-    ];
+    return '${staffCount(_totalCount)} member${_totalCount == 1 ? '' : 's'}';
   }
 
   /// Wide screens: Member · Package · Contact · Referred by · Login · ⋯
@@ -768,8 +734,7 @@ class MembersTableState extends State<MembersTable> {
     return groups;
   }
 
-  /// Phone: what the list holds, the search box, then All / Resellers /
-  /// Members with counts.
+  /// Phone: what the list holds and the search box.
   Widget _phoneHeader(BuildContext context) {
     final s = StaffTableStyle.of(context);
     return StaffPhoneTop(
@@ -783,7 +748,6 @@ class MembersTableState extends State<MembersTable> {
         initialValue: searchTerm,
         onChanged: _onSearchChanged,
       ),
-      chips: _roleChips(),
     );
   }
 
@@ -804,8 +768,6 @@ class MembersTableState extends State<MembersTable> {
         page: _currentPage,
         total: _totalCount,
         hasMore: _hasMore,
-        role: roleFilter,
-        counts: _counts,
         at: _loadedAt ?? DateTime.now(),
         offset: _scrollController.hasClients ? _scrollController.offset : 0,
       );
@@ -829,8 +791,6 @@ class _MembersSnapshot {
     int page,
     int total,
     bool hasMore,
-    String? role,
-    ({int all, int resellers, int members})? counts,
     DateTime at,
     double offset,
     String? uid,
@@ -851,8 +811,6 @@ class _MembersSnapshot {
     required int page,
     required int total,
     required bool hasMore,
-    required String? role,
-    required ({int all, int resellers, int members})? counts,
     required DateTime at,
     required double offset,
   }) {
@@ -861,8 +819,6 @@ class _MembersSnapshot {
       page: page,
       total: total,
       hasMore: hasMore,
-      role: role,
-      counts: counts,
       at: at,
       offset: offset,
       uid: repository.supabase.auth.currentUser?.id,
@@ -876,8 +832,6 @@ class _MembersSnapshot {
     int page,
     int total,
     bool hasMore,
-    String? role,
-    ({int all, int resellers, int members})? counts,
     DateTime at,
     double offset,
     bool dirty,
@@ -892,8 +846,6 @@ class _MembersSnapshot {
       page: s.page,
       total: s.total,
       hasMore: s.hasMore,
-      role: s.role,
-      counts: _dirty ? null : s.counts,
       at: s.at,
       offset: s.offset,
       dirty: _dirty,

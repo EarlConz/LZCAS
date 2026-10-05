@@ -5734,9 +5734,13 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     super.initState();
     _loadRequests();
     _changeSub = repository.changes.listen((event) {
+      // The first three come from this device; pending_requests_changed
+      // from any device (a cashier's request reached the admin only after
+      // reopening the tab).
       if (event == 'pending_request_added' ||
           event == 'pending_request_approved' ||
-          event == 'pending_request_rejected') {
+          event == 'pending_request_rejected' ||
+          event == 'pending_requests_changed') {
         _loadRequests();
       }
       if (event == 'withdrawal_request_added' ||

@@ -312,6 +312,12 @@ class _SellDialogState extends State<_SellDialog> {
                         child: Autocomplete<Member>(
                           displayStringForOption: _buyerLabel,
                           optionsBuilder: (v) => _buyerSearch(v.text),
+                          optionsViewBuilder: (context, onSelected, options) => memberOptionsView(
+                            context: context,
+                            onSelected: onSelected,
+                            options: options,
+                            label: _buyerLabel,
+                          ),
                           onSelected: _setBuyer,
                           fieldViewBuilder: (context, controller, focus, onSubmit) {
                             _buyerText = controller;

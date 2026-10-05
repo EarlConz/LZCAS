@@ -2,6 +2,8 @@
 // Shared In/Out Reports view — used by both the Inventory role
 // and the Admin role (so admin sees the exact same reports page).
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
@@ -74,15 +76,48 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
     return DateTimeRange(start: utcStart, end: utcNow);
   }
 
+  StreamSubscription<String>? _changeSub;
+  Timer? _reloadSoon;
+
   @override
   void initState() {
     super.initState();
     _loadData();
+    // A sale, a stock change or a branch transfer on any device adds a
+    // movement: a quiet reload, one per burst (Part 5: the admin's tabs
+    // should keep themselves current).
+    _changeSub = repository.changes.listen((e) {
+      const relevant = {
+        'sale_added',
+        'sale_updated',
+        'sale_deleted',
+        'item_added',
+        'item_updated',
+        'item_deleted',
+        'branch_stock_changed',
+      };
+      if (!relevant.contains(e)) return;
+      _reloadSoon?.cancel();
+      _reloadSoon = Timer(const Duration(seconds: 1), () {
+        if (mounted) _loadData(quiet: true);
+      });
+    });
   }
 
-  Future<void> _loadData() async {
-    setState(() => _loading = true);
-    _displayPage = 1;
+  @override
+  void dispose() {
+    _changeSub?.cancel();
+    _reloadSoon?.cancel();
+    super.dispose();
+  }
+
+  /// [quiet]: a live refresh, which keeps the page and the list where they
+  /// are instead of showing the spinner.
+  Future<void> _loadData({bool quiet = false}) async {
+    if (!quiet) {
+      setState(() => _loading = true);
+      _displayPage = 1;
+    }
     try {
       final supabase = repository.supabase;
       final range = _computeDateRange();

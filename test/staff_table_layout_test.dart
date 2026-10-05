@@ -35,7 +35,10 @@ Widget _transactionsTable() => Column(
       caption: 'This month · 1,284 sales · ₱1,218,450',
       searchWidth: 320,
       search: StaffSearchField(hint: 'Buyer or product', onChanged: (_) {}),
-      actions: [StaffButton(label: 'Sell', icon: Icons.point_of_sale_outlined, onPressed: () {})],
+      actions: [
+        StaffButton(label: 'Export', icon: Icons.file_download_outlined, primary: false, onPressed: () {}),
+        StaffButton(label: 'Sell', icon: Icons.point_of_sale_outlined, onPressed: () {}),
+      ],
     ),
     const SizedBox(height: 14),
     StaffChipBar(

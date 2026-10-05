@@ -54,10 +54,20 @@ class _MemberDashboardState extends State<MemberDashboard> {
   int _ordersNeedingYou = 0;
   StreamSubscription<String>? _orderSub;
 
+  /// Back to the front: re-read the member (Z8's fallback, below).
+  AppLifecycleListener? _lifecycle;
+
   @override
   void initState() {
     super.initState();
     _loadMemberData();
+    // An admin's edit normally arrives live (member_updated, below). Part 5
+    // found a phone where it didn't (Z8), so the member's own details are
+    // also read again whenever the app comes back to the front and when
+    // the Profile tab opens: never more than one reopen out of date.
+    _lifecycle = AppLifecycleListener(onResume: () {
+      if (mounted) _loadMemberData();
+    });
     _triggerUpdateCheck();
     _orderSub = repository.changes.listen((e) {
       if (enableDeliverySystem && (e.startsWith('order_') || e == 'orders_changed')) {
@@ -73,6 +83,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
   @override
   void dispose() {
     _orderSub?.cancel();
+    _lifecycle?.dispose();
     super.dispose();
   }
 
@@ -131,7 +142,18 @@ class _MemberDashboardState extends State<MemberDashboard> {
     }
   }
 
-  void _onItemTapped(int index) => setState(() => _selectedIndex = index);
+  void _onItemTapped(int index) {
+    setState(() => _selectedIndex = index);
+    _refreshIfProfile();
+  }
+
+  /// Opening Profile re-reads the member, so it shows an admin's latest
+  /// edit even if the live update never came (Z8).
+  void _refreshIfProfile() {
+    if (_selectedIndex < _tabs.length && _tabs[_selectedIndex] == _MemberTab.profile) {
+      _loadMemberData();
+    }
+  }
 
   Future<void> _handleLogout() async {
     final auth = context.read<AuthState>();
@@ -344,6 +366,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
   void _openTab(_MemberTab tab) {
     final index = _tabs.indexOf(tab);
     if (index >= 0) setState(() => _selectedIndex = index);
+    _refreshIfProfile();
   }
 
   /// Open the dedicated Nearest Cashiers map screen.

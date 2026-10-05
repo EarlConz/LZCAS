@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:csv/csv.dart';
+import 'package:intl/intl.dart' show DateFormat;
 import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -157,6 +158,27 @@ class SupabaseRepository {
             schema: 'public',
             table: table,
             callback: (payload) => _changes.add('${table}_changed'),
+          )
+          .subscribe();
+      _channels.add(channel);
+    }
+
+    // Announcements and branch stock (v73): a cashier's new post, or stock
+    // given to a branch, reach the other devices' screens by themselves. The
+    // names are the ones this device already emits for its own changes.
+    // Before v73 the tables are not published, and the channels just stay
+    // quiet.
+    for (final (table, event) in [
+      ('announcements', 'announcements_changed'),
+      ('branch_stock', 'branch_stock_changed'),
+    ]) {
+      final channel = _supabase
+          .channel('public:$table')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: table,
+            callback: (payload) => _changes.add(event),
           )
           .subscribe();
       _channels.add(channel);
@@ -354,11 +376,8 @@ class SupabaseRepository {
     int limit = 20,
     Set<int> excludeIds = const {},
   }) async {
-    var orFilter = _memberSearchFilter(query);
+    final orFilter = _memberSearchFilter(query);
     if (orFilter == null) return const [];
-    // A short number may be a member ID, as staff read it off a card.
-    final t = query.trim();
-    if (RegExp(r'^\d{1,9}$').hasMatch(t)) orFilter = '$orFilter,id.eq.$t';
     dynamic q = _supabase
         .from('members')
         .select('*, packages(name)')
@@ -626,12 +645,22 @@ class SupabaseRepository {
     if (q.isEmpty) return null;
     // Numbers are stored as typed; match the digits however they are spaced.
     final digits = q.replaceAll(RegExp(r'\D'), '');
+    final id = memberIdQuery(q);
     return [
       'first_name.ilike.%$q%',
       'last_name.ilike.%$q%',
       'middle_name.ilike.%$q%',
       if (digits.length >= 3) 'contact_no.ilike.%${digits.split('').join('%')}%',
+      // A member ID as staff read it off a card (test SP3).
+      if (id != null) 'id.eq.$id',
     ].join(',');
+  }
+
+  /// The member ID in a search, as staff type it: "6", "#6", "ID 6",
+  /// "id:6". Null when the search is not an ID.
+  static int? memberIdQuery(String search) {
+    final m = RegExp(r'^(?:id\s*:?\s*|#\s*)?(\d{1,9})$', caseSensitive: false).firstMatch(search.trim());
+    return m == null ? null : int.tryParse(m.group(1)!);
   }
 
   /// Fetch a page of members with optional search and role filter. Each
@@ -767,50 +796,22 @@ class SupabaseRepository {
     DateTime? since,
     SaleKind? kind,
   }) async {
-    dynamic dataQuery = _supabase.from('sales').select('*');
-    dynamic countQuery = _supabase.from('sales').select('id');
-
-    // Scope to a single seller (e.g. a branch cashier sees only their sales).
-    if (userId != null) {
-      dataQuery = dataQuery.eq('user_id', userId);
-      countQuery = countQuery.eq('user_id', userId);
+    final branch = kind == null || kind == SaleKind.delivery
+        ? const <String>{}
+        : await branchCashierIds();
+    if (kind == SaleKind.branch && branch.isEmpty) {
+      return PageResult(rows: const [], totalCount: 0, page: page, pageSize: pageSize);
     }
-
-    // The Transactions date range (Today, This week, ...).
-    if (since != null) {
-      final at = since.toUtc().toIso8601String();
-      dataQuery = dataQuery.gte('timestamp', at);
-      countQuery = countQuery.gte('timestamp', at);
-    }
-
-    // Counter, Delivery or Branch (the Transactions chips; [saleKindOf]).
-    if (kind != null) {
-      if (kind == SaleKind.delivery) {
-        dataQuery = dataQuery.not('payment_method', 'is', null);
-        countQuery = countQuery.not('payment_method', 'is', null);
-      } else {
-        dataQuery = dataQuery.isFilter('payment_method', null);
-        countQuery = countQuery.isFilter('payment_method', null);
-        final branch = (await branchCashierIds()).toList();
-        if (kind == SaleKind.branch) {
-          if (branch.isEmpty) {
-            return PageResult(rows: const [], totalCount: 0, page: page, pageSize: pageSize);
-          }
-          dataQuery = dataQuery.inFilter('user_id', branch);
-          countQuery = countQuery.inFilter('user_id', branch);
-        } else if (branch.isNotEmpty) {
-          final list = '(${branch.join(',')})';
-          dataQuery = dataQuery.not('user_id', 'in', list);
-          countQuery = countQuery.not('user_id', 'in', list);
-        }
-      }
-    }
-
-    if (search != null && search.isNotEmpty) {
-      final orFilter = 'buyer_name.ilike.%$search%,item_name.ilike.%$search%';
-      countQuery = countQuery.or(orFilter);
-      dataQuery = dataQuery.or(orFilter);
-    }
+    dynamic filtered(dynamic q) => _filterSales(
+      q,
+      userId: userId,
+      since: since,
+      kind: kind,
+      search: search,
+      branchIds: branch,
+    );
+    dynamic dataQuery = filtered(_supabase.from('sales').select('*'));
+    final dynamic countQuery = filtered(_supabase.from('sales').select('id'));
 
     dataQuery = dataQuery
         .order(sortColumn, ascending: sortAscending)
@@ -832,6 +833,35 @@ class SupabaseRepository {
       page: page,
       pageSize: pageSize,
     );
+  }
+
+  /// The Transactions filters on a sales query: one seller (a branch
+  /// cashier's own list), the date range, Counter / Delivery / Branch
+  /// ([saleKindOf]; [branchIds] are the branch cashiers), and the search.
+  dynamic _filterSales(
+    dynamic q, {
+    String? userId,
+    DateTime? since,
+    SaleKind? kind,
+    String? search,
+    Set<String> branchIds = const {},
+  }) {
+    if (userId != null) q = q.eq('user_id', userId);
+    if (since != null) q = q.gte('timestamp', since.toUtc().toIso8601String());
+    if (kind == SaleKind.delivery) {
+      q = q.not('payment_method', 'is', null);
+    } else if (kind != null) {
+      q = q.isFilter('payment_method', null);
+      if (kind == SaleKind.branch) {
+        q = q.inFilter('user_id', branchIds.toList());
+      } else if (branchIds.isNotEmpty) {
+        q = q.not('user_id', 'in', '(${branchIds.join(',')})');
+      }
+    }
+    if (search != null && search.isNotEmpty) {
+      q = q.or('buyer_name.ilike.%$search%,item_name.ilike.%$search%');
+    }
+    return q;
   }
 
   /// Pre-aggregated dashboard stats — avoids loading all rows.
@@ -1268,10 +1298,12 @@ class SupabaseRepository {
         .map((r) => ((r as Map<String, dynamic>)['id'] as num).toInt())
         .toList();
     final counts = await Future.wait(ids.map((id) async {
+      // Deleted members are not counted, as on every other list (SP5).
       final res = await _supabase
           .from('members')
           .select('id')
           .eq('package_id', id)
+          .neq('is_deleted', true)
           .limit(1)
           .count(CountOption.exact);
       return MapEntry(id, res.count);
@@ -1279,13 +1311,16 @@ class SupabaseRepository {
     return {for (final e in counts) if (e.value > 0) e.key: e.value};
   }
 
-  /// Fetch members who selected a specific package.
+  /// Fetch members who selected a specific package (not deleted ones).
   Future<List<Member>> fetchMembersByPackage(int packageId) async {
-    final data = await _supabase
-        .from('members')
-        .select()
-        .eq('package_id', packageId);
-    return (data as List).map((j) => Member.fromJson(j)).toList();
+    final data = await _selectAll(
+      () => _supabase
+          .from('members')
+          .select()
+          .eq('package_id', packageId)
+          .neq('is_deleted', true),
+    );
+    return data.map((j) => Member.fromJson(j)).toList();
   }
 
   Future<int> addSale({
@@ -3971,11 +4006,12 @@ class SupabaseRepository {
         'Last Name',
         'First Name',
         'Middle Name',
-        'Role',
+        'Package',
         'Contact No',
         'Birthday',
         'Address',
         'Referrer',
+        'Login',
       ],
       for (final m in members)
         [
@@ -3983,11 +4019,12 @@ class SupabaseRepository {
           m.lastName ?? '',
           m.firstName ?? '',
           m.middleName ?? '',
-          m.role ?? '',
+          m.packageName ?? '',
           m.contactNo ?? '',
           m.birthday ?? '',
           m.address ?? '',
           m.referrer ?? '',
+          (m.email ?? '').trim().isNotEmpty || (m.userId ?? '').trim().isNotEmpty ? 'Yes' : 'No',
         ],
     ];
     return const ListToCsvConverter().convert(rows);
@@ -4022,6 +4059,65 @@ class SupabaseRepository {
   }
 
   Future<String> exportSalesCsv() => exportSalesCsvString();
+
+  /// The sales Transactions is showing (same range, chip, search and
+  /// seller), every line of them, with how each was paid and who sold it.
+  Future<String> exportSalesCsvFiltered({
+    String? userId,
+    DateTime? since,
+    SaleKind? kind,
+    String? search,
+  }) async {
+    final branch = await branchCashierIds();
+    final data = kind == SaleKind.branch && branch.isEmpty
+        ? const <Map<String, dynamic>>[]
+        : await _selectAll(
+            () => _filterSales(
+              _supabase.from('sales').select('*'),
+              userId: userId,
+              since: since,
+              kind: kind,
+              search: search,
+              branchIds: branch,
+            ),
+          );
+    final sales = data.map(Sale.fromJson).toList()
+      ..sort((a, b) => (a.timestamp ?? DateTime(2000)).compareTo(b.timestamp ?? DateTime(2000)));
+    final sellers = await staffNamesFor(sales.map((x) => x.userId).whereType<String>().toSet());
+    String paid(Sale x) {
+      if (x.isPackage) return 'Package';
+      return switch (x.kind(branch)) {
+        SaleKind.counter => 'Counter',
+        SaleKind.branch => 'Branch',
+        SaleKind.delivery => switch (x.paymentMethod) {
+          'funds' => 'Delivery · funds',
+          'cod' => 'Delivery · cash',
+          'counter' => 'Delivery · at counter',
+          'outside' => 'Delivery · outside',
+          _ => 'Delivery',
+        },
+      };
+    }
+
+    final rows = <List<String>>[
+      ['Sale ID', 'Date', 'Time', 'Buyer ID', 'Buyer', 'Item', 'Quantity', 'Price', 'Total', 'Paid', 'Sold by'],
+      for (final x in sales)
+        [
+          x.id?.toString() ?? '',
+          x.timestamp == null ? '' : DateFormat('yyyy-MM-dd').format(x.timestamp!.toLocal()),
+          x.timestamp == null ? '' : DateFormat('HH:mm').format(x.timestamp!.toLocal()),
+          x.buyerId?.toString() ?? '',
+          x.buyerName ?? (x.buyerId == null ? 'Walk-in' : ''),
+          x.itemName,
+          x.quantity.toString(),
+          x.price.toString(),
+          (x.quantity * x.price).toString(),
+          paid(x),
+          x.userId == null ? '' : (sellers[x.userId] ?? ''),
+        ],
+    ];
+    return const ListToCsvConverter().convert(rows);
+  }
 
   // ── Member Ordering & Delivery Negotiation (v48) ─────────────────────────
 

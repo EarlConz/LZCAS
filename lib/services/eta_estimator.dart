@@ -51,6 +51,15 @@ class EtaTuning {
   Duration apply(Duration mapTime) => Duration(
     seconds: (mapTime.inSeconds * factor).round() + handoverMinutes * 60,
   );
+
+  /// How [apply] got there, for the rider's Arrival card: "Map 15 min ×
+  /// 1.2 + 3 min handover". So a rider can trust the time, and a tester
+  /// can see an admin's new setting take effect (ET4).
+  String explain(Duration mapTime) {
+    final m = (mapTime.inSeconds / 60).round();
+    final map = 'Map ${m < 1 ? '<1' : m} min × ${factor.toStringAsFixed(1)}';
+    return handoverMinutes == 0 ? map : '$map + $handoverMinutes min handover';
+  }
 }
 
 class EtaEstimator {

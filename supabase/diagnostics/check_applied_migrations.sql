@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which migrations are actually applied to THIS project? (v35 … v72)
+-- Which migrations are actually applied to THIS project? (v35 … v73)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -348,6 +348,14 @@ select 'v72  orders updated_at trigger',
                           where tgname = 'orders_touch_updated_at' and not tgisinternal)
             then 'APPLIED' else 'MISSING' end,
        'orders_touch_updated_at trigger'
+
+union all
+select 'v73  realtime announcements, branch stock',
+       case when (select count(*) from pg_publication_tables
+                   where pubname = 'supabase_realtime' and schemaname = 'public'
+                     and tablename in ('announcements', 'branch_stock')) = 2
+            then 'APPLIED' else 'MISSING' end,
+       'announcements and branch_stock in supabase_realtime'
 
 order by 1;
 

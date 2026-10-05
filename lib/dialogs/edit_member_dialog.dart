@@ -506,39 +506,16 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
           ),
         );
       },
-      optionsViewBuilder: (context, onSelected, options) {
-        return Align(
-          alignment: Alignment.topLeft,
-          child: Material(
-            elevation: 4,
-            borderRadius: BorderRadius.circular(12),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: 220,
-                maxWidth: (screenW - 32).clamp(200.0, 360.0),
-              ),
-              child: ListView.builder(
-                padding: EdgeInsets.zero,
-                shrinkWrap: true,
-                itemCount: options.length,
-                itemBuilder: (context, index) {
-                  final m = options.elementAt(index);
-                  final count = _referralCounts[m.id] ?? 0;
-                  return ListTile(
-                    dense: true,
-                    minTileHeight: 44,
-                    title: Text(_memberName(m), overflow: TextOverflow.ellipsis),
-                    subtitle: count > 0
-                        ? Text('$count referral${count == 1 ? '' : 's'}')
-                        : null,
-                    onTap: () => onSelected(m),
-                  );
-                },
-              ),
-            ),
-          ),
-        );
-      },
+      optionsViewBuilder: (context, onSelected, options) => memberOptionsView(
+        context: context,
+        onSelected: onSelected,
+        options: options,
+        label: _memberName,
+        extra: (m) {
+          final count = _referralCounts[m.id] ?? 0;
+          return count > 0 ? '$count referral${count == 1 ? '' : 's'}' : '';
+        },
+      ),
       onSelected: (m) {
         referrerSearchController.text = _memberName(m);
         setState(() {

@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v72)
+├── migrations/    Ordered, apply-once changes (v2 … v73)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -605,6 +605,10 @@ another cashier's order read-only._
   `maintenance/backfill_missed_commissions_staging.sql`.
 - v72 — re-creates v48's `orders_touch_updated_at` trigger (missing on
   staging). Never re-run v48 for it: that restores old order functions.
+- v73 — puts `announcements` and `branch_stock` in the realtime
+  publication, so a cashier's post and branch stock changes reach other
+  devices by themselves. Adds only what is missing; the rollback removes
+  only what it added.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
