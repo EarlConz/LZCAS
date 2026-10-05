@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v69)
+├── migrations/    Ordered, apply-once changes (v2 … v70)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -590,6 +590,12 @@ another cashier's order read-only._
 - v69 — trigger `orders_guard_tracking_number` refuses a tracking number
   another order already has, compared by `_tracking_key()` (upper case, no
   spaces or dashes). Existing duplicates are left alone.
+
+**Live earnings (v70)** — _independent; apply any time._
+
+- v70 — adds `member_transactions` to `supabase_realtime`, so a member's
+  Earnings update when a commission is written. RLS (v7) still limits each
+  member to their own rows.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new

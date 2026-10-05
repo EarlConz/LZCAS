@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which migrations are actually applied to THIS project? (v35 … v69)
+-- Which migrations are actually applied to THIS project? (v35 … v70)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -325,6 +325,13 @@ select 'v69  unique tracking numbers',
                           where tgname = 'orders_guard_tracking_number' and not tgisinternal)
             then 'APPLIED' else 'MISSING' end,
        'orders_guard_tracking_number trigger'
+
+union all
+select 'v70  realtime member_transactions',
+       case when exists (select 1 from pg_publication_tables
+                          where pubname = 'supabase_realtime' and tablename = 'member_transactions')
+            then 'APPLIED' else 'MISSING' end,
+       'member_transactions in supabase_realtime'
 
 order by 1;
 
