@@ -834,7 +834,10 @@ class MembersTableState extends State<MembersTable> {
             child: FloatingActionButton.extended(
               heroTag: null,
               onPressed: _onAddMemberPressed,
-              backgroundColor: const Color(0xFFCC4900),
+              // The theme makes floating buttons circles, which suits an
+              // icon alone but cut this one's label to "Add mem…" (Part 4).
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              backgroundColor: const Color(0xFFB24800),
               foregroundColor: Colors.white,
               icon: const Icon(Icons.person_add_alt_1_rounded),
               label: const Text('Add member', style: TextStyle(fontWeight: FontWeight.w700)),
