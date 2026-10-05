@@ -66,6 +66,7 @@ order by version;
 | v68 | `migration_v68_realtime_tables.sql` | ✅ 2026-10-04 | ❌ | Puts items, members, sales, the request queues and orders in the realtime publication, so changes reach other devices (Part 3 live-update failures). Adds only what is missing. |
 | v69 | `migration_v69_unique_tracking_numbers.sql` | ✅ 2026-10-04 | ❌ | Refuses a tracking number already on another order (ignores case, spaces, dashes). Needs v61. The app's Generate button relies on it to avoid repeats. |
 | v70 | `migration_v70_realtime_member_transactions.sql` | ❌ | ❌ | Puts member_transactions in realtime so a member's Earnings update by themselves (G2). Members still only receive their own rows (v7). |
+| v71 | `migration_v71_restore_commission_triggers.sql` | ❌ | ❓ | **Staging had no commission triggers** (Group Sales, referral bonuses): built from schema.sql, v19–v27 only assumed by v45. Restores the latest versions. Production: check section 1 of `diagnose_recent_commissions.sql` first; if the 4 triggers are there, it is not needed. Then on staging only: `maintenance/backfill_missed_commissions_staging.sql`. |
 
 ¹ Staging's ledger names v52 `saved_items_policy_repair`; its changes are in
 place. On production it will record itself correctly.
@@ -130,3 +131,4 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-04 | v66–v69 applied on staging. |
 | 2026-10-04 | Production runbook written: `docs/prod_rollout_delivery.md`. |
 | 2026-10-05 | Added v70 (realtime member_transactions), not applied anywhere yet. |
+| 2026-10-05 | Found staging has no triggers on sales; added v71 (restore commission triggers) and the staging backfill. |

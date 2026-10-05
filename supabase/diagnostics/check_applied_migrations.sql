@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which migrations are actually applied to THIS project? (v35 … v70)
+-- Which migrations are actually applied to THIS project? (v35 … v71)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -332,6 +332,15 @@ select 'v70  realtime member_transactions',
                           where pubname = 'supabase_realtime' and tablename = 'member_transactions')
             then 'APPLIED' else 'MISSING' end,
        'member_transactions in supabase_realtime'
+
+union all
+select 'v71  commission triggers on sales',
+       case when (select count(*) from pg_trigger
+                   where tgrelid = to_regclass('public.sales') and not tgisinternal
+                     and tgname in ('trg_sync_group_sales_ins', 'trg_sync_group_sales_upd',
+                                    'trg_remove_group_sales_del', 'trg_crystallize_referral_on_availment')) = 4
+            then 'APPLIED' else 'MISSING' end,
+       '4 commission triggers on sales'
 
 order by 1;
 

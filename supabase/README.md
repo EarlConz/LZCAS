@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v70)
+├── migrations/    Ordered, apply-once changes (v2 … v71)
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -596,6 +596,13 @@ another cashier's order read-only._
 - v70 — adds `member_transactions` to `supabase_realtime`, so a member's
   Earnings update when a commission is written. RLS (v7) still limits each
   member to their own rows.
+
+**Commission triggers (v71)** — _staging needed it; production: check first._
+
+- v71 — re-creates, verbatim from their last definitions, the Group Sales
+  (v19) and referral-bonus (v25–v27) functions, `process_package_upgrade`
+  (v26) and the four triggers on `sales`. No backfill: staging uses
+  `maintenance/backfill_missed_commissions_staging.sql`.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
