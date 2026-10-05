@@ -8,25 +8,22 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/utils/animations.dart';
-import 'package:lzcas/buttons/inventoryfilterbutton.dart';
-import 'package:lzcas/widgets/search.dart';
+import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/dialogs/edit_stock_dialog.dart' show EditProductDialog;
 import 'package:lzcas/dialogs/add_product_dialog.dart';
 import 'package:lzcas/db/db.dart';
-import 'package:lzcas/widgets/custom_elevated_button.dart';
 import 'package:lzcas/widgets/modal_kit.dart' show confirmDestructive;
 import 'package:lzcas/services/poster_service.dart' show PreparedPoster;
 import 'package:lzcas/widgets/product_tile.dart';
-import '../theme.dart';
-import '../utils/formatters.dart';
+import 'package:lzcas/widgets/staff_table.dart';
 import '../services/config_service.dart';
 
-/// Formats a raw ISO 8601 string using the shared POS timestamp format.
-String _formatLastUpdated(dynamic raw) {
+/// When a product last changed, as a row says it: "12 min ago", "Today
+/// 9:41 AM", "Yesterday", "1 Oct".
+String _updated(dynamic raw) {
   if (raw == null) return '';
   final dt = raw is DateTime ? raw : DateTime.tryParse(raw.toString());
-  if (dt == null) return raw.toString();
-  return formatDisplayDate(dt);
+  return dt == null ? raw.toString() : staffWhen(dt);
 }
 
 class InventoryTable extends StatefulWidget {
@@ -37,32 +34,29 @@ class InventoryTable extends StatefulWidget {
 }
 
 class _InventoryTableState extends State<InventoryTable> {
-  /// Pseudo-status for the quick "Needs restocking" filter (Low + Out).
-  static const _needsRestockStatus = 'Needs Restocking';
-
   String searchTerm = "";
   String? selectedStatus;
   String? selectedCategory;
   List<String> _categories = [];
 
-  // ── Summary strip figures ──────────────────────────────────────────
+  // ── The counts on the caption and the chips ────────────────────────
   int _skuCount = 0;
   int _lowCount = 0;
   int _outCount = 0;
   int _totalUnits = 0;
   bool _summaryLoaded = false;
-  int get _needsRestockCount => _lowCount + _outCount;
 
-  // ── Sort state (server-side; exposed via headers/menu) ─────────────
+  // ── Sort (server-side; the column headers) ─────────────────────────
   String _sortColumn = 'name';
   bool _sortAscending = true;
 
   late final StreamSubscription<String> _sub;
   Timer? _liveRefresh;
+  Timer? _searchDebounce;
 
   static const _pageSize = 25;
 
-  // ── Mobile infinite-scroll state ──────────────────────────────────
+  // ── The loaded rows: the table and the phone list both scroll these ──
   final List<Map<String, dynamic>> _items = [];
   int _currentPage = 0;
   bool _hasMore = true;
@@ -70,27 +64,13 @@ class _InventoryTableState extends State<InventoryTable> {
   bool _isInitialLoading = true;
   String? _error;
   late final ScrollController _scrollController;
-
-  // ── Server-page state for desktop PaginatedDataTable ──────────────
-  final List<Map<String, dynamic>> _serverPage = [];
   int _totalCount = 0;
-  bool _fetchingServer = false; // a fetch loop is currently running
-  int _pendingNeeded = 0; // highest requested row count (coalesces requests)
-  bool _didInitialPrefetch = false; // primed page 2 once after first load
-  late final _InventoryDataSource _inventorySource;
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
     _scrollController.addListener(_onScroll);
-    _inventorySource = _InventoryDataSource(
-      _serverPage,
-      () => _totalCount,
-      _getStatusColor,
-      _onUpdate,
-      _deleteItem,
-    );
     _loadItems();
     _loadCategories();
     _loadSummary();
@@ -124,8 +104,7 @@ class _InventoryTableState extends State<InventoryTable> {
     }
   }
 
-  /// Refresh the summary-strip figures (also feeds the "Needs restocking"
-  /// quick filter count).
+  /// Refresh the caption's and the chips' counts.
   Future<void> _loadSummary() async {
     if (!mounted) return;
     try {
@@ -143,23 +122,6 @@ class _InventoryTableState extends State<InventoryTable> {
     }
   }
 
-  /// Column index the desktop table header arrow should highlight, or
-  /// null when the active sort isn't one of the sortable columns.
-  int? _sortColumnIndex() {
-    switch (_sortColumn) {
-      case 'name':
-        return 0;
-      case 'category':
-        return 1;
-      case 'stock':
-        return 2;
-      case 'last_updated':
-        return 3;
-      default:
-        return null;
-    }
-  }
-
   /// Apply a new sort and reload from the first page.
   void _applySort(String column, bool ascending) {
     if (_sortColumn == column && _sortAscending == ascending) return;
@@ -170,13 +132,34 @@ class _InventoryTableState extends State<InventoryTable> {
     _loadItems();
   }
 
-  /// Clear every active filter in a single reload.
-  void _clearFilters() {
-    setState(() {
-      selectedStatus = null;
-      selectedCategory = null;
-    });
+  /// A header click: the same column flips; another starts the natural way
+  /// (names A to Z, stock low first, newest change first).
+  void _sortBy(String column) {
+    if (_sortColumn == column) {
+      _applySort(column, !_sortAscending);
+    } else {
+      _applySort(column, column != 'last_updated');
+    }
+  }
+
+  bool? _arrow(String column) => _sortColumn == column ? _sortAscending : null;
+
+  void _setStatus(String? status) {
+    setState(() => selectedStatus = status);
     _loadItems();
+  }
+
+  void _setCategory(String? category) {
+    setState(() => selectedCategory = category);
+    _loadItems();
+  }
+
+  void _onSearchChanged(String value) {
+    searchTerm = value;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) _loadItems();
+    });
   }
 
   /// Two-digit zero-pad for filename timestamps.
@@ -284,7 +267,7 @@ class _InventoryTableState extends State<InventoryTable> {
   /// same pages, same place on screen. For live changes; a new search,
   /// filter or sort still starts over at page 1.
   Future<void> _refreshInPlace() async {
-    final loaded = _items.length > _serverPage.length ? _items.length : _serverPage.length;
+    final loaded = _items.length;
     final pages = loaded <= _pageSize ? 1 : (loaded + _pageSize - 1) ~/ _pageSize;
     try {
       final result = await _fetch(1, pages * _pageSize);
@@ -294,16 +277,11 @@ class _InventoryTableState extends State<InventoryTable> {
         _items
           ..clear()
           ..addAll(rows);
-        _serverPage
-          ..clear()
-          ..addAll(rows);
-        _pendingNeeded = _serverPage.length;
         _currentPage = pages;
         _totalCount = result.totalCount;
         _hasMore = result.hasMore;
         _error = null;
       });
-      _inventorySource.refresh();
     } catch (_) {
       // Keep showing what is there; the next change or a manual refresh
       // tries again.
@@ -332,13 +310,7 @@ class _InventoryTableState extends State<InventoryTable> {
       final newItems = inventoryItemsFromRows(result.rows);
 
       setState(() {
-        if (page == 1) {
-          _items.clear();
-          _serverPage.clear();
-          _serverPage.addAll(newItems);
-          _pendingNeeded = _serverPage.length;
-          _didInitialPrefetch = false;
-        }
+        if (page == 1) _items.clear();
         _items.addAll(newItems);
         _currentPage = page;
         _totalCount = result.totalCount;
@@ -347,9 +319,6 @@ class _InventoryTableState extends State<InventoryTable> {
         _isLoadingMore = false;
         _error = null;
       });
-      if (page == 1) {
-        _inventorySource.refresh();
-      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -360,85 +329,9 @@ class _InventoryTableState extends State<InventoryTable> {
     }
   }
 
-  /// Ensure `_serverPage` holds at least [neededCount] rows by loading
-  /// consecutive server pages until it does (or all rows are loaded).
-  ///
-  /// NOTE: PaginatedDataTable.onPageChanged reports the *first row index* of
-  /// the new table page — NOT a page number — so we translate the required
-  /// row count into however many server pages that takes.
-  Future<void> _ensureLoadedThrough(int neededCount) async {
-    if (neededCount > _pendingNeeded) _pendingNeeded = neededCount;
-    // A running loop re-reads _pendingNeeded each iteration, so a fast
-    // multi-page jump (or a background prefetch racing a navigation) never
-    // drops a request.
-    if (_fetchingServer) return;
-    _fetchingServer = true;
-    try {
-      while (_serverPage.length < _pendingNeeded &&
-          (_totalCount == 0 || _serverPage.length < _totalCount)) {
-        final nextPage = (_serverPage.length ~/ _pageSize) + 1;
-        final before = _serverPage.length;
-        await _fetchServerPage(nextPage);
-        if (_serverPage.length <= before) break; // no progress — stop
-      }
-    } finally {
-      _fetchingServer = false;
-    }
-  }
-
-  /// Quietly load ONE page beyond what's loaded so the next forward step is
-  /// instant. Fire-and-forget; ignored when a fetch is running or all rows
-  /// are already loaded.
-  void _prefetchNext() {
-    final hasMore = _totalCount == 0 || _serverPage.length < _totalCount;
-    if (hasMore) _ensureLoadedThrough(_serverPage.length + 1);
-  }
-
-  /// Fetch a specific server page — updates desktop PaginatedDataTable.
-  /// Accumulates pages into _serverPage; getRow reads _serverPage[index]
-  /// directly, so table pages and server pages don’t need to align.
-  Future<void> _fetchServerPage(int serverPage) async {
-    // Already loaded enough data for this page?
-    final neededEnd = serverPage * _pageSize;
-    if (_serverPage.length >= neededEnd) return;
-    try {
-      final page = await repository.fetchItemsPaginated(
-        page: serverPage,
-        pageSize: _pageSize,
-        search: searchTerm.isNotEmpty ? searchTerm : null,
-        categoryFilter:
-            (selectedCategory != null && selectedCategory!.isNotEmpty)
-            ? selectedCategory
-            : null,
-        statusFilter: (selectedStatus != null && selectedStatus!.isNotEmpty)
-            ? selectedStatus
-            : null,
-        sortColumn: _sortColumn,
-        sortAscending: _sortAscending,
-      );
-      if (!mounted) return;
-      final newItems = inventoryItemsFromRows(page.rows);
-      setState(() {
-        _serverPage.addAll(newItems);
-        _totalCount = page.totalCount;
-      });
-      _inventorySource.refresh();
-    } catch (e) {
-      if (!mounted) return;
-    }
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case "Good":
-        return Colors.green;
-      case "Low Stock":
-        return Colors.orange;
-      case "Out of Stock":
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
+  void _onUpdate(Map<String, dynamic> item) {
+    _refreshStatus(item);
+    _loadItems();
   }
 
   void _refreshStatus(Map<String, dynamic> item) {
@@ -455,540 +348,263 @@ class _InventoryTableState extends State<InventoryTable> {
     }
   }
 
-  void _onUpdate(Map<String, dynamic> item) {
-    _refreshStatus(item);
-    _loadItems();
+  void _edit(Map<String, dynamic> item) {
+    showAnimatedDialog(
+      context,
+      builder: (dialogContext) => EditProductDialog(
+        item: item,
+        onUpdated: () => _onUpdate(item),
+      ),
+    );
   }
+
+  List<StaffMenuItem> _menu(Map<String, dynamic> item) => [
+    StaffMenuItem('Edit product', Icons.edit_outlined, () => _edit(item)),
+    StaffMenuItem('Delete product', Icons.delete_outline_rounded, () => _deleteItem(context, item), danger: true),
+  ];
+
+  /// The status pill: Good, Low, Out of stock.
+  static Widget _statusPill(String status, {bool small = false}) => switch (status) {
+    'Out of Stock' => StaffPill('Out of stock', tone: StaffTone.red, small: small),
+    'Low Stock' => StaffPill('Low', tone: StaffTone.orange, small: small),
+    'Good' => StaffPill('Good', tone: StaffTone.green, small: small),
+    _ => StaffPill(status.isEmpty ? 'Unknown' : status, small: small),
+  };
+
+  String _caption() {
+    if (!_summaryLoaded) return 'Products';
+    return '${staffCount(_skuCount)} product${_skuCount == 1 ? '' : 's'} · '
+        '${staffCount(_totalUnits)} units in stock';
+  }
+
+  List<Widget> _chips({required bool phone}) => [
+    StaffChip(
+      label: 'All',
+      count: _summaryLoaded ? _skuCount : null,
+      selected: selectedStatus == null,
+      onTap: () => _setStatus(null),
+    ),
+    StaffChip(
+      label: phone ? 'Low' : 'Low stock',
+      count: _summaryLoaded ? _lowCount : null,
+      selected: selectedStatus == 'Low Stock',
+      tone: StaffTone.orange,
+      onTap: () => _setStatus('Low Stock'),
+    ),
+    StaffChip(
+      label: phone ? 'Out' : 'Out of stock',
+      count: _summaryLoaded ? _outCount : null,
+      selected: selectedStatus == 'Out of Stock',
+      tone: StaffTone.red,
+      onTap: () => _setStatus('Out of Stock'),
+    ),
+    StaffSelectChip<String?>(
+      label: 'Category',
+      value: selectedCategory,
+      options: [(null, 'All'), for (final c in _categories) (c, c)],
+      onChanged: _setCategory,
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final bool isMobile = constraints.maxWidth < 780;
-        final bool isTablet =
-            constraints.maxWidth >= 780 && constraints.maxWidth < 1050;
-        final tableWidth = constraints.hasBoundedWidth
-            ? constraints.maxWidth
-            : MediaQuery.sizeOf(context).width;
-        const minTableWidth = 860.0;
-
+        if (constraints.maxWidth < kStaffTableBreakpoint) return _buildPhone(context);
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildSummaryStrip(context, isMobile),
-            Padding(
-              padding: const EdgeInsets.all(appSpacing),
-              child: isMobile
-                  ? _buildMobileActionBar(context)
-                  : _buildDesktopActionBar(context, isTablet),
+            StaffTableTop(
+              caption: _caption(),
+              searchWidth: 320,
+              search: StaffSearchField(hint: 'Search products', initialValue: searchTerm, onChanged: _onSearchChanged),
+              actions: [
+                StaffButton(label: 'Export', icon: Icons.file_download_outlined, primary: false, onPressed: _exportCsv),
+                StaffButton(label: 'Add product', icon: Icons.add_rounded, onPressed: () => _openAddProductDialog(context)),
+              ],
             ),
-            Expanded(
-              child: isMobile
-                  ? _buildInventoryList(context)
-                  : LayoutBuilder(
-                      builder: (context, tableConstraints) {
-                        final availableHeight =
-                            tableConstraints.hasBoundedHeight
-                            ? tableConstraints.maxHeight
-                            : MediaQuery.sizeOf(context).height;
-                        final rowsPerPage = ((availableHeight - 170) ~/ 62)
-                            .clamp(1, 7);
-
-                        // Desktop table is built → prime the second page once so
-                        // the first "next" is already loaded. (Runs here so the
-                        // mobile list never wastes a fetch into _serverPage.)
-                        if (!_didInitialPrefetch && !_isInitialLoading) {
-                          _didInitialPrefetch = true;
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (mounted) _prefetchNext();
-                          });
-                        }
-
-                        return SizedBox(
-                          height: availableHeight,
-                          width: double.infinity,
-                          child: ClipRect(
-                            child: Theme(
-                              data: Theme.of(context).copyWith(
-                                cardTheme: CardThemeData(
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      appRadius,
-                                    ),
-                                    side: BorderSide(
-                                      color: Theme.of(context).dividerColor,
-                                      width: 1,
-                                    ),
-                                  ),
-                                  color: Theme.of(context).colorScheme.surface,
-                                ),
-                              ),
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: SizedBox(
-                                  height: availableHeight,
-                                  width: tableWidth < minTableWidth
-                                      ? minTableWidth
-                                      : tableWidth,
-                                  child: PaginatedDataTable(
-                                    rowsPerPage: rowsPerPage,
-                                    horizontalMargin: isTablet ? 12 : 16,
-                                    columnSpacing: isTablet ? 20 : 36,
-                                    headingRowHeight: 52,
-                                    dataRowMinHeight: 56,
-                                    dataRowMaxHeight: 62,
-                                    showCheckboxColumn: false,
-                                    sortColumnIndex: _sortColumnIndex(),
-                                    sortAscending: _sortAscending,
-                                    columns: [
-                                      DataColumn(
-                                        label: const Text("Item Name"),
-                                        onSort: (i, asc) =>
-                                            _applySort('name', asc),
-                                      ),
-                                      DataColumn(
-                                        label: const Text("Category"),
-                                        onSort: (i, asc) =>
-                                            _applySort('category', asc),
-                                      ),
-                                      DataColumn(
-                                        label: const Text("Stock"),
-                                        onSort: (i, asc) =>
-                                            _applySort('stock', asc),
-                                      ),
-                                      DataColumn(
-                                        label: const Text("Last Updated"),
-                                        onSort: (i, asc) =>
-                                            _applySort('last_updated', asc),
-                                      ),
-                                      const DataColumn(label: Text("Status")),
-                                      const DataColumn(label: Text("Action")),
-                                    ],
-                                    source: _inventorySource,
-                                    // pageIndex is the FIRST row index of the
-                                    // new page, not a page number — load through
-                                    // the last row this page needs, then quietly
-                                    // prime the following page.
-                                    onPageChanged: (pageIndex) =>
-                                        _ensureLoadedThrough(
-                                          pageIndex + rowsPerPage,
-                                        ).then((_) => _prefetchNext()),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
+            const SizedBox(height: 14),
+            StaffChipBar(chips: _chips(phone: false), hint: 'Click a row to edit'),
+            const SizedBox(height: 14),
+            Expanded(child: _buildTable(context)),
           ],
         );
       },
     );
   }
 
-  // ── Action Bar ─────────────────────────────────────────────────────
-
-  Widget _buildMobileActionBar(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Expanded(child: _buildSearchBar()),
-            const SizedBox(width: 8),
-            _buildSortButton(),
-            _buildExportButton(),
-            InventoryFilterButton(
-              selectedStatus: selectedStatus,
-              selectedCategory: selectedCategory,
-              categories: _categories,
-              onStatusChanged: (status) {
-                setState(() => selectedStatus = status);
-                _loadItems();
-              },
-              onCategoryChanged: (category) {
-                setState(() => selectedCategory = category);
-                _loadItems();
-              },
-              onClear: _clearFilters,
-            ),
-          ],
-        ),
-        _buildActiveFilterChips(),
-        const SizedBox(height: 12),
-        Row(children: [Expanded(child: _buildAddButton(context))]),
+  /// Wide screens: Product · Category · Stock · Updated · ⋯
+  Widget _buildTable(BuildContext context) {
+    final s = StaffTableStyle.of(context);
+    final q = searchTerm.trim();
+    return StaffTable(
+      controller: _scrollController,
+      loading: _isInitialLoading,
+      error: _error,
+      onRetry: _loadItems,
+      loadingMore: _hasMore && _items.isNotEmpty,
+      onLoadMore: _loadMore,
+      emptyText: q.isNotEmpty
+          ? 'No products match "$q".'
+          : (selectedStatus != null || selectedCategory != null)
+          ? 'No products in this filter.'
+          : 'No products yet.',
+      footer: staffShowing(_items.length, _totalCount),
+      itemCount: _items.length,
+      onRowTap: (i) => _edit(_items[i]),
+      columns: [
+        StaffColumn('Product', flex: 26, onSort: () => _sortBy('name'), sortAscending: _arrow('name')),
+        StaffColumn('Category', flex: 13, onSort: () => _sortBy('category'), sortAscending: _arrow('category')),
+        StaffColumn('Stock', flex: 13, onSort: () => _sortBy('stock'), sortAscending: _arrow('stock')),
+        StaffColumn('Updated', flex: 11, onSort: () => _sortBy('last_updated'), sortAscending: _arrow('last_updated')),
+        const StaffColumn('', width: 48),
       ],
-    );
-  }
-
-  Widget _buildDesktopActionBar(BuildContext context, bool isTablet) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(flex: isTablet ? 2 : 3, child: _buildSearchBar()),
-            const SizedBox(width: 8),
-            InventoryFilterButton(
-              selectedStatus: selectedStatus,
-              selectedCategory: selectedCategory,
-              categories: _categories,
-              onStatusChanged: (status) {
-                setState(() => selectedStatus = status);
-                _loadItems();
-              },
-              onCategoryChanged: (category) {
-                setState(() => selectedCategory = category);
-                _loadItems();
-              },
-              onClear: _clearFilters,
-            ),
-            _buildExportButton(),
-            const SizedBox(width: 12),
-            _buildAddButton(context),
-          ],
-        ),
-        _buildActiveFilterChips(),
-      ],
-    );
-  }
-
-  // ── Sort menu (mobile; desktop uses column headers) ────────────────
-
-  /// Available sort orders as (label, column, ascending). Kept in sync
-  /// with the server-side `sortColumn` values in fetchItemsPaginated.
-  static const List<(String, String, bool)> _sortOptions = [
-    ('Name (A–Z)', 'name', true),
-    ('Name (Z–A)', 'name', false),
-    ('Stock (low → high)', 'stock', true),
-    ('Stock (high → low)', 'stock', false),
-    ('Recently updated', 'last_updated', false),
-  ];
-
-  Widget _buildSortButton() {
-    return PopupMenuButton<String>(
-      tooltip: 'Sort',
-      icon: const Icon(Icons.sort),
-      onSelected: (value) {
-        final parts = value.split('|');
-        _applySort(parts[0], parts[1] == 'asc');
-      },
-      itemBuilder: (context) => [
-        for (final (label, col, asc) in _sortOptions)
-          CheckedPopupMenuItem(
-            value: '$col|${asc ? 'asc' : 'desc'}',
-            checked: _sortColumn == col && _sortAscending == asc,
-            child: Text(label),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildExportButton() {
-    return IconButton(
-      tooltip: 'Export current view to CSV',
-      icon: const Icon(Icons.file_download_outlined),
-      onPressed: _exportCsv,
-    );
-  }
-
-  // ── Active-filter chips ────────────────────────────────────────────
-
-  Widget _buildActiveFilterChips() {
-    final needsSelected = selectedStatus == _needsRestockStatus;
-    final hasStatus = selectedStatus != null && selectedStatus!.isNotEmpty;
-    final hasCategory =
-        selectedCategory != null && selectedCategory!.isNotEmpty;
-    final showQuick = _needsRestockCount > 0 || needsSelected;
-
-    final children = <Widget>[];
-
-    // Quick "Needs restocking" toggle — an entry point even with no other
-    // filters, so it shows whenever there's anything to restock.
-    if (showQuick) {
-      final label = _needsRestockCount > 0
-          ? '$_needsRestockCount ${_needsRestockCount == 1 ? 'item needs' : 'items need'} restocking'
-          : 'Needs restocking';
-      children.add(
-        FilterChip(
-          avatar: Icon(
-            Icons.warning_amber_rounded,
-            size: 18,
-            color: Colors.orange.shade800,
-          ),
-          label: Text(label),
-          labelStyle: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-          ),
-          selected: needsSelected,
-          showCheckmark: false,
-          selectedColor: Colors.orange.withValues(alpha: 0.20),
-          onSelected: (sel) {
-            setState(() => selectedStatus = sel ? _needsRestockStatus : null);
-            _loadItems();
-          },
-          visualDensity: VisualDensity.compact,
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-      );
-    }
-
-    // Generic status chip — skipped for the needs-restock pseudo status,
-    // which the quick chip above already represents.
-    if (hasStatus && !needsSelected) {
-      children.add(
-        _filterChip('Status: $selectedStatus', () {
-          setState(() => selectedStatus = null);
-          _loadItems();
-        }),
-      );
-    }
-    if (hasCategory) {
-      children.add(
-        _filterChip('Category: $selectedCategory', () {
-          setState(() => selectedCategory = null);
-          _loadItems();
-        }),
-      );
-    }
-    if (children.isEmpty) return const SizedBox.shrink();
-
-    // "Clear all" only when more than one filter dimension is active.
-    final activeDims = (hasStatus ? 1 : 0) + (hasCategory ? 1 : 0);
-
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 10),
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            ...children,
-            if (activeDims > 1)
-              TextButton(
-                onPressed: _clearFilters,
-                style: TextButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-                child: const Text('Clear all'),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _filterChip(String label, VoidCallback onRemove) {
-    return InputChip(
-      label: Text(label),
-      labelStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500),
-      onDeleted: onRemove,
-      deleteIcon: const Icon(Icons.close, size: 16),
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    );
-  }
-
-  // ── Summary strip ──────────────────────────────────────────────────
-
-  /// Group an integer with thousands separators, e.g. 1240 → "1,240".
-  String _grouped(int n) {
-    final s = n.abs().toString();
-    final buf = StringBuffer();
-    for (int i = 0; i < s.length; i++) {
-      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
-      buf.write(s[i]);
-    }
-    return (n < 0 ? '-' : '') + buf.toString();
-  }
-
-  Widget _buildSummaryStrip(BuildContext context, bool isMobile) {
-    final theme = Theme.of(context);
-    final onSurface = theme.colorScheme.onSurface;
-    final divider = theme.dividerColor.withValues(alpha: 0.5);
-
-    // Before the first load resolves, render the strip's SHELL with shimmer
-    // placeholders rather than returning an empty box. Collapsing it made the
-    // page render as though the stats feature didn't exist, then pop in and
-    // shove the table down — which reads as "the old design loaded first".
-    // Reserving the space keeps the layout stable and shows zeros never.
-    if (!_summaryLoaded) {
-      return _summaryShell(
-        theme,
-        divider,
-        List.generate(
-          4,
-          (_) => const Expanded(
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 4),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SkeletonBlock(width: 34, height: 18, borderRadius: 6),
-                    SizedBox(height: 6),
-                    SkeletonBlock(width: 46, height: 9, borderRadius: 4),
-                  ],
+      cells: (context, i) {
+        final item = _items[i];
+        final name = (item['name'] ?? '').toString();
+        return [
+          Row(
+            children: [
+              ProductTile(name, imagePath: item['imagePath'] as String?, size: 40),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  name.isEmpty ? 'Unnamed product' : name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: StockpileFonts.satoshi(fontSize: 16, fontWeight: FontWeight.w700, color: s.text),
                 ),
               ),
-            ),
+            ],
           ),
-        ),
-      );
-    }
-
-    Widget stat(String value, String label, Color color) => Expanded(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: isMobile ? 16 : 18,
-                fontWeight: FontWeight.w800,
-                color: color,
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
           Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: theme.hintColor,
-            ),
+            (item['category'] ?? '').toString(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: StockpileFonts.satoshi(fontSize: 16, color: s.body),
           ),
-        ],
-      ),
-    );
-
-    Widget sep() => Container(width: 1, height: 30, color: divider);
-
-    return _summaryShell(theme, divider, [
-      stat('$_skuCount', 'Products', onSurface),
-      sep(),
-      stat(
-        '$_lowCount',
-        'Low',
-        _lowCount > 0 ? Colors.orange.shade800 : onSurface,
-      ),
-      sep(),
-      stat(
-        '$_outCount',
-        'Out',
-        _outCount > 0 ? Colors.red.shade700 : onSurface,
-      ),
-      sep(),
-      stat(_grouped(_totalUnits), 'Units', onSurface),
-    ]);
-  }
-
-  /// The summary strip's outer container. Shared by the loaded and loading
-  /// states so both occupy exactly the same space — that's what stops the
-  /// table shifting once the figures arrive.
-  Widget _summaryShell(ThemeData theme, Color divider, List<Widget> children) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(appSpacing, appSpacing, appSpacing, 0),
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(appRadius),
-        border: Border.all(color: divider),
-      ),
-      child: Row(children: children),
+          Row(
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 44),
+                child: Text(
+                  '${item['stock'] ?? 0}',
+                  style: StockpileFonts.satoshi(fontSize: 17, fontWeight: FontWeight.w800, color: s.text),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Flexible(child: _statusPill((item['status'] ?? '').toString())),
+            ],
+          ),
+          Text(
+            _updated(item['lastUpdated']),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: StockpileFonts.satoshi(fontSize: 15, color: s.muted),
+          ),
+          StaffMoreButton(tooltip: 'More for $name', items: _menu(item)),
+        ];
+      },
     );
   }
 
-  // ── Mobile List (infinite-scroll) ──────────────────────────────────
-
-  Widget _buildInventoryList(BuildContext context) {
+  /// Phones: count, search, chips; the products in a card; Add product
+  /// floating bottom-right.
+  Widget _buildPhone(BuildContext context) {
+    final s = StaffTableStyle.of(context);
+    final Widget list;
     if (_isInitialLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null && _items.isEmpty) {
-      return Center(
+      list = const Center(child: CircularProgressIndicator());
+    } else if (_error != null && _items.isEmpty) {
+      list = Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Failed to load items.'),
+            const Text('Could not load the products.'),
             const SizedBox(height: 8),
-            ElevatedButton(onPressed: _loadItems, child: const Text('Retry')),
+            OutlinedButton(onPressed: _loadItems, child: const Text('Try again')),
           ],
         ),
       );
-    }
-    if (_items.isEmpty) {
-      return const Center(child: Text('No items found'));
-    }
-    return ListView.separated(
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-      itemCount: _items.length + (_hasMore ? 1 : 0),
-      separatorBuilder: (_, index) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        if (index >= _items.length) {
-          return const Padding(
-            padding: EdgeInsets.all(12),
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        final item = _items[index];
-        return StaggeredItem(
-          index: index,
-          child: _InventoryListCard(
-            item: item,
-            statusColor: _getStatusColor(item['status']?.toString() ?? ''),
-            onEdit: () {
-              showAnimatedDialog(
-                context,
-                builder: (dialogContext) => EditProductDialog(
-                  item: item,
-                  onUpdated: () => _onUpdate(item),
+    } else if (_items.isEmpty) {
+      list = Center(
+        child: Text(
+          searchTerm.trim().isEmpty ? 'No products here.' : 'No products match "${searchTerm.trim()}".',
+          style: StockpileFonts.satoshi(fontSize: 15, color: s.muted),
+        ),
+      );
+    } else {
+      list = ListView(
+        controller: _scrollController,
+        // Room under the last row for the Add product button.
+        padding: const EdgeInsets.only(bottom: 96),
+        children: [
+          StaffPhoneCard(
+            rows: [
+              for (final item in _items)
+                StaffPhoneRow(
+                  leading: ProductTile(
+                    (item['name'] ?? '').toString(),
+                    imagePath: item['imagePath'] as String?,
+                    size: 44,
+                  ),
+                  title: (item['name'] ?? '').toString().isEmpty ? 'Unnamed product' : item['name'].toString(),
+                  lines: [
+                    [
+                      (item['category'] ?? '').toString(),
+                      _updated(item['lastUpdated']),
+                    ].where((p) => p.isNotEmpty).join(' · '),
+                  ],
+                  trailing: StaffPhoneValue(
+                    '${item['stock'] ?? 0}',
+                    pill: _statusPill((item['status'] ?? '').toString(), small: true),
+                  ),
+                  menu: _menu(item),
+                  onTap: () => _edit(item),
                 ),
-              );
-            },
-            onDelete: () => _deleteItem(context, item),
+            ],
           ),
-        );
-      },
-    );
-  }
+          if (_hasMore)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      );
+    }
 
-  // ── Desktop Table ──────────────────────────────────────────────────
-  // (uses PaginatedDataTable which paginates the already-loaded data in-memory)
-
-  Widget _buildSearchBar() {
-    return SearchBarWidget(
-      onChanged: (value) {
-        searchTerm = value;
-        _loadItems();
-      },
-      hintText: "Search items...",
-      borderRadius: 12,
-      contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-    );
-  }
-
-  Widget _buildAddButton(BuildContext context) {
-    return CustomElevatedButton(
-      icon: Icon(
-        Icons.add_business,
-        color: Theme.of(context).colorScheme.onPrimary,
-      ),
-      label: const Text(
-        'Add Product',
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-      ),
-      backgroundColor: Colors.blue[700],
-      onPressed: () => _openAddProductDialog(context),
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+    return Column(
+      children: [
+        // The page around it already keeps the edges clear.
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: StaffPhoneTop(
+            caption: _summaryLoaded ? '${staffCount(_skuCount)} products' : null,
+            search: StaffSearchField(hint: 'Search products', height: 48, initialValue: searchTerm, onChanged: _onSearchChanged),
+            chips: _chips(phone: true),
+          ),
+        ),
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(child: list),
+              // Hidden while the keyboard is up: it would ride over the rows.
+              if (!keyboard)
+                Positioned(
+                  right: 16,
+                  bottom: 16 + safeBottom,
+                  child: StaffFab(
+                    label: 'Add product',
+                    icon: Icons.add_rounded,
+                    onPressed: () => _openAddProductDialog(context),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -1136,284 +752,7 @@ class _InventoryTableState extends State<InventoryTable> {
     _scrollController.dispose();
     _sub.cancel();
     _liveRefresh?.cancel();
+    _searchDebounce?.cancel();
     super.dispose();
   }
-}
-
-class _InventoryListCard extends StatelessWidget {
-  const _InventoryListCard({
-    required this.item,
-    required this.statusColor,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  final Map<String, dynamic> item;
-  final Color statusColor;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final name = (item['name'] ?? '').toString().trim();
-    final category = (item['category'] ?? '').toString().trim();
-    final lastUpdated = (item['lastUpdated'] ?? '').toString().trim();
-    final status = (item['status'] ?? '').toString().trim();
-
-    return Card(
-      margin: EdgeInsets.zero,
-      color: colorScheme.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.45)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 6, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ProductTile(
-                  name,
-                  imagePath: item['imagePath'] as String?,
-                  size: 40,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    name.isEmpty ? 'Unnamed Product' : name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                PopupMenuButton<String>(
-                  tooltip: 'Product actions',
-                  onSelected: (value) {
-                    if (value == 'edit') {
-                      onEdit();
-                    } else if (value == 'delete') {
-                      onDelete();
-                    }
-                  },
-                  itemBuilder: (ctx) => const [
-                    PopupMenuItem(value: 'edit', child: Text('Edit Product')),
-                    PopupMenuItem(
-                      value: 'delete',
-                      child: Text('Delete Product'),
-                    ),
-                  ],
-                  icon: const Icon(Icons.more_vert),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _InventoryMetaPill(
-                  icon: Icons.inventory_2_outlined,
-                  text: 'Stock ${item['stock'] ?? 0}',
-                ),
-                if (category.isNotEmpty)
-                  _InventoryMetaPill(
-                    icon: Icons.category_outlined,
-                    text: category,
-                  ),
-                _InventoryMetaPill(
-                  icon: Icons.circle,
-                  text: status.isEmpty ? 'Unknown' : status,
-                  color: statusColor,
-                ),
-              ],
-            ),
-            if (lastUpdated.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(
-                    Icons.update_outlined,
-                    size: 16,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      _formatLastUpdated(lastUpdated),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InventoryMetaPill extends StatelessWidget {
-  const _InventoryMetaPill({
-    required this.icon,
-    required this.text,
-    this.color,
-  });
-
-  final IconData icon;
-  final String text;
-  final Color? color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final iconColor = color ?? theme.colorScheme.onSurfaceVariant;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: iconColor),
-            const SizedBox(width: 5),
-            Text(
-              text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelMedium,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InventoryDataSource extends DataTableSource {
-  final List<Map<String, dynamic>> _items;
-  final int Function() _getTotalCount;
-  final Color Function(String) getStatusColor;
-  final void Function(Map<String, dynamic>) onUpdate;
-  final Future<void> Function(BuildContext, Map<String, dynamic>) onDelete;
-
-  _InventoryDataSource(
-    this._items,
-    this._getTotalCount,
-    this.getStatusColor,
-    this.onUpdate,
-    this.onDelete,
-  );
-
-  @override
-  int get rowCount => _getTotalCount();
-
-  @override
-  DataRow getRow(int index) {
-    if (index >= _items.length) {
-      // Not fetched yet — show a shimmering skeleton row instead of raw text.
-      return DataRow(
-        cells: [
-          skeletonCell(width: 150), // Item Name
-          skeletonCell(width: 90), // Category
-          skeletonCell(width: 50), // Stock
-          skeletonCell(width: 100), // Last Updated
-          skeletonCell(width: 70), // Status
-          skeletonCell(width: 40), // Action
-        ],
-      );
-    }
-    final item = _items[index];
-    final isEven = index % 2 == 0;
-
-    return DataRow(
-      color: WidgetStateProperty.resolveWith<Color?>((states) {
-        if (states.contains(WidgetState.hovered)) {
-          return Colors.grey.withAlpha(18);
-        }
-        if (isEven) {
-          return Colors.grey.withAlpha(20);
-        }
-        return null;
-      }),
-      cells: [
-        DataCell(
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ProductTile(
-                item["name"] ?? "",
-                imagePath: item["imagePath"] as String?,
-                size: 32,
-              ),
-              const SizedBox(width: 10),
-              Flexible(child: Text(item["name"] ?? "")),
-            ],
-          ),
-        ),
-        DataCell(Text(item["category"] ?? "")),
-        DataCell(Text((item["stock"] ?? 0).toString())),
-        DataCell(Text(_formatLastUpdated(item["lastUpdated"]))),
-        DataCell(
-          Text(
-            item["status"]?.toString() ?? "",
-            style: TextStyle(
-              color: getStatusColor(item["status"]?.toString() ?? ""),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        DataCell(
-          Builder(
-            builder: (cellContext) => PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert),
-              onSelected: (value) async {
-                if (value == 'edit') {
-                  showAnimatedDialog(
-                    cellContext,
-                    builder: (dialogContext) => EditProductDialog(
-                      item: item,
-                      onUpdated: () => onUpdate(item),
-                    ),
-                  );
-                } else if (value == 'delete') {
-                  await onDelete(cellContext, item);
-                }
-              },
-              itemBuilder: (menuContext) => [
-                const PopupMenuItem(value: 'edit', child: Text('Edit Product')),
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: Text('Delete Product'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  @override
-  bool get isRowCountApproximate => false;
-  @override
-  int get selectedRowCount => 0;
-
-  /// Call after external data changes to refresh the table.
-  void refresh() => notifyListeners();
 }

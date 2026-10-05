@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lzcas/widgets/staff_table.dart' show StaffButton, StaffFab;
 import 'package:flutter/services.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
@@ -12,12 +13,15 @@ import 'package:lzcas/utils/member_search.dart';
 class SellButton extends StatefulWidget {
   final bool compact;
 
+  /// The phone's floating Sell, bottom-right on Transactions.
+  final bool floating;
+
   /// When non-null, this POS sells from the given branch cashier's allocation
   /// (branch_stock) instead of central stock, and records the sale via the
   /// `record_branch_sale` RPC. Null = normal central-stock POS.
   final String? branchOwnerId;
 
-  const SellButton({super.key, this.compact = false, this.branchOwnerId});
+  const SellButton({super.key, this.compact = false, this.floating = false, this.branchOwnerId});
 
   @override
   State<SellButton> createState() => _SellButtonState();
@@ -65,6 +69,13 @@ class _SellButtonState extends State<SellButton> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.floating) {
+      return StaffFab(
+        label: 'Sell',
+        icon: Icons.point_of_sale_outlined,
+        onPressed: () => _showSellDialog(context),
+      );
+    }
     if (widget.compact) {
       return ElevatedButton.icon(
         icon: const Icon(Icons.point_of_sale, size: 20),
@@ -73,9 +84,10 @@ class _SellButtonState extends State<SellButton> {
       );
     }
 
-    return ElevatedButton.icon(
-      icon: const Icon(Icons.point_of_sale),
-      label: const Text('Sell'),
+    // The page's main button, as on the other staff tables.
+    return StaffButton(
+      label: 'Sell',
+      icon: Icons.point_of_sale_outlined,
       onPressed: () => _showSellDialog(context),
     );
   }

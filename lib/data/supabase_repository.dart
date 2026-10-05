@@ -764,6 +764,8 @@ class SupabaseRepository {
     String sortColumn = 'timestamp',
     bool sortAscending = false,
     String? userId,
+    DateTime? since,
+    SaleKind? kind,
   }) async {
     dynamic dataQuery = _supabase.from('sales').select('*');
     dynamic countQuery = _supabase.from('sales').select('id');
@@ -772,6 +774,36 @@ class SupabaseRepository {
     if (userId != null) {
       dataQuery = dataQuery.eq('user_id', userId);
       countQuery = countQuery.eq('user_id', userId);
+    }
+
+    // The Transactions date range (Today, This week, ...).
+    if (since != null) {
+      final at = since.toUtc().toIso8601String();
+      dataQuery = dataQuery.gte('timestamp', at);
+      countQuery = countQuery.gte('timestamp', at);
+    }
+
+    // Counter, Delivery or Branch (the Transactions chips; [saleKindOf]).
+    if (kind != null) {
+      if (kind == SaleKind.delivery) {
+        dataQuery = dataQuery.not('payment_method', 'is', null);
+        countQuery = countQuery.not('payment_method', 'is', null);
+      } else {
+        dataQuery = dataQuery.isFilter('payment_method', null);
+        countQuery = countQuery.isFilter('payment_method', null);
+        final branch = (await branchCashierIds()).toList();
+        if (kind == SaleKind.branch) {
+          if (branch.isEmpty) {
+            return PageResult(rows: const [], totalCount: 0, page: page, pageSize: pageSize);
+          }
+          dataQuery = dataQuery.inFilter('user_id', branch);
+          countQuery = countQuery.inFilter('user_id', branch);
+        } else if (branch.isNotEmpty) {
+          final list = '(${branch.join(',')})';
+          dataQuery = dataQuery.not('user_id', 'in', list);
+          countQuery = countQuery.not('user_id', 'in', list);
+        }
+      }
     }
 
     if (search != null && search.isNotEmpty) {
@@ -4421,6 +4453,70 @@ class SupabaseRepository {
     for (var i = 0; i < all.length; i += size) {
       yield all.sublist(i, i + size > all.length ? all.length : i + size);
     }
+  }
+
+  /// Usernames of staff accounts by profile id, from the shared name cache
+  /// (null for an id with no profile). For "Sold by" on Transactions.
+  Future<Map<String, String?>> staffNamesFor(Set<String> ids) async {
+    if (ids.isEmpty) return const {};
+    await _loadOrderNames(productIds: const {}, memberIds: const {}, profileIds: ids);
+    return {for (final id in ids) id: _profileNameCache[id]};
+  }
+
+  Set<String>? _branchCashierIds;
+  DateTime _branchCashierIdsAt = DateTime(2000);
+
+  /// The branch cashiers' account ids: their sales are the Branch ones on
+  /// Transactions. Read again after ten minutes.
+  Future<Set<String>> branchCashierIds() async {
+    final cached = _branchCashierIds;
+    if (cached != null && DateTime.now().difference(_branchCashierIdsAt) < const Duration(minutes: 10)) {
+      return cached;
+    }
+    try {
+      final data = await _supabase.from('profiles').select('id').eq('role', 'branch_cashier');
+      final ids = {for (final r in (data as List)) r['id'] as String};
+      _branchCashierIds = ids;
+      _branchCashierIdsAt = DateTime.now();
+      return ids;
+    } catch (e) {
+      debugPrint('[branchCashierIds] $e');
+      return cached ?? const {};
+    }
+  }
+
+  /// Checkouts and money since [since], in all and per kind: for the
+  /// Transactions caption and chips. One checkout is the sale lines with
+  /// the same time and buyer (as the list groups them).
+  Future<SalesSummary> fetchSalesSummary({required DateTime since, String? userId}) async {
+    final rows = await _selectAll(() {
+      dynamic q = _supabase
+          .from('sales')
+          .select('price, quantity, timestamp, buyer_id, user_id, payment_method')
+          .gte('timestamp', since.toUtc().toIso8601String());
+      if (userId != null) q = q.eq('user_id', userId);
+      return q;
+    });
+    final branch = await branchCashierIds();
+    final checkouts = <String, SaleKind>{};
+    var total = 0;
+    for (final r in rows) {
+      total += ((r['price'] as num?) ?? 0).toInt() * ((r['quantity'] as num?) ?? 0).toInt();
+      final key = '${r['timestamp']}_${r['buyer_id']}';
+      checkouts[key] ??= saleKindOf(
+        paymentMethod: r['payment_method'] as String?,
+        userId: r['user_id'] as String?,
+        branchIds: branch,
+      );
+    }
+    int count(SaleKind k) => checkouts.values.where((v) => v == k).length;
+    return SalesSummary(
+      checkouts: checkouts.length,
+      total: total,
+      counter: count(SaleKind.counter),
+      delivery: count(SaleKind.delivery),
+      branch: count(SaleKind.branch),
+    );
   }
 
   /// Names (and package) of just [ids], from the shared name cache. For a

@@ -484,6 +484,10 @@ class Sale {
   /// Sold through a delivery order rather than at the counter.
   bool get isOnlineOrder => paymentMethod != null;
 
+  /// Counter, Delivery or Branch, for Transactions.
+  SaleKind kind(Set<String> branchIds) =>
+      saleKindOf(paymentMethod: paymentMethod, userId: userId, branchIds: branchIds);
+
   factory Sale.fromJson(Map<String, dynamic> json) => Sale(
     id: json['id'] as int?,
     itemId: json['item_id'] as int? ?? 0,
@@ -536,6 +540,47 @@ class Sale {
     packageId: packageId ?? this.packageId,
     paymentMethod: paymentMethod,
   );
+}
+
+/// Where a sale was made, as Transactions tells them apart.
+enum SaleKind {
+  /// At a main cashier's POS (package availments too).
+  counter,
+
+  /// Through a delivery order: paid with funds, cash on delivery, at the
+  /// counter or outside the app (sales.payment_method, v52).
+  delivery,
+
+  /// At a branch cashier's POS, from their allocation.
+  branch,
+}
+
+SaleKind saleKindOf({
+  required String? paymentMethod,
+  required String? userId,
+  required Set<String> branchIds,
+}) {
+  if (paymentMethod != null) return SaleKind.delivery;
+  if (userId != null && branchIds.contains(userId)) return SaleKind.branch;
+  return SaleKind.counter;
+}
+
+/// The Transactions caption and chips for a date range: how many
+/// checkouts, the money, and the checkouts of each kind.
+class SalesSummary {
+  final int checkouts;
+  final int total;
+  final int counter;
+  final int delivery;
+  final int branch;
+
+  const SalesSummary({
+    required this.checkouts,
+    required this.total,
+    required this.counter,
+    required this.delivery,
+    required this.branch,
+  });
 }
 
 /// Audit row for member transactions (member_transactions table).

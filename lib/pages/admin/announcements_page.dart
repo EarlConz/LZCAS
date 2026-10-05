@@ -28,9 +28,14 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/services/poster_service.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/dialogs/announcement_detail_dialog.dart';
 import 'package:lzcas/widgets/announcement_widgets.dart';
 import 'package:lzcas/widgets/poster_image.dart';
 import 'package:lzcas/widgets/poster_picker_field.dart';
+import 'package:lzcas/widgets/staff_table.dart';
+
+/// The Announcements chips.
+enum _Show { all, live, scheduled, ended }
 
 class AnnouncementsPage extends StatefulWidget {
   const AnnouncementsPage({super.key});
@@ -48,6 +53,9 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
 
   bool _loading = true;
   StreamSubscription<String>? _sub;
+
+  /// Which chip is on.
+  _Show _show = _Show.all;
 
   /// Read once in [initState] rather than watched: a dashboard never changes
   /// the role of the account rendering it without rebuilding from scratch.
@@ -224,10 +232,10 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
       ],
     );
 
-    final button = FilledButton.icon(
+    final button = StaffButton(
+      label: 'New announcement',
+      icon: Icons.add_rounded,
       onPressed: () => _compose(),
-      icon: const Icon(Icons.add_rounded, size: 18),
-      label: const Text('New Announcement'),
     );
 
     // Side by side there is not enough room on a phone for both the
@@ -252,395 +260,226 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
     );
   }
 
-  Widget _list(bool isDark) {
-    final divider = isDark
-        ? StockpileColors.darkDivider
-        : StockpileColors.divider;
-
-    if (_announcements.isEmpty) {
-      return _shell(
-        isDark,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 40),
-          child: Center(
-            child: Text(
-              'No announcements yet.',
-              style: StockpileFonts.satoshi(
-                fontSize: 14,
-                color: StockpileColors.mutedText,
-              ),
-            ),
-          ),
-        ),
-      );
+  /// Live now, waiting for its start, or over (ended or taken down).
+  static _Show _statusOf(Announcement a) {
+    if (a.isCurrent()) return _Show.live;
+    final now = DateTime.now();
+    final ended = a.isArchived || (a.endsAt != null && !a.endsAt!.isAfter(now));
+    if (!ended && a.publishedAt != null && a.publishedAt!.isAfter(now)) {
+      return _Show.scheduled;
     }
-
-    // The table form needs 628px of fixed columns before the title gets any
-    // space at all, so on a phone it is replaced by stacked cards rather than
-    // squeezed. The column headings go with it — they label nothing once the
-    // columns are gone.
-    //
-    // 720 until v51 added the "Posted by" column; the threshold moved with
-    // it so the title never loses its share of the row.
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 850;
-        return _shell(
-          isDark,
-          child: Column(
-            children: [
-              if (wide) _headerRow(isDark),
-              for (var i = 0; i < _announcements.length; i++) ...[
-                if (i > 0) Divider(height: 1, color: divider.withAlpha(120)),
-                wide
-                    ? _row(_announcements[i], isDark)
-                    : _card(_announcements[i], isDark),
-              ],
-            ],
-          ),
-        );
-      },
-    );
+    return _Show.ended;
   }
 
-  /// Narrow-width form of [_row]: the same information stacked, with the
-  /// chips wrapping instead of sitting in fixed columns.
-  Widget _card(Announcement a, bool isDark) {
-    final live = a.isCurrent();
-    final textColor = live
-        ? (isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText)
-        : StockpileColors.mutedText;
+  static Widget _statusPill(Announcement a, {bool small = false}) => switch (_statusOf(a)) {
+    _Show.live => StaffPill('Live', tone: StaffTone.green, small: small),
+    _Show.scheduled => StaffPill('Scheduled', tone: StaffTone.blue, small: small),
+    _ => StaffPill(a.isArchived ? 'Taken down' : 'Ended', small: small),
+  };
 
-    return Container(
-      color: live
-          ? null
-          : (isDark
-                ? Colors.white.withValues(alpha: 0.02)
-                : const Color(0xFFFCFCFD)),
-      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (a.hasImage) ...[
-            PosterImage(
-              path: a.imagePath,
-              isDark: isDark,
-              width: 44,
-              height: 44,
-              borderRadius: 8,
-            ),
-            const SizedBox(width: 12),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  a.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: StockpileFonts.satoshi(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    height: 1.3,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  a.hasBody ? a.body : 'Poster only',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style:
-                      StockpileFonts.satoshi(
-                        fontSize: 12,
-                        height: 1.4,
-                        color: StockpileColors.mutedText,
-                      ).copyWith(
-                        fontStyle: a.hasBody
-                            ? FontStyle.normal
-                            : FontStyle.italic,
-                      ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    _chip(
-                      a.isArchived ? 'Taken down' : (live ? 'Active' : 'Ended'),
-                      bg: live
-                          ? StockpileColors.successBg
-                          : (isDark
-                                ? StockpileColors.darkInputBg
-                                : StockpileColors.inputBg),
-                      fg: live
-                          ? const Color(0xFF16A34A)
-                          : StockpileColors.mutedText,
-                      bold: true,
-                    ),
-                    _audienceChip(a, isDark),
-                    Text(
-                      a.endsAt == null
-                          ? 'No end date'
-                          : 'Until ${formatDayAndMonth(a.endsAt)}',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 12,
-                        color: StockpileColors.mutedText,
-                      ),
-                    ),
-                    if (_authorName(a) case final author?)
-                      Text(
-                        'by $author',
-                        style: StockpileFonts.satoshi(
-                          fontSize: 12,
-                          color: StockpileColors.mutedText,
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Column(children: _actions(a)),
-        ],
-      ),
-    );
-  }
+  static String _audience(Announcement a) => switch (a.audience) {
+    AnnouncementAudience.all => 'Everyone',
+    AnnouncementAudience.branches => 'Branches',
+    AnnouncementAudience.members => 'Members',
+  };
 
-  Widget _shell(bool isDark, {required Widget child}) => Container(
-    width: double.infinity,
-    decoration: BoxDecoration(
-      color: isDark ? StockpileColors.darkSurface : StockpileColors.surface,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(
-        color: isDark ? StockpileColors.darkDivider : StockpileColors.divider,
-      ),
-    ),
-    clipBehavior: Clip.antiAlias,
-    child: child,
+  /// Branches is tinted: the one that reaches staff rather than customers,
+  /// worth catching at a glance.
+  static Widget _audiencePill(Announcement a) => StaffPill(
+    _audience(a),
+    tone: a.audience == AnnouncementAudience.branches ? StaffTone.blue : StaffTone.neutral,
   );
 
-  Widget _headerRow(bool isDark) {
-    Widget h(String text, {double? width, bool grow = false}) {
-      final child = Text(
-        text,
-        style: StockpileFonts.satoshi(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: StockpileColors.mutedText,
-        ),
-      );
-      if (grow) return Expanded(child: child);
-      return SizedBox(width: width, child: child);
+  String _postedBy(Announcement a) => _authorName(a) ?? (a.createdBy == null ? '—' : 'You');
+
+  /// A row opens its editor, or, for one this account may not change (or
+  /// already taken down), the announcement as members see it.
+  void _open(Announcement a) {
+    if (_canManage(a) && !a.isArchived) {
+      _compose(existing: a);
+    } else {
+      showAnnouncementDetail(context, announcement: a);
     }
-
-    return Container(
-      color: isDark ? StockpileColors.darkInputBg : StockpileColors.tableHead,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      child: Row(
-        children: [
-          h('Announcement', grow: true),
-          const SizedBox(width: 16),
-          h('Posted by', width: 110),
-          const SizedBox(width: 16),
-          h('Audience', width: 130),
-          const SizedBox(width: 16),
-          h('Status', width: 100),
-          const SizedBox(width: 16),
-          h('Shows until', width: 120),
-          const SizedBox(width: 16),
-          const SizedBox(width: 88),
-        ],
-      ),
-    );
   }
 
-  Widget _row(Announcement a, bool isDark) {
-    final live = a.isCurrent();
-    final textColor = live
-        ? (isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText)
-        : StockpileColors.mutedText;
-
-    return Container(
-      color: live
-          ? null
-          : (isDark
-                ? Colors.white.withValues(alpha: 0.02)
-                : const Color(0xFFFCFCFD)),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        children: [
-          if (a.hasImage) ...[
-            PosterImage(
-              path: a.imagePath,
-              isDark: isDark,
-              width: 40,
-              height: 40,
-              borderRadius: 8,
-            ),
-            const SizedBox(width: 12),
-          ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  a.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: StockpileFonts.satoshi(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  // An image-only notice has nothing to preview here, and a
-                  // blank line reads as a row that failed to load.
-                  a.hasBody ? a.body : 'Poster only',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style:
-                      StockpileFonts.satoshi(
-                        fontSize: 12,
-                        color: StockpileColors.mutedText,
-                      ).copyWith(
-                        fontStyle: a.hasBody
-                            ? FontStyle.normal
-                            : FontStyle.italic,
-                      ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          SizedBox(
-            width: 110,
-            child: Text(
-              _authorName(a) ?? (a.createdBy == null ? '—' : 'You'),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: StockpileFonts.satoshi(
-                fontSize: 13,
-                color: StockpileColors.mutedText,
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          SizedBox(width: 130, child: _audienceChip(a, isDark)),
-          const SizedBox(width: 16),
-          SizedBox(
-            width: 100,
-            child: _chip(
-              a.isArchived ? 'Taken down' : (live ? 'Active' : 'Ended'),
-              bg: live
-                  ? StockpileColors.successBg
-                  : (isDark
-                        ? StockpileColors.darkInputBg
-                        : StockpileColors.inputBg),
-              fg: live ? const Color(0xFF16A34A) : StockpileColors.mutedText,
-              bold: true,
-            ),
-          ),
-          const SizedBox(width: 16),
-          SizedBox(
-            width: 120,
-            child: Text(
-              a.endsAt == null ? 'No end date' : formatDayAndMonth(a.endsAt),
-              style: StockpileFonts.satoshi(
-                fontSize: 13,
-                color: a.endsAt == null ? StockpileColors.mutedText : textColor,
-              ),
-            ),
-          ),
-          const SizedBox(width: 16),
-          SizedBox(
-            width: 88,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: _actions(a),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Edit and take-down, shared by both forms so a permission can only be
-  /// got wrong in one place.
-  ///
-  /// A disabled button says why in its tooltip: "nothing happens" and "you
-  /// may not do this" look identical otherwise.
-  List<Widget> _actions(Announcement a) {
+  /// Edit and take-down, for both layouts, so a permission can only be got
+  /// wrong in one place. One that is off says why.
+  List<StaffMenuItem> _menu(Announcement a) {
     final mine = _canManage(a);
     final reason = a.isArchived
         ? 'Already taken down'
         : 'Only ${_authorName(a) ?? 'the author'} or an admin can change this';
-
+    final off = a.isArchived || !mine;
     return [
-      IconButton(
-        tooltip: a.isArchived || !mine ? reason : 'Edit',
-        iconSize: 18,
-        onPressed: a.isArchived || !mine ? null : () => _compose(existing: a),
-        icon: const Icon(Icons.edit_outlined),
-      ),
-      IconButton(
-        tooltip: a.isArchived || !mine ? reason : 'Take down',
-        iconSize: 18,
-        onPressed: a.isArchived || !mine ? null : () => _confirmArchive(a),
-        icon: const Icon(Icons.archive_outlined),
+      StaffMenuItem('Open', Icons.open_in_new_rounded, () => showAnnouncementDetail(context, announcement: a)),
+      StaffMenuItem('Edit', Icons.edit_outlined, () => _compose(existing: a), enabled: !off, reason: reason),
+      StaffMenuItem(
+        'Take down',
+        Icons.archive_outlined,
+        () => _confirmArchive(a),
+        danger: true,
+        enabled: !off,
+        reason: reason,
       ),
     ];
   }
 
-  /// Audience chip, shared by the wide row and the narrow card so the two
-  /// forms cannot disagree about what an audience is called.
-  ///
-  /// Branches is tinted because it is the one that reaches staff rather than
-  /// customers — the distinction worth catching at a glance before posting.
-  Widget _audienceChip(Announcement a, bool isDark) {
-    final isBranches = a.audience == AnnouncementAudience.branches;
-    return _chip(
-      switch (a.audience) {
-        AnnouncementAudience.all => 'Everyone',
-        AnnouncementAudience.branches => 'Branches',
-        AnnouncementAudience.members => 'Members',
-      },
-      bg: isBranches
-          ? StockpileColors.secondary50
-          : (isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg),
-      fg: isBranches ? StockpileColors.secondary500 : StockpileColors.bodyText,
+  Widget _thumb(Announcement a, bool isDark, {double width = 56, double height = 42}) {
+    if (a.hasImage) {
+      return PosterImage(path: a.imagePath, isDark: isDark, width: width, height: height, borderRadius: 8);
+    }
+    final s = StaffTableStyle.of(context);
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(color: s.input, borderRadius: BorderRadius.circular(8)),
+      child: Icon(Icons.campaign_outlined, size: 20, color: s.muted),
     );
   }
 
-  Widget _chip(
-    String text, {
-    required Color bg,
-    required Color fg,
-    bool bold = false,
-  }) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(100),
-        ),
-        child: Text(
-          text,
-          style: StockpileFonts.satoshi(
-            fontSize: 12,
-            fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
-            color: fg,
-          ),
-        ),
-      ),
+  Widget _list(bool isDark) {
+    final counts = {for (final v in _Show.values) v: 0};
+    for (final a in _announcements) {
+      counts[_statusOf(a)] = counts[_statusOf(a)]! + 1;
+    }
+    final shown = _show == _Show.all
+        ? _announcements
+        : _announcements.where((a) => _statusOf(a) == _show).toList();
+    final s = StaffTableStyle.of(context);
+    final empty = _announcements.isEmpty
+        ? 'No announcements yet.'
+        : 'None ${switch (_show) {
+            _Show.live => 'live',
+            _Show.scheduled => 'scheduled',
+            _ => 'ended',
+          }} right now.';
+
+    StaffChip chip(String label, _Show v, int n) =>
+        StaffChip(label: label, count: n, selected: _show == v, onTap: () => setState(() => _show = v));
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 850;
+        final chips = [
+          chip('All', _Show.all, _announcements.length),
+          chip('Live', _Show.live, counts[_Show.live]!),
+          chip('Scheduled', _Show.scheduled, counts[_Show.scheduled]!),
+          chip('Ended', _Show.ended, counts[_Show.ended]!),
+        ];
+
+        final Widget body;
+        if (wide) {
+          body = StaffTable(
+            shrinkWrap: true,
+            rowHeight: 70,
+            itemCount: shown.length,
+            emptyText: empty,
+            onRowTap: (i) => _open(shown[i]),
+            dimmed: (i) => _statusOf(shown[i]) == _Show.ended,
+            columns: const [
+              StaffColumn('Announcement', flex: 30),
+              StaffColumn('Posted by', flex: 10),
+              StaffColumn('Audience', flex: 11),
+              StaffColumn('Status', width: 120),
+              StaffColumn('Shows until', flex: 10),
+              StaffColumn('', width: 48),
+            ],
+            cells: (context, i) {
+              final a = shown[i];
+              final over = _statusOf(a) == _Show.ended;
+              return [
+                Row(
+                  children: [
+                    _thumb(a, isDark),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            a.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: StockpileFonts.satoshi(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: over ? s.muted : s.text,
+                            ),
+                          ),
+                          Text(
+                            // An image-only notice has nothing to preview, and
+                            // a blank line reads as a row that failed to load.
+                            a.hasBody ? a.body : 'Poster only',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: StockpileFonts.satoshi(fontSize: 14, color: s.muted).copyWith(
+                              fontStyle: a.hasBody ? FontStyle.normal : FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  _postedBy(a),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: StockpileFonts.satoshi(fontSize: 15, color: s.body),
+                ),
+                Align(alignment: Alignment.centerLeft, child: _audiencePill(a)),
+                Align(alignment: Alignment.centerLeft, child: _statusPill(a)),
+                Text(
+                  a.endsAt == null ? 'No end date' : formatDayAndMonth(a.endsAt),
+                  style: StockpileFonts.satoshi(fontSize: 15, color: a.endsAt == null ? s.muted : s.body),
+                ),
+                StaffMoreButton(tooltip: 'More for ${a.title}', items: _menu(a)),
+              ];
+            },
+          );
+        } else if (shown.isEmpty) {
+          body = StaffPhoneCard(
+            rows: [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 36),
+                child: Center(child: Text(empty, style: StockpileFonts.satoshi(fontSize: 15, color: s.muted))),
+              ),
+            ],
+          );
+        } else {
+          body = StaffPhoneCard(
+            rows: [
+              for (final a in shown)
+                StaffPhoneRow(
+                  leading: _thumb(a, isDark, width: 48, height: 48),
+                  title: a.title,
+                  dimmed: _statusOf(a) == _Show.ended,
+                  lines: [
+                    if (a.hasBody) a.body else 'Poster only',
+                    [
+                      _audience(a),
+                      a.endsAt == null ? 'No end date' : 'Until ${formatDayAndMonth(a.endsAt)}',
+                      if (_authorName(a) case final author?) 'by $author',
+                    ].join(' · '),
+                  ],
+                  trailing: _statusPill(a, small: true),
+                  menu: _menu(a),
+                  onTap: () => _open(a),
+                ),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            StaffChipBar(chips: chips, phone: !wide, hint: wide ? 'Click a row to edit' : null),
+            const SizedBox(height: 14),
+            body,
+          ],
+        );
+      },
     );
   }
 }
