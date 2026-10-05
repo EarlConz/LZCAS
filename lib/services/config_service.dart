@@ -4,6 +4,7 @@
 
 import 'package:flutter/foundation.dart';
 import '../db/db.dart';
+import 'eta_estimator.dart';
 
 class ConfigService extends ChangeNotifier {
   Map<String, String> _config = {};
@@ -35,6 +36,10 @@ class ConfigService extends ChangeNotifier {
       : '₱';
 
   bool get notificationsEnabled => _config['notifications_enabled'] != 'false';
+
+  /// The automatic arrival time's traffic factor and hand-over minutes
+  /// (admin Settings → Delivery time estimate). See eta_estimator.dart.
+  EtaTuning get etaTuning => EtaTuning.fromConfig(_config);
 
   // ── Birthday greetings (v36) ────────────────────────────────────────
   // Kept in app_config so the wording and the window can be changed without

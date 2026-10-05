@@ -4076,6 +4076,35 @@ class SupabaseRepository {
     return _withOrderItems(rows as List);
   }
 
+  /// The last [limit] rider deliveries that have a route and both times:
+  /// the map's car time for the route, and pickup to delivered as it
+  /// really went. For the delivery time estimate's "how it has done".
+  Future<List<({int routeSeconds, int actualSeconds})>> fetchRiderTripTimes({
+    int limit = 30,
+  }) async {
+    final rows = await _supabase
+        .from('orders')
+        .select('route_duration_s, picked_up_at, delivered_at')
+        .eq('delivery_route', 'rider')
+        .not('route_duration_s', 'is', null)
+        .not('picked_up_at', 'is', null)
+        .not('delivered_at', 'is', null)
+        .order('delivered_at', ascending: false)
+        .limit(limit);
+    final out = <({int routeSeconds, int actualSeconds})>[];
+    for (final r in (rows as List).cast<Map<String, dynamic>>()) {
+      final route = (r['route_duration_s'] as num?)?.toInt();
+      final from = DateTime.tryParse(r['picked_up_at']?.toString() ?? '');
+      final to = DateTime.tryParse(r['delivered_at']?.toString() ?? '');
+      if (route == null || route <= 0 || from == null || to == null) continue;
+      final actual = to.difference(from).inSeconds;
+      // A delivery left "picked up" overnight says nothing about traffic.
+      if (actual <= 0 || actual > 4 * 3600) continue;
+      out.add((routeSeconds: route, actualSeconds: actual));
+    }
+    return out;
+  }
+
   /// One order with its lines, or null when it is gone or not visible to
   /// this account. For a screen showing a single order, which used to read
   /// every order to find it.

@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/config/feature_flags.dart';
+import 'package:lzcas/widgets/delivery_eta_settings.dart';
 import 'package:lzcas/widgets/modal_kit.dart';
 import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
@@ -3530,6 +3531,12 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
             ),
           ),
           const SizedBox(height: 32),
+
+          // ── Delivery time estimate (automatic rider ETA) ──
+          if (enableDeliverySystem) ...[
+            const DeliveryEtaSettings(),
+            const SizedBox(height: 32),
+          ],
 
           // ── Updates ───────────────────────────────────
           Text(

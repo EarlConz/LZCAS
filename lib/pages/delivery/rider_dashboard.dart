@@ -26,7 +26,10 @@ import 'package:lzcas/dialogs/update_dialog.dart';
 import 'package:lzcas/pages/delivery/rider_order_card.dart';
 import 'package:lzcas/pages/delivery/rider_order_detail_page.dart';
 import 'package:lzcas/router/route_guard.dart';
+import 'package:lzcas/services/config_service.dart';
+import 'package:lzcas/services/eta_estimator.dart';
 import 'package:lzcas/services/geocoding_service.dart';
+import 'package:lzcas/services/ui_prefs.dart';
 import 'package:lzcas/services/updater_service.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
@@ -64,6 +67,8 @@ class _RiderDashboardState extends State<RiderDashboard> {
   @override
   void initState() {
     super.initState();
+    // Which orders' arrival times the rider set by hand (see _autoArrivals).
+    UiPrefs.instance.load();
     _load();
     _changes = repository.changes.listen((e) {
       if ((e == 'order_updated' || e == 'order_added') && mounted) _load();
@@ -113,6 +118,7 @@ class _RiderDashboardState extends State<RiderDashboard> {
   }
 
   Future<void> _ping() async {
+    final tuning = context.read<ConfigService>().etaTuning;
     final p = await GeocodingService.resolvePosition();
     if (p == null || !mounted) return;
     setState(() => _me = p);
@@ -120,6 +126,37 @@ class _RiderDashboardState extends State<RiderDashboard> {
       latitude: p.latitude,
       longitude: p.longitude,
     );
+    await _autoArrivals(LatLng(p.latitude, p.longitude), tuning);
+  }
+
+  /// Each order on the way gets its arrival time worked out again from
+  /// where the rider is now (eta_estimator.dart). It is saved only when it
+  /// moved 3 minutes or more, so the member's screen doesn't flicker, and
+  /// never for an order whose time the rider set by hand. Changing the time
+  /// sends nobody an alert (test O3).
+  Future<void> _autoArrivals(LatLng at, EtaTuning tuning) async {
+    final onTheWay = _orders.where((o) => o.isPickedUp && !o.isCourier).toList();
+    for (final o in onTheWay) {
+      if (UiPrefs.instance.flag(EtaEstimator.manualKey(o.id), fallback: false)) {
+        continue;
+      }
+      final eta = EtaEstimator.arrival(o, tuning, from: at);
+      if (eta == null) continue;
+      final current = o.etaAt;
+      if (current != null &&
+          eta.difference(current).abs() < const Duration(minutes: 3)) {
+        continue;
+      }
+      final soonest = DateTime.now().add(const Duration(minutes: 1));
+      try {
+        await repository.deliveryUpdateEta(
+          orderId: o.id,
+          etaAt: eta.isAfter(soonest) ? eta : soonest,
+        );
+      } catch (_) {
+        // The next ping tries again.
+      }
+    }
   }
 
   /// One-off fix for the distances on the cards, without starting the
