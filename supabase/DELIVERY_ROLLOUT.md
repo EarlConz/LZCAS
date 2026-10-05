@@ -80,7 +80,7 @@ Every migration has a rollback in `supabase/rollbacks/`, named after it.
 |---|:-:|:-:|
 | `order-route` deployed | ✅ | ❌ |
 | secret `ORS_API_KEY` (openrouteservice) | ✅ | ❌ |
-| `order-push` deployed **with `--no-verify-jwt`** | ⚠️ v61 version; **redeploy** for the 2026-10-03 admin rules | ❌ |
+| `order-push` deployed **with `--no-verify-jwt`** | ✅ 2026-10-05 (admin rules of 2026-10-03) | ❌ |
 | secrets `PUSH_WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT`, `SERVICE_ROLE_KEY` | ✅ | ❌ |
 | Vault `order_push_url` = the production `order-push` URL | ✅ | ❌ |
 | Vault `order_push_secret` = the same value as `PUSH_WEBHOOK_SECRET` | ✅ | ❌ |
@@ -136,3 +136,4 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-05 | Backfill ran on staging (Group Sales and referral bonuses paid). Found the orders updated_at trigger missing too; added v72. |
 | 2026-10-05 | v70 and v71 verified on staging (realtime, 8 functions, 4 sales triggers, old members trigger gone, ledger rows). |
 | 2026-10-05 | v72 applied and verified on staging. |
+| 2026-10-05 | order-push redeployed on staging with the 2026-10-03 admin alert rules. |
