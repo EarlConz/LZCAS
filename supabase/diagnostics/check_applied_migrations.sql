@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which migrations are actually applied to THIS project? (v35 … v71)
+-- Which migrations are actually applied to THIS project? (v35 … v72)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -341,6 +341,13 @@ select 'v71  commission triggers on sales',
                                     'trg_remove_group_sales_del', 'trg_crystallize_referral_on_availment')) = 4
             then 'APPLIED' else 'MISSING' end,
        '4 commission triggers on sales'
+
+union all
+select 'v72  orders updated_at trigger',
+       case when exists (select 1 from pg_trigger
+                          where tgname = 'orders_touch_updated_at' and not tgisinternal)
+            then 'APPLIED' else 'MISSING' end,
+       'orders_touch_updated_at trigger'
 
 order by 1;
 
