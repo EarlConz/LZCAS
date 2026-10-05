@@ -579,7 +579,9 @@ class MembersTableState extends State<MembersTable> {
     final pkg = v('packageName');
     final contact = v('contactNo');
     final referrer = v('referrer');
-    final hasLogin = v('email').isNotEmpty || v('user_id').isNotEmpty;
+    // A login is an email on the member (as the member pop-up checks it).
+    // Not user_id: that is the staff account that created the member.
+    final hasLogin = v('email').isNotEmpty;
 
     return [
       Row(

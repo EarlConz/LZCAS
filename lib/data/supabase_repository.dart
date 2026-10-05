@@ -4024,7 +4024,7 @@ class SupabaseRepository {
           m.birthday ?? '',
           m.address ?? '',
           m.referrer ?? '',
-          (m.email ?? '').trim().isNotEmpty || (m.userId ?? '').trim().isNotEmpty ? 'Yes' : 'No',
+          (m.email ?? '').trim().isNotEmpty ? 'Yes' : 'No',
         ],
     ];
     return const ListToCsvConverter().convert(rows);

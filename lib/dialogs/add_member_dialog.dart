@@ -45,8 +45,11 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   /// (Part 3, G2: a referrer typed but not picked got no commission).
   String _referrerTyped = '';
   final _referrerKey = GlobalKey<FormFieldState>();
+  /// Required: every member avails a package (client, 2026-10-06), so
+  /// "member" and "reseller" are the same thing, and each has a login.
   int? _selectedPackageId;
-  bool _createAccount = false;
+  final _packageKey = GlobalKey<FormFieldState<int?>>();
+  bool _createAccount = true;
   bool _obscurePassword = true;
   bool _submitting = false;
 
@@ -57,8 +60,9 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
   final _passwordKey = GlobalKey<FormFieldState>();
 
   /// A package makes this member a Verified Reseller, and reseller records
-  /// are tied to a login account — so a package makes the account mandatory.
-  bool get _accountRequired => _selectedPackageId != null;
+  /// are tied to a login account. Every member has a package now, so every
+  /// member has a login.
+  bool get _accountRequired => true;
 
   Future<void> _pickBirthday() async {
     final birthday = await showBirthdayPickerDialog(
@@ -135,8 +139,13 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
       _contactKey.currentState?.validate();
       valid = false;
     }
+    // A package is required (client, 2026-10-06).
+    if (_selectedPackageId == null) {
+      _packageKey.currentState?.validate();
+      valid = false;
+    }
     // Account: username + password required whenever an account is created
-    // (which is mandatory once a package is selected).
+    // (which is mandatory, since every member has a package).
     if (_createAccount) {
       if (usernameController.text.trim().isEmpty) {
         _usernameKey.currentState?.validate();
@@ -258,14 +267,15 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
             FieldPair(
               LabeledField(
                 label: 'Package',
+                required: true,
                 child: DropdownButtonFormField<int?>(
+                  key: _packageKey,
                   isExpanded: true,
                   initialValue: _selectedPackageId,
+                  hint: const Text('Choose a package', overflow: TextOverflow.ellipsis),
+                  autovalidateMode: AutovalidateMode.onUserInteraction,
+                  validator: (v) => v == null ? 'Every member avails a package' : null,
                   items: [
-                    const DropdownMenuItem<int?>(
-                      value: null,
-                      child: Text('None — standard Member', overflow: TextOverflow.ellipsis),
-                    ),
                     ..._packages.map(
                       (p) => DropdownMenuItem<int?>(
                         value: p.id,
@@ -275,8 +285,8 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                   ],
                   onChanged: (v) => setState(() {
                     _selectedPackageId = v;
-                    // Reseller records need a login account — force it on.
-                    if (v != null) _createAccount = true;
+                    // Reseller records need a login account.
+                    _createAccount = true;
                   }),
                 ),
               ),
@@ -303,13 +313,13 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                     children: [
                       Text('Create a login for this member', style: StockpileFonts.satoshi(fontSize: 14)),
                       if (_accountRequired)
-                        Text('Required for resellers', style: StockpileFonts.satoshi(fontSize: 12, color: muted)),
+                        Text('Required: every member has a package and a login', style: StockpileFonts.satoshi(fontSize: 12, color: muted)),
                     ],
                   ),
                 ),
                 Switch(
                   value: _createAccount,
-                  // Locked on while a package is selected.
+                  // Locked on: every member has a package, so a login.
                   onChanged: _accountRequired ? null : (v) => setState(() => _createAccount = v),
                 ),
               ],
@@ -432,7 +442,13 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
 
   Future<void> _submit() async {
     if (_submitting) return;
-    if (!_validateAll()) return;
+    if (!_validateAll()) {
+      // The field may be scrolled out of sight on a phone: say it here too.
+      if (_selectedPackageId == null) {
+        showErrorToast('Choose a package: every member avails one.');
+      }
+      return;
+    }
     if (_referrerUnpicked) {
       _referrerKey.currentState?.validate();
       showErrorToast('Pick the referrer from the list, or clear the field.');
