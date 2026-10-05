@@ -555,12 +555,34 @@ class _OverviewTabState extends State<_OverviewTab> {
 
   BirthdayGreeting? _greeting;
 
+  /// The figures on this tab follow new ledger rows and purchases from any
+  /// device (v70), so a commission shows without reopening the app.
+  StreamSubscription<String>? _statsSub;
+  Timer? _statsSoon;
+
   @override
   void initState() {
     super.initState();
     _loadStats();
     _loadAnnouncements();
     _loadGreeting();
+    _statsSub = repository.changes.listen((e) {
+      if (e == 'member_transactions_changed' ||
+          e.startsWith('sale_') ||
+          e.startsWith('withdrawal_request')) {
+        _statsSoon?.cancel();
+        _statsSoon = Timer(const Duration(milliseconds: 500), () {
+          if (mounted) _loadStats();
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _statsSub?.cancel();
+    _statsSoon?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadAnnouncements() async {
@@ -1706,6 +1728,7 @@ class _EarningsTabState extends State<_EarningsTab> {
 
   bool _loading = true;
   StreamSubscription<String>? _changeSub;
+  Timer? _reloadSoon;
 
   @override
   void initState() {
@@ -1723,12 +1746,13 @@ class _EarningsTabState extends State<_EarningsTab> {
         'sale_deleted',
         'member_added',
         'member_updated',
-        // An admin correction (v35). Note this only fires on the device that
-        // posted it: `member_transactions` has no realtime subscription, so a
-        // member already sitting on this tab picks the change up on their next
-        // visit rather than instantly. Rare enough (and manual enough) not to
-        // justify streaming the whole ledger to every device.
+        // An admin correction (v35), on the device that posted it.
         'funds_adjusted',
+        // Any new row in this member's own ledger, from any device (v70):
+        // a downline's purchase paying Group Sales, a referral bonus, a
+        // correction. Before, a referrer watching this screen saw nothing
+        // until they reopened it (test G2).
+        'member_transactions_changed',
       };
       // A delivery order paid from funds, or cancelled and refunded (v52,
       // v57), adds a ledger row too. Missing it, a refund back to Balance
@@ -1736,7 +1760,11 @@ class _EarningsTabState extends State<_EarningsTab> {
       final order = event.startsWith('order_') || event == 'orders_changed';
       if (order || invalidating.contains(event)) {
         _SourcesCache.invalidate();
-        _load();
+        // One sale can write several ledger rows: one reload.
+        _reloadSoon?.cancel();
+        _reloadSoon = Timer(const Duration(milliseconds: 500), () {
+          if (mounted) _load();
+        });
       }
     });
   }
@@ -1744,6 +1772,7 @@ class _EarningsTabState extends State<_EarningsTab> {
   @override
   void dispose() {
     _changeSub?.cancel();
+    _reloadSoon?.cancel();
     super.dispose();
   }
 
@@ -3153,6 +3182,27 @@ class _ProfileTabState extends State<_ProfileTab> {
     _lastNameCtrl = TextEditingController(text: widget.member.lastName ?? '');
     _contactCtrl = TextEditingController(text: formatPhilippinePhone(widget.member.contactNo ?? ''));
     _addressCtrl = TextEditingController(text: widget.member.address ?? '');
+  }
+
+  /// The dashboard reloads the member when an admin edits them on another
+  /// device. The fields were filled once, in initState, so the screen kept
+  /// the old values (test Z8). A field the member has not touched follows
+  /// the new value; one they are editing is left alone.
+  @override
+  void didUpdateWidget(covariant _ProfileTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final o = oldWidget.member, n = widget.member;
+    void follow(TextEditingController c, String before, String after) {
+      if (before != after && c.text == before) c.text = after;
+    }
+    follow(_firstNameCtrl, o.firstName ?? '', n.firstName ?? '');
+    follow(_lastNameCtrl, o.lastName ?? '', n.lastName ?? '');
+    follow(
+      _contactCtrl,
+      formatPhilippinePhone(o.contactNo ?? ''),
+      formatPhilippinePhone(n.contactNo ?? ''),
+    );
+    follow(_addressCtrl, o.address ?? '', n.address ?? '');
   }
 
   @override

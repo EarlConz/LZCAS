@@ -146,7 +146,10 @@ class SupabaseRepository {
     }
 
     // Approval queues — admin must see every request regardless of author.
-    for (final table in ['pending_requests', 'withdrawal_requests']) {
+    // And the earnings ledger (v70): a member hears their own new
+    // commissions, so their Earnings screen moves by itself (RLS limits each
+    // member to their own rows).
+    for (final table in ['pending_requests', 'withdrawal_requests', 'member_transactions']) {
       final channel = _supabase
           .channel('public:$table')
           .onPostgresChanges(
