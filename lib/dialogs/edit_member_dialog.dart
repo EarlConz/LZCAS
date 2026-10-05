@@ -199,10 +199,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   /// Field values when the dialog opened, to count unsaved changes.
   late final Map<String, Object?> _initial = _snapshot();
 
-  /// Set once the demotion was confirmed (from the danger zone), so Save
-  /// doesn't ask a second time.
-  bool _demoteConfirmed = false;
-
   Map<String, Object?> _snapshot() => {
     'last': lastNameController.text.trim(),
     'first': firstNameController.text.trim(),
@@ -217,24 +213,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
   int get _changeCount {
     final now = _snapshot();
     return now.keys.where((k) => now[k] != _initial[k]).length;
-  }
-
-  Future<void> _askDemote() async {
-    final ok = await confirmDestructive(
-      context,
-      title: 'Demote to Member?',
-      message: 'Removing the package demotes this Verified Reseller back to a '
-          'standard Member and revokes their reseller access. It takes effect '
-          'when you save.',
-      confirmLabel: 'Demote',
-      cancelLabel: 'Keep reseller',
-      icon: Icons.person_remove_outlined,
-    );
-    if (!ok || !mounted) return;
-    setState(() {
-      _selectedPackageId = null;
-      _demoteConfirmed = true;
-    });
   }
 
   // ── UI ─────────────────────────────────────────────────────────────
@@ -371,17 +349,14 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
             FieldPair(
               LabeledField(
                 label: 'Package',
-                // Read-only: edit may only keep or remove the package (the
-                // danger zone below), never add or change one. Upgrades go
-                // through Package Upgrade, which applies rank rules and pays
-                // the referral bonus.
+                // Read-only: edit never adds, changes or removes a package.
+                // Upgrades go through Package Upgrade, which applies rank
+                // rules and pays the referral bonus.
                 child: InputDecorator(
                   decoration: const InputDecoration(enabled: false),
                   child: Text(
                     !wasReseller
                         ? 'None — standard Member'
-                        : _selectedPackageId == null
-                        ? 'None (after you save)'
                         : _currentPackageLabel().replaceAll(' (keep)', ''),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -419,34 +394,8 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
             ),
           ],
         ),
-        if (wasReseller)
-          _demoteConfirmed
-              ? Row(
-                  children: [
-                    const Expanded(
-                      child: ModalNote(
-                        tone: ModalTone.danger,
-                        icon: Icons.person_remove_outlined,
-                        title: 'Will be demoted to Member',
-                        body: 'when you save.',
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: () => setState(() {
-                        _selectedPackageId = _originalPackageId;
-                        _demoteConfirmed = false;
-                      }),
-                      child: const Text('Undo'),
-                    ),
-                  ],
-                )
-              : DangerZone(
-                  title: 'Demote to Member',
-                  body: 'Takes away the reseller role. You\'ll be asked to confirm.',
-                  actionLabel: 'Demote…',
-                  onPressed: _askDemote,
-                ),
+        // No "Demote to Member": every member keeps a package (client,
+        // 2026-10-06: only resellers get accounts).
       ],
       footerNote: Text(
         changes == 0
@@ -536,24 +485,6 @@ class _EditMemberDialogState extends State<EditMemberDialog> {
       _referrerKey.currentState?.validate();
       showErrorToast('Pick the referrer from the list, or clear the field.');
       return;
-    }
-
-    // Removing an existing package demotes a Verified Reseller — confirm it,
-    // since it stops their reseller income and revokes their access.
-    final isDemotion = _originalPackageId != null && _selectedPackageId == null;
-    // Normally confirmed already, from the danger zone. Asked here only if
-    // the package was removed some other way.
-    if (isDemotion && !_demoteConfirmed) {
-      final confirmed = await confirmDestructive(
-        context,
-        title: 'Demote to Member?',
-        message: 'Removing the package demotes this Verified Reseller back to a '
-            'standard Member and revokes their reseller access.',
-        confirmLabel: 'Demote',
-        cancelLabel: 'Keep reseller',
-        icon: Icons.person_remove_outlined,
-      );
-      if (!confirmed || !mounted) return;
     }
 
     final updatedMember = {
