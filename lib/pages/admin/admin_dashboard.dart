@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/config/feature_flags.dart';
 import 'package:lzcas/widgets/delivery_eta_settings.dart';
+import 'package:lzcas/widgets/realtime_status_card.dart';
 import 'package:lzcas/widgets/modal_kit.dart';
 import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
@@ -3533,6 +3534,10 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
           ),
           const SizedBox(height: 32),
 
+          // ── Live updates: is this device connected? (Part 6) ──
+          const RealtimeStatusCard(),
+          const SizedBox(height: 32),
+
           // ── Delivery time estimate (automatic rider ETA) ──
           if (enableDeliverySystem) ...[
             const DeliveryEtaSettings(),
@@ -5717,6 +5722,11 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   /// approval card can show what they have left before the admin decides.
   Map<int, Map<String, int>> _memberFunds = {};
   bool _showHistory = false;
+
+  /// Pending view: which kind to show ('all', 'withdrawal', or a request
+  /// type), and the order (newest or oldest first, also for History).
+  String _pendingType = 'all';
+  bool _newestFirst = true;
   String _historyFilter = 'all'; // all, approved, rejected
   String _historyTypeFilter = 'all'; // all, delete, reduce, withdrawal
   bool _loading = true;
@@ -6544,6 +6554,9 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                 ),
                 const SizedBox(width: 8),
                 _ToggleChip(label: 'History', isSelected: true, onTap: () {}),
+                const SizedBox(width: 8),
+                const Spacer(),
+                Flexible(flex: 4, child: _sortFilterButton(history: true)),
               ],
             ),
           ),
@@ -6720,6 +6733,9 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                   _loadHistory();
                 }),
               ),
+              const SizedBox(width: 8),
+              const Spacer(),
+              Flexible(flex: 4, child: _sortFilterButton(history: false)),
             ],
           ),
         ),
@@ -6766,7 +6782,117 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
       if (_historyTypeFilter != 'all' && r.requestType != _historyTypeFilter)
         return false;
       return true;
-    }).toList();
+    }).toList()
+      ..sort((a, b) => _byDate(a.createdAt, b.createdAt));
+  }
+
+  /// Newest or oldest first, as the Sort & filter button says.
+  int _byDate(DateTime? a, DateTime? b) {
+    final x = a ?? DateTime(2000), y = b ?? DateTime(2000);
+    return _newestFirst ? y.compareTo(x) : x.compareTo(y);
+  }
+
+  /// The pending withdrawals the Pending view shows.
+  List<WithdrawalRequest> get _shownWithdrawals =>
+      _pendingType == 'all' || _pendingType == 'withdrawal'
+      ? ([..._withdrawalRequests]..sort((a, b) => _byDate(a.createdAt, b.createdAt)))
+      : const [];
+
+  /// The pending requests (not withdrawals) the Pending view shows.
+  List<PendingRequest> get _shownPending => _pendingType == 'withdrawal'
+      ? const []
+      : (_pendingRequests
+            .where((r) => _pendingType == 'all' || r.requestType == _pendingType)
+            .toList()
+          ..sort((a, b) => _byDate(a.createdAt, b.createdAt)));
+
+  static const _requestKinds = [
+    ('withdrawal', 'Withdrawals'),
+    ('delete', 'Delete product'),
+    ('reduce_stock', 'Reduce stock'),
+    ('delete_member', 'Delete member'),
+    ('borrow', 'Borrow'),
+  ];
+
+  /// "Sort & filter" (Part 6): on Pending, which kind of request and the
+  /// order; on History, the order (its chips already filter).
+  Widget _sortFilterButton({required bool history}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final text = isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
+    final line = isDark ? StockpileColors.darkDivider : StockpileColors.divider;
+    int count(String kind) => kind == 'withdrawal'
+        ? _withdrawalRequests.length
+        : _pendingRequests.where((r) => r.requestType == kind).length;
+    final kindLabel = _requestKinds.where((k) => k.$1 == _pendingType).map((k) => k.$2).firstOrNull;
+    final label = [
+      if (!history && kindLabel != null) kindLabel,
+      _newestFirst ? 'Newest first' : 'Oldest first',
+    ].join(' · ');
+
+    PopupMenuEntry<String> header(String t) => PopupMenuItem<String>(
+      enabled: false,
+      height: 32,
+      child: Text(
+        t.toUpperCase(),
+        style: StockpileFonts.satoshi(fontSize: 11, fontWeight: FontWeight.w800, color: StockpileColors.mutedText),
+      ),
+    );
+
+    return PopupMenuButton<String>(
+      tooltip: 'Sort and filter',
+      position: PopupMenuPosition.under,
+      onSelected: (v) => setState(() {
+        if (v.startsWith('type:')) {
+          _pendingType = v.substring(5);
+          _pendingVisibleCount = _pageSize;
+        } else {
+          _newestFirst = v == 'sort:new';
+        }
+      }),
+      itemBuilder: (_) => [
+        if (!history) ...[
+          header('Show'),
+          CheckedPopupMenuItem(
+            value: 'type:all',
+            checked: _pendingType == 'all',
+            child: Text('All requests (${_pendingRequests.length + _withdrawalRequests.length})'),
+          ),
+          for (final (kind, name) in _requestKinds)
+            CheckedPopupMenuItem(
+              value: 'type:$kind',
+              checked: _pendingType == kind,
+              child: Text('$name (${count(kind)})'),
+            ),
+          const PopupMenuDivider(),
+        ],
+        header('Sort'),
+        CheckedPopupMenuItem(value: 'sort:new', checked: _newestFirst, child: const Text('Newest first')),
+        CheckedPopupMenuItem(value: 'sort:old', checked: !_newestFirst, child: const Text('Oldest first')),
+      ],
+      child: Container(
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          border: Border.all(color: line),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.tune_rounded, size: 18, color: text),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: text),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Processed withdrawals for the history view. Withdrawals only match the
@@ -6778,7 +6904,8 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     return _withdrawalHistory.where((w) {
       if (_historyFilter != 'all' && w.status != _historyFilter) return false;
       return true;
-    }).toList();
+    }).toList()
+      ..sort((a, b) => _byDate(a.createdAt, b.createdAt));
   }
 
   Widget _buildHistoryFilterRow() {
@@ -7322,17 +7449,31 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   String _formatDate(DateTime dt) => formatAgo(dt);
 
   Widget _buildCombinedPendingList(bool isDark, ThemeData theme) {
-    // Show withdrawal requests first, then pending requests
-    final pendingSlice = _pendingRequests.take(_pendingVisibleCount).toList();
+    // Show withdrawal requests first, then pending requests, as the Sort &
+    // filter button says.
+    final withdrawals = _shownWithdrawals;
+    final pendingSlice = _shownPending.take(_pendingVisibleCount).toList();
+    if (withdrawals.isEmpty && pendingSlice.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'No requests of this kind are waiting.',
+            textAlign: TextAlign.center,
+            style: StockpileFonts.satoshi(fontSize: 14, color: StockpileColors.mutedText),
+          ),
+        ),
+      );
+    }
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       itemCount:
-          _withdrawalRequests.length +
+          withdrawals.length +
           pendingSlice.length +
-          (_withdrawalRequests.isNotEmpty ? 1 : 0), // section header
+          (withdrawals.isNotEmpty ? 1 : 0), // section header
       itemBuilder: (context, index) {
         // Withdrawal section header
-        if (_withdrawalRequests.isNotEmpty && index == 0) {
+        if (withdrawals.isNotEmpty && index == 0) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 8, top: 4),
             child: Row(
@@ -7364,7 +7505,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    '${_withdrawalRequests.length}',
+                    '${withdrawals.length}',
                     style: StockpileFonts.satoshi(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -7378,18 +7519,18 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         }
 
         // Withdrawal cards
-        final withdrawalOffset = _withdrawalRequests.isNotEmpty ? 1 : 0;
-        if (index < _withdrawalRequests.length + withdrawalOffset) {
+        final withdrawalOffset = withdrawals.isNotEmpty ? 1 : 0;
+        if (index < withdrawals.length + withdrawalOffset) {
           final wIndex = index - withdrawalOffset;
           return _buildWithdrawalCard(
-            _withdrawalRequests[wIndex],
+            withdrawals[wIndex],
             isDark,
             theme,
           );
         }
 
         // Pending request cards
-        final reqIndex = index - _withdrawalRequests.length - withdrawalOffset;
+        final reqIndex = index - withdrawals.length - withdrawalOffset;
         final req = pendingSlice[reqIndex];
         return _buildPendingRequestCard(req, isDark, theme);
       },

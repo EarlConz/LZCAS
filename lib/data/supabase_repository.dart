@@ -154,25 +154,60 @@ class SupabaseRepository {
   /// The channels the server has accepted (and not closed since).
   final Set<RealtimeChannel> _joinedChannels = {};
 
+  /// Each table's channel, as the server last answered: 'joining',
+  /// 'connected', or why not. Shown in Settings → Live updates, so a tester
+  /// can read why screens don't update by themselves (Part 6: staging had
+  /// no subscriptions at all, and release builds print nothing).
+  final Map<String, String> _channelState = {};
+
+  /// Settings → Live updates reads this.
+  final ValueNotifier<RealtimeStatus> realtimeStatus =
+      ValueNotifier(const RealtimeStatus(note: 'Not started'));
+
+  void _publishRealtime({String? note}) {
+    realtimeStatus.value = RealtimeStatus(
+      channels: Map.unmodifiable(_channelState),
+      note: note ?? realtimeStatus.value.note,
+      at: DateTime.now(),
+    );
+  }
+
+  /// Settings → Live updates → Reconnect.
+  void reconnectRealtime() {
+    _rejoinAttempt = 0;
+    _restartRealtime();
+  }
+
   /// Subscribes [channel] (for [table]), watching whether the server
   /// accepts it.
   RealtimeChannel _subscribeWatched(String table, RealtimeChannel channel) {
+    _channelState[table] = 'joining';
     return channel.subscribe((status, error) {
       switch (status) {
         case RealtimeSubscribeStatus.subscribed:
           _joinedChannels.add(channel);
           _rejoinAttempt = 0;
+          _channelState[table] = 'connected';
+          _publishRealtime();
           break;
         case RealtimeSubscribeStatus.channelError:
         case RealtimeSubscribeStatus.timedOut:
           _joinedChannels.remove(channel);
           debugPrint('[realtime] $table: $status ${error ?? ''}');
+          _channelState[table] = status == RealtimeSubscribeStatus.timedOut
+              ? 'timed out'
+              : 'refused: ${error ?? 'no reason given'}';
+          _publishRealtime();
           _scheduleRejoin();
           break;
         case RealtimeSubscribeStatus.closed:
           // Also what our own teardown produces; the minute's check catches
           // a close nobody asked for.
           _joinedChannels.remove(channel);
+          if (_channelState.containsKey(table)) {
+            _channelState[table] = 'closed';
+            _publishRealtime();
+          }
           break;
       }
     });
@@ -230,13 +265,22 @@ class SupabaseRepository {
   /// Initialize Supabase Realtime subscriptions for all tables.
   void _initRealtime() {
     final session = _supabase.auth.currentSession;
-    if (session == null || _channels.isNotEmpty) return;
+    if (_channels.isNotEmpty) return;
+    if (session == null) {
+      _publishRealtime(note: 'Off: not signed in');
+      return;
+    }
     // An expired token is refused by the server: wait for the refresh
     // (tokenRefreshed starts realtime then).
-    if (session.isExpired) return;
+    if (session.isExpired) {
+      _publishRealtime(note: 'Waiting for a fresh sign-in token');
+      return;
+    }
     // The token the channels join with, set before they are made.
     _supabase.realtime.setAuth(session.accessToken);
     _realtimeStartedAt = DateTime.now();
+    _channelState.clear();
+    _publishRealtime(note: 'Connecting');
     _realtimeWatch ??= Timer.periodic(const Duration(minutes: 1), (_) => _checkRealtime());
 
     // Shared business tables. Deliberately NO user_id filter: reads are
@@ -372,6 +416,7 @@ class SupabaseRepository {
   /// Unsubscribes every channel and frees the free-tier connection slot.
   void _teardownRealtime() {
     _joinedChannels.clear();
+    _channelState.clear();
     for (final channel in _channels) {
       _supabase.removeChannel(channel);
     }
@@ -5159,4 +5204,17 @@ class SupabaseRepository {
     _changes.close();
     _orderEvents.close();
   }
+}
+
+/// What Settings → Live updates shows: each table's channel and how the
+/// server last answered it.
+class RealtimeStatus {
+  final Map<String, String> channels;
+  final String note;
+  final DateTime? at;
+
+  const RealtimeStatus({this.channels = const {}, this.note = '', this.at});
+
+  int get connected => channels.values.where((v) => v == 'connected').length;
+  bool get allConnected => channels.isNotEmpty && connected == channels.length;
 }
