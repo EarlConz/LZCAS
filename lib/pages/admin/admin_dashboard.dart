@@ -19,6 +19,7 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/action_guard.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/utils/formatters.dart' show formatAgo;
 import 'package:lzcas/widgets/app_logo.dart';
 import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 import 'package:lzcas/widgets/stockpile_topbar.dart';
@@ -5728,11 +5729,18 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   int _historyPage = 0;
   bool _historyHasMore = true;
   StreamSubscription<String>? _changeSub;
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     _loadRequests();
+    // The safety net under live updates (Part 6: the admin's tabs stayed out
+    // of date when realtime was down): a quiet reload every 30 seconds while
+    // this is on screen.
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _loadRequests(quiet: true);
+    });
     _changeSub = repository.changes.listen((event) {
       // The first three come from this device; pending_requests_changed
       // from any device (a cashier's request reached the admin only after
@@ -5741,7 +5749,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
           event == 'pending_request_approved' ||
           event == 'pending_request_rejected' ||
           event == 'pending_requests_changed') {
-        _loadRequests();
+        _loadRequests(quiet: true);
       }
       if (event == 'withdrawal_request_added' ||
           event == 'withdrawal_request_approved' ||
@@ -5755,6 +5763,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   @override
   void dispose() {
     _changeSub?.cancel();
+    _autoRefresh?.cancel();
     super.dispose();
   }
 
@@ -5774,9 +5783,13 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     });
   }
 
-  Future<void> _loadRequests() async {
-    _loading = true;
-    if (mounted) setState(() {});
+  /// [quiet]: a live or timed refresh, which keeps the list on screen and
+  /// how far it was opened, instead of showing the spinner.
+  Future<void> _loadRequests({bool quiet = false}) async {
+    if (!quiet) {
+      _loading = true;
+      if (mounted) setState(() {});
+    }
     try {
       final page = await repository.fetchRequestsPaginated(
         page: 1,
@@ -5790,7 +5803,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         _pendingRequests = page.rows;
         _pendingPage = 1;
         _pendingHasMore = page.hasMore;
-        _pendingVisibleCount = _pageSize;
+        if (!quiet) _pendingVisibleCount = _pageSize;
         _profiles = profiles;
         _loading = false;
       });
@@ -7302,15 +7315,11 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     );
   }
 
-  String _formatDate(DateTime dt) {
-    final now = DateTime.now();
-    final diff = dt.difference(now); // positive = future, negative = past
-    if (diff.inDays > 0) return 'in ${diff.inDays}d';
-    if (diff.inDays == 0) return 'today';
-    // Past — overdue
-    final overdue = -diff.inDays;
-    return '${overdue}d overdue';
-  }
+  /// When a request was sent: "4 min ago", "3 h ago", "Yesterday".
+  /// (It used to count days to a due date, so a request read "today" all
+  /// day and "2d overdue" after: Part 6, AT1.) The 30 s refresh keeps it
+  /// moving.
+  String _formatDate(DateTime dt) => formatAgo(dt);
 
   Widget _buildCombinedPendingList(bool isDark, ThemeData theme) {
     // Show withdrawal requests first, then pending requests

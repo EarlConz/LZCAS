@@ -114,6 +114,13 @@ class _SellDialog extends StatefulWidget {
 
 class _SellDialogState extends State<_SellDialog> {
   String? selectedItem;
+
+  /// The product field's text, to clear it after an item is added.
+  TextEditingController? _itemText;
+
+  /// An Add is checking stock: further presses wait (Part 6: quick taps
+  /// each passed the check and added the same product several times).
+  bool _adding = false;
   int? selectedBuyerId;
 
   /// The chosen buyer's row (as [membersFromRows] shapes it), or null for a
@@ -468,26 +475,80 @@ class _SellDialogState extends State<_SellDialog> {
                   children: [
                     Expanded(
                       flex: 3,
-                      child: DropdownButtonFormField<String>(
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Item',
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 14,
+                      // Type to find a product (Part 6: the drop-down opened
+                      // with an empty gap on phones, and was long to scroll).
+                      child: LayoutBuilder(
+                        builder: (context, box) => Autocomplete<String>(
+                          optionsBuilder: (v) {
+                            final q = v.text.trim().toLowerCase();
+                            if (q.isEmpty || q == selectedItem?.toLowerCase()) {
+                              return widget.items;
+                            }
+                            return widget.items.where((n) => n.toLowerCase().contains(q));
+                          },
+                          onSelected: (v) => setState(() {
+                            selectedItem = v;
+                            _stockWarning = null;
+                            _validateStock(quantity);
+                          }),
+                          fieldViewBuilder: (context, controller, focus, onSubmit) {
+                            _itemText = controller;
+                            return TextField(
+                              controller: controller,
+                              focusNode: focus,
+                              decoration: const InputDecoration(
+                                labelText: 'Item',
+                                hintText: 'Type to search',
+                                prefixIcon: Icon(Icons.search_rounded, size: 20),
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 14,
+                                ),
+                              ),
+                              // Typing over a picked product un-picks it.
+                              onChanged: (t) {
+                                if (selectedItem != null && t != selectedItem) {
+                                  setState(() => selectedItem = null);
+                                }
+                              },
+                            );
+                          },
+                          optionsViewBuilder: (context, onSelected, options) => Align(
+                            alignment: Alignment.topLeft,
+                            child: Material(
+                              elevation: 4,
+                              borderRadius: BorderRadius.circular(12),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight: 280,
+                                  // At least readable on a phone, where the
+                                  // field is narrow.
+                                  maxWidth: box.maxWidth < 260 ? 260 : box.maxWidth,
+                                ),
+                                child: ListView.builder(
+                                  padding: EdgeInsets.zero,
+                                  shrinkWrap: true,
+                                  itemCount: options.length,
+                                  itemBuilder: (context, i) {
+                                    final name = options.elementAt(i);
+                                    final stock = widget.itemStock[name] ?? 0;
+                                    return ListTile(
+                                      dense: true,
+                                      minTileHeight: 48,
+                                      enabled: stock > 0,
+                                      title: Text(name, overflow: TextOverflow.ellipsis),
+                                      trailing: Text(
+                                        stock > 0 ? '$stock in stock' : 'Out of stock',
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                      onTap: () => onSelected(name),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                        initialValue: selectedItem,
-                        items: widget.items
-                            .map(
-                              (i) => DropdownMenuItem(value: i, child: Text(i)),
-                            )
-                            .toList(),
-                        onChanged: (v) => setState(() {
-                          selectedItem = v;
-                          _stockWarning = null;
-                          _validateStock(quantity);
-                        }),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -525,9 +586,11 @@ class _SellDialogState extends State<_SellDialog> {
                     ),
                     const SizedBox(width: 10),
                     FilledButton(
-                      onPressed: () {
+                      onPressed: _adding
+                          ? null
+                          : () {
                         if (selectedItem == null) {
-                          _showError('Please select an item');
+                          _showError('Please pick an item from the list');
                           return;
                         }
                         final matched = widget.items.contains(selectedItem);
@@ -535,7 +598,10 @@ class _SellDialogState extends State<_SellDialog> {
                           _showError('Invalid item');
                           return;
                         }
-                        _fetchStockSource().then((allItems) {
+                        setState(() => _adding = true);
+                        _fetchStockSource().whenComplete(() {
+                          if (mounted) setState(() => _adding = false);
+                        }).then((allItems) {
                           final dbItem = allItems.firstWhere(
                             (r) => r.name == selectedItem,
                             orElse: () => Item(name: '', stock: 0),
@@ -555,12 +621,22 @@ class _SellDialogState extends State<_SellDialog> {
                             return;
                           }
                           setState(() {
-                            cart.add({
-                              'item': selectedItem,
-                              'quantity': quantity,
-                              'price': '',
-                              'priceController': TextEditingController(),
-                            });
+                            // The same product again adds to its line
+                            // instead of making a second one.
+                            final line = cart.indexWhere((e) => e['item'] == selectedItem);
+                            if (line >= 0) {
+                              cart[line]['quantity'] = (cart[line]['quantity'] as int) + quantity;
+                            } else {
+                              cart.add({
+                                'item': selectedItem,
+                                'quantity': quantity,
+                                'price': '',
+                                'priceController': TextEditingController(),
+                              });
+                            }
+                            // Ready for the next product.
+                            selectedItem = null;
+                            _itemText?.clear();
                           });
                         });
                       },

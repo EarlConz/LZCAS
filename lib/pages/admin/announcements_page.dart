@@ -72,11 +72,20 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
     _sub = repository.changes.listen((e) {
       if (e == 'announcements_changed' && mounted) _load();
     });
+    // The safety net under live updates (Part 6: the admin's tabs stayed out
+    // of date when realtime was down): a quiet reload every 30 seconds while
+    // this is on screen.
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _load();
+    });
   }
+
+  Timer? _autoRefresh;
 
   @override
   void dispose() {
     _sub?.cancel();
+    _autoRefresh?.cancel();
     super.dispose();
   }
 

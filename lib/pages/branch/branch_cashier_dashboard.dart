@@ -563,15 +563,36 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
   final _searchCtrl = TextEditingController();
   String _search = '';
   String _statusFilter = 'All'; // All | Good | Low Stock | Out of Stock
+  StreamSubscription<String>? _changeSub;
+  Timer? _reloadSoon;
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     _future = _load();
+    // Stock the admin gives or takes back, and this branch's own sales,
+    // show without reopening (Part 6, AT3); and a quiet reload every 30
+    // seconds in case a live update is missed.
+    _changeSub = repository.changes.listen((e) {
+      if (e != 'branch_stock_changed' && e != 'sale_added') return;
+      _reloadSoon?.cancel();
+      _reloadSoon = Timer(const Duration(milliseconds: 800), _reloadQuietly);
+    });
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) => _reloadQuietly());
+  }
+
+  /// A new load behind the list on screen: the builder keeps showing the
+  /// last figures until it arrives.
+  void _reloadQuietly() {
+    if (mounted) setState(() => _future = _load());
   }
 
   @override
   void dispose() {
+    _changeSub?.cancel();
+    _reloadSoon?.cancel();
+    _autoRefresh?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -625,7 +646,9 @@ class _StocksOnHandViewState extends State<_StocksOnHandView> {
     return FutureBuilder<_StockData>(
       future: _future,
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+        // The spinner only before the first figures: a refresh keeps
+        // showing the last ones (FutureBuilder keeps them while waiting).
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         if (snap.hasError) {

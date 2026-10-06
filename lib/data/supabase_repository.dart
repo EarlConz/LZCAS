@@ -13,6 +13,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/feature_flags.dart';
 import '../utils/app_clock.dart';
 import '../utils/birthday_window.dart' show parseBirthday;
+import '../utils/phone_formatter.dart' show formatPhilippinePhone;
 import 'models.dart';
 
 /// Describes a page of results with metadata.
@@ -72,10 +73,19 @@ class SupabaseRepository {
         case AuthChangeEvent.initialSession:
         case AuthChangeEvent.signedIn:
         case AuthChangeEvent.tokenRefreshed:
-          if (_channels.isEmpty) _initRealtime();
+          // A session restored at launch often carries an expired token:
+          // _initRealtime waits for the refresh that follows. A channel
+          // that joined with an old token, or was refused, is rebuilt.
+          if (_channels.isEmpty) {
+            _initRealtime();
+          } else {
+            _checkRealtime();
+          }
           break;
         case AuthChangeEvent.signedOut:
           _teardownRealtime();
+          _realtimeWatch?.cancel();
+          _realtimeWatch = null;
           // The next account may see other names (RLS): start fresh.
           _nameCacheAt = DateTime.fromMillisecondsSinceEpoch(0);
           break;
@@ -88,7 +98,7 @@ class SupabaseRepository {
 
   void _onResume() {
     if (_supabase.auth.currentUser == null) return;
-    if (_channels.isEmpty) _initRealtime();
+    _checkRealtime();
     if (enableDeliverySystem) {
       _changes.add('order_updated');
       _changes.add('orders_changed');
@@ -125,16 +135,116 @@ class SupabaseRepository {
     'sales': 'sale',
   };
 
+  // ── Keeping realtime connected (Part 6, 2026-10-07) ────────────────
+  //
+  // Every "updates by itself" test on the admin's PC failed, and staging's
+  // realtime.subscription table showed no subscriptions at all. The app
+  // subscribed once, at launch, with the restored session's token, which
+  // is often already expired then: the server refused the channels and
+  // nothing ever tried again. Now realtime starts only with a valid token,
+  // every channel reports whether it joined, and one that didn't (or
+  // dropped later) gets the whole set rebuilt, after a short wait, then on
+  // a minute's check and whenever the app comes back to the front.
+
+  Timer? _rejoinTimer;
+  Timer? _realtimeWatch;
+  int _rejoinAttempt = 0;
+  DateTime _realtimeStartedAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// The channels the server has accepted (and not closed since).
+  final Set<RealtimeChannel> _joinedChannels = {};
+
+  /// Subscribes [channel] (for [table]), watching whether the server
+  /// accepts it.
+  RealtimeChannel _subscribeWatched(String table, RealtimeChannel channel) {
+    return channel.subscribe((status, error) {
+      switch (status) {
+        case RealtimeSubscribeStatus.subscribed:
+          _joinedChannels.add(channel);
+          _rejoinAttempt = 0;
+          break;
+        case RealtimeSubscribeStatus.channelError:
+        case RealtimeSubscribeStatus.timedOut:
+          _joinedChannels.remove(channel);
+          debugPrint('[realtime] $table: $status ${error ?? ''}');
+          _scheduleRejoin();
+          break;
+        case RealtimeSubscribeStatus.closed:
+          // Also what our own teardown produces; the minute's check catches
+          // a close nobody asked for.
+          _joinedChannels.remove(channel);
+          break;
+      }
+    });
+  }
+
+  void _scheduleRejoin() {
+    if (_rejoinTimer?.isActive ?? false) return;
+    const delays = [3, 10, 30, 60];
+    final wait = delays[_rejoinAttempt < delays.length ? _rejoinAttempt : delays.length - 1];
+    _rejoinAttempt++;
+    _rejoinTimer = Timer(Duration(seconds: wait), _restartRealtime);
+  }
+
+  /// Rebuilds every channel, then tells the screens to reload what they
+  /// may have missed while realtime was off.
+  void _restartRealtime() {
+    if (_supabase.auth.currentUser == null) return;
+    _teardownRealtime();
+    _initRealtime();
+    if (_channels.isEmpty) return;
+    for (final e in const [
+      'item_updated',
+      'sale_updated',
+      'member_updated',
+      'pending_requests_changed',
+      'withdrawal_requests_changed',
+      'member_transactions_changed',
+      'announcements_changed',
+      'branch_stock_changed',
+    ]) {
+      _changes.add(e);
+    }
+    if (enableDeliverySystem) {
+      _changes.add('order_updated');
+      _changes.add('orders_changed');
+    }
+  }
+
+  /// Starts realtime if it should be on, or rebuilds it if any channel is
+  /// not joined. Cheap: no network unless something is wrong.
+  void _checkRealtime() {
+    if (_supabase.auth.currentUser == null) return;
+    if (_channels.isEmpty) {
+      _initRealtime();
+      return;
+    }
+    // A set just started is still joining.
+    if (DateTime.now().difference(_realtimeStartedAt) < const Duration(seconds: 20)) return;
+    if (_channels.any((c) => !_joinedChannels.contains(c))) {
+      debugPrint('[realtime] a channel is not joined; reconnecting');
+      _restartRealtime();
+    }
+  }
+
   /// Initialize Supabase Realtime subscriptions for all tables.
   void _initRealtime() {
-    if (_supabase.auth.currentUser == null || _channels.isNotEmpty) return;
+    final session = _supabase.auth.currentSession;
+    if (session == null || _channels.isNotEmpty) return;
+    // An expired token is refused by the server: wait for the refresh
+    // (tokenRefreshed starts realtime then).
+    if (session.isExpired) return;
+    // The token the channels join with, set before they are made.
+    _supabase.realtime.setAuth(session.accessToken);
+    _realtimeStartedAt = DateTime.now();
+    _realtimeWatch ??= Timer.periodic(const Duration(minutes: 1), (_) => _checkRealtime());
 
     // Shared business tables. Deliberately NO user_id filter: reads are
     // unfiltered (RLS scopes visibility) and each row is stamped with the
     // *writer's* user_id, so a filter here would hide a cashier's sale from
     // the admin's device. Realtime delivery is still gated by RLS.
     for (final table in _tableSingular.keys) {
-      final channel = _supabase
+      final channel = _subscribeWatched(table, _supabase
           .channel('public:$table')
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
@@ -142,7 +252,7 @@ class SupabaseRepository {
             table: table,
             callback: (payload) => _emitGranular(table, payload.eventType),
           )
-          .subscribe();
+          );
       _channels.add(channel);
     }
 
@@ -151,7 +261,7 @@ class SupabaseRepository {
     // commissions, so their Earnings screen moves by itself (RLS limits each
     // member to their own rows).
     for (final table in ['pending_requests', 'withdrawal_requests', 'member_transactions']) {
-      final channel = _supabase
+      final channel = _subscribeWatched(table, _supabase
           .channel('public:$table')
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
@@ -159,7 +269,7 @@ class SupabaseRepository {
             table: table,
             callback: (payload) => _changes.add('${table}_changed'),
           )
-          .subscribe();
+          );
       _channels.add(channel);
     }
 
@@ -172,7 +282,7 @@ class SupabaseRepository {
       ('announcements', 'announcements_changed'),
       ('branch_stock', 'branch_stock_changed'),
     ]) {
-      final channel = _supabase
+      final channel = _subscribeWatched(table, _supabase
           .channel('public:$table')
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
@@ -180,7 +290,7 @@ class SupabaseRepository {
             table: table,
             callback: (payload) => _changes.add(event),
           )
-          .subscribe();
+          );
       _channels.add(channel);
     }
 
@@ -190,7 +300,7 @@ class SupabaseRepository {
     // The table only exists once v48 is applied, which goes with the delivery
     // release; subscribing to a missing table just errors the channel.
     if (!enableDeliverySystem) return;
-    final ordersChannel = _supabase
+    final ordersChannel = _subscribeWatched('orders', _supabase
         .channel('public:orders')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
@@ -198,7 +308,7 @@ class SupabaseRepository {
           table: 'orders',
           callback: (payload) => _emitOrderEvent(payload),
         )
-        .subscribe();
+        );
     _channels.add(ordersChannel);
   }
 
@@ -261,6 +371,7 @@ class SupabaseRepository {
 
   /// Unsubscribes every channel and frees the free-tier connection slot.
   void _teardownRealtime() {
+    _joinedChannels.clear();
     for (final channel in _channels) {
       _supabase.removeChannel(channel);
     }
@@ -4020,7 +4131,9 @@ class SupabaseRepository {
           m.firstName ?? '',
           m.middleName ?? '',
           m.packageName ?? '',
-          m.contactNo ?? '',
+          // "0917 123 4567": with the spaces Excel keeps it as text, so the
+          // leading 0 stays (as digits alone it read 9171234567; Part 6).
+          formatPhilippinePhone(m.contactNo ?? ''),
           m.birthday ?? '',
           m.address ?? '',
           m.referrer ?? '',
@@ -5037,6 +5150,8 @@ class SupabaseRepository {
   }
 
   void dispose() {
+    _rejoinTimer?.cancel();
+    _realtimeWatch?.cancel();
     _teardownRealtime();
     _supabase.removeAllChannels();
     _authSub?.cancel();

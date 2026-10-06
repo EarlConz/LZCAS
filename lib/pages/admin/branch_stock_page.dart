@@ -55,11 +55,18 @@ class _BranchStockPageState extends State<BranchStockPage> {
 
   StreamSubscription<String>? _changeSub;
   Timer? _reloadSoon;
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     _loadAll();
+    // The safety net under live updates (Part 6: the admin's tabs stayed out
+    // of date when realtime was down): a quiet reload every 30 seconds while
+    // this is on screen.
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _loadAll(quiet: true);
+    });
     // Stock given to or returned by a branch, a branch sale, or a central
     // stock change, from any device (v73 publishes branch_stock): a quiet
     // reload, one per burst.
@@ -83,6 +90,7 @@ class _BranchStockPageState extends State<BranchStockPage> {
   void dispose() {
     _changeSub?.cancel();
     _reloadSoon?.cancel();
+    _autoRefresh?.cancel();
     _qtyCtrl.dispose();
     _noteCtrl.dispose();
     _branchSearchCtrl.dispose();

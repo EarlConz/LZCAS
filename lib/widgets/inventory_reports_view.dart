@@ -78,11 +78,18 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
 
   StreamSubscription<String>? _changeSub;
   Timer? _reloadSoon;
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    // The safety net under live updates (Part 6: the admin's tabs stayed out
+    // of date when realtime was down): a quiet reload every 30 seconds while
+    // this is on screen.
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _loadData(quiet: true);
+    });
     // A sale, a stock change or a branch transfer on any device adds a
     // movement: a quiet reload, one per burst (Part 5: the admin's tabs
     // should keep themselves current).
@@ -108,6 +115,7 @@ class _InventoryReportsViewState extends State<InventoryReportsView> {
   void dispose() {
     _changeSub?.cancel();
     _reloadSoon?.cancel();
+    _autoRefresh?.cancel();
     super.dispose();
   }
 

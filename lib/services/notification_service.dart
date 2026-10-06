@@ -10,6 +10,7 @@ import 'config_service.dart';
 
 class NotificationService extends ChangeNotifier {
   StreamSubscription<String>? _changeSub;
+  Timer? _autoRefresh;
   ConfigService? _config;
 
   int _pendingCount = 0;
@@ -39,6 +40,12 @@ class NotificationService extends ChangeNotifier {
     _config?.addListener(_onConfigChanged);
 
     await Future.wait([_refreshPending(), _refreshLowStock()]);
+
+    // The Requests badge also counts again every 30 seconds, in case a
+    // live update is missed (Part 6: it showed the wrong number).
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_config?.notificationsEnabled != false) _refreshPending();
+    });
 
     _changeSub = repository.changes.listen((event) {
       if (_config?.notificationsEnabled == false) return;
@@ -110,6 +117,7 @@ class NotificationService extends ChangeNotifier {
   @override
   void dispose() {
     _changeSub?.cancel();
+    _autoRefresh?.cancel();
     super.dispose();
   }
 }
