@@ -98,7 +98,7 @@ Run each in the production SQL editor and keep the output.
 
 ## Phase 2 · Migrations
 
-Apply each file from `supabase/migrations/` in the SQL editor, **one at a
+Apply each file from `supabase/migrations/` (in its `v40-v49/`, `v50-v59/`, … folder) in the SQL editor, **one at a
 time, in this order**, from the merged `main`. After each: it finished
 without an error, and its row is in `schema_migrations` (v48 writes none).
 Each file ends with a `Verify` block; run it where noted.

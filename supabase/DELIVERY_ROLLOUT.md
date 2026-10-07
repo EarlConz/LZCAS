@@ -4,6 +4,9 @@ The one place that says what the delivery release has put on **staging** and
 what **production** still needs. Update the tables below whenever something is
 applied to either project.
 
+Migration files are in `supabase/migrations/`, one folder per ten versions
+(v74 is `supabase/migrations/v70-v79/migration_v74_announcement_push.sql`).
+
 - Staging: `sisyujbpcueifeonnzfw`
 - Production: `cyfyydzxdsdzycbpvqox`
 

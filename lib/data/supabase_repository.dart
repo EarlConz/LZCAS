@@ -5042,7 +5042,7 @@ class SupabaseRepository {
         debugPrint(
           'PGRST202: public.create_delivery_order was not found in the '
           'PostgREST schema cache. Apply '
-          'supabase/migrations/migration_v48_delivery_orders.sql, then '
+          'supabase/migrations/v40-v49/migration_v48_delivery_orders.sql, then '
           "reload the cache: NOTIFY pgrst, 'reload schema';",
         );
       }

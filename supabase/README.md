@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v73)
+├── migrations/    Ordered, apply-once changes (v2 … v74), a folder per ten versions
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -54,6 +54,11 @@ infers the same thing by checking for the objects each migration creates.
 Numbered changes applied over time. Each file's header explains what it does
 and whether it supersedes an earlier one. Apply in ascending version order on a
 fresh DB; on an existing DB only the ones not yet applied.
+
+The files sit in one folder per ten versions (`v02-v09/`, `v10-v19/`, …
+`v70-v79/`); the file names are unchanged, so a version's file is always
+`<its tens>/migration_vNN_<name>.sql`. A new migration goes in the folder for
+its number, creating the next one at v80.
 
 > The _"applied to staging and prod"_ / _"not yet applied anywhere"_ labels
 > below are **historical notes, not current state** — they were accurate when
