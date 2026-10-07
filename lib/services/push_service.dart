@@ -1,10 +1,12 @@
 // lib/services/push_service.dart
-// Registers this phone for delivery push notifications (v58).
+// Registers this phone for push notifications: deliveries (v58) and
+// announcements (v74).
 //
 // Android only. The Firebase side lives in MainActivity.kt and is reached
 // over the "gutvita/push" method channel; this file asks for permission,
 // hands the phone's FCM token to the database after sign-in, and takes it
-// back at sign-out. Sending is done by the order-push Edge Function.
+// back at sign-out. Sending is done by the order-push and
+// announcement-push Edge Functions.
 //
 // A session that simply expires, rather than signing out, leaves the token
 // registered: the phone keeps receiving that account's alerts until someone

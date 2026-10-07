@@ -16,16 +16,17 @@ import io.flutter.plugin.common.MethodChannel
  *
  * Firebase is used directly here instead of through the FlutterFire plugins,
  * which would also build for Windows (see android/app/build.gradle.kts).
- * While the app is closed, Firebase shows each push itself on the
- * "deliveries" channel created below; while it is open, the in-app alerts
- * cover it and the push is not shown twice.
+ * While the app is closed, Firebase shows each push itself on one of the
+ * channels created below ("deliveries" from order-push, "announcements"
+ * from announcement-push); while it is open, the in-app alerts cover it and
+ * the push is not shown twice.
  */
 class MainActivity : FlutterActivity() {
     private var pendingPermission: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        createDeliveriesChannel()
+        createChannels()
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "gutvita/push")
             .setMethodCallHandler { call, result ->
@@ -49,15 +50,29 @@ class MainActivity : FlutterActivity() {
             }
     }
 
-    /** High importance: a sound and a heads-up banner, not a silent tray entry. */
-    private fun createDeliveriesChannel() {
+    /**
+     * Deliveries: high importance, a sound and a heads-up banner, not a
+     * silent tray entry. Announcements: a sound and a tray entry, without
+     * the banner; news, not a job waiting. Separate so either can be
+     * turned off in Android's settings without the other.
+     */
+    private fun createChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Deliveries",
-            NotificationManager.IMPORTANCE_HIGH,
-        ).apply { description = "New deliveries and order updates" }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                "Deliveries",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply { description = "New deliveries and order updates" },
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                ANNOUNCEMENTS_CHANNEL_ID,
+                "Announcements",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply { description = "New announcements from the store" },
+        )
     }
 
     /** Android 13+ asks; earlier versions allow notifications by default. */
@@ -91,6 +106,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         const val CHANNEL_ID = "deliveries"
+        const val ANNOUNCEMENTS_CHANNEL_ID = "announcements"
         const val PERMISSION_REQUEST = 4201
     }
 }

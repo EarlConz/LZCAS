@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- Which migrations are actually applied to THIS project? (v35 … v73)
+-- Which migrations are actually applied to THIS project? (v35 … v74)
 --
 -- Read-only. Safe on any environment, writes nothing.
 --
@@ -356,6 +356,15 @@ select 'v73  realtime announcements, branch stock',
                      and tablename in ('announcements', 'branch_stock')) = 2
             then 'APPLIED' else 'MISSING' end,
        'announcements and branch_stock in supabase_realtime'
+
+union all
+select 'v74  announcement push',
+       case when exists (select 1 from pg_trigger where tgname = 'announcements_push')
+             and exists (select 1 from information_schema.columns
+                          where table_schema = 'public' and table_name = 'announcements'
+                            and column_name = 'pushed_at')
+            then 'APPLIED' else 'MISSING' end,
+       'announcements.pushed_at and the announcements_push trigger'
 
 order by 1;
 

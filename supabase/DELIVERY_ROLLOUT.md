@@ -69,6 +69,7 @@ order by version;
 | v71 | `migration_v71_restore_commission_triggers.sql` | ✅ 2026-10-05 | ❓ | **Staging had no commission triggers** (Group Sales, referral bonuses): built from schema.sql, v19–v27 only assumed by v45. Restores the latest versions. Production: check section 1 of `diagnose_recent_commissions.sql` first; if the 4 triggers are there, it is not needed. Then on staging only: `maintenance/backfill_missed_commissions_staging.sql`. |
 | v72 | `migration_v72_orders_touch_updated_at.sql` | ✅ 2026-10-05 | ❓ | Restores the orders `updated_at` trigger (missing on staging; found by `find_missing_objects.sql`). Do NOT re-run v48 for it. Harmless where present. |
 | v73 | `migration_v73_realtime_announcements_branch_stock.sql` | ✅ 2026-10-06 | ❌ | Puts announcements and branch_stock in realtime, so a cashier's post and branch stock changes reach the admin's screens by themselves (Part 5, G2 note). Adds only what is missing. |
+| v74 | `migration_v74_announcement_push.sql` | ❌ | ❌ | Push notification for each new announcement, sent when it goes live (Part 7, AT2). Needs v58 and its Vault secrets; no new ones. Deploy `announcement-push` with it. Scheduled announcements need pg_cron (enabled by the migration where allowed). |
 
 ¹ Staging's ledger names v52 `saved_items_policy_repair`; its changes are in
 place. On production it will record itself correctly.
@@ -85,6 +86,7 @@ Every migration has a rollback in `supabase/rollbacks/`, named after it.
 | secrets `PUSH_WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT`, `SERVICE_ROLE_KEY` | ✅ | ❌ |
 | Vault `order_push_url` = the production `order-push` URL | ✅ | ❌ |
 | Vault `order_push_secret` = the same value as `PUSH_WEBHOOK_SECRET` | ✅ | ❌ |
+| `announcement-push` deployed **with `--no-verify-jwt`** (v74; same secrets and Vault entries as order-push) | ❌ | ❌ |
 
 Set secrets from a variable, never by typing them into chat or a file in the
 repo. The README's v58 section has the commands, the Set-Clipboard trick for
@@ -138,5 +140,6 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-05 | v70 and v71 verified on staging (realtime, 8 functions, 4 sales triggers, old members trigger gone, ledger rows). |
 | 2026-10-05 | v72 applied and verified on staging. |
 | 2026-10-05 | order-push redeployed on staging with the 2026-10-03 admin alert rules. |
+| 2026-10-08 | Added v74 (announcement push) and the `announcement-push` function, neither applied anywhere yet. |
 | 2026-10-06 | Added v73 (realtime announcements and branch stock), not applied anywhere yet. |
 | 2026-10-06 | v73 applied on staging. |
