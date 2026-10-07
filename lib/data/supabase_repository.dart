@@ -2303,6 +2303,45 @@ class SupabaseRepository {
     }
   }
 
+  /// Ids of the current announcements this account has not seen, leaving
+  /// out its own posts: the count on the Announcements tab
+  /// (lib/services/announcement_alerts.dart). Like
+  /// [fetchUnseenAnnouncements] but without fetching posters, since it
+  /// runs every minute. Empty when signed out or on failure.
+  Future<List<int>> fetchUnseenAnnouncementIds() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return [];
+
+    try {
+      final rows = await _supabase
+          .from('announcements')
+          .select()
+          .isFilter('archived_at', null);
+
+      final seen = await _supabase
+          .from('announcement_reads')
+          .select('announcement_id')
+          .eq('profile_id', uid);
+
+      final seenIds = {
+        for (final r in seen as List)
+          ((r as Map)['announcement_id'] as num).toInt(),
+      };
+
+      return (rows as List)
+          .map((j) => Announcement.fromJson(j as Map<String, dynamic>))
+          .where(
+            (a) =>
+                a.isCurrent() && !seenIds.contains(a.id) && a.createdBy != uid,
+          )
+          .map((a) => a.id)
+          .toList();
+    } catch (e) {
+      debugPrint('[fetchUnseenAnnouncementIds] failed: $e');
+      return [];
+    }
+  }
+
   /// Record that this account has seen [announcementIds].
   ///
   /// Called on dismissal, including "Skip all" — an announcement someone

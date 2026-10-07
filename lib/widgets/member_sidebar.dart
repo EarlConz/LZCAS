@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import '../config/feature_flags.dart';
 import '../utils/fonts.dart';
+import 'announcement_count.dart';
 import 'app_logo.dart';
 import '../theme.dart';
 
@@ -125,6 +126,7 @@ class MemberSidebar extends StatelessWidget {
                 _SidebarTile(
                   icon: Icons.campaign_rounded,
                   label: 'Announcements',
+                  trailing: const AnnouncementCount(),
                   index: _ix.announcements,
                   selectedIndex: selectedIndex,
                   activeBg: activeBg,
@@ -249,10 +251,14 @@ class _SidebarTile extends StatelessWidget {
   /// A count beside the label; hidden at 0.
   final int badge;
 
+  /// Shown after the label instead of [badge] (Announcements' own count).
+  final Widget? trailing;
+
   const _SidebarTile({
     required this.icon,
     required this.label,
     this.badge = 0,
+    this.trailing,
     required this.index,
     required this.selectedIndex,
     required this.activeBg,
@@ -294,6 +300,7 @@ class _SidebarTile extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (trailing != null) trailing!,
                 if (badge > 0)
                   Semantics(
                     label: '$badge need${badge == 1 ? 's' : ''} you',

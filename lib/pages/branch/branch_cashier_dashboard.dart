@@ -20,7 +20,9 @@ import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/cashier_location_settings.dart';
 import 'package:lzcas/widgets/announcement_widgets.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/announcement_alerts.dart';
 import 'package:lzcas/services/updater_service.dart';
+import 'package:lzcas/widgets/announcement_count.dart';
 import 'package:lzcas/dialogs/update_dialog.dart';
 import 'package:lzcas/dialogs/unseen_announcements_dialog.dart';
 import 'package:lzcas/dialogs/announcement_detail_dialog.dart';
@@ -53,6 +55,8 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard> {
   void initState() {
     super.initState();
     _triggerUpdateCheck();
+    // The count of new announcements beside Announcements (AT2).
+    announcementAlerts.start();
   }
 
   void _triggerUpdateCheck() {
@@ -90,6 +94,8 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard> {
       auth: auth,
       onSelected: (t) {
         setState(() => _tab = t);
+        // While Announcements is open, what arrives there counts as seen.
+        announcementAlerts.viewing = t == _BranchTab.announcements;
         if (!isDesktop) Navigator.of(context).maybePop();
       },
     );
@@ -136,8 +142,7 @@ class _BranchCashierDashboardState extends State<BranchCashierDashboard> {
       child: Row(
         children: [
           if (!isDesktop)
-            IconButton(
-              icon: const Icon(Icons.menu),
+            MenuButtonWithAlerts(
               onPressed: () => _scaffoldKey.currentState?.openDrawer(),
             ),
           Expanded(
@@ -499,6 +504,8 @@ class _BranchSidebar extends StatelessWidget {
                               ),
                             ),
                           ),
+                          if (tab == _BranchTab.announcements)
+                            const AnnouncementCount(),
                         ],
                       ),
                     ),

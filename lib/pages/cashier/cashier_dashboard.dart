@@ -27,7 +27,9 @@ import 'package:lzcas/config/feature_flags.dart';
 import 'package:lzcas/pages/delivery/delivery_orders_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/announcement_alerts.dart';
 import 'package:lzcas/services/updater_service.dart';
+import 'package:lzcas/widgets/announcement_count.dart';
 import 'package:lzcas/dialogs/update_dialog.dart';
 
 class CashierDashboard extends StatefulWidget {
@@ -41,6 +43,9 @@ class _CashierDashboardState extends State<CashierDashboard>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
+  /// Announcements' place among the tabs below.
+  static const _announcementsTab = enableDeliverySystem ? 5 : 4;
+
   @override
   void initState() {
     super.initState();
@@ -49,6 +54,13 @@ class _CashierDashboardState extends State<CashierDashboard>
       length: enableDeliverySystem ? 7 : 6,
       vsync: this,
     );
+    // The count of new announcements on the Announcements tab (AT2);
+    // while it is open, what arrives there counts as seen.
+    announcementAlerts.start();
+    _tabController.addListener(() {
+      announcementAlerts.viewing =
+          _tabController.index == _announcementsTab;
+    });
     _triggerUpdateCheck();
   }
 
@@ -207,6 +219,8 @@ class _CashierDashboardState extends State<CashierDashboard>
                         Icon(Icons.campaign_rounded, size: 18),
                         SizedBox(width: 6),
                         Text('Announcements'),
+                        SizedBox(width: 6),
+                        AnnouncementCount(),
                       ],
                     ),
                   ),

@@ -36,7 +36,9 @@ import 'package:lzcas/pages/delivery/delivery_orders_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/dialogs/adjust_funds_dialog.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/announcement_alerts.dart';
 import 'package:lzcas/services/notification_service.dart';
+import 'package:lzcas/widgets/announcement_count.dart';
 import 'package:lzcas/services/config_service.dart';
 import 'package:lzcas/services/updater_service.dart';
 import 'package:lzcas/dialogs/update_dialog.dart';
@@ -105,6 +107,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   void _onItemTapped(int index) {
     setState(() => _selectedIndex = index);
+    // While Announcements (9) is open, what arrives there counts as seen.
+    announcementAlerts.viewing = index == 9;
   }
 
   void _toggleSidebar() {
@@ -119,6 +123,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   void initState() {
     super.initState();
     _triggerUpdateCheck();
+    // The count of new announcements beside Announcements (AT2).
+    announcementAlerts.start();
   }
 
   void _triggerUpdateCheck() {
@@ -3745,6 +3751,20 @@ class _AdminSidebar extends StatelessWidget {
                     onTap: () => onItemSelected(i),
                     expanded: wide,
                   );
+                  // New announcements, posted by someone else (index 9).
+                  if (i == 9) {
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        tile,
+                        Positioned(
+                          top: 6,
+                          right: wide ? 6 : 0,
+                          child: const AnnouncementCount(),
+                        ),
+                      ],
+                    );
+                  }
                   // Show badge on Requests item (index 6)
                   if (i == 6 && pendingCount > 0) {
                     return Stack(

@@ -4,6 +4,7 @@ import '../utils/fonts.dart';
 import '../theme.dart';
 import '../db/db.dart';
 import '../services/notification_service.dart';
+import 'announcement_count.dart';
 
 class StockpileTopBar extends StatelessWidget {
   final String pageTitle;
@@ -48,15 +49,14 @@ class StockpileTopBar extends StatelessWidget {
         children: [
           // Hamburger (mobile only)
           if (showMenu) ...[
-            IconButton(
-              icon: Icon(
-                Icons.menu_rounded,
-                color: isDark
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
-              ),
+            // A dot when there are new announcements: the menu that
+            // shows their count is hidden on a phone.
+            MenuButtonWithAlerts(
+              icon: Icons.menu_rounded,
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
               onPressed: onMenuTap,
-              tooltip: 'Menu',
             ),
             const SizedBox(width: 12),
           ],

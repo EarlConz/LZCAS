@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import '../../auth/auth.dart';
 import '../../db/db.dart';
 import '../../router/route_guard.dart';
+import '../../services/announcement_alerts.dart';
 import '../../services/config_service.dart';
 import '../../utils/phone_formatter.dart';
 import '../../config/feature_flags.dart';
@@ -21,6 +22,7 @@ import '../../dialogs/unseen_announcements_dialog.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../utils/birthday_window.dart';
+import '../../widgets/announcement_count.dart';
 import '../../widgets/announcement_widgets.dart';
 import '../../widgets/location_selection_widget.dart';
 import '../../widgets/map_kit.dart';
@@ -69,6 +71,8 @@ class _MemberDashboardState extends State<MemberDashboard> {
       if (mounted) _loadMemberData();
     });
     _triggerUpdateCheck();
+    // The count of new announcements on the Announcements tab (AT2).
+    announcementAlerts.start();
     _orderSub = repository.changes.listen((e) {
       if (enableDeliverySystem && (e.startsWith('order_') || e == 'orders_changed')) {
         _countOrders();
@@ -145,6 +149,12 @@ class _MemberDashboardState extends State<MemberDashboard> {
   void _onItemTapped(int index) {
     setState(() => _selectedIndex = index);
     _refreshIfProfile();
+    _noteAnnouncementsTab();
+  }
+
+  /// While Announcements is open, what arrives there counts as seen.
+  void _noteAnnouncementsTab() {
+    announcementAlerts.viewing = _currentTab == _MemberTab.announcements;
   }
 
   /// Opening Profile re-reads the member, so it shows an admin's latest
@@ -289,13 +299,11 @@ class _MemberDashboardState extends State<MemberDashboard> {
       child: Row(
         children: [
           if (!isDesktop)
-            IconButton(
-              icon: Icon(
-                Icons.menu,
-                color: isDark
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
-              ),
+            MenuButtonWithAlerts(
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+              alsoWhen: _ordersNeedingYou > 0,
               onPressed: () => _scaffoldKey.currentState?.openDrawer(),
             ),
           const SizedBox(width: 8),
@@ -367,6 +375,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
     final index = _tabs.indexOf(tab);
     if (index >= 0) setState(() => _selectedIndex = index);
     _refreshIfProfile();
+    _noteAnnouncementsTab();
   }
 
   /// Open the dedicated Nearest Cashiers map screen.
