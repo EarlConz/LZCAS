@@ -2757,11 +2757,15 @@ class SupabaseRepository {
   }
 
   /// Post a new announcement. Returns null on success, else a message.
+  ///
+  /// [publishedAt] in the future schedules it: nobody sees it, and nothing
+  /// is pushed (v74), until then. Null means now (the column's default).
   Future<String?> createAnnouncement({
     required String title,
     required String body,
     required AnnouncementAudience audience,
     DateTime? endsAt,
+    DateTime? publishedAt,
     String? imagePath,
   }) async {
     try {
@@ -2774,6 +2778,7 @@ class SupabaseRepository {
         'image_path': imagePath,
         'audience': audience.wire,
         'ends_at': endsAt?.toUtc().toIso8601String(),
+        if (publishedAt != null) 'published_at': publishedAt.toUtc().toIso8601String(),
         'created_by': _uid,
       });
       _changes.add('announcements_changed');
@@ -2791,12 +2796,16 @@ class SupabaseRepository {
   /// [imagePath] is written unconditionally, so passing null CLEARS the
   /// poster. The editor always sends the value it means, which is why there
   /// is no separate "leave it alone" case to get wrong.
+  ///
+  /// [publishedAt], unlike the rest, is left alone when null: only a
+  /// scheduled announcement's start can be moved.
   Future<String?> updateAnnouncement({
     required int id,
     required String title,
     required String body,
     required AnnouncementAudience audience,
     DateTime? endsAt,
+    DateTime? publishedAt,
     String? imagePath,
   }) async {
     try {
@@ -2808,6 +2817,7 @@ class SupabaseRepository {
             'image_path': imagePath,
             'audience': audience.wire,
             'ends_at': endsAt?.toUtc().toIso8601String(),
+            if (publishedAt != null) 'published_at': publishedAt.toUtc().toIso8601String(),
           })
           .eq('id', id);
       _changes.add('announcements_changed');

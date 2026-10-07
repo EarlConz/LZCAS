@@ -24,6 +24,7 @@ import 'package:lzcas/db/db.dart';
 import 'package:lzcas/services/config_service.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/utils/app_clock.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/services/poster_service.dart';
@@ -439,10 +440,16 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
                 ),
                 Align(alignment: Alignment.centerLeft, child: _audiencePill(a)),
                 Align(alignment: Alignment.centerLeft, child: _statusPill(a)),
-                Text(
-                  a.endsAt == null ? 'No end date' : formatDayAndMonth(a.endsAt),
-                  style: StockpileFonts.satoshi(fontSize: 15, color: a.endsAt == null ? s.muted : s.body),
-                ),
+                // A scheduled one says when it starts; the pill says Scheduled.
+                _statusOf(a) == _Show.scheduled
+                    ? Text(
+                        'Starts ${formatDayAndMonth(a.publishedAt)}, ${formatTimeOfDay(a.publishedAt)}',
+                        style: StockpileFonts.satoshi(fontSize: 15, color: s.body),
+                      )
+                    : Text(
+                        a.endsAt == null ? 'No end date' : formatDayAndMonth(a.endsAt),
+                        style: StockpileFonts.satoshi(fontSize: 15, color: a.endsAt == null ? s.muted : s.body),
+                      ),
                 StaffMoreButton(tooltip: 'More for ${a.title}', items: _menu(a)),
               ];
             },
@@ -468,6 +475,8 @@ class _AnnouncementsPageState extends State<AnnouncementsPage> {
                     if (a.hasBody) a.body else 'Poster only',
                     [
                       _audience(a),
+                      if (_statusOf(a) == _Show.scheduled)
+                        'Starts ${formatDayAndMonth(a.publishedAt)}, ${formatTimeOfDay(a.publishedAt)}',
                       a.endsAt == null ? 'No end date' : 'Until ${formatDayAndMonth(a.endsAt)}',
                       if (_authorName(a) case final author?) 'by $author',
                     ].join(' · '),
@@ -658,6 +667,13 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
   late final TextEditingController _body;
   late AnnouncementAudience _audience;
   DateTime? _endsAt;
+
+  /// When it starts showing; null means as soon as it is posted. Part 8
+  /// (AN3): the board had a Scheduled filter but nothing could schedule.
+  DateTime? _startsAt;
+
+  /// Editing one that is already showing: its start has passed and stays.
+  bool _alreadyLive = false;
   bool _submitting = false;
 
   // ── Poster state (v44) ────────────────────────────────────────────
@@ -684,6 +700,9 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
     _body = TextEditingController(text: e?.body ?? '')..addListener(_onChanged);
     _audience = e?.audience ?? AnnouncementAudience.all;
     _endsAt = e?.endsAt?.toLocal();
+    final start = e?.publishedAt?.toLocal();
+    _alreadyLive = e != null && (start == null || !start.isAfter(AppClock.now()));
+    _startsAt = _alreadyLive ? null : start;
     _storedImagePath = e?.imagePath;
     _loadReach();
   }
@@ -733,7 +752,44 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
   bool get _canSubmit =>
       !_submitting &&
       _title.text.trim().length >= 3 &&
-      (_willHavePoster || _body.text.trim().length >= 3);
+      (_willHavePoster || _body.text.trim().length >= 3) &&
+      _datesError == null;
+
+  /// An end before the start would never show at all.
+  String? get _datesError {
+    final start = _startsAt ?? (_alreadyLive ? null : AppClock.now());
+    if (start == null || _endsAt == null) return null;
+    return _endsAt!.isAfter(start) ? null : 'Ends before it starts';
+  }
+
+  /// "9 October, 3:00 PM".
+  static String _when(DateTime d) => '${formatDayAndMonth(d)}, ${formatTimeOfDay(d)}';
+
+  /// A day, then a time. A time already past means now.
+  Future<void> _pickStart() async {
+    final now = AppClock.now();
+    final day = await showDatePicker(
+      context: context,
+      initialDate: _startsAt ?? now,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 1, now.month, now.day),
+      helpText: 'Start showing on',
+    );
+    if (day == null || !mounted) return;
+    final suggested = _startsAt ?? now.add(const Duration(hours: 1));
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(suggested),
+      helpText: 'Start showing at',
+    );
+    if (time == null || !mounted) return;
+    final at = DateTime(day.year, day.month, day.day, time.hour, time.minute);
+    final later = at.isAfter(AppClock.now());
+    setState(() => _startsAt = later ? at : null);
+    if (!later) {
+      showErrorToast('That time has passed: it will show as soon as it is posted.');
+    }
+  }
 
   Future<void> _pickEndDate() async {
     final now = DateTime.now();
@@ -773,6 +829,8 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
       }
     }
 
+    // A time that passed while the form was open means now.
+    final startsAt = _startsAt != null && _startsAt!.isAfter(AppClock.now()) ? _startsAt : null;
     final error = _isEdit
         ? await repository.updateAnnouncement(
             id: widget.existing!.id,
@@ -780,6 +838,8 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
             body: _body.text,
             audience: _audience,
             endsAt: _endsAt,
+            // A scheduled one keeps or moves its time, or starts now.
+            publishedAt: _alreadyLive ? null : (startsAt ?? AppClock.now()),
             imagePath: imagePath,
           )
         : await repository.createAnnouncement(
@@ -787,6 +847,7 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
             body: _body.text,
             audience: _audience,
             endsAt: _endsAt,
+            publishedAt: startsAt,
             imagePath: imagePath,
           );
 
@@ -810,7 +871,13 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
       unawaited(repository.deletePoster(replaced));
     }
 
-    showSuccessToast(_isEdit ? 'Announcement updated' : 'Announcement posted');
+    showSuccessToast(
+      startsAt != null
+          ? 'Scheduled for ${_when(startsAt)}'
+          : _isEdit
+          ? 'Announcement updated'
+          : 'Announcement posted',
+    );
     Navigator.pop(context, true);
   }
 
@@ -824,7 +891,9 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
       isNarrow: isNarrow,
       icon: Icons.campaign_rounded,
       title: _isEdit ? 'Edit Announcement' : 'New Announcement',
-      subtitle: _isEdit
+      subtitle: _startsAt != null
+          ? 'Goes live ${_when(_startsAt!)}'
+          : _isEdit
           ? 'Changes show the next time someone opens the app'
           : 'Goes live as soon as you post it',
       content: Column(
@@ -875,16 +944,7 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
             helper: 'Optional. JPG or PNG — resized to 1600px for you.',
           ),
           const SizedBox(height: 8),
-          // Side by side these two get ~150px each on a phone, which is
-          // not enough for a dropdown value plus the date field's suffix
-          // button. Narrow stacks them.
-          Flex(
-            direction: isNarrow ? Axis.vertical : Axis.horizontal,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _flexChild(
-                isNarrow,
-                DropdownButtonFormField<AnnouncementAudience>(
+          DropdownButtonFormField<AnnouncementAudience>(
                   isExpanded: true,
                   initialValue: _audience,
                   decoration: InputDecoration(
@@ -901,6 +961,49 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
                       ? null
                       : (v) => setState(() => _audience = v ?? _audience),
                 ),
+          const SizedBox(height: 8),
+          // Side by side these two get ~150px each on a phone, which is
+          // not enough for a date plus the suffix button. Narrow stacks them.
+          Flex(
+            direction: isNarrow ? Axis.vertical : Axis.horizontal,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _flexChild(
+                isNarrow,
+                InkWell(
+                  onTap: _submitting || _alreadyLive ? null : _pickStart,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: 'Start showing',
+                      enabled: !_alreadyLive,
+                      helperText: _alreadyLive
+                          ? 'Already showing'
+                          : _startsAt == null
+                          ? 'Tap to schedule it for later'
+                          : 'Nobody sees it, or gets a notification, until then',
+                      helperMaxLines: 2,
+                      suffixIcon: _startsAt == null
+                          ? const Icon(Icons.schedule_rounded, size: 18)
+                          : IconButton(
+                              iconSize: 18,
+                              tooltip: 'Show it now instead',
+                              onPressed: () => setState(() => _startsAt = null),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                    ),
+                    child: Text(
+                      _alreadyLive
+                          ? 'Since ${_when(widget.existing!.publishedAt?.toLocal() ?? AppClock.now())}'
+                          : _startsAt == null
+                          ? 'Now'
+                          : _when(_startsAt!),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: _startsAt == null ? StockpileColors.mutedText : null,
+                      ),
+                    ),
+                  ),
+                ),
               ),
               SizedBox(width: isNarrow ? 0 : 12, height: isNarrow ? 8 : 0),
               _flexChild(
@@ -911,6 +1014,7 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
                   child: InputDecorator(
                     decoration: InputDecoration(
                       labelText: 'Show until',
+                      errorText: _datesError,
                       helperText: _endsAt == null
                           ? 'Leave blank to keep it up'
                           : 'Tap to change',
@@ -984,7 +1088,13 @@ class _AnnouncementEditorState extends State<_AnnouncementEditor> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.check_rounded, size: 18),
-          label: Text(_isEdit ? 'Save changes' : 'Post Announcement'),
+          label: Text(
+            _isEdit
+                ? 'Save changes'
+                : _startsAt != null
+                ? 'Schedule'
+                : 'Post Announcement',
+          ),
         ),
       ],
     );

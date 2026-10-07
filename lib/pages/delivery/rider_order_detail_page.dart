@@ -70,6 +70,9 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
   void initState() {
     super.initState();
     _ensureRoute();
+    // The admin may have changed the delivery time estimate since the app
+    // opened (ET4): the Arrival card redraws if it did.
+    context.read<ConfigService>().refreshQuietly();
   }
 
   /// The road route is normally stored when the cashier assigns the rider.
@@ -492,6 +495,8 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Redraw when the settings change: the arrival time depends on them.
+    context.watch<ConfigService>();
     final o = _order;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final text = isDark

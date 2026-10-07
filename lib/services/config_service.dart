@@ -2,7 +2,10 @@
 // Loads app_config from Supabase and exposes typed getters for global settings.
 // Registered as a ChangeNotifierProvider in main.dart.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import '../db/db.dart';
 import 'eta_estimator.dart';
 
@@ -13,6 +16,10 @@ class ConfigService extends ChangeNotifier {
   /// value are absent here and fall back to [lowStockThreshold].
   Map<String, int> _categoryThresholds = {};
   bool _loaded = false;
+
+  /// Keeps settings saved on another device from going stale here.
+  Timer? _timer;
+  AppLifecycleListener? _life;
 
   /// Defaults match AppConfigDefaults in models.dart.
 
@@ -80,7 +87,13 @@ class ConfigService extends ChangeNotifier {
 
   bool get birthdayGreetingHasImage => birthdayGreetingImage.isNotEmpty;
 
-  /// Fetches config once on startup.
+  /// Fetches config on startup, then keeps it current.
+  ///
+  /// Settings used to be read once, so a change saved on another device
+  /// (the admin's Delivery time estimate, Part 8: ET4) only reached a
+  /// rider's phone when the app restarted. Now they are read again when
+  /// the app comes back to the front and every five minutes, and the
+  /// rider's order screen asks for a fresh copy when it opens.
   Future<void> load() async {
     if (_loaded) return;
     try {
@@ -91,6 +104,20 @@ class ConfigService extends ChangeNotifier {
     }
     _loaded = true;
     notifyListeners();
+    _timer ??= Timer.periodic(const Duration(minutes: 5), (_) => refreshQuietly());
+    _life ??= AppLifecycleListener(onResume: refreshQuietly);
+  }
+
+  /// Reads app_config again; tells listeners only if something changed.
+  Future<void> refreshQuietly() async {
+    try {
+      final fresh = await repository.fetchAppConfig();
+      if (mapEquals(fresh, _config)) return;
+      _config = fresh;
+      notifyListeners();
+    } catch (_) {
+      // Keep what we have.
+    }
   }
 
   /// Called after admin saves settings (or category changes) to refresh
@@ -101,6 +128,13 @@ class ConfigService extends ChangeNotifier {
       await _loadCategoryThresholds();
     } catch (_) {}
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _life?.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCategoryThresholds() async {
