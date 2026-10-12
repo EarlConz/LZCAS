@@ -63,12 +63,12 @@ checks(n, item, expect, actual) as (
   union all
   select 6, 'v71: commission triggers on sales (name:enabled)',
          '4 rows, each :O; if all 4 are there, v71 is not needed',
-         coalesce((select string_agg(tgname || ':' || tgenabled, ' ' order by tgname)
+         coalesce((select string_agg(tgname::text || ':' || tgenabled::text, ' ' order by tgname)
                      from pg_trigger
                     where tgrelid = 'public.sales'::regclass and not tgisinternal), '(none)')
   union all
   select 7, 'v72: orders updated_at trigger', 'none before v48; after v48, present',
-         coalesce((select string_agg(tgname, ' ')
+         coalesce((select string_agg(tgname::text, ' ')
                      from pg_trigger
                     where tgrelid = to_regclass('public.orders') and not tgisinternal), '(none)')
   union all

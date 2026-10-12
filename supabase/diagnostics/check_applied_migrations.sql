@@ -92,9 +92,12 @@ select 'v43  announcement staff bypass',
          select 1 from pg_policies
          where schemaname = 'public' and tablename = 'announcements'
            and policyname = 'announcements_select'
-           and qual ilike '%is_admin%' and qual not ilike '%is_staff%'
+           -- v51 later replaced is_admin() with can_post_announcements():
+           -- either one means the branch-cashier bypass is closed.
+           and (qual ilike '%is_admin%' or qual ilike '%can_post_announcements%')
+           and qual not ilike '%is_staff%'
        ) then 'APPLIED' else 'MISSING' end,
-       'announcements_select uses is_admin(), not is_staff()'
+       'announcements_select: is_admin() or (v51) can_post_announcements(), not is_staff()'
 
 union all
 select 'v44  posters (column)',
