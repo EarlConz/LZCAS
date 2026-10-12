@@ -57,17 +57,17 @@ order by version;
 | v56 | `migration_v56_withdrawal_reservations.sql` | ✅ | ✅ 2026-10-12 | **Run section 2 of `supabase/diagnostics/audit_withdrawal_overdrafts.sql` on production right before**: any stacked pending withdrawals must be settled first. |
 | v57 | `migration_v57_order_refunds_and_receiver.sql` | ✅ | ✅ 2026-10-12 | — |
 | v58 | `migration_v58_push_notifications.sql` | ✅ | ✅ 2026-10-12 | Vault secrets and `order-push` (section 2). Without the Vault entries the trigger does nothing; it never fails an order. |
-| v59 | `migration_v59_dispatch_needs_payment.sql` | ✅ | ❌ | — |
-| v60 | `migration_v60_reduce_item_stock.sql` | ✅ | ❌ | Independent of delivery, but the app's Edit Product calls it: apply before the new app ships. |
-| v61 | `migration_v61_courier_delivery.sql` | ✅ 2026-10-02 | ❌ | — |
-| v62 | `migration_v62_short_cod_code_and_busy_riders.sql` | ✅ 2026-10-02 | ❌ | — |
-| v63 | `migration_v63_product_images.sql` | ✅ 2026-10-03 | ❌ | Product pictures; independent of delivery. Creates the public `product-images` bucket. Apply before an app build with picture upload reaches admins (older builds ignore it). |
-| v64 | `migration_v64_pos_sale_guard_and_edit_sale.sql` | ✅ 2026-10-03 | ❌ | POS checkout and Edit Sale call its functions: apply before the app build that has them, or checkout fails. Independent of delivery. |
-| v65 | `migration_v65_orders_seen_by_all_staff.sql` | ✅ 2026-10-03 | ❌ | Every cashier sees every delivery order (client decision 2026-10-03); only its cashier or an admin can change it. Apply with or before the app build that shows "Handled by"; older builds just show more orders, with buttons the database refuses. |
-| v66 | `migration_v66_item_status_bigint.sql` | ✅ 2026-10-04 | ❌ | Fixes Edit Sale ("_item_status(bigint, text) does not exist", tests X1–X3). Needs v64. No app change. |
-| v67 | `migration_v67_no_referral_loops.sql` | ✅ 2026-10-04 | ❌ | Refuses a referrer from the member's own downline (referral loops, X6). Existing loops untouched; the app also hides those choices. |
-| v68 | `migration_v68_realtime_tables.sql` | ✅ 2026-10-04 | ❌ | Puts items, members, sales, the request queues and orders in the realtime publication, so changes reach other devices (Part 3 live-update failures). Adds only what is missing. |
-| v69 | `migration_v69_unique_tracking_numbers.sql` | ✅ 2026-10-04 | ❌ | Refuses a tracking number already on another order (ignores case, spaces, dashes). Needs v61. The app's Generate button relies on it to avoid repeats. |
+| v59 | `migration_v59_dispatch_needs_payment.sql` | ✅ | ✅ 2026-10-12 | — |
+| v60 | `migration_v60_reduce_item_stock.sql` | ✅ | ✅ 2026-10-12 | Independent of delivery, but the app's Edit Product calls it: apply before the new app ships. |
+| v61 | `migration_v61_courier_delivery.sql` | ✅ 2026-10-02 | ✅ 2026-10-12 | — |
+| v62 | `migration_v62_short_cod_code_and_busy_riders.sql` | ✅ 2026-10-02 | ✅ 2026-10-12 | — |
+| v63 | `migration_v63_product_images.sql` | ✅ 2026-10-03 | ✅ 2026-10-12 | Product pictures; independent of delivery. Creates the public `product-images` bucket. Apply before an app build with picture upload reaches admins (older builds ignore it). |
+| v64 | `migration_v64_pos_sale_guard_and_edit_sale.sql` | ✅ 2026-10-03 | ✅ 2026-10-12 | POS checkout and Edit Sale call its functions: apply before the app build that has them, or checkout fails. Independent of delivery. |
+| v65 | `migration_v65_orders_seen_by_all_staff.sql` | ✅ 2026-10-03 | ✅ 2026-10-12 | Every cashier sees every delivery order (client decision 2026-10-03); only its cashier or an admin can change it. Apply with or before the app build that shows "Handled by"; older builds just show more orders, with buttons the database refuses. |
+| v66 | `migration_v66_item_status_bigint.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Fixes Edit Sale ("_item_status(bigint, text) does not exist", tests X1–X3). Needs v64. No app change. |
+| v67 | `migration_v67_no_referral_loops.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Refuses a referrer from the member's own downline (referral loops, X6). Existing loops untouched; the app also hides those choices. |
+| v68 | `migration_v68_realtime_tables.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Puts items, members, sales, the request queues and orders in the realtime publication, so changes reach other devices (Part 3 live-update failures). Adds only what is missing. |
+| v69 | `migration_v69_unique_tracking_numbers.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Refuses a tracking number already on another order (ignores case, spaces, dashes). Needs v61. The app's Generate button relies on it to avoid repeats. |
 | v70 | `migration_v70_realtime_member_transactions.sql` | ✅ 2026-10-05 | ❌ | Puts member_transactions in realtime so a member's Earnings update by themselves (G2). Members still only receive their own rows (v7). |
 | v71 | `migration_v71_restore_commission_triggers.sql` | ✅ 2026-10-05 | ❓ | **Staging had no commission triggers** (Group Sales, referral bonuses): built from schema.sql, v19–v27 only assumed by v45. Restores the latest versions. Production: check section 1 of `diagnose_recent_commissions.sql` first; if the 4 triggers are there, it is not needed. **Production 2026-10-12: all 4 present and enabled, so v71 is skipped there.** Then on staging only: `maintenance/backfill_missed_commissions_staging.sql`. |
 | v72 | `migration_v72_orders_touch_updated_at.sql` | ✅ 2026-10-05 | ❓ | Restores the orders `updated_at` trigger (missing on staging; found by `find_missing_objects.sql`). Do NOT re-run v48 for it. Harmless where present. |
@@ -146,5 +146,6 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-08 | Added v74 (announcement push) and the `announcement-push` function, neither applied anywhere yet. |
 | 2026-10-12 | Production rollout started. Snapshot `snapshot_20261012` taken (free tier: no dashboard backups). Readiness clean: no overdrawing withdrawals, no referral loops, v71 not needed, pg_cron installed. v48 and v49 applied on production. |
 | 2026-10-12 | v50, v52–v58 applied on production, each verified. v52 and v56: all 105 members' earnings unchanged (compared with a copy taken before v52); the 6 pending withdrawals still approvable under v56. |
+| 2026-10-12 | v59–v69 applied on production, each verified. v63: items_with_status returns the same 23 rows. v67: no referral loops at any depth. v68 added nothing (all six tables were already published). |
 | 2026-10-06 | Added v73 (realtime announcements and branch stock), not applied anywhere yet. |
 | 2026-10-06 | v73 applied on staging. |
