@@ -46,8 +46,8 @@ order by version;
 | # | File | Staging | Production | Before applying on production |
 |---|------|:-:|:-:|---|
 | v47 | `migration_v47_member_location.sql` | ✅ | ✅ | — |
-| v48 | `migration_v48_delivery_orders.sql` | ✅ | ❓ | Shipped as a file in v1.5.1; check the ledger. Safe to re-run if present. |
-| v49 | `migration_v49_orders_authorization.sql` | ✅ | ❌ | — |
+| v48 | `migration_v48_delivery_orders.sql` | ✅ | ✅ 2026-10-12 | Was not on production (no orders table). Run without RLS, then v49 at once, which turns it on. |
+| v49 | `migration_v49_orders_authorization.sql` | ✅ | ✅ 2026-10-12 | RLS on orders and order_items, one SELECT policy each; ledger has v48 and v49. |
 | v50 | `migration_v50_delivery_role.sql` | ✅ | ❌ | — |
 | v51 | `migration_v51_cashier_announcements.sql` | ✅ | ✅ | — |
 | v52 | `migration_v52_order_payment_and_sales.sql` | ✅ ¹ | ❌ | — |
@@ -69,7 +69,7 @@ order by version;
 | v68 | `migration_v68_realtime_tables.sql` | ✅ 2026-10-04 | ❌ | Puts items, members, sales, the request queues and orders in the realtime publication, so changes reach other devices (Part 3 live-update failures). Adds only what is missing. |
 | v69 | `migration_v69_unique_tracking_numbers.sql` | ✅ 2026-10-04 | ❌ | Refuses a tracking number already on another order (ignores case, spaces, dashes). Needs v61. The app's Generate button relies on it to avoid repeats. |
 | v70 | `migration_v70_realtime_member_transactions.sql` | ✅ 2026-10-05 | ❌ | Puts member_transactions in realtime so a member's Earnings update by themselves (G2). Members still only receive their own rows (v7). |
-| v71 | `migration_v71_restore_commission_triggers.sql` | ✅ 2026-10-05 | ❓ | **Staging had no commission triggers** (Group Sales, referral bonuses): built from schema.sql, v19–v27 only assumed by v45. Restores the latest versions. Production: check section 1 of `diagnose_recent_commissions.sql` first; if the 4 triggers are there, it is not needed. Then on staging only: `maintenance/backfill_missed_commissions_staging.sql`. |
+| v71 | `migration_v71_restore_commission_triggers.sql` | ✅ 2026-10-05 | ❓ | **Staging had no commission triggers** (Group Sales, referral bonuses): built from schema.sql, v19–v27 only assumed by v45. Restores the latest versions. Production: check section 1 of `diagnose_recent_commissions.sql` first; if the 4 triggers are there, it is not needed. **Production 2026-10-12: all 4 present and enabled, so v71 is skipped there.** Then on staging only: `maintenance/backfill_missed_commissions_staging.sql`. |
 | v72 | `migration_v72_orders_touch_updated_at.sql` | ✅ 2026-10-05 | ❓ | Restores the orders `updated_at` trigger (missing on staging; found by `find_missing_objects.sql`). Do NOT re-run v48 for it. Harmless where present. |
 | v73 | `migration_v73_realtime_announcements_branch_stock.sql` | ✅ 2026-10-06 | ❌ | Puts announcements and branch_stock in realtime, so a cashier's post and branch stock changes reach the admin's screens by themselves (Part 5, G2 note). Adds only what is missing. |
 | v74 | `migration_v74_announcement_push.sql` | ❌ | ❌ | Push notification for each new announcement, sent when it goes live (Part 7, AT2). Needs v58 and its Vault secrets; no new ones. Deploy `announcement-push` with it. Scheduled announcements need pg_cron (enabled by the migration where allowed). |
@@ -144,5 +144,6 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-05 | v72 applied and verified on staging. |
 | 2026-10-05 | order-push redeployed on staging with the 2026-10-03 admin alert rules. |
 | 2026-10-08 | Added v74 (announcement push) and the `announcement-push` function, neither applied anywhere yet. |
+| 2026-10-12 | Production rollout started. Snapshot `snapshot_20261012` taken (free tier: no dashboard backups). Readiness clean: no overdrawing withdrawals, no referral loops, v71 not needed, pg_cron installed. v48 and v49 applied on production. |
 | 2026-10-06 | Added v73 (realtime announcements and branch stock), not applied anywhere yet. |
 | 2026-10-06 | v73 applied on staging. |
