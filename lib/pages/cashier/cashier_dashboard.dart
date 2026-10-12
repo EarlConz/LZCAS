@@ -18,6 +18,7 @@ import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/widgets/memberstable.dart';
+import 'package:lzcas/utils/member_search.dart';
 import 'package:lzcas/widgets/admin_members_page.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/pages/admin/announcements_page.dart';
@@ -26,7 +27,9 @@ import 'package:lzcas/config/feature_flags.dart';
 import 'package:lzcas/pages/delivery/delivery_orders_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/announcement_alerts.dart';
 import 'package:lzcas/services/updater_service.dart';
+import 'package:lzcas/widgets/announcement_count.dart';
 import 'package:lzcas/dialogs/update_dialog.dart';
 
 class CashierDashboard extends StatefulWidget {
@@ -40,6 +43,9 @@ class _CashierDashboardState extends State<CashierDashboard>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
+  /// Announcements' place among the tabs below.
+  static const _announcementsTab = enableDeliverySystem ? 5 : 4;
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +54,13 @@ class _CashierDashboardState extends State<CashierDashboard>
       length: enableDeliverySystem ? 7 : 6,
       vsync: this,
     );
+    // The count of new announcements on the Announcements tab (AT2);
+    // while it is open, what arrives there counts as seen.
+    announcementAlerts.start();
+    _tabController.addListener(() {
+      announcementAlerts.viewing =
+          _tabController.index == _announcementsTab;
+    });
     _triggerUpdateCheck();
   }
 
@@ -206,6 +219,8 @@ class _CashierDashboardState extends State<CashierDashboard>
                         Icon(Icons.campaign_rounded, size: 18),
                         SizedBox(width: 6),
                         Text('Announcements'),
+                        SizedBox(width: 6),
+                        AnnouncementCount(),
                       ],
                     ),
                   ),
@@ -313,16 +328,16 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
   final _searchCtrl = TextEditingController();
   final _reasonCtrl = TextEditingController();
   final _focusNode = FocusNode();
-  List<Member> _members = [];
+  /// Suggestions come from the database as you type; this tab used to
+  /// download every member to search them.
+  final _memberSearch = MemberSearch();
   Member? _selectedMember;
-  bool _loadingMembers = true;
   bool _submitting = false;
   String? _feedback;
 
   @override
   void initState() {
     super.initState();
-    _loadMembers();
   }
 
   @override
@@ -331,19 +346,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
     _reasonCtrl.dispose();
     _focusNode.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadMembers() async {
-    try {
-      final members = await repository.fetchMembers();
-      if (!mounted) return;
-      setState(() {
-        _members = members;
-        _loadingMembers = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loadingMembers = false);
-    }
   }
 
   Future<void> _submitDeletionRequest() async {
@@ -536,16 +538,7 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
 
             if (_selectedMember == null)
               Autocomplete<Member>(
-                optionsBuilder: (textEditingValue) {
-                  if (textEditingValue.text.isEmpty) return [];
-                  final query = textEditingValue.text.toLowerCase();
-                  return _members.where((m) {
-                    final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'
-                        .toLowerCase();
-                    final idStr = m.id?.toString() ?? '';
-                    return name.contains(query) || idStr.contains(query);
-                  });
-                },
+                optionsBuilder: (v) => _memberSearch(v.text),
                 displayStringForOption: (m) =>
                     '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim(),
                 fieldViewBuilder: (context, controller, focusNode, onSubmit) {
@@ -634,14 +627,6 @@ class _RequestDeletionTabState extends State<_RequestDeletionTab> {
                 },
               ),
 
-            if (_loadingMembers && _selectedMember == null)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Loading members…',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ),
 
             const SizedBox(height: 12),
 

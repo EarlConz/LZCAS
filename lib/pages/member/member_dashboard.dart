@@ -11,7 +11,9 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import '../../auth/auth.dart';
 import '../../db/db.dart';
 import '../../router/route_guard.dart';
+import '../../services/announcement_alerts.dart';
 import '../../services/config_service.dart';
+import '../../utils/phone_formatter.dart';
 import '../../config/feature_flags.dart';
 import '../../utils/formatters.dart' show formatDisplayDate;
 import '../../services/updater_service.dart';
@@ -20,6 +22,7 @@ import '../../dialogs/unseen_announcements_dialog.dart';
 import '../../theme.dart';
 import '../../utils/fonts.dart';
 import '../../utils/birthday_window.dart';
+import '../../widgets/announcement_count.dart';
 import '../../widgets/announcement_widgets.dart';
 import '../../widgets/location_selection_widget.dart';
 import '../../widgets/map_kit.dart';
@@ -28,6 +31,8 @@ import '../../widgets/memberqr.dart';
 import 'announcements_tab.dart';
 import 'member_marketplace_tab.dart';
 import 'active_orders_tab.dart';
+import 'member_order_kit.dart' show MemberOrderView;
+import 'my_purchases_tab.dart';
 
 class MemberDashboard extends StatefulWidget {
   const MemberDashboard({super.key});
@@ -46,11 +51,54 @@ class _MemberDashboardState extends State<MemberDashboard> {
   /// True when this member's role is 'Verified Reseller'.
   bool get _isReseller => _member?.role == 'Verified Reseller';
 
+  /// Orders waiting on this member (a quote, a payment, a delivery to
+  /// confirm): the badge on Active Orders in the menu.
+  int _ordersNeedingYou = 0;
+  StreamSubscription<String>? _orderSub;
+
+  /// Back to the front: re-read the member (Z8's fallback, below).
+  AppLifecycleListener? _lifecycle;
+
   @override
   void initState() {
     super.initState();
     _loadMemberData();
+    // An admin's edit normally arrives live (member_updated, below). Part 5
+    // found a phone where it didn't (Z8), so the member's own details are
+    // also read again whenever the app comes back to the front and when
+    // the Profile tab opens: never more than one reopen out of date.
+    _lifecycle = AppLifecycleListener(onResume: () {
+      if (mounted) _loadMemberData();
+    });
     _triggerUpdateCheck();
+    // The count of new announcements on the Announcements tab (AT2).
+    announcementAlerts.start();
+    _orderSub = repository.changes.listen((e) {
+      if (enableDeliverySystem && (e.startsWith('order_') || e == 'orders_changed')) {
+        _countOrders();
+      }
+      // An admin edited this member (name, contact, package) on another
+      // device: show it without reopening the app (test W4). The load is
+      // quiet: it never shows the spinner again.
+      if (e == 'member_updated') _loadMemberData();
+    });
+  }
+
+  @override
+  void dispose() {
+    _orderSub?.cancel();
+    _lifecycle?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _countOrders() async {
+    final id = _member?.id;
+    if (!enableDeliverySystem || id == null) return;
+    try {
+      final orders = await repository.fetchDeliveryOrders(memberId: id);
+      final n = orders.where((o) => o.memberMustAct).length;
+      if (mounted && n != _ordersNeedingYou) setState(() => _ordersNeedingYou = n);
+    } catch (_) {}
   }
 
   void _triggerUpdateCheck() {
@@ -88,6 +136,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
         _member = member;
         _loading = false;
       });
+      _countOrders();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -97,7 +146,24 @@ class _MemberDashboardState extends State<MemberDashboard> {
     }
   }
 
-  void _onItemTapped(int index) => setState(() => _selectedIndex = index);
+  void _onItemTapped(int index) {
+    setState(() => _selectedIndex = index);
+    _refreshIfProfile();
+    _noteAnnouncementsTab();
+  }
+
+  /// While Announcements is open, what arrives there counts as seen.
+  void _noteAnnouncementsTab() {
+    announcementAlerts.viewing = _currentTab == _MemberTab.announcements;
+  }
+
+  /// Opening Profile re-reads the member, so it shows an admin's latest
+  /// edit even if the live update never came (Z8).
+  void _refreshIfProfile() {
+    if (_selectedIndex < _tabs.length && _tabs[_selectedIndex] == _MemberTab.profile) {
+      _loadMemberData();
+    }
+  }
 
   Future<void> _handleLogout() async {
     final auth = context.read<AuthState>();
@@ -188,6 +254,7 @@ class _MemberDashboardState extends State<MemberDashboard> {
       selectedIndex: _selectedIndex,
       isReseller: _isReseller,
       onItemSelected: _onItemTapped,
+      ordersBadge: _ordersNeedingYou,
       onLogout: _handleLogout,
       onFindCashiers: _openNearestCashiers,
     );
@@ -232,13 +299,11 @@ class _MemberDashboardState extends State<MemberDashboard> {
       child: Row(
         children: [
           if (!isDesktop)
-            IconButton(
-              icon: Icon(
-                Icons.menu,
-                color: isDark
-                    ? StockpileColors.darkTextPrimary
-                    : StockpileColors.darkText,
-              ),
+            MenuButtonWithAlerts(
+              color: isDark
+                  ? StockpileColors.darkTextPrimary
+                  : StockpileColors.darkText,
+              alsoWhen: _ordersNeedingYou > 0,
               onPressed: () => _scaffoldKey.currentState?.openDrawer(),
             ),
           const SizedBox(width: 8),
@@ -287,9 +352,12 @@ class _MemberDashboardState extends State<MemberDashboard> {
           onOrderPlaced: () => _openTab(_MemberTab.orders),
         );
       case _MemberTab.orders:
-        return ActiveOrdersTab(member: _member!);
+        return ActiveOrdersTab(
+          member: _member!,
+          onShop: () => _openTab(_MemberTab.marketplace),
+        );
       case _MemberTab.purchases:
-        return _PurchasesTab(member: _member!);
+        return MyPurchasesTab(member: _member!);
       case _MemberTab.announcements:
         return AnnouncementsTab(member: _member!);
       case _MemberTab.earnings:
@@ -306,6 +374,8 @@ class _MemberDashboardState extends State<MemberDashboard> {
   void _openTab(_MemberTab tab) {
     final index = _tabs.indexOf(tab);
     if (index >= 0) setState(() => _selectedIndex = index);
+    _refreshIfProfile();
+    _noteAnnouncementsTab();
   }
 
   /// Open the dedicated Nearest Cashiers map screen.
@@ -517,12 +587,34 @@ class _OverviewTabState extends State<_OverviewTab> {
 
   BirthdayGreeting? _greeting;
 
+  /// The figures on this tab follow new ledger rows and purchases from any
+  /// device (v70), so a commission shows without reopening the app.
+  StreamSubscription<String>? _statsSub;
+  Timer? _statsSoon;
+
   @override
   void initState() {
     super.initState();
     _loadStats();
     _loadAnnouncements();
     _loadGreeting();
+    _statsSub = repository.changes.listen((e) {
+      if (e == 'member_transactions_changed' ||
+          e.startsWith('sale_') ||
+          e.startsWith('withdrawal_request')) {
+        _statsSoon?.cancel();
+        _statsSoon = Timer(const Duration(milliseconds: 500), () {
+          if (mounted) _loadStats();
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _statsSub?.cancel();
+    _statsSoon?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadAnnouncements() async {
@@ -1596,242 +1688,6 @@ class _RecentActivityCard extends StatelessWidget {
   }
 }
 
-// ─── Purchases Tab ─────────────────────────────────────────────────────────
-
-class _PurchasesTab extends StatefulWidget {
-  final Member member;
-  const _PurchasesTab({required this.member});
-
-  @override
-  State<_PurchasesTab> createState() => _PurchasesTabState();
-}
-
-class _PurchasesTabState extends State<_PurchasesTab> {
-  List<Sale> _sales = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final sales = await repository.fetchMemberPurchaseHistory(
-      widget.member.id!,
-    );
-    if (!mounted) return;
-    setState(() {
-      _sales = sales;
-      _loading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_sales.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: StockpileColors.primary900.withValues(alpha: 0.08),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.receipt_long_rounded,
-                size: 32,
-                color: StockpileColors.primary900,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No purchase history',
-              style: StockpileFonts.satoshi(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: isDark
-                    ? StockpileColors.darkTextMuted
-                    : StockpileColors.mutedText,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Your purchases will appear here once you start buying.',
-              textAlign: TextAlign.center,
-              style: StockpileFonts.satoshi(
-                fontSize: 13,
-                color: StockpileColors.mutedText,
-                height: 1.5,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final currencySymbol = context.watch<ConfigService>().currencySymbol;
-    final now = DateTime.now();
-
-    return RefreshIndicator(
-      onRefresh: _load,
-      color: StockpileColors.primary900,
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        itemCount: _sales.length,
-        itemBuilder: (context, i) {
-          final s = _sales[i];
-          const accent = StockpileColors.primary900;
-          final iconBg = StockpileColors.primary900.withValues(alpha: 0.08);
-          final age = s.timestamp != null
-              ? _relativeTime(s.timestamp!, now)
-              : '';
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Container(
-              decoration: BoxDecoration(
-                color: isDark ? StockpileColors.darkSurface : Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.03),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-                border: Border(left: BorderSide(color: accent, width: 3)),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                child: Row(
-                  children: [
-                    // Icon
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: iconBg,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.shopping_bag_rounded,
-                        size: 20,
-                        color: accent,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    // Name + meta
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  s.itemName,
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    color: isDark
-                                        ? StockpileColors.darkTextPrimary
-                                        : StockpileColors.darkText,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            children: [
-                              if (age.isNotEmpty) ...[
-                                Text(
-                                  age,
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 12,
-                                    color: StockpileColors.mutedText,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                              ],
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? StockpileColors.darkInputBg
-                                      : const Color(0xFFF1F3F5),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  '×${s.quantity}',
-                                  style: StockpileFonts.satoshi(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: StockpileColors.mutedText,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Price
-                    Text(
-                      '$currencySymbol${s.price}',
-                      style: StockpileFonts.satoshi(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: isDark
-                            ? StockpileColors.darkTextPrimary
-                            : StockpileColors.darkText,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  String _relativeTime(DateTime dt, DateTime now) {
-    final diff = now.difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) {
-      if (dt.day == now.day) return 'Today';
-      return '${diff.inHours}h ago';
-    }
-    if (diff.inDays == 1) return 'Yesterday';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-  }
-}
-
 // ─── Earnings Tab (Reseller-only) ──────────────────────────────────────────
 
 /// Short-lived cache for the itemised earnings sources.
@@ -1852,9 +1708,12 @@ class _SourcesCache {
   static DateTime? _at;
 
   /// Cached rows for [memberId], or null when absent/stale/for another member.
-  static List<EarningsSource>? get(int memberId) {
+  /// [changedAt] is when the totals last moved (the newest history snapshot):
+  /// rows cached before that cannot explain the change, so they are stale.
+  static List<EarningsSource>? get(int memberId, {DateTime? changedAt}) {
     if (_memberId != memberId || _rows == null || _at == null) return null;
     if (DateTime.now().difference(_at!) > _ttl) return null;
+    if (changedAt != null && changedAt.isAfter(_at!)) return null;
     return _rows;
   }
 
@@ -1883,6 +1742,11 @@ class _EarningsTab extends StatefulWidget {
 class _EarningsTabState extends State<_EarningsTab> {
   int _totalEarnings = 0;
   int _balance = 0;
+  // v56: withdrawals awaiting approval hold their amount.
+  int _pendingEarnings = 0;
+  int _pendingBalance = 0;
+  int _availableEarnings = 0;
+  int _availableBalance = 0;
   int _totalPurchases = 0;
   int _chairmanBonus = 0;
   List<EarningsSnapshot> _history = [];
@@ -1896,6 +1760,7 @@ class _EarningsTabState extends State<_EarningsTab> {
 
   bool _loading = true;
   StreamSubscription<String>? _changeSub;
+  Timer? _reloadSoon;
 
   @override
   void initState() {
@@ -1913,16 +1778,25 @@ class _EarningsTabState extends State<_EarningsTab> {
         'sale_deleted',
         'member_added',
         'member_updated',
-        // An admin correction (v35). Note this only fires on the device that
-        // posted it: `member_transactions` has no realtime subscription, so a
-        // member already sitting on this tab picks the change up on their next
-        // visit rather than instantly. Rare enough (and manual enough) not to
-        // justify streaming the whole ledger to every device.
+        // An admin correction (v35), on the device that posted it.
         'funds_adjusted',
+        // Any new row in this member's own ledger, from any device (v70):
+        // a downline's purchase paying Group Sales, a referral bonus, a
+        // correction. Before, a referrer watching this screen saw nothing
+        // until they reopened it (test G2).
+        'member_transactions_changed',
       };
-      if (invalidating.contains(event)) {
+      // A delivery order paid from funds, or cancelled and refunded (v52,
+      // v57), adds a ledger row too. Missing it, a refund back to Balance
+      // read as a Direct Referral in the history (test N4).
+      final order = event.startsWith('order_') || event == 'orders_changed';
+      if (order || invalidating.contains(event)) {
         _SourcesCache.invalidate();
-        _load();
+        // One sale can write several ledger rows: one reload.
+        _reloadSoon?.cancel();
+        _reloadSoon = Timer(const Duration(milliseconds: 500), () {
+          if (mounted) _load();
+        });
       }
     });
   }
@@ -1930,6 +1804,7 @@ class _EarningsTabState extends State<_EarningsTab> {
   @override
   void dispose() {
     _changeSub?.cancel();
+    _reloadSoon?.cancel();
     super.dispose();
   }
 
@@ -1961,7 +1836,7 @@ class _EarningsTabState extends State<_EarningsTab> {
     // from the short-lived cache when the member is just flicking between
     // tabs. Failing to load must not break the earnings tab, so fall back to
     // empty (the card then shows its own empty state).
-    var sources = _SourcesCache.get(id);
+    var sources = _SourcesCache.get(id, changedAt: history.firstOrNull?.recordedAt);
     if (sources == null) {
       try {
         sources = await repository.fetchEarningsSources(id);
@@ -1975,6 +1850,10 @@ class _EarningsTabState extends State<_EarningsTab> {
     setState(() {
       _totalEarnings = totalEarnings;
       _balance = balance;
+      _pendingEarnings = breakdown['pendingEarnings'] ?? 0;
+      _pendingBalance = breakdown['pendingBalance'] ?? 0;
+      _availableEarnings = breakdown['availableEarnings'] ?? totalEarnings;
+      _availableBalance = breakdown['availableBalance'] ?? balance;
       _totalPurchases = (results[1] as List<Sale>)
           .where((s) => !s.isPackage)
           .fold(0, (sum, s) => sum + s.quantity);
@@ -2053,8 +1932,10 @@ class _EarningsTabState extends State<_EarningsTab> {
           // ── Withdrawal request buttons ─────────────────
           _WithdrawalButtons(
             isDark: isDark,
-            totalEarnings: _totalEarnings,
-            balance: _balance,
+            availableEarnings: _availableEarnings,
+            availableBalance: _availableBalance,
+            pendingEarnings: _pendingEarnings,
+            pendingBalance: _pendingBalance,
             memberId: widget.member.id!,
             onWithdrew: _load,
           ),
@@ -2178,6 +2059,7 @@ class _EarningsTabState extends State<_EarningsTab> {
           else
             _EarningsLedgerCard(
               history: _history,
+              sources: _sources,
               isDark: isDark,
               currencySymbol: currencySymbol,
               isCompact: isMobile,
@@ -2296,12 +2178,17 @@ class _EarningsTabState extends State<_EarningsTab> {
 /// Each row is a snapshot recorded when the computed values changed.
 class _EarningsLedgerCard extends StatelessWidget {
   final List<EarningsSnapshot> history;
+
+  /// The itemised ledger, to name the delivery payments and refunds a
+  /// snapshot cannot attribute on its own.
+  final List<EarningsSource> sources;
   final bool isDark;
   final String currencySymbol;
   final bool isCompact;
 
   const _EarningsLedgerCard({
     required this.history,
+    this.sources = const [],
     required this.isDark,
     required this.currencySymbol,
     this.isCompact = false,
@@ -2494,6 +2381,24 @@ class _EarningsLedgerCard extends StatelessWidget {
     return (bucket == EarningsBucket.other ? prefix : bucket.label, reason);
   }
 
+  /// The delivery payments (negative) and refunds (positive) recorded after
+  /// [from] and up to [to], as (Balance wallet, Total Earnings wallet).
+  (int, int) _orderMoves(DateTime? from, DateTime? to) {
+    if (to == null) return (0, 0);
+    var bal = 0, earn = 0;
+    for (final s in sources) {
+      final at = s.timestamp;
+      if (s.bucket != EarningsBucket.deliveryPurchase || at == null) continue;
+      if (at.isAfter(to) || (from != null && !at.isAfter(from))) continue;
+      if (s.rawLabel.contains('(Balance)')) {
+        bal += s.amount;
+      } else {
+        earn += s.amount;
+      }
+    }
+    return (bal, earn);
+  }
+
   /// One ledger entry: direction icon, source chips + date, running totals.
   Widget _historyRow(
     EarningsSnapshot h,
@@ -2511,6 +2416,15 @@ class _EarningsLedgerCard extends StatelessWidget {
 
     List<Widget> chips;
     final netDelta = h.earningsDelta + h.balanceDelta;
+    // Delivery payments and their refunds in this window, per wallet. A
+    // snapshot only stores how much Balance moved, so without this a
+    // refund back to Balance read as a Direct Referral bonus.
+    final (ordersBal, ordersEarn) = _orderMoves(prev?.recordedAt, h.recordedAt);
+    final orders = ordersBal + ordersEarn;
+    final orderChip = _deltaChip(
+      orders,
+      orders > 0 ? 'Order refund' : 'Delivery purchase',
+    );
     if (noteReason != null) {
       chips = <Widget>[?_deltaChip(netDelta, noteBucket ?? 'Correction')];
     } else if (netDelta < 0) {
@@ -2518,8 +2432,12 @@ class _EarningsLedgerCard extends StatelessWidget {
       // (a negative ledger row). A snapshot only records the delta, not its
       // cause, so this used to guess "Withdrawal" — which mislabels a
       // correction as money paid out. Use a neutral term instead; the
-      // Sources view names the exact entry and its reason.
-      chips = <Widget>[?_deltaChip(netDelta, 'Deduction')];
+      // Sources view names the exact entry and its reason. Delivery
+      // purchases are known, so they are named.
+      chips = <Widget>[
+        ?orderChip,
+        ?_deltaChip(netDelta - orders, 'Deduction'),
+      ];
     } else if (h.isLegacy || (prev?.isLegacy ?? false)) {
       // Rows from before component tracking — sources unknown.
       chips = <Widget>[
@@ -2528,7 +2446,12 @@ class _EarningsLedgerCard extends StatelessWidget {
       ];
     } else if (prev != null || firstEver) {
       chips = <Widget>[
-        ?_deltaChip(h.balanceDelta, 'Direct Referral', positiveOnly: true),
+        ?orderChip,
+        ?_deltaChip(
+          h.balanceDelta - ordersBal,
+          'Direct Referral',
+          positiveOnly: true,
+        ),
         ?_deltaChip(
           h.indirectBonus - (prev?.indirectBonus ?? 0),
           'Indirect Referral',
@@ -2898,6 +2821,7 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
       EarningsBucket.upgradeBonus,
       EarningsBucket.other,
       EarningsBucket.directReferral,
+      EarningsBucket.deliveryPurchase,
     ];
     final visible = order
         .where((b) => (grouped[b]?.isNotEmpty ?? false))
@@ -2976,6 +2900,17 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
     final visible = expanded ? entries : entries.take(_previewCount).toList();
     final hidden = count - visible.length;
 
+    // Delivery purchases are spending, not earning: a minus total, drawn
+    // like the rows' own negatives, and rows from either wallet.
+    final spending = bucket == EarningsBucket.deliveryPurchase;
+    final totalText = total < 0
+        ? '−${widget.currencySymbol}${total.abs()}'
+        : '${widget.currencySymbol}$total';
+    final subtitle = spending
+        ? '$count entr${count == 1 ? 'y' : 'ies'} · paid from your funds'
+        : '$count credit${count == 1 ? '' : 's'} · '
+              '${bucket.isBalance ? 'Balance' : 'Total Earnings'}';
+
     return Theme(
       // Strip ExpansionTile's default dividers so it sits flush in the card.
       data: ThemeData(
@@ -2999,11 +2934,13 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
               ),
             ),
             Text(
-              '${widget.currencySymbol}$total',
+              totalText,
               style: StockpileFonts.satoshi(
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
-                color: bucket.isBalance
+                color: spending
+                    ? (total < 0 ? StockpileColors.danger : textColor)
+                    : bucket.isBalance
                     ? StockpileColors.primary900
                     : StockpileColors.success,
               ),
@@ -3011,8 +2948,7 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
           ],
         ),
         subtitle: Text(
-          '$count credit${count == 1 ? '' : 's'} · '
-          '${bucket.isBalance ? 'Balance' : 'Total Earnings'}',
+          subtitle,
           style: TextStyle(fontSize: 10, color: mutedColor),
         ),
         children: [
@@ -3059,6 +2995,9 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
   /// Legacy/imported rows have no link at all — say so rather than repeating
   /// the bucket name back at the reader.
   String _title(EarningsSource e) {
+    if (e.bucket == EarningsBucket.deliveryPurchase) {
+      return _deliveryTitle(e.rawLabel);
+    }
     if (e.sourceName != null) return e.sourceName!;
     // An admin correction's label repeats the bucket it already sits under
     // ("Chairman Bonus Adjustment — Duplicate referral reversed"). Lead with
@@ -3077,6 +3016,18 @@ class _EarningsSourcesCardState extends State<_EarningsSourcesCard> {
     // bucket name, that text IS the explanation, so show it.
     if (!_isUnknownSource(e)) return e.rawLabel;
     return 'Source not recorded';
+  }
+
+  /// "Order Payment (Balance) — Order #2600ecae" is the ledger's label;
+  /// "Delivery purchase · order 2600ECAE · from Balance" is what it means.
+  /// A v57 refund carries "— Refund, Order #…" and reads as one.
+  String _deliveryTitle(String raw) {
+    final ref = RegExp(r'Order #([0-9a-fA-F]+)').firstMatch(raw)?.group(1);
+    final wallet = raw.contains('(Balance)') ? 'Balance' : 'Total Earnings';
+    final order = ref == null ? '' : ' · order ${ref.toUpperCase()}';
+    return raw.contains('Refund')
+        ? 'Refund$order · back to $wallet'
+        : 'Delivery purchase$order · from $wallet';
   }
 
   /// True only when the row has neither a linked person nor a label that says
@@ -3261,8 +3212,29 @@ class _ProfileTabState extends State<_ProfileTab> {
     super.initState();
     _firstNameCtrl = TextEditingController(text: widget.member.firstName ?? '');
     _lastNameCtrl = TextEditingController(text: widget.member.lastName ?? '');
-    _contactCtrl = TextEditingController(text: widget.member.contactNo ?? '');
+    _contactCtrl = TextEditingController(text: formatPhilippinePhone(widget.member.contactNo ?? ''));
     _addressCtrl = TextEditingController(text: widget.member.address ?? '');
+  }
+
+  /// The dashboard reloads the member when an admin edits them on another
+  /// device. The fields were filled once, in initState, so the screen kept
+  /// the old values (test Z8). A field the member has not touched follows
+  /// the new value; one they are editing is left alone.
+  @override
+  void didUpdateWidget(covariant _ProfileTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final o = oldWidget.member, n = widget.member;
+    void follow(TextEditingController c, String before, String after) {
+      if (before != after && c.text == before) c.text = after;
+    }
+    follow(_firstNameCtrl, o.firstName ?? '', n.firstName ?? '');
+    follow(_lastNameCtrl, o.lastName ?? '', n.lastName ?? '');
+    follow(
+      _contactCtrl,
+      formatPhilippinePhone(o.contactNo ?? ''),
+      formatPhilippinePhone(n.contactNo ?? ''),
+    );
+    follow(_addressCtrl, o.address ?? '', n.address ?? '');
   }
 
   @override
@@ -3278,7 +3250,8 @@ class _ProfileTabState extends State<_ProfileTab> {
     final updated = widget.member.copyWith(
       firstName: _firstNameCtrl.text.trim(),
       lastName: _lastNameCtrl.text.trim(),
-      contactNo: _contactCtrl.text.trim(),
+      // Digits only, as the admin forms store it; shown as 0917 123 4567.
+      contactNo: philippinePhoneDigits(_contactCtrl.text),
       address: _addressCtrl.text.trim(),
     );
     await repository.updateMember(updated);
@@ -3568,8 +3541,10 @@ class _ProfileTabState extends State<_ProfileTab> {
             const SizedBox(height: 12),
             TextField(
               controller: _contactCtrl,
+              inputFormatters: [PhilippinePhoneFormatter()],
               decoration: InputDecoration(
                 labelText: 'Contact Number',
+                hintText: '0912 345 6789',
                 prefixIcon: const Icon(Icons.phone_outlined, size: 20),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -3885,15 +3860,26 @@ class _ChangePasswordFormState extends State<_ChangePasswordForm> {
 
 class _WithdrawalButtons extends StatelessWidget {
   final bool isDark;
-  final int totalEarnings;
-  final int balance;
+
+  /// What can still be requested: each bucket less the approved AND the
+  /// pending withdrawals from it (v56). A request already awaiting
+  /// approval holds its amount, so it cannot be asked for twice.
+  final int availableEarnings;
+  final int availableBalance;
+
+  /// Awaiting approval, per bucket. Shown so a member whose balance reads
+  /// ₱300 understands why only ₱100 can be requested.
+  final int pendingEarnings;
+  final int pendingBalance;
   final int memberId;
   final VoidCallback onWithdrew;
 
   const _WithdrawalButtons({
     required this.isDark,
-    required this.totalEarnings,
-    required this.balance,
+    required this.availableEarnings,
+    required this.availableBalance,
+    required this.pendingEarnings,
+    required this.pendingBalance,
     required this.memberId,
     required this.onWithdrew,
   });
@@ -3912,12 +3898,17 @@ class _WithdrawalButtons extends StatelessWidget {
         _WithdrawButton(
           label: 'Withdraw Request From Total Earnings',
           icon: Icons.account_balance_wallet_rounded,
-          amount: totalEarnings,
+          amount: availableEarnings,
+          pending: pendingEarnings,
           sourceBucket: 'total_earnings',
           isDark: isDark,
           memberId: memberId,
-          enabled: _isFriday && totalEarnings > 0,
-          lockedHint: _isFriday ? null : 'Available on Fridays only',
+          enabled: _isFriday && availableEarnings > 0,
+          lockedHint: !_isFriday
+              ? 'Available on Fridays only'
+              : availableEarnings <= 0 && pendingEarnings > 0
+              ? 'Your Total Earnings are all awaiting approval'
+              : null,
           onWithdrew: onWithdrew,
         ),
         const SizedBox(height: 10),
@@ -3925,12 +3916,17 @@ class _WithdrawalButtons extends StatelessWidget {
         _WithdrawButton(
           label: 'Withdraw Request From Balance',
           icon: Icons.savings_rounded,
-          amount: balance,
+          amount: availableBalance,
+          pending: pendingBalance,
           sourceBucket: 'balance',
           isDark: isDark,
           memberId: memberId,
-          enabled: balance > 0,
-          lockedHint: balance <= 0 ? 'No balance available' : null,
+          enabled: availableBalance > 0,
+          lockedHint: availableBalance > 0
+              ? null
+              : pendingBalance > 0
+              ? 'Your Balance is all awaiting approval'
+              : 'No balance available',
           onWithdrew: onWithdrew,
         ),
         const SizedBox(height: 10),
@@ -3989,7 +3985,12 @@ class _ViewHistoryButton extends StatelessWidget {
 class _WithdrawButton extends StatelessWidget {
   final String label;
   final IconData icon;
+
+  /// What can still be requested from this bucket.
   final int amount;
+
+  /// Already requested from this bucket and awaiting approval.
+  final int pending;
   final String sourceBucket;
   final bool isDark;
   final int memberId;
@@ -4001,6 +4002,7 @@ class _WithdrawButton extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.amount,
+    this.pending = 0,
     required this.sourceBucket,
     required this.isDark,
     required this.memberId,
@@ -4012,7 +4014,7 @@ class _WithdrawButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = context.watch<ConfigService>().currencySymbol;
-    return SizedBox(
+    final button = SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
         onPressed: enabled
@@ -4044,6 +4046,25 @@ class _WithdrawButton extends StatelessWidget {
         ),
       ),
     );
+    if (pending <= 0) return button;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        button,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+          child: Text(
+            '$cs$pending awaiting approval · $cs$amount can still be requested',
+            style: StockpileFonts.satoshi(
+              fontSize: 12,
+              color: isDark
+                  ? StockpileColors.darkTextMuted
+                  : StockpileColors.mutedText,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   void _showWithdrawalDialog(BuildContext context, String cs) {
@@ -4055,6 +4076,7 @@ class _WithdrawButton extends StatelessWidget {
             ? 'Total Earnings'
             : 'Balance',
         maxAmount: amount,
+        pending: pending,
         currencySymbol: cs,
         memberId: memberId,
         isDark: isDark,
@@ -4070,6 +4092,7 @@ class _WithdrawalRequestDialog extends StatefulWidget {
   final String sourceBucket;
   final String sourceLabel;
   final int maxAmount;
+  final int pending;
   final String currencySymbol;
   final int memberId;
   final bool isDark;
@@ -4079,6 +4102,7 @@ class _WithdrawalRequestDialog extends StatefulWidget {
     required this.sourceBucket,
     required this.sourceLabel,
     required this.maxAmount,
+    this.pending = 0,
     required this.currencySymbol,
     required this.memberId,
     required this.isDark,
@@ -4095,6 +4119,10 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
   final _formKey = GlobalKey<FormState>();
   bool _submitting = false;
 
+  /// The database's refusal (v56), shown in the dialog so the member can
+  /// change the amount instead of starting over.
+  String? _refusal;
+
   @override
   void dispose() {
     _amountCtrl.dispose();
@@ -4104,7 +4132,10 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _refusal = null;
+    });
 
     final amount = int.tryParse(_amountCtrl.text.trim());
     if (amount == null || amount <= 0) {
@@ -4130,10 +4161,16 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
       } else {
         BotToast.showText(text: 'Failed to submit request. Please try again.');
       }
+    } on PostgrestException catch (e) {
+      // Refused by the database — most likely another request was made
+      // since this dialog opened. Stay open with its reason.
+      if (!mounted) return;
+      setState(() => _refusal = e.message);
+      widget.onWithdrew();
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop();
-      BotToast.showText(text: 'Error: $e');
+      BotToast.showText(text: 'Could not submit the request. Please try again.');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -4181,6 +4218,14 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
               'Available: ${widget.currencySymbol}${widget.maxAmount}',
               style: StockpileFonts.satoshi(fontSize: 13, color: mutedColor),
             ),
+            if (widget.pending > 0) ...[
+              const SizedBox(height: 2),
+              Text(
+                '${widget.currencySymbol}${widget.pending} is already requested '
+                'and awaiting approval',
+                style: StockpileFonts.satoshi(fontSize: 12, color: mutedColor),
+              ),
+            ],
             const SizedBox(height: 12),
             TextFormField(
               controller: _amountCtrl,
@@ -4209,6 +4254,16 @@ class _WithdrawalRequestDialogState extends State<_WithdrawalRequestDialog> {
               },
               onFieldSubmitted: (_) => _submit(),
             ),
+            if (_refusal != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _refusal!,
+                style: StockpileFonts.satoshi(
+                  fontSize: 13,
+                  color: StockpileColors.error500,
+                ),
+              ),
+            ],
           ],
         ),
       ),

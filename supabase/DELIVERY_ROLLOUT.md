@@ -1,0 +1,155 @@
+# Delivery release — staging vs production
+
+The one place that says what the delivery release has put on **staging** and
+what **production** still needs. Update the tables below whenever something is
+applied to either project.
+
+Migration files are in `supabase/migrations/`, one folder per ten versions
+(v74 is `supabase/migrations/v70-v79/migration_v74_announcement_push.sql`).
+
+- Staging: `sisyujbpcueifeonnzfw`
+- Production: `cyfyydzxdsdzycbpvqox`
+
+> **Last updated 2026-10-04.** Staging is at **v69**. Production, as far as
+> these notes know, is at v46 plus v47 and v51. **Confirm production before
+> starting** (query below): this file only knows what someone wrote down.
+>
+> **Production app:** release **v1.5.1** (tag, 2026-09-23). Delivery is off in
+> it (`enableDeliverySystem = false`), and it carries only three of these
+> migration files: v47, v48 and v51. So production cannot have v49 or later
+> from this release. Whether v48 was ever run there is unknown: the ledger
+> query settles it. A v52 called `saved_items_policy_repair` existed for
+> twelve minutes on 2026-09-23 and was dropped before the tag; it is the
+> label staging still shows for v52.
+
+```sql
+-- Run on PRODUCTION first: what its ledger says is applied from v45 on.
+select version, name, applied_at, verified
+from public.schema_migrations
+where version >= 45
+order by version;
+```
+
+## ⛔ Never on production
+
+- `supabase/maintenance/wipe_delivery_orders_staging.sql`: deletes every order
+  and its sales, commissions and payments. (It refuses where v61 is not
+  recorded, so production stops it today. It would not after this rollout.)
+- `supabase/schema/schema.sql`: destructive. Staging only.
+
+> **Doing the rollout?** Follow the step-by-step runbook,
+> [`docs/prod_rollout_delivery.md`](../docs/prod_rollout_delivery.md). This
+> file is the status board it ticks off.
+
+## 1. Migrations, in this order
+
+| # | File | Staging | Production | Before applying on production |
+|---|------|:-:|:-:|---|
+| v47 | `migration_v47_member_location.sql` | ✅ | ✅ | — |
+| v48 | `migration_v48_delivery_orders.sql` | ✅ | ✅ 2026-10-12 | Was not on production (no orders table). Run without RLS, then v49 at once, which turns it on. |
+| v49 | `migration_v49_orders_authorization.sql` | ✅ | ✅ 2026-10-12 | RLS on orders and order_items, one SELECT policy each; ledger has v48 and v49. |
+| v50 | `migration_v50_delivery_role.sql` | ✅ | ✅ 2026-10-12 | — |
+| v51 | `migration_v51_cashier_announcements.sql` | ✅ | ✅ | — |
+| v52 | `migration_v52_order_payment_and_sales.sql` | ✅ ¹ | ✅ 2026-10-12 | — |
+| v53 | `migration_v53_order_route.sql` | ✅ | ✅ 2026-10-12 | Deploy `order-route` (section 2) in the same sitting. |
+| v54 | `migration_v54_delivery_payment_hardening.sql` | ✅ | ✅ 2026-10-12 | — |
+| v55 | `migration_v55_delivery_cashiers_only.sql` | ✅ | ✅ 2026-10-12 | — |
+| v56 | `migration_v56_withdrawal_reservations.sql` | ✅ | ✅ 2026-10-12 | **Run section 2 of `supabase/diagnostics/audit_withdrawal_overdrafts.sql` on production right before**: any stacked pending withdrawals must be settled first. |
+| v57 | `migration_v57_order_refunds_and_receiver.sql` | ✅ | ✅ 2026-10-12 | — |
+| v58 | `migration_v58_push_notifications.sql` | ✅ | ✅ 2026-10-12 | Vault secrets and `order-push` (section 2). Without the Vault entries the trigger does nothing; it never fails an order. |
+| v59 | `migration_v59_dispatch_needs_payment.sql` | ✅ | ✅ 2026-10-12 | — |
+| v60 | `migration_v60_reduce_item_stock.sql` | ✅ | ✅ 2026-10-12 | Independent of delivery, but the app's Edit Product calls it: apply before the new app ships. |
+| v61 | `migration_v61_courier_delivery.sql` | ✅ 2026-10-02 | ✅ 2026-10-12 | — |
+| v62 | `migration_v62_short_cod_code_and_busy_riders.sql` | ✅ 2026-10-02 | ✅ 2026-10-12 | — |
+| v63 | `migration_v63_product_images.sql` | ✅ 2026-10-03 | ✅ 2026-10-12 | Product pictures; independent of delivery. Creates the public `product-images` bucket. Apply before an app build with picture upload reaches admins (older builds ignore it). |
+| v64 | `migration_v64_pos_sale_guard_and_edit_sale.sql` | ✅ 2026-10-03 | ✅ 2026-10-12 | POS checkout and Edit Sale call its functions: apply before the app build that has them, or checkout fails. Independent of delivery. |
+| v65 | `migration_v65_orders_seen_by_all_staff.sql` | ✅ 2026-10-03 | ✅ 2026-10-12 | Every cashier sees every delivery order (client decision 2026-10-03); only its cashier or an admin can change it. Apply with or before the app build that shows "Handled by"; older builds just show more orders, with buttons the database refuses. |
+| v66 | `migration_v66_item_status_bigint.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Fixes Edit Sale ("_item_status(bigint, text) does not exist", tests X1–X3). Needs v64. No app change. |
+| v67 | `migration_v67_no_referral_loops.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Refuses a referrer from the member's own downline (referral loops, X6). Existing loops untouched; the app also hides those choices. |
+| v68 | `migration_v68_realtime_tables.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Puts items, members, sales, the request queues and orders in the realtime publication, so changes reach other devices (Part 3 live-update failures). Adds only what is missing. |
+| v69 | `migration_v69_unique_tracking_numbers.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Refuses a tracking number already on another order (ignores case, spaces, dashes). Needs v61. The app's Generate button relies on it to avoid repeats. |
+| v70 | `migration_v70_realtime_member_transactions.sql` | ✅ 2026-10-05 | ✅ 2026-10-12 | Puts member_transactions in realtime so a member's Earnings update by themselves (G2). Members still only receive their own rows (v7). |
+| v71 | `migration_v71_restore_commission_triggers.sql` | ✅ 2026-10-05 | — not needed | **Staging had no commission triggers** (Group Sales, referral bonuses): built from schema.sql, v19–v27 only assumed by v45. Restores the latest versions. Production: check section 1 of `diagnose_recent_commissions.sql` first; if the 4 triggers are there, it is not needed. **Production 2026-10-12: all 4 present and enabled, so v71 is skipped there.** Then on staging only: `maintenance/backfill_missed_commissions_staging.sql`. |
+| v72 | `migration_v72_orders_touch_updated_at.sql` | ✅ 2026-10-05 | — not needed (v48 made it) | Restores the orders `updated_at` trigger (missing on staging; found by `find_missing_objects.sql`). Do NOT re-run v48 for it. Harmless where present. |
+| v73 | `migration_v73_realtime_announcements_branch_stock.sql` | ✅ 2026-10-06 | ✅ 2026-10-12 | Puts announcements and branch_stock in realtime, so a cashier's post and branch stock changes reach the admin's screens by themselves (Part 5, G2 note). Adds only what is missing. |
+| v74 | `migration_v74_announcement_push.sql` | ✅ 2026-10-08 | ✅ 2026-10-12 | Push notification for each new announcement, sent when it goes live (Part 7, AT2). Needs v58 and its Vault secrets; no new ones. Deploy `announcement-push` with it. Scheduled announcements need pg_cron (enabled by the migration where allowed). |
+
+¹ Staging's ledger names v52 `saved_items_policy_repair`; its changes are in
+place. On production it will record itself correctly.
+
+Every migration has a rollback in `supabase/rollbacks/`, named after it.
+
+## 2. Edge Functions, secrets and Vault
+
+| What | Staging | Production |
+|---|:-:|:-:|
+| `order-route` deployed | ✅ | ✅ 2026-10-13 |
+| secret `ORS_API_KEY` (openrouteservice) | ✅ | ✅ 2026-10-13 |
+| `order-push` deployed **with `--no-verify-jwt`** | ✅ 2026-10-05 (admin rules of 2026-10-03) | ✅ 2026-10-13 |
+| secrets `PUSH_WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT`, `SERVICE_ROLE_KEY` | ✅ | ✅ 2026-10-13 |
+| Vault `order_push_url` = the production `order-push` URL | ✅ | ✅ 2026-10-13 |
+| Vault `order_push_secret` = the same value as `PUSH_WEBHOOK_SECRET` | ✅ | ✅ 2026-10-13 |
+| `announcement-push` deployed **with `--no-verify-jwt`** (v74; same secrets and Vault entries as order-push) | ✅ 2026-10-08 | ✅ 2026-10-13 |
+
+Set secrets from a variable, never by typing them into chat or a file in the
+repo. The README's v58 section has the commands, the Set-Clipboard trick for
+the Vault entry, and the check that the two secret values match.
+
+Deploy functions from the same commit as the last migration: `order-push`
+must know v59's payment events and v61's `event` field.
+
+## 3. App release
+
+1. **Rotate the Firebase key first.** The current one was pushed to GitHub.
+   Create a new key, download a new `android/app/google-services.json`,
+   build with it, then delete the old key in Google Cloud.
+2. **Turn delivery on for production builds.** `enableDeliverySystem` in
+   `lib/config/feature_flags.dart` is on for staging builds only. Set it to
+   `true` (or include production in the condition) in the release commit,
+   and not before production has every migration above.
+3. Bump the version above the last tag (see `docs/prod_rollout_checklist.md`
+   on how the updater compares versions), merge to `main`, tag, release.
+4. **Ship the app before creating any rider account.** An older app does not
+   know the `delivery` role.
+
+## 4. After the app is out
+
+1. Create rider accounts (User Management → role Delivery).
+2. Every rider, cashier and admin phone: open the new app once, sign in, allow
+   notifications. Only phones that have done this receive pushes.
+3. Smoke test with one real order of each kind: rider + funds, rider + cash
+   on delivery, LBC/J&T + outside payment.
+
+## Changelog of this file
+
+| Date | Change |
+|---|---|
+| 2026-10-02 | Created. Staging at v62; production at v46 + v47 + v51 (unconfirmed). |
+| 2026-10-02 | Production app is v1.5.1: delivery off; v48 status unknown. |
+| 2026-10-02 | Added v63 (product pictures), written but not applied anywhere yet. |
+| 2026-10-03 | Added v64 (POS sale guard, admin Edit Sale), not applied anywhere yet. |
+| 2026-10-03 | order-push changed (admins: new + completed orders, the rest only when no cashier holds it); staging needs a redeploy. |
+| 2026-10-03 | Added v65 (every cashier sees every order), not applied anywhere yet. |
+| 2026-10-03 | v65 applied on staging; ledger confirms v45–v65. |
+| 2026-10-03 | Added v66 (Edit Sale fix), not applied anywhere yet. |
+| 2026-10-03 | Added v67 (no referral loops), not applied anywhere yet. |
+| 2026-10-04 | Added v68 (realtime tables), not applied anywhere yet. |
+| 2026-10-04 | Added v69 (unique tracking numbers), not applied anywhere yet. |
+| 2026-10-04 | v66–v69 applied on staging. |
+| 2026-10-04 | Production runbook written: `docs/prod_rollout_delivery.md`. |
+| 2026-10-05 | Added v70 (realtime member_transactions), not applied anywhere yet. |
+| 2026-10-05 | Found staging has no triggers on sales; added v71 (restore commission triggers) and the staging backfill. |
+| 2026-10-05 | Backfill ran on staging (Group Sales and referral bonuses paid). Found the orders updated_at trigger missing too; added v72. |
+| 2026-10-05 | v70 and v71 verified on staging (realtime, 8 functions, 4 sales triggers, old members trigger gone, ledger rows). |
+| 2026-10-05 | v72 applied and verified on staging. |
+| 2026-10-05 | order-push redeployed on staging with the 2026-10-03 admin alert rules. |
+| 2026-10-08 | Added v74 (announcement push) and the `announcement-push` function, neither applied anywhere yet. |
+| 2026-10-12 | Production rollout started. Snapshot `snapshot_20261012` taken (free tier: no dashboard backups). Readiness clean: no overdrawing withdrawals, no referral loops, v71 not needed, pg_cron installed. v48 and v49 applied on production. |
+| 2026-10-12 | v50, v52–v58 applied on production, each verified. v52 and v56: all 105 members' earnings unchanged (compared with a copy taken before v52); the 6 pending withdrawals still approvable under v56. |
+| 2026-10-12 | v59–v69 applied on production, each verified. v63: items_with_status returns the same 23 rows. v67: no referral loops at any depth. v68 added nothing (all six tables were already published). |
+| 2026-10-12 | Checkpoint on production: v1.5.1's writes rehearsed and rolled back (`diagnostics/rehearse_v151_writes.sql`): till sale, withdrawal, overdraw refused, approval, earnings read, all OK. |
+| 2026-10-12 | v70, v73, v74 applied on production; v71 and v72 not needed there (their triggers already existed). **Production database is complete for the release.** RLS is on for every table the release created or put in realtime. Next: Edge Functions, secrets and Vault. |
+| 2026-10-13 | Production phase 3 done: ORS_API_KEY, SERVICE_ROLE_KEY (a new secret key; an exposed one was replaced), FIREBASE_SERVICE_ACCOUNT, a new PUSH_WEBHOOK_SECRET; order-route, order-push and announcement-push deployed; Vault order_push_url and order_push_secret set. Checked: the Vault secret's sha256 matches the function secret's digest, and both push functions answer 400 "… is required" to an empty signed call. Next: the app (phase 4). |
+| 2026-10-13 | Production SERVICE_ROLE_KEY rotated (the secret key exposed during phase 3 replaced, then deleted). Firebase Android key rotation deferred to the next production release; v1.6.0 builds with the current google-services.json. |
+| 2026-10-06 | Added v73 (realtime announcements and branch stock), not applied anywhere yet. |
+| 2026-10-06 | v73 applied on staging. |

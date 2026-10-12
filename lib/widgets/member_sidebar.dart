@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import '../config/feature_flags.dart';
 import '../utils/fonts.dart';
+import 'announcement_count.dart';
 import 'app_logo.dart';
 import '../theme.dart';
 
@@ -19,6 +20,9 @@ class MemberSidebar extends StatelessWidget {
   final ValueChanged<int> onItemSelected;
   final VoidCallback? onLogout;
 
+  /// Orders waiting on the member, shown as a count on Active Orders.
+  final int ordersBadge;
+
   /// Opens the "Nearest Cashiers" map. Kept separate from [onItemSelected]
   /// because it navigates to a dedicated route rather than switching tabs.
   final VoidCallback? onFindCashiers;
@@ -28,6 +32,7 @@ class MemberSidebar extends StatelessWidget {
     required this.selectedIndex,
     required this.isReseller,
     required this.onItemSelected,
+    this.ordersBadge = 0,
     this.onLogout,
     this.onFindCashiers,
   });
@@ -101,6 +106,7 @@ class MemberSidebar extends StatelessWidget {
                   _SidebarTile(
                     icon: Icons.local_shipping_rounded,
                     label: 'Active Orders',
+                    badge: ordersBadge,
                     index: _ix.orders,
                     selectedIndex: selectedIndex,
                     activeBg: activeBg,
@@ -120,6 +126,7 @@ class MemberSidebar extends StatelessWidget {
                 _SidebarTile(
                   icon: Icons.campaign_rounded,
                   label: 'Announcements',
+                  trailing: const AnnouncementCount(),
                   index: _ix.announcements,
                   selectedIndex: selectedIndex,
                   activeBg: activeBg,
@@ -241,9 +248,17 @@ class _SidebarTile extends StatelessWidget {
   final bool isDark;
   final VoidCallback onTap;
 
+  /// A count beside the label; hidden at 0.
+  final int badge;
+
+  /// Shown after the label instead of [badge] (Announcements' own count).
+  final Widget? trailing;
+
   const _SidebarTile({
     required this.icon,
     required this.label,
+    this.badge = 0,
+    this.trailing,
     required this.index,
     required this.selectedIndex,
     required this.activeBg,
@@ -275,14 +290,41 @@ class _SidebarTile extends StatelessWidget {
               children: [
                 Icon(icon, size: 20, color: textColor),
                 const SizedBox(width: 12),
-                Text(
-                  label,
-                  style: StockpileFonts.satoshi(
-                    fontSize: 14,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color: textColor,
+                Expanded(
+                  child: Text(
+                    label,
+                    style: StockpileFonts.satoshi(
+                      fontSize: 14,
+                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                      color: textColor,
+                    ),
                   ),
                 ),
+                if (trailing != null) trailing!,
+                if (badge > 0)
+                  Semantics(
+                    label: '$badge need${badge == 1 ? 's' : ''} you',
+                    child: ExcludeSemantics(
+                      child: Container(
+                        constraints: const BoxConstraints(minWidth: 22),
+                        height: 22,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFCC4900),
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Text(
+                          '$badge',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

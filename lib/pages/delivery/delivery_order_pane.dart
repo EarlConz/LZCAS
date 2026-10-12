@@ -20,6 +20,7 @@
 // Also: [CashRemitPane], the rider-grouped "cash handed in" view.
 
 import 'dart:async';
+import 'dart:math' show Random;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -35,11 +36,13 @@ import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/delivery_order_receipt_dialog.dart';
 import 'package:lzcas/pages/delivery/delivery_orders_parts.dart';
 import 'package:lzcas/services/config_service.dart';
+import 'package:lzcas/services/ui_prefs.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/formatters.dart';
 import 'package:lzcas/utils/toast_utils.dart';
 import 'package:lzcas/widgets/map_kit.dart';
+import 'package:lzcas/widgets/product_tile.dart';
 
 /// A message fit to show a cashier. The RPCs raise sentences written for
 /// people ("This order has not been paid…"), so those pass through; anything
@@ -71,9 +74,17 @@ class DeliveryOrderPane extends StatefulWidget {
   final DeliveryOrder order;
   final List<UserProfile> riders;
 
-  /// This cashier's saved location: where the rider collects the order, and
-  /// what distances are measured from.
+  /// The viewer's own saved store, if any. Orders they handle leave from
+  /// here unless the order says otherwise (see `_origin`).
   final CashierLocation? branch;
+
+  /// Every main cashier's store. Where an order leaves from when neither
+  /// its cashier nor this viewer has a location (an admin handling it).
+  final List<CashierLocation> stores;
+
+  /// The payment details last sent on any order, to start this one's from
+  /// (v61): the store's GCash number rarely changes.
+  final String? lastPaymentDetails;
 
   /// Riders already carrying ANOTHER order. Still assignable — the cashier
   /// may know something the app does not — but marked busy.
@@ -91,7 +102,9 @@ class DeliveryOrderPane extends StatefulWidget {
     required this.riders,
     required this.branch,
     required this.onChanged,
+    this.stores = const [],
     this.busyRiderIds = const {},
+    this.lastPaymentDetails,
     this.compact = false,
   });
 
@@ -103,6 +116,11 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
   final Map<int, TextEditingController> _price = {};
   late final TextEditingController _fee;
   late final TextEditingController _counter;
+  late final TextEditingController _details;
+  late final TextEditingController _tracking;
+
+  /// How the order travels, while it is being priced (v61).
+  late String _sendBy = _o.deliveryRoute;
 
   List<DeliveryFeeOffer> _offers = const [];
   String? _riderId;
@@ -122,12 +140,18 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     _fee = TextEditingController(text: _amountText(_o.deliveryFee))
       ..addListener(_rebuild);
     _counter = TextEditingController()..addListener(_rebuild);
+    _details = TextEditingController(
+      text: _o.paymentDetails ?? widget.lastPaymentDetails ?? '',
+    )..addListener(_rebuild);
+    _tracking = TextEditingController(text: _o.trackingNumber ?? '')
+      ..addListener(_rebuild);
 
     if (_o.status == DeliveryOrderStatus.cashierPricing ||
         _o.status == DeliveryOrderStatus.memberNegotiating) {
       _loadOffers();
     }
     if (_o.isAgreed) _riderId = _bestRider?.rider.id;
+    UiPrefs.instance.addListener(_rebuild);
 
     // The road route, when this order has none yet — one request per order
     // however often it is opened (v53). While pricing it gives the cashier
@@ -157,8 +181,22 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     }
     _fee.dispose();
     _counter.dispose();
+    _details.dispose();
+    _tracking.dispose();
+    UiPrefs.instance.removeListener(_rebuild);
     super.dispose();
   }
+
+  // ── Folds (calmer screen) ──────────────────────────────────────────
+  //
+  // Remembered on this device across orders (UiPrefs), except the rider
+  // list, which opens per order.
+
+  bool _open(String key) => DeliveryFolds.isOpen(key);
+  void _toggle(String key) => DeliveryFolds.toggle(key);
+
+  /// Every rider, not just the suggested one, at dispatch.
+  bool _allRiders = false;
 
   void _rebuild() {
     if (mounted) setState(() {});
@@ -184,9 +222,43 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       ? null
       : LatLng(_o.deliveryLatitude!, _o.deliveryLongitude!);
 
-  LatLng? get _branchPoint => widget.branch == null
-      ? null
-      : LatLng(widget.branch!.latitude, widget.branch!.longitude);
+  /// Where the rider collects this order. The order-route function makes
+  /// the same choice, in the same order: where the stored route starts;
+  /// else the order's cashier; else this viewer's own store; else (an admin,
+  /// who has none) the main cashier's store nearest the member.
+  CashierLocation? get _origin {
+    final own = widget.branch;
+    final lat = _o.routeOriginLat, lng = _o.routeOriginLng;
+    if (lat != null && lng != null) {
+      bool at(CashierLocation s) => s.latitude == lat && s.longitude == lng;
+      return [?own, ...widget.stores].where(at).firstOrNull ??
+          CashierLocation(id: '', name: '', role: 'cashier', latitude: lat, longitude: lng);
+    }
+    final holder = widget.stores.where((s) => s.id == _o.cashierId).firstOrNull;
+    if (holder != null) return holder;
+    if (own != null) return own;
+    final dest = _dest;
+    if (dest == null || widget.stores.isEmpty) return null;
+    double far(CashierLocation s) =>
+        Geolocator.distanceBetween(s.latitude, s.longitude, dest.latitude, dest.longitude);
+    return widget.stores.reduce((a, b) => far(a) <= far(b) ? a : b);
+  }
+
+  LatLng? get _branchPoint {
+    final o = _origin;
+    return o == null ? null : LatLng(o.latitude, o.longitude);
+  }
+
+  /// "your branch" when the order leaves from the viewer's own store,
+  /// otherwise whose store it is.
+  String get _fromWhere {
+    final o = _origin, own = widget.branch;
+    if (o == null) return 'the branch';
+    if (own != null && o.latitude == own.latitude && o.longitude == own.longitude) {
+      return 'your branch';
+    }
+    return o.name.isEmpty ? 'the branch' : "${o.name}'s store";
+  }
 
   List<LatLng> get _route => _o.hasRoute ? routePoints(_o.routePoints) : const [];
 
@@ -198,8 +270,8 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
 
   List<RiderCandidate> get _candidates => rankRiders(
     widget.riders,
-    fromLat: widget.branch?.latitude,
-    fromLng: widget.branch?.longitude,
+    fromLat: _branchPoint?.latitude,
+    fromLng: _branchPoint?.longitude,
     busyIds: widget.busyRiderIds,
   );
 
@@ -271,6 +343,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         itemsTotal: _itemsTyped,
         deliveryFee: _feeTyped!,
         lines: lines,
+        route: _sendBy,
       ),
       success: 'Quote sent to ${_o.memberFirstName}',
     );
@@ -293,6 +366,215 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     success: 'New fee sent to ${_o.memberFirstName}',
   );
 
+  // ── Courier and outside payment (v61) ─────────────────────────────
+
+  String get _courier => _o.routeLabel;
+
+  Future<void> _sendDetails() => _run(
+    () => repository.cashierSendPaymentDetails(
+      orderId: _o.id,
+      details: _details.text.trim(),
+    ),
+    success: 'Payment details sent to ${_o.memberFirstName}',
+  );
+
+  Future<void> _confirmPayment() async {
+    final ref = (_o.paymentReference ?? '').trim();
+    final ok = await _confirm(
+      title: 'Payment received?',
+      body: 'Only confirm once ${_m(_o.finalTotal)} has arrived'
+          '${ref.isEmpty ? '' : ' (reference $ref)'}. You can then book '
+          'it with $_courier.',
+      confirm: 'Confirm payment',
+    );
+    if (!ok) return;
+    await _run(
+      () => repository.cashierConfirmOutsidePayment(_o.id),
+      success: 'Payment confirmed',
+    );
+  }
+
+  Future<void> _rejectPayment() async {
+    final note = await _askText(
+      title: 'Payment not received?',
+      body: '${_o.memberFirstName} is told why, and can send it again or '
+          'pay from their funds instead.',
+      label: 'What was wrong',
+      hint: 'e.g. Nothing arrived, or the amount was short',
+      confirm: 'Send back',
+    );
+    if (note == null) return;
+    await _run(
+      () => repository.cashierRejectOutsidePayment(orderId: _o.id, note: note),
+      success: '${_o.memberFirstName} was told',
+    );
+  }
+
+  Future<void> _markShipped() async {
+    final tracking = _tracking.text.trim();
+    if (tracking.isEmpty) return;
+    final ok = await _confirm(
+      title: 'Mark as shipped?',
+      body: 'Booked with $_courier, tracking $tracking. The items leave '
+          'your stock now. The sale and commissions are recorded when '
+          '${_o.memberFirstName} confirms they received it.',
+      confirm: 'Mark shipped',
+    );
+    if (!ok) return;
+    await _run(
+      () => repository.cashierMarkShipped(orderId: _o.id, tracking: tracking),
+      success: 'Marked shipped',
+    );
+  }
+
+  /// A store reference for a parcel the courier gave no number for, e.g.
+  /// LZ-251004-7K2Q: the day it ships and four characters that can't be
+  /// misread (no 0/O, 1/I). Two orders never share one: the database
+  /// refuses a repeat (v69), and the cashier just generates again.
+  void _generateTracking() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final r = Random.secure();
+    final now = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    final day = '${two(now.year % 100)}${two(now.month)}${two(now.day)}';
+    final code = List.generate(4, (_) => chars[r.nextInt(chars.length)]).join();
+    _tracking.text = 'LZ-$day-$code';
+  }
+
+  /// A parcel that never reached the member: lost, refused, or sent back
+  /// by the courier. Whether it came back decides the stock.
+  Future<void> _cancelShipped() async {
+    final reason = TextEditingController();
+    bool? returned;
+    final refund = _o.isFunds && _o.isPaid
+        ? 'Their ${_m(_o.finalTotal)} goes back to their funds.'
+        : _o.isOutside && _o.isPaid
+        ? 'They paid outside the app, so refund them outside the app too.'
+        : null;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          Widget choice(bool value, String title, String sub) => RadioListTile<bool>(
+            value: value,
+            // ignore: deprecated_member_use
+            groupValue: returned,
+            // ignore: deprecated_member_use
+            onChanged: (v) => setLocal(() => returned = v),
+            contentPadding: EdgeInsets.zero,
+            title: Text(title),
+            subtitle: Text(sub),
+          );
+          final ready = returned != null && reason.text.trim().isNotEmpty;
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            title: const Text('Cancel this shipped order?'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_o.memberFirstName} will see it cancelled.'
+                    '${refund == null ? '' : ' $refund'}',
+                    style: Theme.of(ctx).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: reason,
+                    onChanged: (_) => setLocal(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'What happened',
+                      hintText: 'e.g. Refused by the receiver',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  choice(true, 'The parcel came back', 'Its items go back into stock.'),
+                  choice(false, 'The parcel was lost', 'Stock stays as it is.'),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Keep order'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: kDangerText),
+                onPressed: ready ? () => Navigator.pop(ctx, true) : null,
+                child: const Text('Cancel order'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    final why = reason.text.trim();
+    reason.dispose();
+    if (ok != true || returned == null) return;
+    await _run(
+      () => repository.cashierCancelShippedOrder(
+        orderId: _o.id,
+        reason: why,
+        returned: returned!,
+      ),
+      success: 'Order cancelled',
+    );
+  }
+
+  /// A dialog asking for one line of text. Null when dismissed.
+  Future<String?> _askText({
+    required String title,
+    required String body,
+    required String label,
+    required String hint,
+    required String confirm,
+  }) async {
+    final c = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(body, style: Theme.of(ctx).textTheme.bodyMedium),
+              const SizedBox(height: 14),
+              TextField(
+                controller: c,
+                autofocus: true,
+                onChanged: (_) => setLocal(() {}),
+                decoration: InputDecoration(
+                  labelText: label,
+                  hintText: hint,
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Not yet'),
+            ),
+            FilledButton(
+              onPressed: c.text.trim().isEmpty ? null : () => Navigator.pop(ctx, true),
+              child: Text(confirm),
+            ),
+          ],
+        ),
+      ),
+    );
+    final text = c.text.trim();
+    c.dispose();
+    return ok == true && text.isNotEmpty ? text : null;
+  }
+
   Future<void> _assign() async {
     final chosen = _candidates.where((c) => c.rider.id == _riderId).firstOrNull;
     if (chosen == null) return;
@@ -310,17 +592,25 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
   /// confirmation (Delivered). The receipt opens before the page reloads.
   Future<void> _complete({required bool override}) async {
     final ok = await _confirm(
-      title: override ? 'Close without confirmation?' : 'Hand over at the counter?',
+      title: override
+          ? (_o.isShipped ? 'Close as received?' : 'Close without confirmation?')
+          : 'Hand over at the counter?',
       body: override
-          ? '$_riderName marked this delivered but ${_o.memberFirstName} has '
-                'not confirmed. Closing it is recorded as your override.'
+          ? _o.isShipped
+                ? 'Only do this once $_courier shows it delivered. '
+                      '${_o.memberFirstName} has not confirmed. Closing records '
+                      'the sale and pays the commissions, as your override.'
+                : '$_riderName marked this delivered but ${_o.memberFirstName} has '
+                      'not confirmed. Closing it is recorded as your override.'
           : _o.isPaid
           ? '${_o.memberFirstName} already paid from their funds. This '
                 'records the sale and prints the receipt.'
           : '${_o.memberFirstName} pays ${_m(_o.finalTotal)} now, at the '
                 'counter. This records the payment and the sale, and prints '
                 'the receipt.',
-      confirm: override ? 'Close order' : 'Complete sale',
+      confirm: override
+          ? (_o.isShipped ? 'Close as received' : 'Close order')
+          : 'Complete sale',
     );
     if (!ok) return;
     final receiptOf = _o; // the pane may be replaced by the reload
@@ -334,6 +624,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
   }
 
   Future<void> _cancel() async {
+    if (_o.isShipped) return _cancelShipped();
     final reason = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
@@ -348,6 +639,12 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
               _o.isWithRider
                   ? '$_riderName is carrying it. They will see it cancelled '
                         'and bring the goods back.'
+                  : _o.isOutside && _o.isPaid
+                  ? '${_o.memberFirstName} will see it cancelled. They paid '
+                        'outside the app, so refund them outside the app too.'
+                  : _o.isFunds && _o.isPaid
+                  ? '${_o.memberFirstName} will see it cancelled, and their '
+                        '${_m(_o.finalTotal)} goes back to their funds.'
                   : '${_o.memberFirstName} will see it cancelled.',
               style: Theme.of(ctx).textTheme.bodyMedium,
             ),
@@ -456,11 +753,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _header(),
-          Container(
-            padding: EdgeInsets.fromLTRB(_pad, 14, _pad, 12),
-            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: _line))),
-            child: OrderStepper(order: _o, isDark: _dark, compact: widget.compact),
-          ),
+          _steps(),
           Expanded(
             child: SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(_pad, 18, _pad, 24),
@@ -473,15 +766,57 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     );
   }
 
+  /// The stepper, or one line of it ("Step 2 of 6 · Quote · Next: …").
+  Widget _steps() {
+    final open = _open(DeliveryFolds.steps);
+    return Container(
+      padding: open
+          ? EdgeInsets.fromLTRB(_pad, 14, 12, 12)
+          : EdgeInsets.symmetric(horizontal: _pad, vertical: 4),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: _line))),
+      child: open
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: OrderStepper(order: _o, isDark: _dark, compact: widget.compact),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: 'Fold the steps',
+                  onPressed: () => _toggle(DeliveryFolds.steps),
+                  icon: const Icon(Icons.expand_less_rounded, size: 20),
+                ),
+              ],
+            )
+          : StepsLine(
+              order: _o,
+              riderName: _riderName,
+              isDark: _dark,
+              compact: widget.compact,
+              onOpen: () => _toggle(DeliveryFolds.steps),
+            ),
+    );
+  }
+
   // ── Header ─────────────────────────────────────────────────────────
 
+  /// Another cashier's order: shown, but nothing on it can be changed here.
+  String? get _heldBy {
+    final auth = context.read<AuthState>();
+    return _o.handledByOther(me: auth.userId, isAdmin: auth.userRole == UserRole.admin);
+  }
+
+  bool get _viewOnly => _heldBy != null;
+
   bool get _canCancel =>
-      !_o.isCompleted && !_o.isCancelled && !_o.isDelivered;
+      !_o.isCompleted && !_o.isCancelled && !_o.isDelivered && !_viewOnly;
 
   Widget _header() {
     final n = _o.items.length;
     final parts = [
       'Order ${_o.shortId}',
+      if (_o.isCourier && !_o.isOpen) 'By ${_o.routeLabel}',
       if (_o.finalTotal != null) _m(_o.finalTotal),
       '$n item${n == 1 ? '' : 's'}',
       if (_o.createdAt != null) 'Placed ${formatTimeOfDay(_o.createdAt)}',
@@ -510,6 +845,25 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
                       ),
                     ),
                     StagePill.forOrder(_o, isDark: _dark),
+                    // The buyer's package tier: what a reseller pays may
+                    // depend on it.
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: _line),
+                      ),
+                      child: Text(
+                        _o.memberPackage == null
+                            ? 'Member · no package'
+                            : '${_o.memberPackage} package',
+                        style: StockpileFonts.satoshi(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _body,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -541,7 +895,8 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     DeliveryOrderStatus.orderPlaced => _pricing(),
     DeliveryOrderStatus.cashierPricing ||
     DeliveryOrderStatus.memberNegotiating => _negotiation(),
-    DeliveryOrderStatus.agreed => _dispatch(),
+    DeliveryOrderStatus.agreed => _o.isCourier ? _courierAgreed() : _dispatch(),
+    DeliveryOrderStatus.shipped => _shipped(),
     DeliveryOrderStatus.assigned => _reassigning ? _dispatch() : _onTheWay(),
     DeliveryOrderStatus.pickedUp || DeliveryOrderStatus.delivered => _onTheWay(),
     DeliveryOrderStatus.completed => _completed(),
@@ -603,16 +958,25 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     final side = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _deliverTo(),
+        _routePicker(),
         const SizedBox(height: 14),
-        PaneNote(
+        _deliverTo(showMap: _sendBy == DeliveryRoute.rider),
+        const SizedBox(height: 14),
+        FoldRow(
           icon: Icons.payments_outlined,
-          title: 'Payment',
-          body: '${_o.memberFirstName} chooses funds or cash on delivery '
-              'once they agree.',
-          dashed: true,
-          iconColor: _body,
+          title: 'Payment: chosen after ${_o.memberFirstName} agrees',
+          open: _open(DeliveryFolds.payment),
+          onToggle: () => _toggle(DeliveryFolds.payment),
           isDark: _dark,
+          child: Text(
+            _sendBy == DeliveryRoute.rider
+                ? '${_o.memberFirstName} pays from Balance or Total Earnings, '
+                      'or chooses cash on delivery. A rider can only be '
+                      'assigned once they do.'
+                : '${_o.memberFirstName} pays from Balance, Total Earnings or '
+                      'outside the app (GCash or similar). No cash on delivery.',
+            style: StockpileFonts.satoshi(fontSize: 13, height: 1.45, color: _body),
+          ),
         ),
       ],
     );
@@ -648,7 +1012,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           const SizedBox(width: 12),
           h('Unit price', width: 140),
           const SizedBox(width: 12),
-          h('Subtotal', width: 96, align: TextAlign.right),
+          h('Subtotal', width: 112, align: TextAlign.right),
         ],
       ),
     );
@@ -661,6 +1025,8 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: _line.withAlpha(140)))),
       child: Row(
         children: [
+          ProductTile(it.productName ?? 'Item', imagePath: it.productImagePath, size: 40),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               it.productName ?? 'Item #${it.productId}',
@@ -683,7 +1049,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           ),
           const SizedBox(width: 12),
           SizedBox(
-            width: 96,
+            width: 112,
             child: Text(
               p == null ? '—' : _m(p * it.quantity),
               textAlign: TextAlign.right,
@@ -710,9 +1076,17 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            it.productName ?? 'Item #${it.productId}',
-            style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w600, color: _text),
+          Row(
+            children: [
+              ProductTile(it.productName ?? 'Item', imagePath: it.productImagePath, size: 40),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  it.productName ?? 'Item #${it.productId}',
+                  style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w600, color: _text),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Row(
@@ -757,12 +1131,15 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Delivery fee',
+                  _sendBy == DeliveryRoute.rider ? 'Delivery fee' : 'Shipping fee',
                   style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w700, color: _text),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'The only part ${_o.memberFirstName} can counter',
+                  _sendBy == DeliveryRoute.rider
+                      ? 'The only part ${_o.memberFirstName} can counter'
+                      : "${DeliveryRoute.label(_sendBy)}'s fee. The only part "
+                            '${_o.memberFirstName} can counter',
                   style: StockpileFonts.satoshi(fontSize: 12, color: _body),
                 ),
               ],
@@ -796,7 +1173,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         textField: true,
         child: TextField(
           controller: c,
-          enabled: !_busy,
+          enabled: !_busy && !_viewOnly,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
           textAlign: TextAlign.right,
@@ -883,40 +1260,84 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       title: 'Items',
       trailing: 'Prices locked',
       isDark: _dark,
+      child: _itemLines(),
+    );
+  }
+
+  /// The items and totals folded to one row, once prices are locked:
+  /// "3 items · ₱1,140 + delivery ₱80 · prices locked".
+  Widget _itemsFold({String feeLabel = 'Delivery'}) {
+    final n = _o.items.length;
+    final fee = _o.deliveryFee;
+    return FoldRow(
+      icon: Icons.receipt_long_outlined,
+      title: [
+        '$n item${n == 1 ? '' : 's'} · ${_m(_o.itemsTotal ?? 0)}'
+            '${fee == null ? '' : ' + ${feeLabel.toLowerCase()} ${_m(fee)}'}',
+        'prices locked',
+      ].join(' · '),
+      openLabel: 'Items',
+      closeLabel: 'Hide items',
+      open: _open(DeliveryFolds.items),
+      onToggle: () => _toggle(DeliveryFolds.items),
+      isDark: _dark,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final it in _o.items)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${it.productName ?? 'Item #${it.productId}'} × ${it.quantity}',
-                      style: StockpileFonts.satoshi(fontSize: 13, color: _text),
-                    ),
-                  ),
-                  Text(
-                    it.unitPrice == null ? '—' : _m(it.unitPrice! * it.quantity),
-                    style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: _text),
-                  ),
-                ],
-              ),
-            ),
+          _itemLines(),
+          const SizedBox(height: 4),
+          _totals(
+            items: _o.itemsTotal ?? 0,
+            fee: fee,
+            total: _o.finalTotal,
+            feeLabel: feeLabel,
+            locked: true,
+          ),
         ],
       ),
     );
   }
 
+  Widget _itemLines() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final it in _o.items)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                ProductTile(it.productName ?? 'Item', imagePath: it.productImagePath, size: 36),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${it.productName ?? 'Item #${it.productId}'} × ${it.quantity}',
+                    style: StockpileFonts.satoshi(fontSize: 13, color: _text),
+                  ),
+                ),
+                Text(
+                  it.unitPrice == null ? '—' : _m(it.unitPrice! * it.quantity),
+                  style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: _text),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   // ── Where it goes ──────────────────────────────────────────────────
+
+  /// Whether [_routeLines] draws the stored road (and the map must credit
+  /// openrouteservice) rather than a straight line.
+  bool get _drawsRoad => _dest != null && _route.length >= 2;
 
   /// The road when stored (v53), with dashed gaps where the pins sit off
   /// it; otherwise a dashed straight line from the branch.
   List<Polyline> _routeLines({LatLng? from}) {
     final dest = _dest, route = _route;
     if (dest == null) return const [];
-    if (route.length >= 2) {
+    if (_drawsRoad) {
       final b = _branchPoint;
       return [
         roadRoute(route),
@@ -930,67 +1351,100 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
 
   String? get _distanceLine {
     if (_o.hasRoute && (_o.routeDistanceM ?? 0) > 0) {
-      return '${formatDistance(_o.routeDistanceM!.toDouble())} by road from your branch';
+      return '${formatDistance(_o.routeDistanceM!.toDouble())} by road from $_fromWhere';
     }
     final b = _branchPoint, d = _dest;
     if (b == null || d == null) return null;
     final m = Geolocator.distanceBetween(b.latitude, b.longitude, d.latitude, d.longitude);
-    return '${formatDistance(m)} from your branch, in a straight line';
+    return '${formatDistance(m)} from $_fromWhere, in a straight line';
   }
 
-  Widget _deliverTo() {
-    final dest = _dest;
+  /// Where it goes. [showMap] false for a courier order (v61): the
+  /// address and receiver are what the booking needs, not the road.
+  Widget _deliverTo({bool showMap = true}) {
+    final dest = showMap ? _dest : null;
     final b = _branchPoint;
-    final facts = [
-      ?_distanceLine,
-      'Receiver: ${_o.receiverDisplayName}',
-    ];
+    if (dest != null) {
+      return _placeFold(
+        map: _map(
+          height: 176,
+          title: 'Deliver to ${_o.receiverDisplayName}',
+          markers: [
+            if (b != null) mapMarker(point: b, kind: MapPinKind.cashier),
+            mapMarker(point: dest, kind: MapPinKind.destination, selected: true),
+          ],
+          lines: _routeLines(),
+          fit: [..._route, ?b, dest],
+        ),
+      );
+    }
     return PaneSection(
       title: 'Deliver to',
       isDark: _dark,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (dest != null)
-            _map(
-              height: 176,
-              title: 'Deliver to ${_o.receiverDisplayName}',
-              markers: [
-                if (b != null) mapMarker(point: b, kind: MapPinKind.cashier),
-                mapMarker(point: dest, kind: MapPinKind.destination, selected: true),
-              ],
-              lines: _routeLines(),
-              fit: [..._route, ?b, dest],
-            ),
-          const SizedBox(height: 10),
           Text(
             _o.deliveryAddress ?? 'No address on this order',
             style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w600, color: _text),
           ),
           const SizedBox(height: 2),
-          Text(facts.join(' · '), style: StockpileFonts.satoshi(fontSize: 12, color: kCaption)),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: _openMaps,
-                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40), padding: const EdgeInsets.symmetric(horizontal: 16)),
-                icon: const Icon(Icons.map_outlined, size: 18),
-                label: const Text('Open in Maps'),
-              ),
-              if ((_o.receiverContact ?? '').trim().isNotEmpty)
-                OutlinedButton.icon(
-                  onPressed: _call,
-                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40), padding: const EdgeInsets.symmetric(horizontal: 16)),
-                  icon: const Icon(Icons.call_outlined, size: 18),
-                  label: Text('Call ${_o.receiverDisplayName.split(' ').first}'),
-                ),
-            ],
+          Text(
+            'Receiver: ${_o.receiverDisplayName}',
+            style: StockpileFonts.satoshi(fontSize: 12, color: kCaption),
           ),
+          const SizedBox(height: 10),
+          _placeButtons(maps: false),
         ],
       ),
+    );
+  }
+
+  /// Where it goes, folded to one row: the address, how far, who receives
+  /// it. Open, [map] and the Maps and Call buttons.
+  Widget _placeFold({required Widget map, String? title, String? subtitle}) {
+    final facts = [?_distanceLine, 'Receiver: ${_o.receiverDisplayName}'];
+    return FoldRow(
+      icon: Icons.location_on_outlined,
+      iconColor: StockpileColors.primary900,
+      title: title ?? _o.deliveryAddress ?? 'No address on this order',
+      subtitle: subtitle ?? facts.join(' · '),
+      openLabel: 'Map',
+      closeLabel: 'Hide map',
+      open: _open(DeliveryFolds.map),
+      onToggle: () => _toggle(DeliveryFolds.map),
+      isDark: _dark,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [map, const SizedBox(height: 10), _placeButtons()],
+      ),
+    );
+  }
+
+  Widget _placeButtons({bool maps = true}) {
+    final style = OutlinedButton.styleFrom(
+      minimumSize: const Size(0, 40),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+    );
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (maps)
+          OutlinedButton.icon(
+            onPressed: _openMaps,
+            style: style,
+            icon: const Icon(Icons.map_outlined, size: 18),
+            label: const Text('Open in Maps'),
+          ),
+        if ((_o.receiverContact ?? '').trim().isNotEmpty)
+          OutlinedButton.icon(
+            onPressed: _call,
+            style: style,
+            icon: const Icon(Icons.call_outlined, size: 18),
+            label: Text('Call ${_o.receiverDisplayName.split(' ').first}'),
+          ),
+      ],
     );
   }
 
@@ -1011,6 +1465,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           markers: markers,
           polylines: lines,
           fitTo: fit,
+          showsRoadRoute: _drawsRoad,
         ),
       ),
     );
@@ -1047,6 +1502,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
             ),
           ],
           bottomLeft: bottomLeft,
+          showsRoadRoute: _drawsRoad,
         ),
       ),
     );
@@ -1243,7 +1699,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       return PaneNote(
         icon: Icons.verified_rounded,
         title: '${_o.paymentLabel} · $total, paid',
-        body: _o.isCod ? null : 'Nothing to collect at the door.',
+        body: _o.isCod || _o.isCourier ? null : 'Nothing to collect at the door.',
         tint: StockpileColors.successBg,
         iconColor: const Color(0xFF16A34A),
         isDark: _dark,
@@ -1257,13 +1713,23 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         isDark: _dark,
       );
     }
+    if (_o.waitingForPayment) {
+      // v59: no rider until the member pays or chooses cash.
+      return PaneNote(
+        icon: Icons.hourglass_top_rounded,
+        title: 'Waiting for $first to pay',
+        body: 'A rider can be assigned once $first pays from their funds or '
+            'chooses cash on delivery. You\'ll get an alert. If they come to '
+            'the counter instead, hand it over there and they pay in person.',
+        tint: _dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+        iconColor: _dark ? StockpileColors.primary500 : kOrangeText,
+        isDark: _dark,
+      );
+    }
     return PaneNote(
       icon: Icons.help_outline_rounded,
       title: 'Not paid yet',
-      body: _o.isAgreed
-          ? '$first can still pay from their funds until a rider is '
-                'assigned. After that, the rider collects cash at the door.'
-          : 'The rider collects $total in cash at the door.',
+      body: 'The rider collects $total in cash at the door.',
       tint: _dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
       iconColor: _body,
       isDark: _dark,
@@ -1289,34 +1755,13 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (dest != null) ...[
-                _map(
-                  height: 170,
-                  title: 'Choose a rider',
-                  markers: [
-                    if (b != null) mapMarker(point: b, kind: MapPinKind.cashier),
-                    mapMarker(point: dest, kind: MapPinKind.destination),
-                    for (final c in cands)
-                      if (c.hasPosition)
-                        mapMarker(
-                          point: LatLng(c.rider.latitude!, c.rider.longitude!),
-                          kind: MapPinKind.rider,
-                          selected: c.rider.id == _riderId,
-                          live: c.isLive,
-                          muted: c.rider.id != _riderId && (c.busy || !c.isLive),
-                        ),
-                  ],
-                  lines: _routeLines(),
-                  fit: [
-                    ?b,
-                    dest,
-                    for (final c in cands)
-                      if (c.hasPosition) LatLng(c.rider.latitude!, c.rider.longitude!),
-                  ],
-                ),
-                const SizedBox(height: 10),
-              ],
-              for (final c in cands) _riderOption(c),
+              // The chosen rider (the suggested one to start with); the
+              // rest only when asked for.
+              for (final c in _allRiders || cands.length <= 1
+                  ? cands
+                  : cands.where((c) => c.rider.id == (_riderId ?? cands.first.rider.id)))
+                _riderOption(c),
+              if (cands.length > 1) _moreRiders(cands),
             ],
           );
 
@@ -1326,21 +1771,87 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         _paymentNote(),
         const SizedBox(height: 18),
         PaneSection(
-          title: _reassigning ? 'Choose another rider' : 'Choose a rider',
-          trailing: cands.isEmpty ? null : 'Nearest to your branch first',
+          title: _reassigning ? 'Choose another rider' : 'Rider',
+          trailing: cands.isEmpty ? null : 'Nearest free rider first',
           isDark: _dark,
           child: picker,
         ),
-        const SizedBox(height: 18),
-        _itemsSummary(),
-        const SizedBox(height: 4),
-        _totals(
-          items: _o.itemsTotal ?? 0,
-          fee: _o.deliveryFee,
-          total: _o.finalTotal,
-          locked: true,
-        ),
+        if (dest != null) ...[
+          const SizedBox(height: 14),
+          _placeFold(
+            map: _map(
+              height: 200,
+              title: 'Choose a rider',
+              markers: [
+                if (b != null) mapMarker(point: b, kind: MapPinKind.cashier),
+                mapMarker(point: dest, kind: MapPinKind.destination),
+                for (final c in cands)
+                  if (c.hasPosition)
+                    mapMarker(
+                      point: LatLng(c.rider.latitude!, c.rider.longitude!),
+                      kind: MapPinKind.rider,
+                      selected: c.rider.id == _riderId,
+                      live: c.isLive,
+                      muted: c.rider.id != _riderId && (c.busy || !c.isLive),
+                    ),
+              ],
+              lines: _routeLines(),
+              fit: [
+                ?b,
+                dest,
+                for (final c in cands)
+                  if (c.hasPosition) LatLng(c.rider.latitude!, c.rider.longitude!),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 14),
+        _itemsFold(),
       ],
+    );
+  }
+
+  /// "Choose another rider · 3 more (1 busy)", or back to just the chosen.
+  Widget _moreRiders(List<RiderCandidate> cands) {
+    final chosenId = _riderId ?? cands.first.rider.id;
+    final others = cands.where((c) => c.rider.id != chosenId).toList();
+    final busy = others.where((c) => c.busy).length;
+    final chosen = cands.where((c) => c.rider.id == chosenId).firstOrNull;
+    final label = _allRiders
+        ? 'Show only ${chosen?.rider.username ?? 'the chosen rider'}'
+        : 'Choose another rider · ${others.length} more'
+              '${busy == 0 ? '' : ' ($busy busy)'}';
+    return Material(
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: _line),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _busy ? null : () => setState(() => _allRiders = !_allRiders),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: _body),
+                  ),
+                ),
+                Icon(
+                  _allRiders ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                  size: 20,
+                  color: _body,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1348,8 +1859,8 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     final selected = c.rider.id == _riderId;
     final at = c.rider.locationUpdatedAt;
     final parts = <String>[
-      c.busy ? 'On a delivery' : 'Free',
-      if (c.meters != null) '${formatDistance(c.meters!)} from your branch',
+      c.busy ? 'Busy · on another delivery' : 'Free',
+      if (c.meters != null) '${formatDistance(c.meters!)} from $_fromWhere',
       if (c.meters == null) 'no position yet',
     ];
     final stale = at != null && !c.isLive;
@@ -1375,7 +1886,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
-            onTap: _busy ? null : () => setState(() => _riderId = c.rider.id),
+            onTap: _busy || _viewOnly ? null : () => setState(() => _riderId = c.rider.id),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
@@ -1399,7 +1910,11 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          current ? '${c.rider.username} (assigned now)' : c.rider.username,
+                          current
+                              ? '${c.rider.username} (assigned now)'
+                              : c.rider.id == _bestRider?.rider.id
+                              ? '${c.rider.username} · suggested'
+                              : c.rider.username,
                           style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w700, color: _text),
                         ),
                         const SizedBox(height: 2),
@@ -1477,7 +1992,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
 
     final riderLine = switch (_o.status) {
       DeliveryOrderStatus.assigned =>
-        'Assigned ${formatTimeOfDay(_o.assignedAt)} · coming to your branch',
+        'Assigned ${formatTimeOfDay(_o.assignedAt)} · coming to $_fromWhere',
       DeliveryOrderStatus.pickedUp =>
         'Picked up ${formatTimeOfDay(_o.pickedUpAt)}${left == null ? '' : ' · $left'}',
       _ => 'Delivered ${formatTimeOfDay(_o.deliveredAt)}',
@@ -1486,58 +2001,7 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (dest != null) ...[
-          _map(
-            height: widget.compact ? 220 : 280,
-            title: 'Order ${_o.shortId}',
-            markers: [
-              if (b != null) mapMarker(point: b, kind: MapPinKind.cashier, muted: _o.isPickedUp),
-              mapMarker(point: dest, kind: MapPinKind.destination, selected: true),
-              if (riderPoint != null)
-                mapMarker(point: riderPoint, kind: MapPinKind.rider, live: live, muted: !live),
-            ],
-            lines: _routeLines(),
-            fit: [..._route, ?b, dest, ?riderPoint],
-            topLeft: _o.isPickedUp && _o.etaAt != null
-                ? MapStatusChip(
-                    icon: Icons.schedule_rounded,
-                    text: 'Arriving about ${formatTimeOfDay(_o.etaAt)}',
-                  )
-                : null,
-            bottomLeft: at == null
-                ? null
-                : MapStatusChip(text: 'Rider location ${formatAgo(at)}'),
-          ),
-          const SizedBox(height: 12),
-        ],
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: _line),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: const BoxDecoration(color: Color(0xFFB24800), shape: BoxShape.circle),
-                child: const Icon(Icons.two_wheeler_rounded, size: 20, color: Colors.white),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(_riderName, style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w700, color: _text)),
-                    const SizedBox(height: 2),
-                    Text(riderLine, style: StockpileFonts.satoshi(fontSize: 12, color: _body)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        _riderCard(riderLine),
         const SizedBox(height: 12),
         _paymentNote(),
         if (_o.isDelivered) ...[
@@ -1552,11 +2016,77 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
             isDark: _dark,
           ),
         ],
-        const SizedBox(height: 18),
-        _itemsSummary(),
-        const SizedBox(height: 4),
-        _totals(items: _o.itemsTotal ?? 0, fee: _o.deliveryFee, total: _o.finalTotal, locked: true),
+        if (dest != null) ...[
+          const SizedBox(height: 14),
+          _placeFold(
+            subtitle: [
+              if (at != null) 'Rider location ${formatAgo(at)}',
+              'Receiver: ${_o.receiverDisplayName}',
+            ].join(' · '),
+            map: _map(
+              height: widget.compact ? 220 : 280,
+              title: 'Order ${_o.shortId}',
+              markers: [
+                if (b != null) mapMarker(point: b, kind: MapPinKind.cashier, muted: _o.isPickedUp),
+                mapMarker(point: dest, kind: MapPinKind.destination, selected: true),
+                if (riderPoint != null)
+                  mapMarker(point: riderPoint, kind: MapPinKind.rider, live: live, muted: !live),
+              ],
+              lines: _routeLines(),
+              fit: [..._route, ?b, dest, ?riderPoint],
+              topLeft: _o.isPickedUp && _o.etaAt != null
+                  ? MapStatusChip(
+                      icon: Icons.schedule_rounded,
+                      text: 'Arriving about ${formatTimeOfDay(_o.etaAt)}',
+                    )
+                  : null,
+              bottomLeft: at == null
+                  ? null
+                  : MapStatusChip(text: 'Rider location ${formatAgo(at)}'),
+            ),
+          ),
+        ],
+        const SizedBox(height: 14),
+        _itemsFold(),
       ],
+    );
+  }
+
+  /// Who has it and where they are: always in view while it is out.
+  Widget _riderCard(String riderLine) {
+    final eta = _o.isPickedUp && _o.etaAt != null
+        ? 'Arriving about ${formatTimeOfDay(_o.etaAt)}'
+        : null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _line),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(color: Color(0xFFB24800), shape: BoxShape.circle),
+            child: const Icon(Icons.two_wheeler_rounded, size: 20, color: Colors.white),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  eta == null ? _riderName : '$eta · $_riderName',
+                  style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w700, color: _text),
+                ),
+                const SizedBox(height: 2),
+                Text(riderLine, style: StockpileFonts.satoshi(fontSize: 12, color: _body)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1586,8 +2116,19 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
       _ => (Icons.storefront_outlined, 'Handed over at the counter', '', false),
     };
 
+    final tracking = (_o.trackingNumber ?? '').trim();
     final facts = <(IconData, String, String, bool)>[
       confirmation,
+      if (_o.isCourier)
+        (
+          Icons.local_shipping_outlined,
+          'Sent by $_courier',
+          [
+            if (tracking.isNotEmpty) 'Tracking $tracking',
+            if (_o.shippedAt != null) 'Shipped ${formatTimeOfDay(_o.shippedAt)}',
+          ].join(' · '),
+          false,
+        ),
       (
         Icons.payments_outlined,
         _o.paymentLabel,
@@ -1689,8 +2230,274 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           iconColor: kDangerText,
           isDark: _dark,
         ),
+        if (_o.isOutside && _o.isPaid) ...[
+          const SizedBox(height: 12),
+          PaneNote(
+            icon: Icons.undo_rounded,
+            title: 'Paid ${_m(_o.finalTotal)} outside the app',
+            body: 'Refund ${_o.memberFirstName} the same way they paid. The '
+                'app did not hold this money, so it cannot return it.',
+            tint: _dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+            iconColor: _dark ? StockpileColors.primary500 : kOrangeText,
+            isDark: _dark,
+          ),
+        ],
+        if (_o.isRefunded) ...[
+          const SizedBox(height: 12),
+          PaneNote(
+            icon: Icons.undo_rounded,
+            title: '${_m(_o.finalTotal)} returned to ${_o.memberFirstName}\'s funds',
+            tint: StockpileColors.successBg,
+            iconColor: const Color(0xFF16A34A),
+            isDark: _dark,
+          ),
+        ],
         const SizedBox(height: 18),
         _itemsSummary(),
+      ],
+    );
+  }
+
+  // ── How it travels (v61) ───────────────────────────────────────────
+
+  Widget _routePicker() {
+    return PaneSection(
+      title: 'Send by',
+      trailing: 'Part of the quote',
+      isDark: _dark,
+      child: SizedBox(
+        width: double.infinity,
+        child: SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(
+              value: DeliveryRoute.rider,
+              label: Text('Rider'),
+              icon: Icon(Icons.two_wheeler_rounded),
+            ),
+            ButtonSegment(
+              value: DeliveryRoute.lbc,
+              label: Text('LBC'),
+              icon: Icon(Icons.local_shipping_outlined),
+            ),
+            ButtonSegment(
+              value: DeliveryRoute.jnt,
+              label: Text('J&T'),
+              icon: Icon(Icons.local_shipping_outlined),
+            ),
+          ],
+          selected: {_sendBy},
+          showSelectedIcon: false,
+          onSelectionChanged: _busy || _viewOnly ? null : (s) => setState(() => _sendBy = s.first),
+        ),
+      ),
+    );
+  }
+
+  // ── Courier: paying, then shipping (v61) ───────────────────────────
+
+  Widget _courierAgreed() {
+    final first = _o.memberFirstName;
+    final Widget payment;
+    if (_o.isPaid) {
+      payment = _paymentNote();
+    } else if (!_o.isOutside) {
+      payment = PaneNote(
+        icon: Icons.hourglass_top_rounded,
+        title: 'Waiting for $first to pay',
+        body: '$first pays from Balance or Total Earnings, or chooses to pay '
+            'outside the app (GCash or similar). There is no cash on '
+            'delivery for $_courier. You\'ll get an alert either way.',
+        tint: _dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+        iconColor: _dark ? StockpileColors.primary500 : kOrangeText,
+        isDark: _dark,
+      );
+    } else {
+      payment = _outsidePayment();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        payment,
+        if (_o.isPaid) ...[
+          const SizedBox(height: 18),
+          PaneSection(
+            title: 'Ship with $_courier',
+            trailing: 'Book it, then enter the tracking number',
+            isDark: _dark,
+            child: TextField(
+              controller: _tracking,
+              enabled: !_busy && !_viewOnly,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: 'Tracking number',
+                hintText: 'From the $_courier receipt',
+                helperText: 'No number on the receipt? Generate one.',
+                prefixIcon: const Icon(Icons.local_shipping_outlined),
+                suffixIcon: IconButton(
+                  tooltip: 'Generate a tracking number',
+                  onPressed: _busy || _viewOnly ? null : _generateTracking,
+                  icon: const Icon(Icons.auto_awesome_outlined),
+                ),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 18),
+        _deliverTo(showMap: false),
+        const SizedBox(height: 18),
+        _itemsFold(feeLabel: 'Shipping'),
+      ],
+    );
+  }
+
+  Widget _outsidePayment() {
+    final first = _o.memberFirstName;
+    final total = _m(_o.finalTotal);
+    final sent = _o.paymentDetailsAt != null;
+    final ref = (_o.paymentReference ?? '').trim();
+    final rejected = (_o.paymentRejectedNote ?? '').trim();
+
+    final Widget state;
+    if (_o.outsidePaymentSent) {
+      state = PaneNote(
+        icon: Icons.mark_email_unread_outlined,
+        title: '$first says they sent $total',
+        body: 'Sent ${formatAgo(_o.paymentSentAt)}'
+            '${ref.isEmpty ? '' : ' · reference $ref'}. Check it arrived, '
+            'then confirm it.',
+        tint: _dark ? StockpileColors.secondary500.withAlpha(40) : StockpileColors.secondary50,
+        iconColor: StockpileColors.secondary500,
+        isDark: _dark,
+      );
+    } else if (rejected.isNotEmpty) {
+      state = PaneNote(
+        icon: Icons.error_outline_rounded,
+        title: 'You sent the payment back',
+        body: '"$rejected" · Waiting for $first to pay again.',
+        tint: _dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+        iconColor: _body,
+        isDark: _dark,
+      );
+    } else if (sent) {
+      state = PaneNote(
+        icon: Icons.hourglass_top_rounded,
+        title: 'Waiting for $first to pay',
+        body: 'They see the details below and tell you once they have sent '
+            '$total. You can also confirm it as soon as it arrives.',
+        tint: _dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+        iconColor: _body,
+        isDark: _dark,
+      );
+    } else {
+      state = PaneNote(
+        icon: Icons.payments_outlined,
+        title: '$first will pay outside the app',
+        body: 'Tell them where to send $total: your GCash number and '
+            'account name, or another way to pay.',
+        tint: _dark ? StockpileColors.primary900.withAlpha(30) : StockpileColors.primary50,
+        iconColor: _dark ? StockpileColors.primary500 : kOrangeText,
+        isDark: _dark,
+      );
+    }
+
+    return PaneSection(
+      title: 'Payment outside the app',
+      trailing: sent ? 'Details sent ${formatAgo(_o.paymentDetailsAt)}' : null,
+      isDark: _dark,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          state,
+          const SizedBox(height: 12),
+          TextField(
+            controller: _details,
+            enabled: !_busy && !_viewOnly,
+            minLines: 2,
+            maxLines: 4,
+            decoration: InputDecoration(
+              labelText: 'Where to pay',
+              hintText: 'e.g. GCash 0917 123 4567 · Juan Dela Cruz',
+              helperText: '$first also sees the amount, $total.',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _shipped() {
+    final first = _o.memberFirstName;
+    final tracking = (_o.trackingNumber ?? '').trim();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _line),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: const BoxDecoration(color: Color(0xFFB24800), shape: BoxShape.circle),
+                child: const Icon(Icons.local_shipping_rounded, size: 20, color: Colors.white),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sent by $_courier',
+                      style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w700, color: _text),
+                    ),
+                    const SizedBox(height: 2),
+                    SelectableText(
+                      tracking.isEmpty ? 'No tracking number' : 'Tracking $tracking',
+                      style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: _text),
+                    ),
+                    Text(
+                      'Shipped ${formatTimeOfDay(_o.shippedAt)} · ${formatAgo(_o.shippedAt)}',
+                      style: StockpileFonts.satoshi(fontSize: 12, color: _body),
+                    ),
+                  ],
+                ),
+              ),
+              if (tracking.isNotEmpty)
+                IconButton(
+                  tooltip: 'Copy tracking number',
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: tracking));
+                    showSuccessToast('Tracking number copied');
+                  },
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        _paymentNote(),
+        const SizedBox(height: 12),
+        PaneNote(
+          icon: Icons.inventory_2_outlined,
+          title: 'Waiting for $first to confirm',
+          body: 'The sale and commissions are recorded when they tap "I '
+              'received it". If $_courier shows it delivered and they don\'t '
+              'confirm, close it yourself. If it never arrived, use Cancel order.',
+          tint: _dark ? StockpileColors.darkInputBg : StockpileColors.inputBg,
+          iconColor: _body,
+          isDark: _dark,
+        ),
+        const SizedBox(height: 18),
+        _deliverTo(showMap: false),
+        const SizedBox(height: 18),
+        _itemsFold(feeLabel: 'Shipping'),
       ],
     );
   }
@@ -1698,11 +2505,27 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
   // ── Action bar ─────────────────────────────────────────────────────
 
   Widget _actionBar() {
-    final (hint, actions) = _actions();
+    final held = _heldBy;
+    final (hint, actions) = held != null
+        ? ('$held is handling this order. Only they or an admin can change it.', const <Widget>[])
+        : _actions();
     if (hint == null && actions.isEmpty) return const SizedBox.shrink();
 
     final hintText = hint == null
         ? null
+        : held != null
+        ? Row(
+            children: [
+              const Icon(Icons.lock_outline_rounded, size: 18, color: kCaption),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hint,
+                  style: StockpileFonts.satoshi(fontSize: 13, height: 1.4, color: _body),
+                ),
+              ),
+            ],
+          )
         : Text(
             hint,
             style: StockpileFonts.satoshi(
@@ -1790,17 +2613,32 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
           ],
         );
 
+      case DeliveryOrderStatus.agreed when _o.isCourier:
+        return _courierActions();
+
+      case DeliveryOrderStatus.shipped:
+        return (
+          'Waiting for $first to confirm they received it.',
+          [
+            OutlinedButton(
+              onPressed: busy ? null : () => _complete(override: true),
+              child: const Text('Close as received'),
+            ),
+          ],
+        );
+
       case DeliveryOrderStatus.agreed:
         final chosen = _candidates.where((c) => c.rider.id == _riderId).firstOrNull;
+        final ready = _o.readyForRider;
         return (
-          null,
+          ready ? null : 'A rider can be assigned once ${_o.memberFirstName} pays or chooses cash.',
           [
             OutlinedButton(
               onPressed: busy ? null : () => _complete(override: false),
               child: const Text('Hand over at counter'),
             ),
             FilledButton(
-              onPressed: busy || chosen == null ? null : _assign,
+              onPressed: busy || chosen == null || !ready ? null : _assign,
               child: Text(chosen == null ? 'Assign rider' : 'Assign ${chosen.rider.username.split(' ').first}'),
             ),
           ],
@@ -1833,6 +2671,8 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
                   : () => setState(() {
                       _reassigning = true;
                       _riderId = _o.deliveryId;
+                      // Reassigning is choosing someone else: show them all.
+                      _allRiders = true;
                     }),
               child: const Text('Reassign'),
             ),
@@ -1871,6 +2711,66 @@ class _DeliveryOrderPaneState extends State<DeliveryOrderPane> {
         return (null, const []);
     }
   }
+
+  /// The action bar while a courier order is Agreed: settle the payment,
+  /// then ship it.
+  (String?, List<Widget>) _courierActions() {
+    final first = _o.memberFirstName;
+    final busy = _busy;
+    final counter = OutlinedButton(
+      onPressed: busy ? null : () => _complete(override: false),
+      child: const Text('Hand over at counter'),
+    );
+
+    if (_o.isPaid) {
+      final t = _tracking.text.trim();
+      return (
+        t.isEmpty ? 'Book it with $_courier, then enter the tracking number.' : null,
+        [
+          counter,
+          FilledButton(
+            onPressed: busy || t.isEmpty ? null : _markShipped,
+            child: const Text('Mark shipped'),
+          ),
+        ],
+      );
+    }
+    if (!_o.isOutside) return ('Waiting for $first to pay.', [counter]);
+
+    final typed = _details.text.trim();
+    if (_o.paymentDetailsAt == null) {
+      return (
+        typed.isEmpty ? 'Write where $first should send the payment.' : null,
+        [
+          FilledButton(
+            onPressed: busy || typed.isEmpty ? null : _sendDetails,
+            child: const Text('Send payment details'),
+          ),
+        ],
+      );
+    }
+    final changed = typed.isNotEmpty && typed != (_o.paymentDetails ?? '').trim();
+    return (
+      _o.outsidePaymentSent ? null : 'Confirm once the money arrives.',
+      [
+        if (changed)
+          OutlinedButton(
+            onPressed: busy ? null : _sendDetails,
+            child: const Text('Resend details'),
+          ),
+        if (_o.outsidePaymentSent)
+          OutlinedButton(
+            onPressed: busy ? null : _rejectPayment,
+            child: const Text('Not received'),
+          ),
+        FilledButton(
+          onPressed: busy ? null : _confirmPayment,
+          child: const Text('Confirm payment'),
+        ),
+      ],
+    );
+  }
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

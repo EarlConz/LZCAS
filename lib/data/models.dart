@@ -14,6 +14,11 @@ class Item {
   final String? status;
   final String? userId; // Supabase auth.uid()
 
+  /// The product's picture in the 'product-images' bucket (v63), or null.
+  /// Written only by `setItemImage`, never by [toJson], so saving a product
+  /// from a screen that did not load its picture cannot clear it.
+  final String? imagePath;
+
   const Item({
     this.id,
     required this.name,
@@ -22,6 +27,7 @@ class Item {
     this.lastUpdated,
     this.status,
     this.userId,
+    this.imagePath,
   });
 
   factory Item.fromJson(Map<String, dynamic> json) => Item(
@@ -34,6 +40,9 @@ class Item {
         : null,
     status: json['status'] as String?,
     userId: json['user_id'] as String?,
+    imagePath: (json['image_path'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (json['image_path'] as String).trim(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -61,6 +70,7 @@ class Item {
     lastUpdated: lastUpdated ?? this.lastUpdated,
     status: status ?? this.status,
     userId: userId ?? this.userId,
+    imagePath: imagePath,
   );
 }
 
@@ -448,6 +458,11 @@ class Sale {
   /// Set when this sale is a package availment, not a product sale.
   final int? packageId;
 
+  /// How a delivery order was paid ('funds', 'cod', 'counter', 'outside'),
+  /// written by the database when it records the order's sale (v52). Null
+  /// for a sale made at the POS. Read-only: the app never writes it.
+  final String? paymentMethod;
+
   const Sale({
     this.id,
     required this.itemId,
@@ -459,11 +474,19 @@ class Sale {
     this.timestamp,
     this.userId,
     this.packageId,
+    this.paymentMethod,
   });
 
   /// Package availments are not products and are excluded from
   /// product metrics (revenue, category breakdown, top products).
   bool get isPackage => packageId != null;
+
+  /// Sold through a delivery order rather than at the counter.
+  bool get isOnlineOrder => paymentMethod != null;
+
+  /// Counter, Delivery or Branch, for Transactions.
+  SaleKind kind(Set<String> branchIds) =>
+      saleKindOf(paymentMethod: paymentMethod, userId: userId, branchIds: branchIds);
 
   factory Sale.fromJson(Map<String, dynamic> json) => Sale(
     id: json['id'] as int?,
@@ -478,6 +501,7 @@ class Sale {
         : null,
     userId: json['user_id'] as String?,
     packageId: json['package_id'] as int?,
+    paymentMethod: json['payment_method'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -514,7 +538,49 @@ class Sale {
     timestamp: timestamp ?? this.timestamp,
     userId: userId ?? this.userId,
     packageId: packageId ?? this.packageId,
+    paymentMethod: paymentMethod,
   );
+}
+
+/// Where a sale was made, as Transactions tells them apart.
+enum SaleKind {
+  /// At a main cashier's POS (package availments too).
+  counter,
+
+  /// Through a delivery order: paid with funds, cash on delivery, at the
+  /// counter or outside the app (sales.payment_method, v52).
+  delivery,
+
+  /// At a branch cashier's POS, from their allocation.
+  branch,
+}
+
+SaleKind saleKindOf({
+  required String? paymentMethod,
+  required String? userId,
+  required Set<String> branchIds,
+}) {
+  if (paymentMethod != null) return SaleKind.delivery;
+  if (userId != null && branchIds.contains(userId)) return SaleKind.branch;
+  return SaleKind.counter;
+}
+
+/// The Transactions caption and chips for a date range: how many
+/// checkouts, the money, and the checkouts of each kind.
+class SalesSummary {
+  final int checkouts;
+  final int total;
+  final int counter;
+  final int delivery;
+  final int branch;
+
+  const SalesSummary({
+    required this.checkouts,
+    required this.total,
+    required this.counter,
+    required this.delivery,
+    required this.branch,
+  });
 }
 
 /// Audit row for member transactions (member_transactions table).
@@ -1028,6 +1094,10 @@ enum EarningsBucket {
   groupSales('Group Sales', wire: 'group_sales'),
   chairmanBonus("Chairman's Bonus", wire: 'chairman_bonus'),
   upgradeBonus('Upgrade Bonus', wire: 'upgrade_bonus'),
+
+  /// Delivery orders paid from funds (v52), and refunds of them (v57).
+  /// Rows from both wallets; each row's label says which. Not adjustable.
+  deliveryPurchase('Delivery purchases'),
   other('Other');
 
   const EarningsBucket(this.label, {this.isBalance = false, this.wire});
@@ -1058,6 +1128,7 @@ enum EarningsBucket {
     if (n.startsWith('direct referral')) return EarningsBucket.directReferral;
     if (n.startsWith('chairman bonus')) return EarningsBucket.chairmanBonus;
     if (n.startsWith('upgrade bonus')) return EarningsBucket.upgradeBonus;
+    if (n.startsWith('order payment')) return EarningsBucket.deliveryPurchase;
     return EarningsBucket.other;
   }
 }
@@ -1324,6 +1395,7 @@ List<Map<String, dynamic>> inventoryItemsFromRows(List<Item> rows) {
           'stock': r.stock,
           'lastUpdated': r.lastUpdated?.toIso8601String() ?? '',
           'status': r.status ?? statusFromStock(r.stock),
+          'imagePath': r.imagePath,
         },
       )
       .toList();
@@ -1415,8 +1487,29 @@ abstract class DeliveryOrderStatus {
   static const pickedUp = 'Picked Up';
   static const delivered = 'Delivered';
 
+  /// Courier state (v61): booked with LBC or J&T, on its way to the
+  /// member. Completed once the member taps "I received it".
+  static const shipped = 'Shipped';
+
   static const completed = 'Completed';
   static const cancelled = 'Cancelled';
+}
+
+/// How an order travels (`orders.delivery_route`, v61). Chosen by the
+/// cashier or admin with each quote.
+abstract class DeliveryRoute {
+  DeliveryRoute._();
+  static const rider = 'rider';
+  static const lbc = 'lbc';
+  static const jnt = 'jnt';
+
+  static const all = [rider, lbc, jnt];
+
+  static String label(String route) => switch (route) {
+    lbc => 'LBC',
+    jnt => 'J&T',
+    _ => 'Rider',
+  };
 }
 
 /// How an order was confirmed complete (`orders.confirmation_method`).
@@ -1490,6 +1583,10 @@ class DeliveryOrderItem {
   /// `order_items`) so history survives item renames/deletion.
   final String? productName;
 
+  /// The product's picture (v63), resolved like [productName]; null shows
+  /// the letter tile.
+  final String? productImagePath;
+
   const DeliveryOrderItem({
     this.id,
     this.orderId,
@@ -1498,6 +1595,7 @@ class DeliveryOrderItem {
     this.unitPrice,
     this.subtotal,
     this.productName,
+    this.productImagePath,
   });
 
   factory DeliveryOrderItem.fromJson(Map<String, dynamic> json) =>
@@ -1512,6 +1610,7 @@ class DeliveryOrderItem {
 
   DeliveryOrderItem copyWith({
     String? productName,
+    String? productImagePath,
     double? unitPrice,
     double? subtotal,
   }) => DeliveryOrderItem(
@@ -1522,6 +1621,7 @@ class DeliveryOrderItem {
     unitPrice: unitPrice ?? this.unitPrice,
     subtotal: subtotal ?? this.subtotal,
     productName: productName ?? this.productName,
+    productImagePath: productImagePath ?? this.productImagePath,
   );
 }
 
@@ -1589,6 +1689,31 @@ class DeliveryOrder {
   final DateTime? codRemittedAt;
   final String? codRemittedTo;
 
+  // ── Courier and outside payment (v61) ─────────────────────────────
+  /// One of [DeliveryRoute]. 'rider' for every order before v61.
+  final String deliveryRoute;
+
+  /// Where the member sends an outside payment (number, name, amount),
+  /// typed by the staff. Null until they send it.
+  final String? paymentDetails;
+  final DateTime? paymentDetailsAt;
+
+  /// The member said they sent the outside payment, with the reference
+  /// number if they gave one. Cleared when the staff send it back.
+  final DateTime? paymentSentAt;
+  final String? paymentReference;
+
+  /// Why the staff could not confirm the last outside payment.
+  final String? paymentRejectedNote;
+  final DateTime? paymentRejectedAt;
+
+  final String? trackingNumber;
+  final DateTime? shippedAt;
+
+  /// When the goods left the shelf: at Shipped for a courier order, at
+  /// completion for every other. Null again if a parcel came back.
+  final DateTime? stockTakenAt;
+
   // ── Road route (v53) ──────────────────────────────────────────────
   /// Branch to member along the roads, `[lat, lng]` pairs in travel order.
   /// Written once by the `order-route` Edge Function and never by the app;
@@ -1609,6 +1734,10 @@ class DeliveryOrder {
 
   /// Resolved client-side (not stored on `orders`).
   final String? memberName;
+
+  /// The buyer's package tier, or null when they hold none (a plain
+  /// Member). Resolved client-side like [memberName].
+  final String? memberPackage;
   final String? cashierName;
   final String? deliveryName;
 
@@ -1643,6 +1772,16 @@ class DeliveryOrder {
     this.salesRecordedAt,
     this.codRemittedAt,
     this.codRemittedTo,
+    this.deliveryRoute = DeliveryRoute.rider,
+    this.paymentDetails,
+    this.paymentDetailsAt,
+    this.paymentSentAt,
+    this.paymentReference,
+    this.paymentRejectedNote,
+    this.paymentRejectedAt,
+    this.trackingNumber,
+    this.shippedAt,
+    this.stockTakenAt,
     this.routePoints,
     this.routeDistanceM,
     this.routeDurationS,
@@ -1650,6 +1789,7 @@ class DeliveryOrder {
     this.routeOriginLat,
     this.routeOriginLng,
     this.memberName,
+    this.memberPackage,
     this.cashierName,
     this.deliveryName,
   });
@@ -1691,6 +1831,16 @@ class DeliveryOrder {
     salesRecordedAt: _ts(json['sales_recorded_at']),
     codRemittedAt: _ts(json['cod_remitted_at']),
     codRemittedTo: json['cod_remitted_to'] as String?,
+    deliveryRoute: json['delivery_route'] as String? ?? DeliveryRoute.rider,
+    paymentDetails: json['payment_details'] as String?,
+    paymentDetailsAt: _ts(json['payment_details_at']),
+    paymentSentAt: _ts(json['payment_sent_at']),
+    paymentReference: json['payment_reference'] as String?,
+    paymentRejectedNote: json['payment_rejected_note'] as String?,
+    paymentRejectedAt: _ts(json['payment_rejected_at']),
+    trackingNumber: json['tracking_number'] as String?,
+    shippedAt: _ts(json['shipped_at']),
+    stockTakenAt: _ts(json['stock_taken_at']),
     routePoints: _routePoints(json['route_points']),
     routeDistanceM: _intFromJson(json['route_distance_m']),
     routeDurationS: _intFromJson(json['route_duration_s']),
@@ -1720,6 +1870,7 @@ class DeliveryOrder {
   /// screens do not keep asking. 'failed' is retried by the function
   /// itself after its cool-down.
   bool get routeWorthRequesting =>
+      !isCourier &&
       deliveryLatitude != null &&
       deliveryLongitude != null &&
       (routeStatus == null || routeStatus == 'failed');
@@ -1745,22 +1896,63 @@ class DeliveryOrder {
   bool get isAssigned => status == DeliveryOrderStatus.assigned;
   bool get isPickedUp => status == DeliveryOrderStatus.pickedUp;
   bool get isDelivered => status == DeliveryOrderStatus.delivered;
+  bool get isShipped => status == DeliveryOrderStatus.shipped;
   bool get isCompleted => status == DeliveryOrderStatus.completed;
   bool get isCancelled => status == DeliveryOrderStatus.cancelled;
+
+  /// Sent by LBC or J&T instead of a rider (v61).
+  bool get isCourier => deliveryRoute != DeliveryRoute.rider;
+
+  /// 'Rider', 'LBC' or 'J&T'.
+  String get routeLabel => DeliveryRoute.label(deliveryRoute);
 
   bool get isCod => paymentMethod == 'cod';
   bool get isFunds => paymentMethod == 'funds';
   bool get isPaid => paymentStatus == 'paid';
+
+  /// GCash or another payment made outside the app, confirmed by the
+  /// staff (v61). Courier orders only.
+  bool get isOutside => paymentMethod == 'outside';
+
+  /// A funds payment given back when the order was cancelled (v57).
+  bool get isRefunded => paymentStatus == 'refunded';
+
+  /// A rider order, agreed and ready for a rider: paid from funds, or cash
+  /// on delivery chosen. `cashier_assign_rider` (v59) refuses every other
+  /// Agreed order; the member has to do one of the two first. Handing over
+  /// at the counter needs neither, since the member pays there.
+  bool get readyForRider => !isCourier && isAgreed && (isPaid || isCod);
+
+  /// A courier order, agreed and paid: the staff can book it with the
+  /// courier and mark it shipped (`cashier_mark_shipped`, v61).
+  bool get readyToShip => isCourier && isAgreed && isPaid;
+
+  /// Agreed, but the member hasn't paid or chosen cash yet (v59).
+  bool get waitingForPayment => isAgreed && !isPaid && !isCod;
+
+  /// An outside payment the staff still have to act on: send where to pay,
+  /// or check one the member says they sent.
+  bool get outsidePaymentNeedsStaff =>
+      isAgreed &&
+      isOutside &&
+      !isPaid &&
+      (paymentDetailsAt == null || paymentSentAt != null);
+
+  /// The member said they sent an outside payment; the staff haven't
+  /// confirmed or sent it back yet.
+  bool get outsidePaymentSent => isOutside && !isPaid && paymentSentAt != null;
 
   /// Funds can only be spent while the order is still Agreed —
   /// `pay_order_with_funds` refuses every later status. Once a rider has
   /// it, the member pays the rider in cash.
   bool get canPayWithFunds => isAgreed && !isPaid;
 
-  /// Whether the member can still pay at all from the app: funds while
-  /// Agreed, or a cash code up to the moment of handover
-  /// (`member_order_cod_code` accepts Agreed, Assigned and Picked Up).
-  bool get canStillPay => !isPaid && (isAgreed || isAssigned || isPickedUp);
+  /// Whether the member can still pay at all from the app: funds (or, for
+  /// a courier, an outside payment) while Agreed, or a cash code up to the
+  /// moment of handover (`member_order_cod_code` accepts Agreed, Assigned
+  /// and Picked Up).
+  bool get canStillPay =>
+      !isPaid && (isAgreed || (!isCourier && (isAssigned || isPickedUp)));
 
   /// Cash a rider collected that no cashier has yet confirmed receiving.
   /// This is the queue behind the cashier's "Cash to Remit" filter.
@@ -1770,13 +1962,17 @@ class DeliveryOrder {
   /// and a cashier can read at a glance. One definition, so the order card
   /// and the receipt cannot disagree.
   String get paymentLabel {
+    if (isRefunded) return 'Refunded to member funds';
     if (isPaid) {
+      if (isOutside && isCancelled) return 'Paid outside the app (refund it outside the app)';
       return switch (paymentMethod) {
         'cod' => 'Cash on delivery',
         'counter' => 'Paid at the counter',
+        'outside' => 'Paid outside the app',
         _ => 'Member funds',
       };
     }
+    if (isOutside && !isCompleted) return 'Outside payment (to confirm)';
     // Completed and unpaid happens two ways. Before v54 a counter sale
     // recorded no payment, so an old one reads as the counter. After v54
     // it is a Delivered order a cashier closed without confirmation, which
@@ -1809,6 +2005,7 @@ class DeliveryOrder {
     double? finalTotal,
     List<DeliveryOrderItem>? items,
     String? memberName,
+    String? memberPackage,
     String? cashierName,
     String? deliveryName,
     DateTime? etaAt,
@@ -1843,6 +2040,16 @@ class DeliveryOrder {
     salesRecordedAt: salesRecordedAt,
     codRemittedAt: codRemittedAt,
     codRemittedTo: codRemittedTo,
+    deliveryRoute: deliveryRoute,
+    paymentDetails: paymentDetails,
+    paymentDetailsAt: paymentDetailsAt,
+    paymentSentAt: paymentSentAt,
+    paymentReference: paymentReference,
+    paymentRejectedNote: paymentRejectedNote,
+    paymentRejectedAt: paymentRejectedAt,
+    trackingNumber: trackingNumber,
+    shippedAt: shippedAt,
+    stockTakenAt: stockTakenAt,
     routePoints: routePoints,
     routeDistanceM: routeDistanceM,
     routeDurationS: routeDurationS,
@@ -1850,6 +2057,7 @@ class DeliveryOrder {
     routeOriginLat: routeOriginLat,
     routeOriginLng: routeOriginLng,
     memberName: memberName ?? this.memberName,
+    memberPackage: memberPackage ?? this.memberPackage,
     cashierName: cashierName ?? this.cashierName,
     deliveryName: deliveryName ?? this.deliveryName,
   );

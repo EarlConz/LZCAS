@@ -8,9 +8,81 @@ history) live in `docs/release_notes_technical.md`.*
 
 ---
 
-## Next update — pending approval
+## Version 1.6.0 — October 2026
 
-> Currently being tested. Nothing here is live for everyone yet.
+The biggest update so far: members can now order online and have it
+delivered, by one of the store's riders or by courier.
+
+### 🛒 Order online, delivered to your door
+
+**Members** get a **Marketplace** with every product (and its picture) and
+an **Active Orders** screen.
+
+- Pick products and send the order. The store prices it and proposes a
+  delivery fee; you can accept it or offer a different fee.
+- Pay from your **Balance** or **Total Earnings**, or pay **cash on
+  delivery**. Courier orders (LBC or J&T) can also be paid outside the app,
+  by GCash or similar: the store sends where to pay, you tell them once it's
+  sent, and they confirm it arrived.
+- Name who will receive the order, if it isn't you.
+- Follow the rider on the map with an arrival time that updates by itself,
+  or follow a courier parcel by its tracking number.
+- Tap **"Yes, I received it"** when it arrives. A cancelled order that was
+  paid from your funds gives the money back straight away.
+
+### 🛵 Riders
+
+A new **Rider** account for the store's delivery riders: their assigned
+deliveries, the road route to each member, an arrival time worked out
+automatically (they can change it), and a cash code to scan or type for
+cash-on-delivery orders.
+
+### 🧾 For cashiers and admins
+
+- A **Delivery Orders** page: price orders, agree the fee, choose a rider or
+  a courier, mark courier parcels shipped with their tracking number, take
+  cash from riders. Every cashier sees every order; only the one handling it
+  can change it.
+- **Notifications** on the phone for new orders and order updates, even
+  with the app closed.
+- **Selling on a phone** is now a full screen: search products, tap to add,
+  set the quantity and price, sell. On every device, the till can no longer
+  sell more than is in stock, and adding the same product again adds to its
+  line.
+- **Edit Sale** (admins): correct a sale's products and quantities; stock
+  and commissions follow.
+- **Product pictures**: admins add a picture to each product.
+- Clearer **Members, Inventory, Transactions and Announcements** lists, with
+  search by member ID and **Export** to Excel.
+- **Requests** show "5 min ago"-style times and have a **Sort & filter**
+  button.
+
+### 📣 Announcements
+
+- A **count of new announcements** beside Announcements in the menu, and a
+  **notification** on the phone when one is posted.
+- **Schedule** an announcement for later with **Start showing**: nobody sees
+  it, or is notified, until then.
+
+### 💰 Money and members
+
+- A pending withdrawal now **holds its money**: members see what is on hold
+  and how much they can still request, so two requests can't take more than
+  there is.
+- A member's referrer can no longer be someone in their own downline.
+- Every new member avails a package.
+
+### ⚡ Everywhere
+
+- Changes made on one device appear on the others by themselves: stock,
+  sales, members, requests, earnings, announcements, orders.
+- **Settings → Live updates** shows whether this device is connected.
+
+---
+
+## Version 1.5 — September 2026
+
+*Versions 1.5.0 (9 September) and 1.5.1 (23 September).*
 
 ### 📣 Announcements
 

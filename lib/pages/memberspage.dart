@@ -5,7 +5,7 @@ import 'package:lzcas/theme.dart';
 import '/widgets/memberstable.dart';
 import '/widgets/memberdetails.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
-import '/dialogs/confirmation_dialog.dart';
+import 'package:lzcas/widgets/modal_kit.dart' show confirmDestructive;
 
 class MembersPage extends StatefulWidget {
   const MembersPage({super.key});
@@ -71,27 +71,29 @@ class _MembersPageState extends State<MembersPage>
     );
   }
 
-  void _confirmDeleteMember(Map<String, dynamic> member) {
-    showDialog<bool>(
-      context: context,
-      builder: (context) => ConfirmationDialog(
-        title: "Confirm Delete",
-        content: "Do you want to delete ${member['firstName']}?",
-        onConfirm: () => _deleteMember(member),
-      ),
+  Future<void> _confirmDeleteMember(Map<String, dynamic> member) async {
+    final name = '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'.trim();
+    final ok = await confirmDestructive(
+      context,
+      title: 'Delete ${name.isEmpty ? 'this member' : name}?',
+      message: "Their member record is removed. This can't be undone.",
+      confirmLabel: 'Delete member',
     );
+    if (ok) _deleteMember(member);
   }
 
-  void _updateMember(
+  /// The details pane changes only once the save went through; the table
+  /// says "Member updated" itself.
+  Future<void> _updateMember(
     Map<String, dynamic> oldMember,
     Map<String, dynamic> updatedMember,
-  ) {
-    _tableKey.currentState?.updateMember(oldMember, updatedMember);
+  ) async {
+    final ok =
+        await _tableKey.currentState?.updateMember(oldMember, updatedMember) ?? false;
+    if (!ok || !mounted) return;
     setState(() {
       selectedMember = {...oldMember, ...updatedMember};
     });
-
-    BotToast.showText(text: 'Member updated successfully!');
   }
 
   void _deleteMember(Map<String, dynamic> member) {

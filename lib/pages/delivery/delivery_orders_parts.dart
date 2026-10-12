@@ -48,18 +48,36 @@ extension OrderStageOf on DeliveryOrder {
       DeliveryOrderStatus.agreed => OrderStage.toDispatch,
       DeliveryOrderStatus.assigned ||
       DeliveryOrderStatus.pickedUp ||
-      DeliveryOrderStatus.delivered => OrderStage.onTheWay,
+      DeliveryOrderStatus.delivered ||
+      DeliveryOrderStatus.shipped => OrderStage.onTheWay,
       _ => OrderStage.history,
     };
   }
 
   /// Whether the cashier is the one holding things up. A quote waiting on
-  /// the member, or an order on a rider's bike, is not.
+  /// the member, an agreed order waiting for the member to pay (v59), or an
+  /// order on a rider's bike or with a courier, is not. An outside payment
+  /// waiting for its details or its check (v61) is.
   bool get needsCashier =>
       status == DeliveryOrderStatus.orderPlaced ||
       status == DeliveryOrderStatus.memberNegotiating ||
-      status == DeliveryOrderStatus.agreed ||
+      readyForRider ||
+      readyToShip ||
+      outsidePaymentNeedsStaff ||
       awaitingRemittance;
+
+  /// Who is handling this open order, by name, when that is a cashier
+  /// other than [me] and [me] is not an admin. Every cashier sees every
+  /// order (v65), but only its cashier or an admin may change it, so such
+  /// an order is shown read-only. Null when [me] may act on it. A finished
+  /// order has nothing left to change but its receipt, so it is never
+  /// held.
+  String? handledByOther({required String? me, required bool isAdmin}) {
+    final id = cashierId;
+    if (isAdmin || id == null || id == me || isCompleted || isCancelled) return null;
+    final n = (cashierName ?? '').trim();
+    return n.isEmpty ? 'another cashier' : n;
+  }
 
   /// How long it has sat in its current status. `updated_at` is touched by
   /// every write (v48's trigger), which is exactly "since the last move".
@@ -123,7 +141,19 @@ class StagePill extends StatelessWidget {
       DeliveryOrderStatus.orderPlaced => 'To price',
       DeliveryOrderStatus.cashierPricing => 'Quote sent',
       DeliveryOrderStatus.memberNegotiating => 'Counter-offer',
-      DeliveryOrderStatus.agreed => 'Ready to dispatch',
+      DeliveryOrderStatus.agreed => o.isCourier
+          ? (o.readyToShip
+                ? 'Ready to ship'
+                : o.outsidePaymentSent
+                ? 'Check payment'
+                : o.isOutside && o.paymentDetailsAt == null
+                ? 'Send pay details'
+                : 'Awaiting payment')
+          // v59: no rider until paid or cash chosen, so it isn't ready yet.
+          : o.readyForRider
+          ? 'Ready to dispatch'
+          : 'Awaiting payment',
+      DeliveryOrderStatus.shipped => 'Shipped · ${o.routeLabel}',
       DeliveryOrderStatus.assigned => 'Rider assigned',
       DeliveryOrderStatus.pickedUp => 'On the way',
       DeliveryOrderStatus.delivered => 'Awaiting member',
@@ -303,7 +333,7 @@ class OrderStepper extends StatelessWidget {
     this.compact = false,
   });
 
-  static const _labels = [
+  static const _riderLabels = [
     'Placed',
     'Quote',
     'Agreed',
@@ -312,12 +342,27 @@ class OrderStepper extends StatelessWidget {
     'Completed',
   ];
 
+  /// A courier order (v61) has no rider steps: it is paid, then shipped.
+  static const _courierLabels = [
+    'Placed',
+    'Quote',
+    'Agreed',
+    'Paid',
+    'Shipped',
+    'Completed',
+  ];
+
+  List<String> get labels => order.isCourier ? _courierLabels : _riderLabels;
+
   /// Index of the step in progress; 6 when everything is done, null when
   /// cancelled (no step is "current" on an order that stopped).
-  int? get _current => switch (order.status) {
+  int? get currentStep => switch (order.status) {
     DeliveryOrderStatus.orderPlaced ||
     DeliveryOrderStatus.cashierPricing ||
     DeliveryOrderStatus.memberNegotiating => 1,
+    // Courier: Agreed waits on payment (step 3), then on shipping (4).
+    DeliveryOrderStatus.agreed when order.isCourier => order.isPaid ? 4 : 3,
+    DeliveryOrderStatus.shipped => 5,
     DeliveryOrderStatus.agreed || DeliveryOrderStatus.assigned => 3,
     DeliveryOrderStatus.pickedUp => 4,
     DeliveryOrderStatus.delivered => 5,
@@ -326,7 +371,10 @@ class OrderStepper extends StatelessWidget {
   };
 
   /// Who the current step is waiting on.
-  String? get _waitingOn => switch (order.status) {
+  String? get waitingOn => switch (order.status) {
+    DeliveryOrderStatus.agreed when order.isCourier =>
+      order.isPaid || order.outsidePaymentNeedsStaff ? 'You' : 'Member',
+    DeliveryOrderStatus.shipped => 'Member',
     DeliveryOrderStatus.orderPlaced ||
     DeliveryOrderStatus.memberNegotiating ||
     DeliveryOrderStatus.agreed => 'You',
@@ -339,7 +387,15 @@ class OrderStepper extends StatelessWidget {
   };
 
   /// The time under a finished step, where the order records one.
-  DateTime? _timeOf(int i) => switch (i) {
+  DateTime? _timeOf(int i) => order.isCourier
+      ? switch (i) {
+          0 => order.createdAt,
+          3 => order.paidAt,
+          4 => order.shippedAt,
+          5 => order.confirmedAt,
+          _ => null,
+        }
+      : switch (i) {
     0 => order.createdAt,
     3 => order.assignedAt,
     4 => order.deliveredAt,
@@ -355,13 +411,13 @@ class OrderStepper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final current = _current;
+    final current = currentStep;
     final dark = isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
     final line = isDark ? StockpileColors.darkDivider : StockpileColors.divider;
     final done = isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
 
     final children = <Widget>[];
-    for (var i = 0; i < _labels.length; i++) {
+    for (var i = 0; i < labels.length; i++) {
       if (i > 0) {
         children.add(
           Expanded(
@@ -425,19 +481,19 @@ class OrderStepper extends StatelessWidget {
       }
 
       final sub = isCurrent
-          ? _waitingOn
+          ? waitingOn
           : (isDone && time != null ? _clock(time) : null);
 
       children.add(
         SizedBox(
-          width: compact ? 52 : 72,
+          width: compact ? 52 : 84,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               dot,
               const SizedBox(height: 4),
               Text(
-                _labels[i],
+                labels[i],
                 maxLines: 1,
                 overflow: TextOverflow.visible,
                 softWrap: false,
@@ -475,7 +531,7 @@ class OrderStepper extends StatelessWidget {
           ? 'Order cancelled'
           : current >= 6
           ? 'Order completed'
-          : 'Step ${current + 1} of 6, ${_labels[current]}',
+          : 'Step ${current + 1} of 6, ${labels[current]}',
       child: ExcludeSemantics(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -663,4 +719,338 @@ List<RiderCandidate> rankRiders(
     return da.compareTo(db);
   });
   return list;
+}
+
+// ─── Folding (calmer screen, 2026-10-02) ────────────────────────────────────
+
+extension OrderNextStep on DeliveryOrder {
+  /// What has to happen next, and who does it, in a few words: the folded
+  /// stepper's second half.
+  String nextStep({required String riderName}) {
+    final first = memberFirstName;
+    return switch (status) {
+      DeliveryOrderStatus.orderPlaced => 'Next: you send the quote',
+      DeliveryOrderStatus.cashierPricing => 'Next: $first agrees or counters',
+      DeliveryOrderStatus.memberNegotiating =>
+        'Next: you answer the counter-offer',
+      DeliveryOrderStatus.agreed when isCourier => readyToShip
+          ? 'Next: you book $routeLabel and ship it'
+          : outsidePaymentSent
+          ? 'Next: you check the payment'
+          : outsidePaymentNeedsStaff
+          ? 'Next: you send the pay details'
+          : 'Next: $first pays',
+      DeliveryOrderStatus.agreed =>
+        readyForRider ? 'Next: you assign a rider' : 'Next: $first pays',
+      DeliveryOrderStatus.assigned => 'Next: $riderName picks it up',
+      DeliveryOrderStatus.pickedUp => 'Next: $riderName delivers it',
+      DeliveryOrderStatus.delivered ||
+      DeliveryOrderStatus.shipped => 'Next: $first confirms they got it',
+      DeliveryOrderStatus.completed => awaitingRemittance
+          ? 'Next: $riderName hands in the cash'
+          : 'Nothing left to do',
+      _ => 'Nothing left to do',
+    };
+  }
+}
+
+/// The stepper folded to one line: six short bars, "Step 2 of 6 · Quote",
+/// what happens next, and "All steps" to open it.
+class StepsLine extends StatelessWidget {
+  final DeliveryOrder order;
+  final String riderName;
+  final bool isDark;
+  final bool compact;
+  final VoidCallback onOpen;
+
+  const StepsLine({
+    super.key,
+    required this.order,
+    required this.riderName,
+    required this.isDark,
+    required this.onOpen,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final stepper = OrderStepper(order: order, isDark: isDark);
+    final current = stepper.currentStep;
+    final labels = stepper.labels;
+    final text = isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
+    final line = isDark ? StockpileColors.darkDivider : StockpileColors.divider;
+    final where = current == null
+        ? 'Cancelled'
+        : current >= 6
+        ? 'All 6 steps done'
+        : 'Step ${current + 1} of 6 · ${labels[current]}';
+    final next = order.nextStep(riderName: riderName);
+
+    Color bar(int i) {
+      if (current == null || i > current) return line;
+      if (i < current) return text;
+      return StockpileColors.primary900;
+    }
+
+    return Semantics(
+      button: true,
+      expanded: false,
+      label: '$where. $next. Show all steps',
+      child: ExcludeSemantics(
+        child: InkWell(
+          onTap: onOpen,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: compact ? 72 : 96,
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < 6; i++) ...[
+                        if (i > 0) const SizedBox(width: 3),
+                        Expanded(
+                          child: Container(
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: bar(i),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  where,
+                  style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w700, color: text),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    next,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: StockpileFonts.satoshi(fontSize: 13, color: kCaption),
+                  ),
+                ),
+                if (!compact) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    'All steps',
+                    style: StockpileFonts.satoshi(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? StockpileColors.darkTextMuted : StockpileColors.bodyText,
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 4),
+                const Icon(Icons.expand_more_rounded, size: 20, color: kCaption),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A part of the order folded to one row: an icon, what it is in a line or
+/// two, and a word to open it. Open, [child] shows under the row.
+class FoldRow extends StatelessWidget {
+  final IconData icon;
+  final Color? iconColor;
+  final String title;
+  final String? subtitle;
+  final String openLabel;
+  final String closeLabel;
+  final bool open;
+  final VoidCallback onToggle;
+  final Widget child;
+  final bool isDark;
+
+  const FoldRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.open,
+    required this.onToggle,
+    required this.child,
+    required this.isDark,
+    this.iconColor,
+    this.subtitle,
+    this.openLabel = 'More',
+    this.closeLabel = 'Less',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
+    final body = isDark ? StockpileColors.darkTextMuted : StockpileColors.bodyText;
+    final line = isDark ? StockpileColors.darkDivider : StockpileColors.divider;
+    final sub = subtitle;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: line),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            button: true,
+            expanded: open,
+            child: InkWell(
+              onTap: onToggle,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 48),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 18, color: iconColor ?? body),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: text),
+                            ),
+                            if (sub != null && sub.isNotEmpty) ...[
+                              const SizedBox(height: 1),
+                              Text(sub, style: StockpileFonts.satoshi(fontSize: 12, color: kCaption)),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        open ? closeLabel : openLabel,
+                        style: StockpileFonts.satoshi(fontSize: 12, fontWeight: FontWeight.w600, color: body),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(
+                        open ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                        size: 20,
+                        color: body,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (open)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              child: child,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A stage as a chip, for the folded summary: its dot and name, an orange
+/// badge with what needs you, or a plain count or amount after a dot.
+class StageChip extends StatelessWidget {
+  final OrderStage stage;
+  final int needsYou;
+  final String? suffix;
+  final bool selected;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const StageChip({
+    super.key,
+    required this.stage,
+    required this.needsYou,
+    required this.selected,
+    required this.isDark,
+    required this.onTap,
+    this.suffix,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
+    final quiet = isDark ? StockpileColors.darkTextMuted : StockpileColors.bodyText;
+    final line = isDark ? StockpileColors.darkDivider : StockpileColors.divider;
+    final extra = suffix;
+    final label = extra == null ? stage.shortLabel : '${stage.shortLabel} · $extra';
+    final spoken = StringBuffer(stage.label);
+    if (extra != null) spoken.write(', $extra');
+    if (needsYou > 0) spoken.write(', $needsYou need you');
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: spoken.toString(),
+      child: ExcludeSemantics(
+        child: Material(
+          color: selected
+              ? (isDark ? StockpileColors.primary900.withAlpha(40) : StockpileColors.primary50)
+              : (isDark ? StockpileColors.darkSurface : StockpileColors.surface),
+          shape: StadiumBorder(
+            side: BorderSide(
+              color: selected ? StockpileColors.primary900 : line,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: onTap,
+            child: SizedBox(
+              height: 44,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(color: stage.dot, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 13,
+                        fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                        color: needsYou > 0 || selected ? text : quiet,
+                      ),
+                    ),
+                    if (needsYou > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        constraints: const BoxConstraints(minWidth: 22),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFCC4900),
+                          borderRadius: BorderRadius.circular(100),
+                        ),
+                        child: Text(
+                          '$needsYou',
+                          textAlign: TextAlign.center,
+                          style: StockpileFonts.satoshi(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

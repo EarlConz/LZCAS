@@ -608,7 +608,7 @@ alter table public.withdrawal_requests enable row level security;
 -- auth.uid() -> member link the rest of the app uses (fetchMemberByAuthUserId,
 -- the members/earnings_history self policies, get_member_earnings).
 --
--- Keep this in step with migrations/migration_v9_fix_member_identity.sql.
+-- Keep this in step with migrations/v02-v09/migration_v9_fix_member_identity.sql.
 create or replace function public.get_current_member_id()
 returns bigint
 language sql
@@ -646,7 +646,7 @@ create policy "withdrawal_requests_update_admin" on public.withdrawal_requests
 
 -- ===========================================================================
 -- BRANCH STOCK SYSTEM (v30) — two-tier inventory: central (items.stock) +
--- per branch-cashier allocation. See migrations/migration_v30_branch_stock.sql
+-- per branch-cashier allocation. See migrations/v30-v39/migration_v30_branch_stock.sql
 -- for full documentation. Included here so a fresh DB has the whole system.
 -- ===========================================================================
 
@@ -860,7 +860,7 @@ grant execute on function public.member_branch_stock() to authenticated;
 
 -- ===========================================================================
 -- MEMBER ORDERING & DELIVERY NEGOTIATION (v48) — variable item pricing +
--- negotiable delivery fee. See migrations/migration_v48_delivery_orders.sql.
+-- negotiable delivery fee. See migrations/v40-v49/migration_v48_delivery_orders.sql.
 -- ===========================================================================
 
 create table if not exists public.orders (

@@ -44,11 +44,19 @@ class _AnnouncementsTabState extends State<AnnouncementsTab> {
     _sub = repository.changes.listen((e) {
       if (e == 'announcements_changed' && mounted) _load();
     });
+    // In case a live update is missed: a quiet reload every minute while
+    // this tab is open.
+    _autoRefresh = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) _load();
+    });
   }
+
+  Timer? _autoRefresh;
 
   @override
   void dispose() {
     _sub?.cancel();
+    _autoRefresh?.cancel();
     super.dispose();
   }
 

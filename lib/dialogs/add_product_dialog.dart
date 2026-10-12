@@ -1,7 +1,20 @@
+// lib/dialogs/add_product_dialog.dart
+//
+// Add Product, from the "Staff Modals Redesign" canvas: name, category and
+// starting stock. A dialog on desktop, a full screen on a phone
+// (widgets/modal_kit.dart). The caller does the insert (onProductAdded);
+// stock above 0 is logged there as a stock-in movement.
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../auth/auth_state.dart';
 import '../db/db.dart';
 import '../services/config_service.dart';
+import '../services/poster_service.dart' show PreparedPoster;
+import '../theme.dart';
+import '../utils/fonts.dart';
+import '../widgets/modal_kit.dart';
+import '../widgets/poster_picker_field.dart';
 
 class AddProductDialog extends StatefulWidget {
   final Function(Map<String, dynamic>) onProductAdded;
@@ -13,13 +26,13 @@ class AddProductDialog extends StatefulWidget {
 }
 
 class _AddProductDialogState extends State<AddProductDialog> {
-  final nameController = TextEditingController();
-  final stockController = TextEditingController();
-  String? _selectedCategory;
+  final _name = TextEditingController();
+  final _stock = TextEditingController(text: '0');
+  String? _category;
   List<Category> _categories = [];
 
-  final _nameKey = GlobalKey<FormFieldState>();
-  final _stockKey = GlobalKey<FormFieldState>();
+  /// A picture to upload once the product exists (v63, admins only).
+  PreparedPoster? _photo;
 
   @override
   void initState() {
@@ -35,175 +48,135 @@ class _AddProductDialogState extends State<AddProductDialog> {
 
   @override
   void dispose() {
-    nameController.dispose();
-    stockController.dispose();
+    _name.dispose();
+    _stock.dispose();
     super.dispose();
   }
 
-  bool _validateAll() {
-    bool valid = true;
-    if (nameController.text.trim().isEmpty) {
-      _nameKey.currentState?.validate();
-      valid = false;
-    }
-    if (_selectedCategory == null) return false;
-    if (stockController.text.trim().isEmpty) {
-      _stockKey.currentState?.validate();
-      valid = false;
-    }
-    return valid;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isNarrow = MediaQuery.sizeOf(context).width < 500;
-
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      titlePadding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
-      contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-      title: Row(
-        children: [
-          Icon(Icons.inventory_2_rounded, color: colorScheme.primary, size: 30),
-          const SizedBox(width: 12),
-          Text(
-            'Add Product',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-      content: SizedBox(
-        width: isNarrow ? double.maxFinite : 480,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Product details section ───────────────────
-              _sectionLabel('Product details', theme, colorScheme),
-              const SizedBox(height: 12),
-              TextFormField(
-                key: _nameKey,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                controller: nameController,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-                decoration: InputDecoration(
-                  labelText: 'Product Name',
-                  hintText: 'e.g. T-Shirt',
-                  prefixIcon: const Icon(Icons.label_outline),
-                ),
-                textInputAction: TextInputAction.next,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                decoration: const InputDecoration(
-                  labelText: 'Category',
-                  prefixIcon: Icon(Icons.category_outlined),
-                ),
-                items: _categories
-                    .map(
-                      (c) =>
-                          DropdownMenuItem(value: c.name, child: Text(c.name)),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedCategory = v),
-                validator: (v) => v == null ? 'Required' : null,
-              ),
-
-              const SizedBox(height: 24),
-              // ── Inventory section ─────────────────────────
-              _sectionLabel('Inventory', theme, colorScheme),
-              const SizedBox(height: 12),
-              TextFormField(
-                key: _stockKey,
-                autovalidateMode: AutovalidateMode.onUserInteraction,
-                controller: stockController,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-                decoration: InputDecoration(
-                  labelText: 'Initial Stock',
-                  hintText: '0',
-                  prefixIcon: const Icon(Icons.inventory_outlined),
-                ),
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next,
-              ),
-              const SizedBox(height: 14),
-            ],
-          ),
-        ),
-      ),
-      actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-      actions: [
-        // OverflowBar spaces the buttons horizontally when they fit and
-        // stacks them with a gap when they don't (narrow/mobile) — a bare
-        // SizedBox spacer left them overlapping once stacked.
-        OverflowBar(
-          spacing: 12,
-          overflowSpacing: 8,
-          alignment: MainAxisAlignment.end,
-          overflowAlignment: OverflowBarAlignment.end,
-          children: [
-            OutlinedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton.icon(
-              onPressed: _submit,
-              icon: const Icon(Icons.add, size: 20),
-              label: const Text('Add Product'),
-            ),
-          ],
-        ),
-      ],
-    );
+  /// Why Add is off, in words; null when it can add.
+  String? get _blocker {
+    if (_name.text.trim().isEmpty) return 'Enter a product name.';
+    if (_category == null) return 'Pick a category.';
+    return null;
   }
 
   void _submit() {
-    if (!_validateAll()) return;
-    final name = nameController.text.trim();
-    final category = _selectedCategory ?? '';
-    final stock = int.tryParse(stockController.text) ?? 0;
+    if (_blocker != null) return;
+    final name = _name.text.trim();
+    final category = _category!;
+    final stock = int.tryParse(_stock.text.trim()) ?? 0;
+    final threshold = context.read<ConfigService>().thresholdForCategory(category);
     widget.onProductAdded({
       'name': name,
       'category': category,
       'stock': stock,
+      'photo': _photo,
       'lastUpdated': DateTime.now(),
       'status': stock <= 0
           ? 'Out of Stock'
-          : (stock <
-                    context.read<ConfigService>().thresholdForCategory(category)
-                ? 'Low Stock'
-                : 'Good'),
+          : (stock < threshold ? 'Low Stock' : 'Good'),
     });
     Navigator.pop(context);
   }
 
-  Widget _sectionLabel(String text, ThemeData theme, ColorScheme colorScheme) {
-    return Row(
-      children: [
-        Text(
-          text.toUpperCase(),
-          style: theme.textTheme.titleSmall?.copyWith(
-            color: colorScheme.primary,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.5,
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final muted = dark ? StockpileColors.darkTextMuted : const Color(0xFF6E6E7A);
+    final threshold = _category == null
+        ? null
+        : context.read<ConfigService>().thresholdForCategory(_category);
+    final blocker = _blocker;
+
+    return AppModal(
+      title: 'Add product',
+      subtitle: 'It appears in the POS and inventory straight away.',
+      leading: const ModalIconTile(Icons.add_rounded),
+      maxWidth: 520,
+      gap: 18,
+      body: [
+        LabeledField(
+          label: 'Name',
+          required: true,
+          child: TextField(
+            controller: _name,
+            autofocus: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(hintText: 'e.g. product name'),
+            onChanged: (_) => setState(() {}),
           ),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Divider(
-            color: colorScheme.outline.withValues(alpha: 0.3),
-            endIndent: 4,
+        LabeledField(
+          label: 'Category',
+          required: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _category,
+                hint: const Text('Select category'),
+                items: [
+                  for (final c in _categories)
+                    DropdownMenuItem(value: c.name, child: Text(c.name, overflow: TextOverflow.ellipsis)),
+                ],
+                onChanged: (v) => setState(() => _category = v),
+              ),
+              if (threshold != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  "Shows as Low stock below $threshold, this category's threshold.",
+                  style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+                ),
+              ],
+            ],
           ),
         ),
+        LabeledField(
+          label: 'Starting stock',
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              NumberStepper(
+                controller: _stock,
+                semanticLabel: 'Starting stock',
+                onChanged: (_) => setState(() {}),
+              ),
+              Text(
+                'Leave at 0 to add stock later.\nAnything above 0 is logged as stock in.',
+                style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+              ),
+            ],
+          ),
+        ),
+        // Only admins may write to the picture bucket (v63).
+        if (context.read<AuthState>().userRole == UserRole.admin)
+          PosterPickerField(
+            storedPath: null,
+            pending: _photo,
+            cleared: false,
+            enabled: true,
+            isDark: dark,
+            label: 'Picture for the Marketplace',
+            addLabel: 'Add picture',
+            emptyLabel: 'No picture: members see its letter instead',
+            helper: 'Optional. JPG or PNG, resized for you. A square photo '
+                'fits best.',
+            maxEdge: 1200,
+            onPicked: (p) => setState(() => _photo = p),
+            onCleared: () => setState(() => _photo = null),
+          ),
       ],
+      footerNote: Text(
+        blocker ?? '',
+        style: StockpileFonts.satoshi(fontSize: 12, color: muted),
+      ),
+      primaryAction: FilledButton(
+        onPressed: blocker == null ? _submit : null,
+        child: const Text('Add product'),
+      ),
     );
   }
 }

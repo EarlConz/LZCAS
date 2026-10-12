@@ -76,7 +76,7 @@
    supabase/schema/enable_rls_staff.sql
    supabase/schema/schema_category_delete_guard.sql
    ```
-3. Apply migrations in ascending version order from `supabase/migrations/`.
+3. Apply migrations in ascending version order from `supabase/migrations/` (one folder per ten versions: `v02-v09`, `v10-v19`, …).
 4. Deploy Edge Functions from `supabase/functions/` (`create-user`, `create-member-user`, `delete-user`, `update-user`).
 5. Copy your **Project URL** and **anon public key** from Supabase → Settings → API.
 
@@ -287,7 +287,7 @@ LZCAS/
 │   └── supabase_config.json      # Fallback Supabase config
 ├── supabase/                     # Database schema & migrations
 │   ├── schema/                   # Baseline SQL (tables, RLS, functions)
-│   ├── migrations/               # Versioned migrations (v2–v28)
+│   ├── migrations/               # Versioned migrations, a folder per ten (v02-v09 … v70-v79)
 │   ├── functions/                # Edge Functions (create-user, etc.)
 │   ├── rollbacks/                # Migration undo scripts
 │   └── diagnostics/ / maintenance/
@@ -343,6 +343,6 @@ LZCAS/
 1. Follow the existing code patterns — stateless parent pages, stateful dialogs, `ChangeNotifier` services.
 2. Use the design system in `lib/theme.dart` — no hardcoded colors or fonts.
 3. Route all DB mutations through `SupabaseRepository` (the global `repository`).
-4. Add new DB columns via migrations in `supabase/migrations/`.
+4. Add new DB columns via migrations in `supabase/migrations/`, in the folder for their version (v75 → `v70-v79/`).
 5. Run `flutter analyze` before committing.
 6. Update `RELEASING.md` if the release process changes.

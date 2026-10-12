@@ -14,7 +14,12 @@
 //   Cash  — the member shows a single-use code; the rider scans it at
 //           handover. That one scan is both the receipt confirmation and
 //           the payment record, which is why there is no separate "I paid"
-//           button anywhere.
+//           button for it.
+//
+// An order sent by LBC or J&T (v61) has no cash on delivery. Its third
+// way is paying OUTSIDE the app (GCash or similar): choosing it here only
+// records the choice. The store then sends where to pay, and the rest
+// happens on the order card in Active Orders.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -100,12 +105,37 @@ class _PaymentSheetState extends State<_PaymentSheet> {
     setState(() => _busy = false);
     if (error != null) {
       // Shown as the database phrased it: it names what is available and
-      // what is needed, which is more use than "payment failed".
-      BotToast.showText(text: error, duration: const Duration(seconds: 5));
+      // what is needed, which is more use than "payment failed". Then the
+      // way forward: since v59 the order waits until they pay or pick cash.
+      final reason = error.endsWith('.') ? error.substring(0, error.length - 1) : error;
+      BotToast.showText(
+        text: widget.order.isCourier
+            ? '$reason. You can pay outside the app instead.'
+            : '$reason. You can choose Cash on delivery instead.',
+        duration: const Duration(seconds: 6),
+      );
       return;
     }
     Navigator.pop(context, true);
     BotToast.showText(text: 'Paid ${formatMoney(_total, symbol: widget.currencySymbol)} from your funds');
+  }
+
+  /// Courier orders only (v61): record the choice; the store sends where
+  /// to pay next.
+  Future<void> _payOutside() async {
+    setState(() => _busy = true);
+    final error = await repository.memberChooseOutsidePayment(widget.order.id);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (error != null) {
+      BotToast.showText(text: error, duration: const Duration(seconds: 6));
+      return;
+    }
+    Navigator.pop(context, true);
+    BotToast.showText(
+      text: 'The store will send you where to pay. You will get a notification.',
+      duration: const Duration(seconds: 5),
+    );
   }
 
   Future<void> _showCode() async {
@@ -205,15 +235,26 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         const SizedBox(height: 14),
         // The digits are the fallback for a cracked screen or a camera that
         // will not focus: the rider can type them instead of scanning.
+        // v62 codes are 8 characters, shown in two halves so they can be
+        // read out; older 32-character codes are shown as they are.
         Center(
           child: SelectableText(
-            code,
+            code.length == 8
+                ? '${code.substring(0, 4)}-${code.substring(4)}'
+                : code,
             textAlign: TextAlign.center,
-            style: StockpileFonts.satoshi(
-              fontSize: 12,
-              color: muted,
-              letterSpacing: 0.5,
-            ),
+            style: code.length == 8
+                ? StockpileFonts.satoshi(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: text,
+                    letterSpacing: 2,
+                  )
+                : StockpileFonts.satoshi(
+                    fontSize: 12,
+                    color: muted,
+                    letterSpacing: 0.5,
+                  ),
           ),
         ),
         const SizedBox(height: 6),
@@ -264,8 +305,15 @@ class _PaymentSheetState extends State<_PaymentSheet> {
 
   // ── The two choices ────────────────────────────────────────────────
   List<Widget> _choices(bool isDark, Color text, Color muted) {
-    final balance = _funds?['balance'];
-    final earnings = _funds?['totalEarnings'];
+    // What can be spent: withdrawals awaiting approval hold their amount
+    // (v56), and pay_order_with_funds checks against the same figure.
+    final balance = _funds?['availableBalance'];
+    final earnings = _funds?['availableEarnings'];
+    final balanceHeld = _funds?['pendingBalance'] ?? 0;
+    final earningsHeld = _funds?['pendingEarnings'] ?? 0;
+    String held(int amount) => amount > 0
+        ? ' (${formatMoney(amount, symbol: widget.currencySymbol)} held for a withdrawal)'
+        : '';
 
     // Once a rider has the order, funds are off the table:
     // pay_order_with_funds only accepts Agreed. Offering them anyway would
@@ -312,7 +360,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         title: 'Pay from Balance',
         subtitle: balance == null
             ? 'Could not read your balance right now'
-            : 'You have ${formatMoney(balance, symbol: widget.currencySymbol)}',
+            : 'You can use ${formatMoney(balance, symbol: widget.currencySymbol)}${held(balanceHeld)}',
         // Offered even when it looks short: the database is the authority on
         // what is available, and its refusal explains itself better than a
         // greyed-out row that says nothing.
@@ -328,21 +376,36 @@ class _PaymentSheetState extends State<_PaymentSheet> {
         title: 'Pay from Total Earnings',
         subtitle: earnings == null
             ? 'Could not read your earnings right now'
-            : 'You have ${formatMoney(earnings, symbol: widget.currencySymbol)}',
+            : 'You can use ${formatMoney(earnings, symbol: widget.currencySymbol)}${held(earningsHeld)}',
         enabled: !_busy && earnings != null,
         onTap: () => _payWithFunds('total_earnings'),
       ),
       const SizedBox(height: 10),
-      _optionCard(
-        isDark: isDark,
-        text: text,
-        muted: muted,
-        icon: Icons.local_atm_rounded,
-        title: 'Cash on delivery',
-        subtitle: 'Pay the rider when your order arrives',
-        enabled: !_busy,
-        onTap: _showCode,
-      ),
+      if (widget.order.isCourier)
+        _optionCard(
+          isDark: isDark,
+          text: text,
+          muted: muted,
+          icon: Icons.phone_iphone_rounded,
+          title: widget.order.isOutside
+              ? 'GCash or other (chosen)'
+              : 'GCash or other, outside the app',
+          subtitle: 'The store sends where to pay. Sent by '
+              '${widget.order.routeLabel}, so there is no cash on delivery.',
+          enabled: !_busy && !widget.order.isOutside,
+          onTap: _payOutside,
+        )
+      else
+        _optionCard(
+          isDark: isDark,
+          text: text,
+          muted: muted,
+          icon: Icons.local_atm_rounded,
+          title: 'Cash on delivery',
+          subtitle: 'Pay the rider when your order arrives',
+          enabled: !_busy,
+          onTap: _showCode,
+        ),
       if (_busy) ...[
         const SizedBox(height: 16),
         const Center(child: CircularProgressIndicator()),

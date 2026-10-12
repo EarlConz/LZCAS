@@ -10,6 +10,9 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:lzcas/config/feature_flags.dart';
+import 'package:lzcas/widgets/delivery_eta_settings.dart';
+import 'package:lzcas/widgets/realtime_status_card.dart';
+import 'package:lzcas/widgets/modal_kit.dart';
 import 'package:lzcas/auth/auth.dart';
 import 'package:lzcas/router/route_guard.dart';
 import 'package:lzcas/theme.dart';
@@ -17,11 +20,13 @@ import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/action_guard.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
+import 'package:lzcas/utils/formatters.dart' show formatAgo;
 import 'package:lzcas/widgets/app_logo.dart';
 import 'package:lzcas/widgets/inventorytable.dart' as inventory;
 import 'package:lzcas/widgets/stockpile_topbar.dart';
 import 'package:lzcas/widgets/transactionstable.dart';
 import 'package:lzcas/widgets/memberstable.dart';
+import 'package:lzcas/widgets/member_screen.dart';
 import 'package:lzcas/widgets/inventory_reports_view.dart';
 import 'package:lzcas/pages/dashboardpage.dart';
 import 'package:lzcas/pages/admin/branch_stock_page.dart';
@@ -31,7 +36,9 @@ import 'package:lzcas/pages/delivery/delivery_orders_page.dart';
 import 'package:lzcas/dialogs/edit_member_dialog.dart';
 import 'package:lzcas/dialogs/adjust_funds_dialog.dart';
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/announcement_alerts.dart';
 import 'package:lzcas/services/notification_service.dart';
+import 'package:lzcas/widgets/announcement_count.dart';
 import 'package:lzcas/services/config_service.dart';
 import 'package:lzcas/services/updater_service.dart';
 import 'package:lzcas/dialogs/update_dialog.dart';
@@ -100,6 +107,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   void _onItemTapped(int index) {
     setState(() => _selectedIndex = index);
+    // While Announcements (9) is open, what arrives there counts as seen.
+    announcementAlerts.viewing = index == 9;
   }
 
   void _toggleSidebar() {
@@ -114,6 +123,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
   void initState() {
     super.initState();
     _triggerUpdateCheck();
+    // The count of new announcements beside Announcements (AT2).
+    announcementAlerts.start();
   }
 
   void _triggerUpdateCheck() {
@@ -1987,13 +1998,21 @@ class _AdminPackageTabState extends State<_AdminPackageTab> {
         'member_updated',
         'members_changed',
       };
-      if (relevant.contains(e)) _loadData();
+      if (!relevant.contains(e)) return;
+      // Members save their own details too; a burst makes one reload.
+      _reloadSoon?.cancel();
+      _reloadSoon = Timer(const Duration(milliseconds: 800), () {
+        if (mounted) _loadData();
+      });
     });
   }
+
+  Timer? _reloadSoon;
 
   @override
   void dispose() {
     _changeSub?.cancel();
+    _reloadSoon?.cancel();
     super.dispose();
   }
 
@@ -3521,6 +3540,16 @@ class _AdminSettingsTabState extends State<_AdminSettingsTab>
           ),
           const SizedBox(height: 32),
 
+          // ── Live updates: is this device connected? (Part 6) ──
+          const RealtimeStatusCard(),
+          const SizedBox(height: 32),
+
+          // ── Delivery time estimate (automatic rider ETA) ──
+          if (enableDeliverySystem) ...[
+            const DeliveryEtaSettings(),
+            const SizedBox(height: 32),
+          ],
+
           // ── Updates ───────────────────────────────────
           Text(
             'Updates',
@@ -3722,6 +3751,20 @@ class _AdminSidebar extends StatelessWidget {
                     onTap: () => onItemSelected(i),
                     expanded: wide,
                   );
+                  // New announcements, posted by someone else (index 9).
+                  if (i == 9) {
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        tile,
+                        Positioned(
+                          top: 6,
+                          right: wide ? 6 : 0,
+                          child: const AnnouncementCount(),
+                        ),
+                      ],
+                    );
+                  }
                   // Show badge on Requests item (index 6)
                   if (i == 6 && pendingCount > 0) {
                     return Stack(
@@ -4149,19 +4192,69 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     BuildContext context,
     Map<String, dynamic> member,
   ) async {
-    // Resolve package name client-side from the member's packageId.
-    String packageName = '';
-    try {
-      final pkgIdRaw = member['packageId'];
-      final pkgId = pkgIdRaw is int ? pkgIdRaw : int.tryParse('$pkgIdRaw');
-      if (pkgId != null) {
-        final packages = await repository.fetchPackages();
-        final pkg = packages.where((p) => p.id == pkgId).firstOrNull;
-        if (pkg != null) packageName = pkg.name;
-      }
-    } catch (_) {}
+    // The list now carries the package name; packages are only read (once
+    // per session) for a row that came without it.
+    String packageName = (member['packageName']?.toString() ?? '').trim();
+    if (packageName.isEmpty) {
+      try {
+        final pkgIdRaw = member['packageId'];
+        final pkgId = pkgIdRaw is int ? pkgIdRaw : int.tryParse('$pkgIdRaw');
+        if (pkgId != null) {
+          final packages = await repository.fetchPackagesCached();
+          final pkg = packages.where((p) => p.id == pkgId).firstOrNull;
+          if (pkg != null) packageName = pkg.name;
+        }
+      } catch (_) {}
+    }
 
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
+
+    // A phone gets the member as a full screen, with the same actions as
+    // the dialog below.
+    if (MediaQuery.sizeOf(context).width < kMemberScreenBreakpoint) {
+      final fullName = [
+        member['firstName'],
+        member['middleName'],
+        member['lastName'],
+      ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+      final hasAccount = (member['email']?.toString() ?? '').trim().isNotEmpty;
+      final canAdjust =
+          context.read<AuthState>().userRole?.canAdjustFunds ?? false;
+      if (packageName.isNotEmpty) member['packageName'] = packageName;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MemberScreen(
+            member: member,
+            onHistory: (ctx, _) => _showTransactionHistory(ctx, member),
+            onEdit: (ctx, _) {
+              Navigator.pop(ctx);
+              _openEditDialog(member);
+            },
+            onUpgrade: (ctx, refresh) => _showUpgradePackageDialog(
+              ctx,
+              member,
+              onUpgraded: (pkg) {
+                member['packageId'] = pkg.id;
+                member['role'] = 'Verified Reseller';
+                member['packageName'] = pkg.name;
+                refresh();
+              },
+            ),
+            onCreateAccount: hasAccount
+                ? null
+                : (ctx, _) => _showCreateAccountDialog(ctx, member),
+            onViewPassword: hasAccount
+                ? (ctx, _) => _viewMemberPassword(ctx, member, fullName)
+                : null,
+            onAdjustFunds: canAdjust
+                ? (ctx, _) => _openAdjustFundsDialog(ctx, member, fullName)
+                : null,
+            onDelete: (ctx, _) => _confirmDeleteMemberDialog(ctx, member),
+          ),
+        ),
+      );
+      return;
+    }
 
     showAnimatedDialog(
       context,
@@ -4709,38 +4802,22 @@ class _AdminMembersPageState extends State<_AdminMembersPage> {
     );
   }
 
-  void _confirmDeleteMemberDialog(
+  /// The shared delete confirmation (modal_kit): named buttons, and a sheet
+  /// from the bottom on a phone, like Delete product (test T5).
+  Future<void> _confirmDeleteMemberDialog(
     BuildContext ctx,
     Map<String, dynamic> member,
-  ) {
-    showDialog<bool>(
-      context: ctx,
-      builder: (c) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete Member'),
-        content: Text(
-          'Permanently delete ${member['firstName'] ?? 'this member'}? '
-          'This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(c, true);
-              _deleteMember(member);
-              Navigator.pop(ctx); // close the member detail modal
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: StockpileColors.danger,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+  ) async {
+    final name = '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'.trim();
+    final ok = await confirmDestructive(
+      ctx,
+      title: 'Delete ${name.isEmpty ? 'this member' : name}?',
+      message: "Their member record is removed. This can't be undone.",
+      confirmLabel: 'Delete member',
     );
+    if (!ok || !ctx.mounted) return;
+    _deleteMember(member);
+    Navigator.pop(ctx); // close the member detail
   }
 
   void _openEditDialog(Map<String, dynamic> member) {
@@ -5660,7 +5737,16 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   Map<String, String> _profiles = {};
   Map<String, String> _roles = {};
   Map<int, String> _memberNames = {}; // memberId → "First Last"
+
+  /// Each requesting member's earnings (get_member_earnings), so the
+  /// approval card can show what they have left before the admin decides.
+  Map<int, Map<String, int>> _memberFunds = {};
   bool _showHistory = false;
+
+  /// Pending view: which kind to show ('all', 'withdrawal', or a request
+  /// type), and the order (newest or oldest first, also for History).
+  String _pendingType = 'all';
+  bool _newestFirst = true;
   String _historyFilter = 'all'; // all, approved, rejected
   String _historyTypeFilter = 'all'; // all, delete, reduce, withdrawal
   bool _loading = true;
@@ -5673,16 +5759,27 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   int _historyPage = 0;
   bool _historyHasMore = true;
   StreamSubscription<String>? _changeSub;
+  Timer? _autoRefresh;
 
   @override
   void initState() {
     super.initState();
     _loadRequests();
+    // The safety net under live updates (Part 6: the admin's tabs stayed out
+    // of date when realtime was down): a quiet reload every 30 seconds while
+    // this is on screen.
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _loadRequests(quiet: true);
+    });
     _changeSub = repository.changes.listen((event) {
+      // The first three come from this device; pending_requests_changed
+      // from any device (a cashier's request reached the admin only after
+      // reopening the tab).
       if (event == 'pending_request_added' ||
           event == 'pending_request_approved' ||
-          event == 'pending_request_rejected') {
-        _loadRequests();
+          event == 'pending_request_rejected' ||
+          event == 'pending_requests_changed') {
+        _loadRequests(quiet: true);
       }
       if (event == 'withdrawal_request_added' ||
           event == 'withdrawal_request_approved' ||
@@ -5696,6 +5793,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
   @override
   void dispose() {
     _changeSub?.cancel();
+    _autoRefresh?.cancel();
     super.dispose();
   }
 
@@ -5715,9 +5813,13 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     });
   }
 
-  Future<void> _loadRequests() async {
-    _loading = true;
-    if (mounted) setState(() {});
+  /// [quiet]: a live or timed refresh, which keeps the list on screen and
+  /// how far it was opened, instead of showing the spinner.
+  Future<void> _loadRequests({bool quiet = false}) async {
+    if (!quiet) {
+      _loading = true;
+      if (mounted) setState(() {});
+    }
     try {
       final page = await repository.fetchRequestsPaginated(
         page: 1,
@@ -5731,7 +5833,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         _pendingRequests = page.rows;
         _pendingPage = 1;
         _pendingHasMore = page.hasMore;
-        _pendingVisibleCount = _pageSize;
+        if (!quiet) _pendingVisibleCount = _pageSize;
         _profiles = profiles;
         _loading = false;
       });
@@ -5753,17 +5855,24 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         memberIds.add(w.memberId);
       }
       final names = <int, String>{};
+      final funds = <int, Map<String, int>>{};
       for (final id in memberIds) {
         final m = await repository.getMemberById(id);
         if (m != null) {
           names[id] = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
         }
+        // Context only: a card without it still approves (the database
+        // checks the amount either way).
+        try {
+          funds[id] = await repository.fetchMemberEarningsBreakdown(id);
+        } catch (_) {}
       }
 
       if (!mounted) return;
       setState(() {
         _withdrawalRequests = withdrawals;
         _memberNames = names;
+        _memberFunds = funds;
       });
     } catch (_) {}
   }
@@ -6465,6 +6574,9 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                 ),
                 const SizedBox(width: 8),
                 _ToggleChip(label: 'History', isSelected: true, onTap: () {}),
+                const SizedBox(width: 8),
+                const Spacer(),
+                Flexible(flex: 4, child: _sortFilterButton(history: true)),
               ],
             ),
           ),
@@ -6641,6 +6753,9 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                   _loadHistory();
                 }),
               ),
+              const SizedBox(width: 8),
+              const Spacer(),
+              Flexible(flex: 4, child: _sortFilterButton(history: false)),
             ],
           ),
         ),
@@ -6687,7 +6802,117 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
       if (_historyTypeFilter != 'all' && r.requestType != _historyTypeFilter)
         return false;
       return true;
-    }).toList();
+    }).toList()
+      ..sort((a, b) => _byDate(a.createdAt, b.createdAt));
+  }
+
+  /// Newest or oldest first, as the Sort & filter button says.
+  int _byDate(DateTime? a, DateTime? b) {
+    final x = a ?? DateTime(2000), y = b ?? DateTime(2000);
+    return _newestFirst ? y.compareTo(x) : x.compareTo(y);
+  }
+
+  /// The pending withdrawals the Pending view shows.
+  List<WithdrawalRequest> get _shownWithdrawals =>
+      _pendingType == 'all' || _pendingType == 'withdrawal'
+      ? ([..._withdrawalRequests]..sort((a, b) => _byDate(a.createdAt, b.createdAt)))
+      : const [];
+
+  /// The pending requests (not withdrawals) the Pending view shows.
+  List<PendingRequest> get _shownPending => _pendingType == 'withdrawal'
+      ? const []
+      : (_pendingRequests
+            .where((r) => _pendingType == 'all' || r.requestType == _pendingType)
+            .toList()
+          ..sort((a, b) => _byDate(a.createdAt, b.createdAt)));
+
+  static const _requestKinds = [
+    ('withdrawal', 'Withdrawals'),
+    ('delete', 'Delete product'),
+    ('reduce_stock', 'Reduce stock'),
+    ('delete_member', 'Delete member'),
+    ('borrow', 'Borrow'),
+  ];
+
+  /// "Sort & filter" (Part 6): on Pending, which kind of request and the
+  /// order; on History, the order (its chips already filter).
+  Widget _sortFilterButton({required bool history}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final text = isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
+    final line = isDark ? StockpileColors.darkDivider : StockpileColors.divider;
+    int count(String kind) => kind == 'withdrawal'
+        ? _withdrawalRequests.length
+        : _pendingRequests.where((r) => r.requestType == kind).length;
+    final kindLabel = _requestKinds.where((k) => k.$1 == _pendingType).map((k) => k.$2).firstOrNull;
+    final label = [
+      if (!history && kindLabel != null) kindLabel,
+      _newestFirst ? 'Newest first' : 'Oldest first',
+    ].join(' · ');
+
+    PopupMenuEntry<String> header(String t) => PopupMenuItem<String>(
+      enabled: false,
+      height: 32,
+      child: Text(
+        t.toUpperCase(),
+        style: StockpileFonts.satoshi(fontSize: 11, fontWeight: FontWeight.w800, color: StockpileColors.mutedText),
+      ),
+    );
+
+    return PopupMenuButton<String>(
+      tooltip: 'Sort and filter',
+      position: PopupMenuPosition.under,
+      onSelected: (v) => setState(() {
+        if (v.startsWith('type:')) {
+          _pendingType = v.substring(5);
+          _pendingVisibleCount = _pageSize;
+        } else {
+          _newestFirst = v == 'sort:new';
+        }
+      }),
+      itemBuilder: (_) => [
+        if (!history) ...[
+          header('Show'),
+          CheckedPopupMenuItem(
+            value: 'type:all',
+            checked: _pendingType == 'all',
+            child: Text('All requests (${_pendingRequests.length + _withdrawalRequests.length})'),
+          ),
+          for (final (kind, name) in _requestKinds)
+            CheckedPopupMenuItem(
+              value: 'type:$kind',
+              checked: _pendingType == kind,
+              child: Text('$name (${count(kind)})'),
+            ),
+          const PopupMenuDivider(),
+        ],
+        header('Sort'),
+        CheckedPopupMenuItem(value: 'sort:new', checked: _newestFirst, child: const Text('Newest first')),
+        CheckedPopupMenuItem(value: 'sort:old', checked: !_newestFirst, child: const Text('Oldest first')),
+      ],
+      child: Container(
+        height: 36,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          border: Border.all(color: line),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.tune_rounded, size: 18, color: text),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: StockpileFonts.satoshi(fontSize: 13, fontWeight: FontWeight.w600, color: text),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Processed withdrawals for the history view. Withdrawals only match the
@@ -6699,7 +6924,8 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     return _withdrawalHistory.where((w) {
       if (_historyFilter != 'all' && w.status != _historyFilter) return false;
       return true;
-    }).toList();
+    }).toList()
+      ..sort((a, b) => _byDate(a.createdAt, b.createdAt));
   }
 
   Widget _buildHistoryFilterRow() {
@@ -7236,28 +7462,38 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     );
   }
 
-  String _formatDate(DateTime dt) {
-    final now = DateTime.now();
-    final diff = dt.difference(now); // positive = future, negative = past
-    if (diff.inDays > 0) return 'in ${diff.inDays}d';
-    if (diff.inDays == 0) return 'today';
-    // Past — overdue
-    final overdue = -diff.inDays;
-    return '${overdue}d overdue';
-  }
+  /// When a request was sent: "4 min ago", "3 h ago", "Yesterday".
+  /// (It used to count days to a due date, so a request read "today" all
+  /// day and "2d overdue" after: Part 6, AT1.) The 30 s refresh keeps it
+  /// moving.
+  String _formatDate(DateTime dt) => formatAgo(dt);
 
   Widget _buildCombinedPendingList(bool isDark, ThemeData theme) {
-    // Show withdrawal requests first, then pending requests
-    final pendingSlice = _pendingRequests.take(_pendingVisibleCount).toList();
+    // Show withdrawal requests first, then pending requests, as the Sort &
+    // filter button says.
+    final withdrawals = _shownWithdrawals;
+    final pendingSlice = _shownPending.take(_pendingVisibleCount).toList();
+    if (withdrawals.isEmpty && pendingSlice.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'No requests of this kind are waiting.',
+            textAlign: TextAlign.center,
+            style: StockpileFonts.satoshi(fontSize: 14, color: StockpileColors.mutedText),
+          ),
+        ),
+      );
+    }
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       itemCount:
-          _withdrawalRequests.length +
+          withdrawals.length +
           pendingSlice.length +
-          (_withdrawalRequests.isNotEmpty ? 1 : 0), // section header
+          (withdrawals.isNotEmpty ? 1 : 0), // section header
       itemBuilder: (context, index) {
         // Withdrawal section header
-        if (_withdrawalRequests.isNotEmpty && index == 0) {
+        if (withdrawals.isNotEmpty && index == 0) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 8, top: 4),
             child: Row(
@@ -7289,7 +7525,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    '${_withdrawalRequests.length}',
+                    '${withdrawals.length}',
                     style: StockpileFonts.satoshi(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -7303,18 +7539,18 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
         }
 
         // Withdrawal cards
-        final withdrawalOffset = _withdrawalRequests.isNotEmpty ? 1 : 0;
-        if (index < _withdrawalRequests.length + withdrawalOffset) {
+        final withdrawalOffset = withdrawals.isNotEmpty ? 1 : 0;
+        if (index < withdrawals.length + withdrawalOffset) {
           final wIndex = index - withdrawalOffset;
           return _buildWithdrawalCard(
-            _withdrawalRequests[wIndex],
+            withdrawals[wIndex],
             isDark,
             theme,
           );
         }
 
         // Pending request cards
-        final reqIndex = index - _withdrawalRequests.length - withdrawalOffset;
+        final reqIndex = index - withdrawals.length - withdrawalOffset;
         final req = pendingSlice[reqIndex];
         return _buildPendingRequestCard(req, isDark, theme);
       },
@@ -7453,6 +7689,43 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
     );
   }
 
+  /// What the member has left in the requested bucket, and what else they
+  /// have asked for from it — the two facts the approver never had. Red
+  /// when approving would take more than is left (the database refuses
+  /// that since v56; this says so before the click).
+  Widget? _withdrawalFundsLine(WithdrawalRequest req, bool isDark, String cs) {
+    final funds = _memberFunds[req.memberId];
+    if (funds == null) return null;
+    final isEarnings = req.sourceBucket == 'total_earnings';
+    // Net of APPROVED withdrawals only: every pending one, this included,
+    // is still money the member has.
+    final left = (isEarnings ? funds['totalEarnings'] : funds['balance']) ?? 0;
+    final others = _withdrawalRequests
+        .where((w) =>
+            w.id != req.id &&
+            w.memberId == req.memberId &&
+            w.sourceBucket == req.sourceBucket)
+        .fold<int>(0, (sum, w) => sum + w.requestedAmount);
+    final over = req.requestedAmount > left;
+    final text = over
+        ? 'Only $cs$left left in ${req.sourceLabel} — approving would overdraw'
+        : 'Has $cs$left in ${req.sourceLabel}'
+              '${others > 0 ? ' · $cs$others more in other requests' : ''}';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: over ? FontWeight.w600 : FontWeight.w400,
+          color: over
+              ? StockpileColors.error500
+              : (isDark ? Colors.white54 : const Color(0xFF64748B)),
+        ),
+      ),
+    );
+  }
+
   Widget _buildWithdrawalCard(
     WithdrawalRequest req,
     bool isDark,
@@ -7547,6 +7820,7 @@ class _AdminDeleteRequestTabState extends State<_AdminDeleteRequestTab> {
                             : const Color(0xFF64748B),
                       ),
                     ),
+                    if (!isHistory) ?_withdrawalFundsLine(req, isDark, cs),
                     const SizedBox(height: 12),
                     Divider(
                       color: isDark ? Colors.white10 : Colors.grey.shade200,
@@ -7929,55 +8203,27 @@ class _ReferralModalCardState extends State<_ReferralModalCard> {
       return;
     }
 
-    final memberName =
-        '${widget.member['firstName'] ?? ''} ${widget.member['lastName'] ?? ''}'
-            .trim()
-            .toLowerCase();
-
-    final all = await repository.fetchMembers();
-    if (!mounted) return;
-
-    // Resolve referrer name
-    String referrerName = '';
-    final referrerIdRaw = widget.member['referrerId'] as int?;
-    if (referrerIdRaw != null) {
-      final refMember = all.where((m) => m.id == referrerIdRaw).firstOrNull;
-      if (refMember != null) {
-        referrerName = [
-          refMember.firstName,
-          refMember.lastName,
-        ].where((p) => p != null && p.isNotEmpty).join(' ');
-      }
+    // Asked for this one member: the old way downloaded every member.
+    try {
+      final r = await repository.fetchReferralSummary(
+        memberId: memberId,
+        referrerId: widget.member['referrerId'] as int?,
+        referrerText: widget.member['referrer']?.toString(),
+        fullName:
+            '${widget.member['firstName'] ?? ''} ${widget.member['lastName'] ?? ''}'
+                .trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _referrerName = r.referrerName;
+        _directReferrals = r.direct;
+        _indirectReferrals = r.indirect;
+        _referralCount = r.direct.length + r.indirect.length;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
-    if (referrerName.isEmpty) {
-      referrerName = (widget.member['referrer']?.toString() ?? '').trim();
-    }
-
-    // Direct referrals
-    final direct = all.where((m) {
-      if (m.referrerId == memberId) return true;
-      if (memberName.isNotEmpty) {
-        final ref = (m.referrer ?? '').trim().toLowerCase();
-        if (ref.isNotEmpty && ref == memberName) return true;
-      }
-      return false;
-    }).toList();
-
-    // Indirect referrals
-    final directIds = direct.map((d) => d.id).whereType<int>().toSet();
-    final indirect = all.where((m) {
-      if (m.referrerId != null && directIds.contains(m.referrerId)) return true;
-      return false;
-    }).toList();
-
-    if (!mounted) return;
-    setState(() {
-      _referrerName = referrerName;
-      _directReferrals = direct;
-      _indirectReferrals = indirect;
-      _referralCount = direct.length + indirect.length;
-      _loading = false;
-    });
   }
 
   @override

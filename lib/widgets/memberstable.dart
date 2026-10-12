@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/action_guard.dart';
 import 'package:lzcas/utils/toast_utils.dart';
-import 'package:lzcas/widgets/search.dart';
-import 'package:lzcas/widgets/custom_elevated_button.dart';
+import 'package:lzcas/utils/csv_file.dart';
+import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/dialogs/add_member_dialog.dart';
 import 'package:lzcas/db/db.dart';
 import 'dart:async';
+import 'package:lzcas/utils/phone_formatter.dart';
+import 'package:lzcas/widgets/staff_table.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import '../theme.dart';
 import 'memberqr.dart';
 
@@ -21,12 +24,13 @@ class MembersTable extends StatefulWidget {
 
 class MembersTableState extends State<MembersTable> {
   String searchTerm = "";
-  String? roleFilter;
-  final Set<int> _selectedMemberIds = {};
+
+  /// A to Z by last name, or Z to A (the Member header).
+  bool _sortAscending = true;
 
   static const _pageSize = 25;
 
-  // ── Mobile infinite-scroll state ──────────────────────────────────
+  // ── The loaded rows: the table and the phone list both scroll these ──
   final List<Map<String, dynamic>> _items = [];
   int _currentPage = 0;
   bool _hasMore = true;
@@ -34,39 +38,103 @@ class MembersTableState extends State<MembersTable> {
   bool _isInitialLoading = true;
   String? _error;
   late final ScrollController _scrollController;
-
-  // ── Server-page state for desktop PaginatedDataTable ──────────────
-  final List<Map<String, dynamic>> _serverPage = [];
   int _totalCount = 0;
-  bool _fetchingServer = false; // a fetch loop is currently running
-  int _pendingNeeded = 0; // highest requested row count (coalesces requests)
-  bool _didInitialPrefetch = false; // primed page 2 once after first load
-  late final _MembersDataSource _membersSource;
 
   late final StreamSubscription<String> _changesSub;
+
+  /// Search runs once typing pauses, not on every letter.
+  Timer? _searchDebounce;
+
+  /// A burst of member changes (an import, say) refreshes once.
+  Timer? _changeDebounce;
+
+  DateTime? _loadedAt;
+  bool _exporting = false;
+
+  static bool _isMemberChange(String e) =>
+      e == 'member_added' ||
+      e == 'member_imported' ||
+      e == 'member_deleted' ||
+      e == 'member_updated';
 
   @override
   void initState() {
     super.initState();
-    _scrollController = ScrollController();
+    _MembersSnapshot.watch();
+    final snap = _MembersSnapshot.take();
+    _scrollController = ScrollController(initialScrollOffset: snap?.offset ?? 0);
     _scrollController.addListener(_onScroll);
-    _membersSource = _MembersDataSource(
-      _serverPage,
-      () => _totalCount,
-      widget.onRowSelected,
-      _selectedMemberIds,
-      _setMemberSelected,
-    );
-    _loadMembers();
+    if (snap != null) {
+      // Back on the tab: show what was there at once. Only if a member
+      // changed meanwhile is anything asked for, and then in place.
+      _items.addAll(snap.items);
+      _currentPage = snap.page;
+      _totalCount = snap.total;
+      _hasMore = snap.hasMore;
+      _loadedAt = snap.at;
+      _isInitialLoading = false;
+      if (snap.dirty) _refreshLoaded();
+    } else {
+      _loadMembers();
+    }
     _changesSub = repository.changes.listen((e) {
-      if (e == 'member_added' ||
-          e == 'member_imported' ||
-          e == 'member_deleted' ||
-          e == 'member_updated' ||
-          e == 'item_updated') {
-        _loadMembers();
-      }
+      if (!_isMemberChange(e)) return;
+      _changeDebounce?.cancel();
+      _changeDebounce = Timer(const Duration(milliseconds: 800), _refreshLoaded);
     });
+  }
+
+  void _onSearchChanged(String value) {
+    searchTerm = value;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) _loadMembers();
+    });
+  }
+
+  /// Re-read the rows already loaded, in one request, and swap them in
+  /// place: the list keeps its scroll position and length.
+  Future<void> _refreshLoaded() async {
+    if (!mounted) return;
+    final n = _items.length > _pageSize ? _items.length : _pageSize;
+    try {
+      final res = await repository.fetchMembersPaginated(
+        page: 1,
+        pageSize: n,
+        search: searchTerm.isNotEmpty ? searchTerm : null,
+        sortColumn: 'last_name',
+        sortAscending: _sortAscending,
+      );
+      if (!mounted) return;
+      final rows = membersFromRows(res.rows);
+      setState(() {
+        _items
+          ..clear()
+          ..addAll(rows);
+        _currentPage = (rows.length / _pageSize).ceil().clamp(1, 1 << 30);
+        _totalCount = res.totalCount;
+        _hasMore = rows.length < res.totalCount;
+        _loadedAt = DateTime.now();
+        _error = null;
+      });
+    } catch (e) {
+      debugPrint('[MembersTable] refresh failed: $e');
+    }
+  }
+
+  /// Every member (not only the rows loaded) as a CSV, opened in Excel.
+  Future<void> _export() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final csv = await repository.exportMembersCsv();
+      final path = await saveAndOpenCsv(csv, 'members');
+      showSuccessToast('Exported to $path');
+    } catch (e) {
+      showErrorToast('Export failed: $e');
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   void _onScroll() {
@@ -96,27 +164,19 @@ class MembersTableState extends State<MembersTable> {
         page: page,
         pageSize: _pageSize,
         search: searchTerm.isNotEmpty ? searchTerm : null,
-        roleFilter: (roleFilter != null && roleFilter!.isNotEmpty)
-            ? roleFilter
-            : null,
         sortColumn: 'last_name',
-        sortAscending: true,
+        sortAscending: _sortAscending,
+        // The total comes with the first page only.
+        withCount: page == 1,
+        knownTotal: _totalCount,
       );
       if (!mounted) return;
       final newMembers = membersFromRows(result.rows);
 
       setState(() {
         if (page == 1) {
+          _loadedAt = DateTime.now();
           _items.clear();
-          _serverPage.clear();
-          _serverPage.addAll(newMembers);
-          _pendingNeeded = _serverPage.length;
-          _didInitialPrefetch = false;
-          final currentIds = newMembers
-              .map((m) => m['id'])
-              .whereType<int>()
-              .toSet();
-          _selectedMemberIds.removeWhere((id) => !currentIds.contains(id));
         }
         _items.addAll(newMembers);
         _currentPage = page;
@@ -126,9 +186,6 @@ class MembersTableState extends State<MembersTable> {
         _isLoadingMore = false;
         _error = null;
       });
-      if (page == 1) {
-        _membersSource.refresh();
-      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -139,84 +196,9 @@ class MembersTableState extends State<MembersTable> {
     }
   }
 
-  /// Ensure `_serverPage` holds at least [neededCount] rows by loading
-  /// consecutive server pages, then let the table repaint. Called from
-  /// `onPageChanged` with the last row index the new table page needs.
-  ///
-  /// NOTE: PaginatedDataTable.onPageChanged reports the *first row index* of
-  /// the page — NOT a page number — so we convert it to the server page(s) to
-  /// fetch here rather than treating it as a page index.
-  Future<void> _ensureLoadedThrough(int neededCount) async {
-    if (neededCount > _pendingNeeded) _pendingNeeded = neededCount;
-    // A running loop re-reads _pendingNeeded each iteration, so a fast
-    // multi-page jump (or a background prefetch racing a navigation) never
-    // drops a request.
-    if (_fetchingServer) return;
-    _fetchingServer = true;
-    try {
-      while (_serverPage.length < _pendingNeeded &&
-          (_totalCount == 0 || _serverPage.length < _totalCount)) {
-        final nextPage = (_serverPage.length ~/ _pageSize) + 1;
-        final before = _serverPage.length;
-        await _fetchServerPage(nextPage);
-        if (!mounted) return;
-        if (_serverPage.length <= before) break; // no progress — stop
-      }
-    } finally {
-      _fetchingServer = false;
-    }
-  }
-
-  /// Quietly load ONE page beyond what's loaded so the next forward step is
-  /// instant. Fire-and-forget; ignored when a fetch is running or all rows
-  /// are already loaded.
-  void _prefetchNext() {
-    final hasMore = _totalCount == 0 || _serverPage.length < _totalCount;
-    if (hasMore) _ensureLoadedThrough(_serverPage.length + 1);
-  }
-
-  /// Fetch a specific server page — updates desktop PaginatedDataTable.
-  /// Accumulates pages into _serverPage; getRow reads _serverPage[index]
-  /// directly, so table pages and server pages don't need to align.
-  Future<void> _fetchServerPage(int serverPage) async {
-    final neededEnd = serverPage * _pageSize;
-    if (_serverPage.length >= neededEnd) return;
-    try {
-      final page = await repository.fetchMembersPaginated(
-        page: serverPage,
-        pageSize: _pageSize,
-        search: searchTerm.isNotEmpty ? searchTerm : null,
-        roleFilter: (roleFilter != null && roleFilter!.isNotEmpty)
-            ? roleFilter
-            : null,
-        sortColumn: 'last_name',
-        sortAscending: true,
-      );
-      if (!mounted) return;
-      final newItems = membersFromRows(page.rows);
-      setState(() {
-        _serverPage.addAll(newItems);
-        _totalCount = page.totalCount;
-        final currentIds = newItems
-            .map((m) => m['id'])
-            .whereType<int>()
-            .toSet();
-        _selectedMemberIds.removeWhere((id) => !currentIds.contains(id));
-      });
-      _membersSource.refresh();
-    } catch (e) {
-      if (!mounted) return;
-    }
-  }
-
-  void _setMemberSelected(int id, bool selected) {
-    setState(() {
-      if (selected) {
-        _selectedMemberIds.add(id);
-      } else {
-        _selectedMemberIds.remove(id);
-      }
-    });
+  void _toggleSort() {
+    setState(() => _sortAscending = !_sortAscending);
+    _loadMembers();
   }
 
   Future<int> addMember(Map<String, dynamic> newMember) async {
@@ -401,14 +383,17 @@ class MembersTableState extends State<MembersTable> {
     );
   }
 
-  Future<void> updateMember(
+  /// Saves an edit. True once it is saved; the "Member updated" toast is
+  /// shown here, after the save, never before it (a refused save used to
+  /// read as a success).
+  Future<bool> updateMember(
     Map<String, dynamic> oldMember,
     Map<String, dynamic> updatedMember,
   ) async {
     final id = oldMember['id'] as int?;
-    if (id == null) return;
+    if (id == null) return false;
     final row = await repository.getMemberById(id);
-    if (row == null) return;
+    if (row == null) return false;
 
     // Reseller status is derived purely from package availment.
     final newPackageId = updatedMember['packageId'] is int
@@ -431,7 +416,24 @@ class MembersTableState extends State<MembersTable> {
           : null,
       packageId: newPackageId,
     );
-    await repository.updateMember(updated);
+    try {
+      await repository.updateMember(updated);
+      // copyWith and toJson both skip a null referrer, so clearing one
+      // needs its own write.
+      if (updatedMember['referrerId'] == null && row.referrerId != null) {
+        await repository.clearMemberReferrer(id);
+      }
+    } on PostgrestException catch (e) {
+      // v67 refuses a referrer from the member's own downline.
+      showErrorToast(
+        e.message.contains('downline') || e.message.contains('own referrer')
+            ? e.message
+            : 'Could not save the member. Please try again.',
+      );
+      _loadMembers();
+      return false;
+    }
+    showSuccessToast('Member updated');
 
     // Keep the member's LOGIN role in sync with their reseller status so
     // gaining/losing a package updates the tabs they can see.
@@ -466,6 +468,7 @@ class MembersTableState extends State<MembersTable> {
     }
 
     _loadMembers();
+    return true;
   }
 
   Future<void> removeMember(Map<String, dynamic> member) async {
@@ -486,225 +489,164 @@ class MembersTableState extends State<MembersTable> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final bool isDesktop = constraints.maxWidth >= 900;
-
+        if (constraints.maxWidth < kStaffTableBreakpoint) {
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(appSpacing),
+                child: _phoneHeader(context),
+              ),
+              Expanded(child: _buildMembersList(context)),
+            ],
+          );
+        }
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.all(appSpacing),
-              child: isDesktop
-                  ? Row(
-                      children: [
-                        Expanded(
-                          child: SearchBarWidget(
-                            onChanged: (value) => setState(() {
-                              searchTerm = value;
-                              _loadMembers();
-                            }),
-                            hintText: "Search members...",
-                            borderRadius: 12,
-                            contentPadding: const EdgeInsets.symmetric(
-                              vertical: 8,
-                              horizontal: 16,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: 220,
-                          child: DropdownButtonFormField<String?>(
-                            value: roleFilter,
-                            decoration: const InputDecoration(
-                              labelText: 'Role',
-                              isDense: true,
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 8,
-                              ),
-                            ),
-                            items: const [
-                              DropdownMenuItem(value: null, child: Text('All')),
-                              DropdownMenuItem(
-                                value: 'Verified Reseller',
-                                child: Text('Verified Reseller'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'Member',
-                                child: Text('Member'),
-                              ),
-                            ],
-                            onChanged: (v) {
-                              setState(() => roleFilter = v);
-                              _loadMembers();
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        CustomElevatedButton(
-                          icon: Icon(
-                            Icons.person_add,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                          label: const Text(
-                            "Add Member",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          backgroundColor: Colors.blue[700],
-                          onPressed: _onAddMemberPressed,
-                        ),
-                      ],
-                    )
-                  : Column(
-                      children: [
-                        SearchBarWidget(
-                          onChanged: (value) => setState(() {
-                            searchTerm = value;
-                            _loadMembers();
-                          }),
-                          hintText: "Search members...",
-                          borderRadius: 12,
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 8,
-                            horizontal: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SizedBox(
-                          width: double.infinity,
-                          child: DropdownButtonFormField<String?>(
-                            value: roleFilter,
-                            decoration: const InputDecoration(
-                              labelText: 'Filter by Role',
-                              isDense: true,
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 8,
-                              ),
-                            ),
-                            items: const [
-                              DropdownMenuItem(value: null, child: Text('All')),
-                              DropdownMenuItem(
-                                value: 'Verified Reseller',
-                                child: Text('Verified Reseller'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'Member',
-                                child: Text('Member'),
-                              ),
-                            ],
-                            onChanged: (v) {
-                              setState(() => roleFilter = v);
-                              _loadMembers();
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        CustomElevatedButton(
-                          icon: Icon(
-                            Icons.person_add,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                          label: const Text(
-                            "Add Member",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          backgroundColor: Colors.blue[700],
-                          onPressed: _onAddMemberPressed,
-                        ),
-                      ],
-                    ),
+            StaffTableTop(
+              caption: _caption(),
+              searchWidth: 360,
+              search: StaffSearchField(
+                hint: 'Name, number or member ID',
+                initialValue: searchTerm,
+                onChanged: _onSearchChanged,
+              ),
+              actions: [
+                StaffButton(
+                  label: _exporting ? 'Exporting…' : 'Export',
+                  icon: Icons.file_download_outlined,
+                  primary: false,
+                  onPressed: _exporting ? null : _export,
+                ),
+                StaffButton(
+                  label: 'Add member',
+                  icon: Icons.person_add_alt_1_rounded,
+                  onPressed: _onAddMemberPressed,
+                ),
+              ],
             ),
-            Expanded(
-              child: isDesktop
-                  ? _buildMembersTable(context)
-                  : _buildMembersList(context),
-            ),
+            const SizedBox(height: 14),
+            Expanded(child: _buildMembersTable(context)),
           ],
         );
       },
     );
   }
 
+  /// "1,284 members", or how many match the search.
+  String _caption() {
+    if (_isInitialLoading) return 'Members';
+    if (searchTerm.trim().isNotEmpty) {
+      return '${staffCount(_totalCount)} match${_totalCount == 1 ? '' : 'es'}';
+    }
+    return '${staffCount(_totalCount)} member${_totalCount == 1 ? '' : 's'}';
+  }
+
+  /// Wide screens: Member · Package · Contact · Referred by · Login · ⋯
+  /// (redesign 2026-10-04). Middle name, birthday and address are on the
+  /// member's own screen; the QR code is in ⋯.
   Widget _buildMembersTable(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          cardTheme: CardThemeData(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(appRadius),
-              side: BorderSide(color: Theme.of(context).dividerColor, width: 1),
-            ),
-            color: Theme.of(context).colorScheme.surface,
-          ),
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final reserved = 200.0;
-            var available = constraints.maxHeight - reserved;
-            if (available < 62) available = 62;
-            final estimated = (available ~/ 62).clamp(1, 20);
-
-            // Desktop table is built → prime the second page once so the first
-            // "next" is already loaded. (Runs here so the mobile list never
-            // wastes a fetch into _serverPage.)
-            if (!_didInitialPrefetch && !_isInitialLoading) {
-              _didInitialPrefetch = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _prefetchNext();
-              });
-            }
-            final tableWidth = constraints.hasBoundedWidth
-                ? constraints.maxWidth
-                : (constraints.minWidth.isFinite && constraints.minWidth > 0
-                      ? constraints.minWidth
-                      : MediaQuery.sizeOf(context).width);
-
-            return ClipRect(
-              child: SizedBox(
-                width: tableWidth,
-                child: PaginatedDataTable(
-                  horizontalMargin: constraints.maxWidth < 1100 ? 12 : 20,
-                  columnSpacing: constraints.maxWidth < 1100 ? 18 : 32,
-                  rowsPerPage: estimated,
-                  headingRowHeight: 52,
-                  dataRowMinHeight: 56,
-                  dataRowMaxHeight: 62,
-                  showCheckboxColumn: true,
-                  columns: const [
-                    DataColumn(label: Text('Last Name')),
-                    DataColumn(label: Text('First Name')),
-                    DataColumn(label: Text('Middle Name')),
-                    DataColumn(label: Text('Role')),
-                    DataColumn(label: Text('Contact No.')),
-                    DataColumn(label: Text('Birthday')),
-                    DataColumn(label: Text('Address')),
-
-                    DataColumn(label: Text('QR')),
-                  ],
-                  source: _membersSource,
-                  // pageIndex is the FIRST row index of the new page; ensure we
-                  // have loaded through the last visible row of that page, then
-                  // quietly prime the following page.
-                  onPageChanged: (pageIndex) => _ensureLoadedThrough(
-                    pageIndex + estimated,
-                  ).then((_) => _prefetchNext()),
-                ),
-              ),
-            );
-          },
-        ),
-      ),
+    final s = StaffTableStyle.of(context);
+    final q = searchTerm.trim();
+    return StaffTable(
+      controller: _scrollController,
+      loading: _isInitialLoading,
+      error: _error,
+      onRetry: _loadMembers,
+      loadingMore: _hasMore && _items.isNotEmpty,
+      onLoadMore: _loadMore,
+      emptyText: q.isEmpty ? 'No members yet.' : 'No members match "$q".',
+      footer: staffShowing(_items.length, _totalCount),
+      itemCount: _items.length,
+      onRowTap: (i) => widget.onRowSelected(_items[i]),
+      columns: [
+        StaffColumn('Member', flex: 23, onSort: _toggleSort, sortAscending: _sortAscending),
+        const StaffColumn('Package', flex: 12),
+        const StaffColumn('Contact', flex: 11),
+        const StaffColumn('Referred by', flex: 14),
+        const StaffColumn('Login', width: 130),
+        const StaffColumn('', width: 48),
+      ],
+      cells: (context, i) => _memberCells(context, s, _items[i]),
     );
+  }
+
+  List<Widget> _memberCells(BuildContext context, StaffTableStyle s, Map<String, dynamic> m) {
+    String v(String k) => (m[k] ?? '').toString().trim();
+    final last = v('lastName'), first = v('firstName');
+    final name = [last, first].where((p) => p.isNotEmpty).join(', ');
+    final initials = [first, last].where((p) => p.isNotEmpty).map((p) => p[0].toUpperCase()).join();
+    final pkg = v('packageName');
+    final contact = v('contactNo');
+    final referrer = v('referrer');
+    // A login is an email on the member (as the member pop-up checks it).
+    // Not user_id: that is the staff account that created the member.
+    final hasLogin = v('email').isNotEmpty;
+
+    return [
+      Row(
+        children: [
+          CircleAvatar(
+            radius: 19,
+            backgroundColor: s.chipOnBg,
+            child: Text(
+              initials.isEmpty ? '?' : initials,
+              style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w800, color: s.chipOnText),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.isEmpty ? 'Unnamed member' : name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: StockpileFonts.satoshi(fontSize: 16, fontWeight: FontWeight.w700, color: s.text),
+                ),
+                Text('ID ${m['id'] ?? '—'}', style: StockpileFonts.satoshi(fontSize: 13, color: s.muted)),
+              ],
+            ),
+          ),
+        ],
+      ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: pkg.isEmpty
+            ? Text('No package', style: StockpileFonts.satoshi(fontSize: 15, color: s.muted))
+            : StaffPill('$pkg package', tone: StaffTone.orange),
+      ),
+      Text(
+        contact.isEmpty ? '—' : formatPhilippinePhone(contact),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: StockpileFonts.satoshi(fontSize: 16, color: s.text),
+      ),
+      Text(
+        referrer.isEmpty ? '—' : referrer,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: StockpileFonts.satoshi(fontSize: 16, color: s.body),
+      ),
+      hasLogin
+          ? Row(
+              children: [
+                Icon(Icons.check_rounded, size: 18, color: s.success),
+                const SizedBox(width: 6),
+                Text('Has login', style: StockpileFonts.satoshi(fontSize: 15, fontWeight: FontWeight.w600, color: s.success)),
+              ],
+            )
+          : Text('No login', style: StockpileFonts.satoshi(fontSize: 15, color: s.muted)),
+      StaffMoreButton(
+        tooltip: 'More for ${name.isEmpty ? 'this member' : name}',
+        items: [
+          StaffMenuItem('Open member', Icons.open_in_new_rounded, () => widget.onRowSelected(m)),
+          StaffMenuItem('Show QR code', Icons.qr_code_rounded, () => showMemberQrDialog(context, m)),
+        ],
+      ),
+    ];
   }
 
   Widget _buildMembersList(BuildContext context) {
@@ -723,38 +665,117 @@ class MembersTableState extends State<MembersTable> {
         ),
       );
     }
-    if (_items.isEmpty) {
-      return const Center(child: Text('No members found'));
-    }
-    return ListView.separated(
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-      itemCount: _items.length + (_hasMore ? 1 : 0),
-      separatorBuilder: (_, index) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        if (index >= _items.length) {
-          return const Padding(
-            padding: EdgeInsets.all(12),
-            child: Center(child: CircularProgressIndicator()),
+    final q = searchTerm.trim();
+    final groups = _letterGroups();
+    final list = _items.isEmpty
+        ? Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                q.isEmpty ? 'No members yet.' : 'No members match "$q".',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          )
+        : ListView.builder(
+            controller: _scrollController,
+            // Room under the last row for the Add member button.
+            padding: const EdgeInsets.fromLTRB(0, 0, 0, 96),
+            itemCount: groups.length + (_hasMore ? 1 : 0),
+            itemBuilder: (context, i) {
+              if (i >= groups.length) {
+                return const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final g = groups[i];
+              return _MemberGroup(
+                letter: g.letter,
+                members: g.members,
+                onTap: widget.onRowSelected,
+              );
+            },
           );
-        }
-        final member = _items[index];
-        return StaggeredItem(
-          index: index,
-          child: _MemberListCard(
-            member: member,
-            selected:
-                (member['id'] as int?) != null &&
-                _selectedMemberIds.contains(member['id'] as int),
-            onTap: () => widget.onRowSelected(member),
+
+    // Hidden while the keyboard is up (typing a search): it would ride up
+    // over the rows. Kept clear of the screen edge and the system bar.
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+    return Stack(
+      children: [
+        Positioned.fill(child: list),
+        if (!keyboard)
+          Positioned(
+            right: 16,
+            bottom: 16 + safeBottom,
+            child: StaffFab(
+              label: 'Add member',
+              icon: Icons.person_add_alt_1_rounded,
+              onPressed: _onAddMemberPressed,
+            ),
           ),
-        );
-      },
+      ],
     );
+  }
+
+  /// Rows under their last name's first letter, in the order loaded (the
+  /// server sorts by last name).
+  List<({String letter, List<Map<String, dynamic>> members})> _letterGroups() {
+    final groups = <({String letter, List<Map<String, dynamic>> members})>[];
+    for (final m in _items) {
+      final last = (m['lastName'] ?? '').toString().trim();
+      final first = last.isEmpty ? '' : last[0].toUpperCase();
+      final letter = RegExp(r'[A-Z]').hasMatch(first) ? first : '#';
+      if (groups.isEmpty || groups.last.letter != letter) {
+        groups.add((letter: letter, members: [m]));
+      } else {
+        groups.last.members.add(m);
+      }
+    }
+    return groups;
+  }
+
+  /// Phone: what the list holds and the search box.
+  Widget _phoneHeader(BuildContext context) {
+    final s = StaffTableStyle.of(context);
+    return StaffPhoneTop(
+      caption: searchTerm.trim().isEmpty ? '${_caption()} · A to Z' : _caption(),
+      captionTrailing: _loadedAt == null
+          ? null
+          : Text('Updated ${_ago(_loadedAt!)}', style: StockpileFonts.satoshi(fontSize: 13, color: s.muted)),
+      search: StaffSearchField(
+        hint: 'Name, number or member ID',
+        height: 48,
+        initialValue: searchTerm,
+        onChanged: _onSearchChanged,
+      ),
+    );
+  }
+
+  static String _ago(DateTime t) {
+    final d = DateTime.now().difference(t);
+    if (d.inMinutes < 1) return 'just now';
+    if (d.inMinutes < 60) return '${d.inMinutes} min ago';
+    return '${d.inHours} h ago';
   }
 
   @override
   void dispose() {
+    // Keep the list for when this tab opens again (not mid-search: the
+    // search box would come back empty over filtered rows).
+    if (searchTerm.trim().isEmpty && _items.isNotEmpty) {
+      _MembersSnapshot.save(
+        items: List.of(_items),
+        page: _currentPage,
+        total: _totalCount,
+        hasMore: _hasMore,
+        at: _loadedAt ?? DateTime.now(),
+        offset: _scrollController.hasClients ? _scrollController.offset : 0,
+      );
+    }
+    _searchDebounce?.cancel();
+    _changeDebounce?.cancel();
     _scrollController.dispose();
     _changesSub.cancel();
 
@@ -762,255 +783,221 @@ class MembersTableState extends State<MembersTable> {
   }
 }
 
-class _MembersDataSource extends DataTableSource {
-  final List<Map<String, dynamic>> _items;
-  final int Function() _getTotalCount;
-  final Function(Map<String, dynamic>) onRowSelected;
-  final Set<int> selectedMemberIds;
-  final void Function(int id, bool selected) onSelectionChanged;
+/// The members list as it was when its tab closed, so reopening it shows
+/// rows at once. Dropped after 10 minutes, or for another signed-in
+/// account; marked dirty by any member change meanwhile (the reopened list
+/// then refreshes its rows in place).
+class _MembersSnapshot {
+  static ({
+    List<Map<String, dynamic>> items,
+    int page,
+    int total,
+    bool hasMore,
+    DateTime at,
+    double offset,
+    String? uid,
+  })? _saved;
+  static bool _dirty = false;
+  static StreamSubscription<String>? _sub;
 
-  _MembersDataSource(
-    this._items,
-    this._getTotalCount,
-    this.onRowSelected,
-    this.selectedMemberIds,
-    this.onSelectionChanged,
-  );
-
-  @override
-  int get rowCount => _getTotalCount();
-
-  @override
-  DataRow getRow(int index) {
-    if (index >= _items.length) {
-      // Not fetched yet — show a shimmering skeleton row instead of raw text.
-      return DataRow(
-        cells: [
-          skeletonCell(width: 90), // Last Name
-          skeletonCell(width: 90), // First Name
-          skeletonCell(width: 70), // Middle Name
-          skeletonCell(width: 80), // Role
-          skeletonCell(width: 100), // Contact No.
-          skeletonCell(width: 80), // Birthday
-          skeletonCell(width: 130), // Address
-          skeletonCell(width: 32), // QR
-        ],
-      );
-    }
-    final member = _items[index];
-    final id = member['id'] as int?;
-    final isEven = index % 2 == 0;
-    return DataRow(
-      selected: id != null && selectedMemberIds.contains(id),
-      color: WidgetStateProperty.resolveWith<Color?>((Set<WidgetState> states) {
-        if (states.contains(WidgetState.selected)) {
-          return Colors.blue.withAlpha(28);
-        }
-        if (states.contains(WidgetState.hovered)) {
-          return Colors.blue.withAlpha(18);
-        }
-        if (isEven) {
-          return Colors.grey.withAlpha(20);
-        }
-        return null;
-      }),
-      onSelectChanged: id == null
-          ? null
-          : (selected) => onSelectionChanged(id, selected ?? false),
-      cells: [
-        DataCell(
-          Text(member["lastName"] ?? ""),
-          onTap: () => onRowSelected(member),
-        ),
-        DataCell(
-          Text(member["firstName"] ?? ""),
-          onTap: () => onRowSelected(member),
-        ),
-        DataCell(
-          Text(member["middleName"] ?? ""),
-          onTap: () => onRowSelected(member),
-        ),
-        DataCell(
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: Text(
-                  (member["role"] ?? "").toString(),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if ((member["role"] ?? '') == 'Verified Reseller')
-                Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: Icon(
-                    Icons.verified_user,
-                    size: 16,
-                    color: Colors.green.shade700,
-                  ),
-                ),
-            ],
-          ),
-          onTap: () => onRowSelected(member),
-        ),
-        DataCell(
-          Text(member["contactNo"] ?? ""),
-          onTap: () => onRowSelected(member),
-        ),
-        DataCell(
-          Text(member["birthday"] ?? ""),
-          onTap: () => onRowSelected(member),
-        ),
-        DataCell(
-          Text(member["address"] ?? ""),
-          onTap: () => onRowSelected(member),
-        ),
-        DataCell(_QrIconButton(member: member)),
-      ],
-    );
+  static void watch() {
+    _sub ??= repository.changes.listen((e) {
+      if (MembersTableState._isMemberChange(e) || e.startsWith('package_')) {
+        _dirty = true;
+      }
+    });
   }
 
-  @override
-  bool get isRowCountApproximate => false;
+  static void save({
+    required List<Map<String, dynamic>> items,
+    required int page,
+    required int total,
+    required bool hasMore,
+    required DateTime at,
+    required double offset,
+  }) {
+    _saved = (
+      items: items,
+      page: page,
+      total: total,
+      hasMore: hasMore,
+      at: at,
+      offset: offset,
+      uid: repository.supabase.auth.currentUser?.id,
+    );
+    _dirty = false;
+  }
 
-  @override
-  int get selectedRowCount => selectedMemberIds.length;
-
-  /// Call after external data changes to refresh the table.
-  void refresh() => notifyListeners();
+  /// The saved list, once, if still fresh for this account.
+  static ({
+    List<Map<String, dynamic>> items,
+    int page,
+    int total,
+    bool hasMore,
+    DateTime at,
+    double offset,
+    bool dirty,
+  })? take() {
+    final s = _saved;
+    _saved = null;
+    if (s == null) return null;
+    if (DateTime.now().difference(s.at) > const Duration(minutes: 10)) return null;
+    if (s.uid != repository.supabase.auth.currentUser?.id) return null;
+    return (
+      items: s.items,
+      page: s.page,
+      total: s.total,
+      hasMore: s.hasMore,
+      at: s.at,
+      offset: s.offset,
+      dirty: _dirty,
+    );
+  }
 }
 
-class _MemberListCard extends StatelessWidget {
-  const _MemberListCard({
-    required this.member,
-    required this.selected,
+/// One letter's members on a phone: the letter, then the rows in a card.
+class _MemberGroup extends StatelessWidget {
+  final String letter;
+  final List<Map<String, dynamic>> members;
+  final void Function(Map<String, dynamic>) onTap;
+
+  const _MemberGroup({
+    required this.letter,
+    required this.members,
     required this.onTap,
   });
-
-  final Map<String, dynamic> member;
-  final bool selected;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final fullName =
-        [member['firstName'], member['middleName'], member['lastName']]
-            .where((part) => part != null && part.toString().trim().isNotEmpty)
-            .join(' ');
-    final contact = (member['contactNo'] ?? '').toString().trim();
-    final address = (member['address'] ?? '').toString().trim();
-
-    return Card(
-      margin: EdgeInsets.zero,
-      color: selected
-          ? colorScheme.primaryContainer
-          : colorScheme.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.45)),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
+    final line = theme.dividerColor.withValues(alpha: 0.6);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
+          child: Text(
+            letter,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Material(
+          color: theme.colorScheme.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: line),
+          ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      fullName.isEmpty ? 'Unnamed Member' : fullName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if ((member['role'] ?? '') == 'Verified Reseller')
-                    _MemberMetaPill(icon: Icons.stars_outlined, text: ''),
-                  const SizedBox(width: 4),
-                  _QrIconButton(member: member),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  _MemberMetaPill(
-                    icon: Icons.badge_outlined,
-                    text: (member['role'] ?? 'Member').toString(),
-                  ),
-                  if (contact.isNotEmpty)
-                    _MemberMetaPill(icon: Icons.phone_outlined, text: contact),
-                ],
-              ),
-              if (address.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.home_outlined,
-                      size: 16,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        address,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
+              for (var i = 0; i < members.length; i++) ...[
+                if (i > 0) Divider(height: 1, color: line),
+                _MemberRow(
+                  member: members[i],
+                  onTap: () => onTap(members[i]),
                 ),
               ],
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 }
 
-class _MemberMetaPill extends StatelessWidget {
-  const _MemberMetaPill({required this.icon, required this.text});
+class _MemberRow extends StatelessWidget {
+  final Map<String, dynamic> member;
+  final VoidCallback onTap;
 
-  final IconData icon;
-  final String text;
+  const _MemberRow({required this.member, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+    final dark = theme.brightness == Brightness.dark;
+    String s(String k) => (member[k] ?? '').toString().trim();
+    final last = s('lastName'), first = s('firstName');
+    final name = [last, first].where((p) => p.isNotEmpty).join(', ');
+    final initials = [first, last].where((p) => p.isNotEmpty).map((p) => p[0].toUpperCase()).join();
+    final reseller = s('role') == 'Verified Reseller';
+    final pkg = s('packageName');
+    final sub = [
+      pkg.isEmpty ? 'No package' : '$pkg package',
+      if (s('contactNo').isNotEmpty) formatPhilippinePhone(s('contactNo')),
+    ].join(' · ');
+    const orangeText = Color(0xFFB24800);
+    const cream = Color(0xFFFFF7DF);
+
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 64),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 15, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(width: 5),
-            Text(
-              text,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelMedium,
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: reseller
+                  ? (dark ? orangeText.withAlpha(60) : cream)
+                  : theme.colorScheme.surfaceContainerHighest,
+              child: Text(
+                initials.isEmpty ? '?' : initials,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: reseller && !dark ? orangeText : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name.isEmpty ? 'Unnamed member' : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    sub,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 13,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (reseller) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: dark ? orangeText.withAlpha(60) : cream,
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: Text(
+                  'Reseller',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: dark ? Colors.white : orangeText,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right_rounded, size: 20, color: theme.colorScheme.onSurfaceVariant),
           ],
         ),
       ),
@@ -1018,13 +1005,9 @@ class _MemberMetaPill extends StatelessWidget {
   }
 }
 
-/// Small icon button that opens a dialog showing the member's QR code.
-class _QrIconButton extends StatelessWidget {
-  final Map<String, dynamic> member;
-
-  const _QrIconButton({required this.member});
-
-  void _showQrDialog(BuildContext context) {
+/// The member's QR code in a dialog: from a row's ⋯ menu and the phone's
+/// member screen.
+void showMemberQrDialog(BuildContext context, Map<String, dynamic> member) {
     final fullName = [
       member['firstName'],
       member['middleName'],
@@ -1077,14 +1060,4 @@ class _QrIconButton extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: 'Show QR code',
-      icon: Icon(Icons.qr_code, color: Theme.of(context).colorScheme.primary),
-      onPressed: () => _showQrDialog(context),
-    );
-  }
 }

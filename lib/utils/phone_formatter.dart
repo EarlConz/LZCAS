@@ -4,31 +4,18 @@ import 'package:flutter/services.dart';
 ///   0912 345 6789   (mobile)
 ///   02 1234 5678    (landline, 2-digit area code)
 ///   032 123 4567    (landline, 3-digit area code)
+///
+/// A mobile number typed the international way (+63 912 …) or without its
+/// leading 0 (912 …) becomes 0912 … too. Before, "+63 912 345 6789" fell
+/// through to the landline rule and read "639 123 45678" (Part 3, T3).
 class PhilippinePhoneFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    final digits = newValue.text.replaceAll(RegExp(r'\D'), '');
-    if (digits.isEmpty) return newValue.copyWith(text: '');
-
-    // Cap at 11 digits (standard PH mobile max)
-    final capped = digits.length > 11 ? digits.substring(0, 11) : digits;
-
-    String formatted;
-    if (capped.startsWith('09')) {
-      // Mobile: 0912 345 6789
-      formatted = _insertSpaces(capped, [4, 7]);
-    } else if (capped.startsWith('02')) {
-      // Manila landline: 02 1234 5678
-      formatted = _insertSpaces(capped, [2, 6]);
-    } else if (capped.length >= 3) {
-      // Provincial landline: 032 123 4567
-      formatted = _insertSpaces(capped, [3, 6]);
-    } else {
-      formatted = capped;
-    }
+    final formatted = formatPhilippinePhone(newValue.text);
+    if (formatted.isEmpty) return newValue.copyWith(text: '');
 
     // Keep cursor at end
     return TextEditingValue(
@@ -36,13 +23,44 @@ class PhilippinePhoneFormatter extends TextInputFormatter {
       selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
+}
 
-  String _insertSpaces(String digits, List<int> positions) {
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      if (positions.contains(i)) buffer.write(' ');
-      buffer.write(digits[i]);
-    }
-    return buffer.toString();
+/// The digits of a Philippine number, mobile ones always starting 09:
+/// "+63 917 123 4567", "639171234567" and "9171234567" all give
+/// "09171234567". Capped at 11 digits (the length of a mobile number).
+String philippinePhoneDigits(String raw) {
+  var digits = raw.replaceAll(RegExp(r'\D'), '');
+  if (digits.startsWith('639')) {
+    digits = '0${digits.substring(2)}';
+  } else if (digits.startsWith('9')) {
+    digits = '0$digits';
   }
+  return digits.length > 11 ? digits.substring(0, 11) : digits;
+}
+
+/// For display and for the form: "09171234567" → "0917 123 4567". Stored
+/// numbers are digits only; this is how every screen should show them.
+String formatPhilippinePhone(String raw) {
+  final digits = philippinePhoneDigits(raw);
+  if (digits.isEmpty) return '';
+  if (digits.startsWith('09')) {
+    // Mobile: 0912 345 6789
+    return _insertSpaces(digits, [4, 7]);
+  } else if (digits.startsWith('02')) {
+    // Manila landline: 02 1234 5678
+    return _insertSpaces(digits, [2, 6]);
+  } else if (digits.length >= 3) {
+    // Provincial landline: 032 123 4567
+    return _insertSpaces(digits, [3, 6]);
+  }
+  return digits;
+}
+
+String _insertSpaces(String digits, List<int> positions) {
+  final buffer = StringBuffer();
+  for (var i = 0; i < digits.length; i++) {
+    if (positions.contains(i)) buffer.write(' ');
+    buffer.write(digits[i]);
+  }
+  return buffer.toString();
 }

@@ -6,6 +6,8 @@
 //   • Audit trail of all transfers.
 // All mutations go through SECURITY DEFINER RPCs (see migration_v30_branch_stock).
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:lzcas/db/db.dart';
@@ -51,14 +53,44 @@ class _BranchStockPageState extends State<BranchStockPage> {
   bool _transfersHasMore = false;
   bool _transfersLoadingMore = false;
 
+  StreamSubscription<String>? _changeSub;
+  Timer? _reloadSoon;
+  Timer? _autoRefresh;
+
   @override
   void initState() {
     super.initState();
     _loadAll();
+    // The safety net under live updates (Part 6: the admin's tabs stayed out
+    // of date when realtime was down): a quiet reload every 30 seconds while
+    // this is on screen.
+    _autoRefresh = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _loadAll(quiet: true);
+    });
+    // Stock given to or returned by a branch, a branch sale, or a central
+    // stock change, from any device (v73 publishes branch_stock): a quiet
+    // reload, one per burst.
+    _changeSub = repository.changes.listen((e) {
+      const relevant = {
+        'branch_stock_changed',
+        'item_added',
+        'item_updated',
+        'item_deleted',
+        'sale_added',
+      };
+      if (!relevant.contains(e)) return;
+      _reloadSoon?.cancel();
+      _reloadSoon = Timer(const Duration(milliseconds: 800), () {
+        if (mounted) _loadAll(quiet: true);
+      });
+    });
   }
 
   @override
   void dispose() {
+    _changeSub?.cancel();
+    _reloadSoon?.cancel();
+    _autoRefresh?.cancel();
     _qtyCtrl.dispose();
     _noteCtrl.dispose();
     _branchSearchCtrl.dispose();
@@ -79,11 +111,15 @@ class _BranchStockPageState extends State<BranchStockPage> {
       _isDark ? StockpileColors.darkInputBg : StockpileColors.inputBg;
 
   // ── Data ────────────────────────────────────────────────────────────────────
-  Future<void> _loadAll() async {
-    setState(() {
-      _loading = true;
-      _loadError = null;
-    });
+  /// [quiet]: a live refresh, which keeps what is on screen until the new
+  /// figures arrive instead of showing the spinner.
+  Future<void> _loadAll({bool quiet = false}) async {
+    if (!quiet) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
     try {
       final cashiers = await repository.listBranchCashiers();
       final central = await repository.fetchItems();
@@ -100,7 +136,7 @@ class _BranchStockPageState extends State<BranchStockPage> {
       });
       await _loadTransfers(reset: true);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || quiet) return;
       setState(() {
         _loadError = e.toString();
         _loading = false;

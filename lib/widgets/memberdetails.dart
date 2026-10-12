@@ -2,6 +2,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lzcas/utils/phone_formatter.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/toast_utils.dart';
@@ -42,6 +43,8 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
   bool _packagesLoading = true;
   String _currentPackageName = '';
   late final StreamSubscription<String> _sub;
+  Timer? _packagesSoon;
+  Timer? _referralsSoon;
 
   @override
   void initState() {
@@ -49,23 +52,31 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     member = widget.member;
     _computeReferralCount();
     _loadAvailedPackages();
+    // Live changes from any device. Sales can change this member's packages;
+    // member changes can also change their referrals. A burst (one POS cart
+    // is several events) makes one reload of each.
     _sub = repository.changes.listen((e) {
-      if (e == 'sale_added' ||
+      final sales = e == 'sale_added' ||
           e == 'sale_imported' ||
           e == 'sale_updated' ||
           e == 'sale_deleted' ||
-          e == 'member_transactions_committed' ||
-          e == 'member_updated' ||
+          e == 'member_transactions_committed';
+      final members = e == 'member_updated' ||
           e == 'member_verified' ||
           e == 'member_added' ||
           e == 'member_imported' ||
           e == 'member_deleted' ||
-          e == 'db_cleared') {
-        if (mounted) {
-          setState(() {});
-          _computeReferralCount();
-          _loadAvailedPackages();
-        }
+          e == 'db_cleared';
+      if (!sales && !members) return;
+      _packagesSoon?.cancel();
+      _packagesSoon = Timer(const Duration(milliseconds: 800), () {
+        if (mounted) _loadAvailedPackages();
+      });
+      if (members) {
+        _referralsSoon?.cancel();
+        _referralsSoon = Timer(const Duration(milliseconds: 800), () {
+          if (mounted) _computeReferralCount();
+        });
       }
     });
   }
@@ -136,6 +147,9 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     }
   }
 
+  /// Who referred this member, and their direct and indirect referrals,
+  /// asked for this one member. It used to read every member (and stop at
+  /// 1,000) on every sale or member change anywhere.
   Future<void> _computeReferralCount() async {
     final memberId = member['id'] as int?;
     if (memberId == null) {
@@ -144,57 +158,24 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     }
 
     setState(() => _referralsLoading = true);
-
-    final memberName =
-        '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'
-            .trim()
-            .toLowerCase();
-
-    final all = await repository.fetchMembers();
-    if (!mounted) return;
-
-    // ── Resolve the referrer's full name ───────────────
-    String referrerName = '';
-    final referrerIdRaw = member['referrerId'] as int?;
-    if (referrerIdRaw != null) {
-      final refMember = all.where((m) => m.id == referrerIdRaw).firstOrNull;
-      if (refMember != null) {
-        referrerName = [
-          refMember.firstName,
-          refMember.lastName,
-        ].where((p) => p != null && p.isNotEmpty).join(' ');
-      }
+    try {
+      final r = await repository.fetchReferralSummary(
+        memberId: memberId,
+        referrerId: member['referrerId'] as int?,
+        referrerText: member['referrer']?.toString(),
+        fullName: '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'.trim(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _referrerName = r.referrerName;
+        _directReferrals = r.direct;
+        _indirectReferrals = r.indirect;
+        _referralCount = r.direct.length + r.indirect.length;
+        _referralsLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _referralsLoading = false);
     }
-    // Fallback to legacy text field
-    if (referrerName.isEmpty) {
-      referrerName = (member['referrer']?.toString() ?? '').trim();
-    }
-
-    // ── Direct referrals (members whose referrerId == this member's id) ──
-    final direct = all.where((m) {
-      if (m.referrerId == memberId) return true;
-      // Fallback: match by referrer name string (legacy records)
-      if (memberName.isNotEmpty) {
-        final ref = (m.referrer ?? '').trim().toLowerCase();
-        if (ref.isNotEmpty && ref == memberName) return true;
-      }
-      return false;
-    }).toList();
-
-    // ── Indirect referrals (members whose referrerId matches a direct referral's id) ──
-    final directIds = direct.map((d) => d.id).whereType<int>().toSet();
-    final indirect = all.where((m) {
-      if (m.referrerId != null && directIds.contains(m.referrerId)) return true;
-      return false;
-    }).toList();
-
-    setState(() {
-      _referrerName = referrerName;
-      _directReferrals = direct;
-      _indirectReferrals = indirect;
-      _referralCount = direct.length + indirect.length;
-      _referralsLoading = false;
-    });
   }
 
   @override
@@ -212,6 +193,8 @@ class _MemberDetailsCardState extends State<MemberDetailsCard> {
     try {
       _sub.cancel();
     } catch (_) {}
+    _packagesSoon?.cancel();
+    _referralsSoon?.cancel();
     super.dispose();
   }
 
@@ -714,7 +697,7 @@ class _MemberProfileSection extends StatelessWidget {
         _DetailLine(
           icon: Icons.phone_outlined,
           label: 'Contact',
-          value: member['contactNo'],
+          value: formatPhilippinePhone(member['contactNo']?.toString() ?? ''),
         ),
         const SizedBox(height: 8),
 

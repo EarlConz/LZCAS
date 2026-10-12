@@ -22,11 +22,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:lzcas/db/db.dart';
 import 'package:lzcas/dialogs/qr_scanner_dialog.dart';
 import 'package:lzcas/pages/delivery/rider_order_card.dart';
+import 'package:lzcas/services/config_service.dart';
+import 'package:lzcas/services/eta_estimator.dart';
+import 'package:lzcas/services/ui_prefs.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/fonts.dart';
@@ -66,6 +70,9 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
   void initState() {
     super.initState();
     _ensureRoute();
+    // The admin may have changed the delivery time estimate since the app
+    // opened (ET4): the Arrival card redraws if it did.
+    context.read<ConfigService>().refreshQuietly();
   }
 
   /// The road route is normally stored when the cashier assigns the rider.
@@ -113,23 +120,94 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
     return m?.group(1)?.trim() ?? 'Something went wrong.';
   }
 
+  // ── Arrival time (automatic, 2026-10-05) ──────────────────────────
+  // Worked out from the route instead of typed: see eta_estimator.dart.
+  // A time the rider sets stays theirs until they go back to automatic;
+  // only this device writes this order's time, so the choice is kept here.
+
+  EtaTuning get _tuning => context.read<ConfigService>().etaTuning;
+
+  static String _manualKey(String orderId) => EtaEstimator.manualKey(orderId);
+
+  bool get _manual =>
+      UiPrefs.instance.flag(_manualKey(_order.id), fallback: false);
+
+  void _setManual(bool manual) =>
+      UiPrefs.instance.setFlag(_manualKey(_order.id), manual);
+
+  /// The automatic time now: from the rider's last position once on the
+  /// way, from the store before pickup.
+  DateTime? get _autoEta => EtaEstimator.arrival(
+    _order,
+    _tuning,
+    from: _order.isPickedUp ? widget.myPosition : null,
+  );
+
+  /// The database only takes a time in the future.
+  static DateTime _ahead(DateTime t) {
+    final soonest = DateTime.now().add(const Duration(minutes: 1));
+    return t.isAfter(soonest) ? t : soonest;
+  }
+
   Future<void> _pickUp() async {
-    final eta = await _askEta(
+    // Worked out from the route. Only an order with no address to measure
+    // to falls back to asking.
+    var eta = EtaEstimator.arrival(_order, _tuning);
+    eta ??= await _askEta(
       initial: DateTime.now().add(const Duration(minutes: 30)),
     );
     if (eta == null) return;
+    final at = _ahead(eta);
+    _setManual(false);
     await _run(
-      () => repository.deliveryPickup(orderId: _order.id, etaAt: eta),
-      'Picked up — customer can see your ETA',
+      () => repository.deliveryPickup(orderId: _order.id, etaAt: at),
+      'Picked up — arriving about ${formatTimeOfDay(at)}',
     );
   }
 
+  /// The "Arrival time" sheet: automatic, later by a few minutes, or an
+  /// exact time.
   Future<void> _editEta() async {
-    final eta = await _askEta(initial: _order.etaAt ?? DateTime.now());
-    if (eta == null) return;
+    final auto = _autoEta;
+    final choice = await showModalBottomSheet<_EtaChoice>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _ArrivalTimeSheet(auto: auto, manual: _manual),
+    );
+    if (choice == null || !mounted) return;
+    DateTime? at;
+    if (choice.automatic) {
+      at = auto;
+    } else if (choice.laterBy != null) {
+      final base = auto ?? _order.etaAt ?? DateTime.now();
+      at = base.add(Duration(minutes: choice.laterBy!));
+    } else {
+      at = await _askEta(initial: _order.etaAt ?? auto ?? DateTime.now());
+    }
+    if (at == null || !mounted) return;
+    _setManual(!choice.automatic);
+    final when = _ahead(at);
     await _run(
-      () => repository.deliveryUpdateEta(orderId: _order.id, etaAt: eta),
-      'ETA updated',
+      () => repository.deliveryUpdateEta(orderId: _order.id, etaAt: when),
+      choice.automatic
+          ? 'Back to automatic: about ${formatTimeOfDay(when)}'
+          : 'Arrival time set to ${formatTimeOfDay(when)}',
+    );
+  }
+
+  Future<void> _useAutomatic() async {
+    final auto = _autoEta;
+    _setManual(false);
+    if (auto == null) {
+      setState(() {});
+      return;
+    }
+    final when = _ahead(auto);
+    await _run(
+      () => repository.deliveryUpdateEta(orderId: _order.id, etaAt: when),
+      'Back to automatic: about ${formatTimeOfDay(when)}',
     );
   }
 
@@ -417,6 +495,8 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Redraw when the settings change: the arrival time depends on them.
+    context.watch<ConfigService>();
     final o = _order;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final text = isDark
@@ -546,9 +626,13 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
   /// the pin sits off the nearest mapped road. Without a route, today's
   /// dashed straight line from the rider to the door — dashed so it is
   /// never mistaken for a way to drive.
+  /// Whether [_mapLines] draws the stored road (and the map must credit
+  /// openrouteservice) rather than a straight line.
+  bool get _drawsRoad => _route.length >= 2 && _destination != null;
+
   List<Polyline> _mapLines() {
     final dest = _destination, me = widget.myPosition, route = _route;
-    if (route.length >= 2 && dest != null) {
+    if (_drawsRoad && dest != null) {
       final branch = _branch;
       return [
         roadRoute(route),
@@ -589,6 +673,7 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
         markers: _mapMarkers(labelled: true),
         polylines: _mapLines(),
         fitTo: _mapPoints,
+        showsRoadRoute: _drawsRoad,
         statusChip: _distanceLine == null
             ? null
             : MapStatusChip(icon: Icons.navigation_rounded, text: _distanceLine!),
@@ -650,6 +735,7 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
                           icon: Icons.navigation_rounded,
                           text: _distanceLine!,
                         ),
+                  showsRoadRoute: _drawsRoad,
                 ),
               ),
             ),
@@ -858,6 +944,54 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
             ),
           );
 
+    final pickedUp = o.isPickedUp;
+    final manual = pickedUp && _manual;
+    final auto = _autoEta;
+    final tripTime = EtaEstimator.mapTime(o);
+    // The working behind the automatic time: from where the rider is once
+    // on the way, the whole route before pickup.
+    final mapNow = pickedUp ? EtaEstimator.mapTime(o, from: widget.myPosition) : tripTime;
+    final working = !manual && mapNow != null && (pickedUp || o.isAssigned)
+        ? _tuning.explain(mapNow)
+        : null;
+    final String etaBig;
+    final String etaSub;
+    if (pickedUp) {
+      etaBig = o.etaAt == null ? '—' : formatTimeOfDay(o.etaAt);
+      etaSub = manual
+          ? (auto == null
+                ? 'set by you · customer sees this'
+                : 'automatic says ${formatTimeOfDay(auto)}')
+          : 'updates as you ride · customer sees this';
+    } else if (o.isAssigned && tripTime != null) {
+      etaBig = 'about ${_tuning.apply(tripTime).inMinutes} min';
+      etaSub = 'from the route, once you pick up';
+    } else {
+      etaBig = o.etaAt == null ? '—' : formatTimeOfDay(o.etaAt);
+      etaSub = o.etaAt == null ? 'set when you pick up' : 'customer can see this';
+    }
+    final showTag = pickedUp || (o.isAssigned && tripTime != null);
+    Widget tag(String label, Color bg, Color fg) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(999)),
+      child: Text(
+        label,
+        style: StockpileFonts.satoshi(fontSize: 11, fontWeight: FontWeight.w700, color: fg),
+      ),
+    );
+    Widget smallButton(String label, VoidCallback onTap) => Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: OutlinedButton(
+        onPressed: _busy ? null : onTap,
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          foregroundColor: const Color(0xFFB24800),
+        ),
+        child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+      ),
+    );
+
     final etaCard = _card(
       isDark,
       padding: const EdgeInsets.all(14),
@@ -866,24 +1000,16 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
         children: [
           Row(
             children: [
-              Expanded(child: _label('YOUR ETA', muted)),
-              if (o.isPickedUp)
-                GestureDetector(
-                  onTap: _busy ? null : _editEta,
-                  child: Text(
-                    'Edit',
-                    style: StockpileFonts.satoshi(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: StockpileColors.primary900,
-                    ),
-                  ),
-                ),
+              Expanded(child: _label('ARRIVAL', muted)),
+              if (showTag)
+                manual
+                    ? tag('Set by you', isDark ? Colors.white12 : const Color(0xFFF5F5F8), text)
+                    : tag('Auto', StockpileColors.successBg, const Color(0xFF15803D)),
             ],
           ),
           const SizedBox(height: 4),
           Text(
-            o.etaAt == null ? '—' : formatTimeOfDay(o.etaAt),
+            etaBig,
             style: StockpileFonts.satoshi(
               fontSize: 22,
               fontWeight: FontWeight.w800,
@@ -891,25 +1017,42 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
             ),
           ),
           Text(
-            o.etaAt == null ? 'set when you pick up' : 'customer can see this',
-            style: StockpileFonts.satoshi(fontSize: 11, color: muted),
+            etaSub,
+            style: StockpileFonts.satoshi(fontSize: 11, height: 1.35, color: muted),
           ),
+          if (working != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                working,
+                style: StockpileFonts.satoshi(fontSize: 11, height: 1.35, color: muted),
+              ),
+            ),
+          if (pickedUp && !manual) smallButton('Change', _editEta),
+          if (manual) smallButton('Use automatic', _useAutomatic),
         ],
       ),
     );
-
     // Two cards side by side get ~150px each on a phone, which is enough
     // for a number and two short lines. Below that they stack.
+    //
+    // IntrinsicHeight is what lets `stretch` work here: this sits in a
+    // scrolling list, whose height is unbounded, so a bare stretching Row
+    // asks for infinite height and fails layout — taking the whole page
+    // down with it. IntrinsicHeight sizes the Row to the taller card first,
+    // and both cards then stretch to match it.
     return LayoutBuilder(
       builder: (context, c) => c.maxWidth < 320
           ? Column(children: [moneyCard, const SizedBox(height: 12), etaCard])
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(child: moneyCard),
-                const SizedBox(width: 12),
-                Expanded(child: etaCard),
-              ],
+          : IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: moneyCard),
+                  const SizedBox(width: 12),
+                  Expanded(child: etaCard),
+                ],
+              ),
             ),
     );
   }
@@ -935,7 +1078,11 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
         'Picked up',
         Icons.inventory_2_rounded,
         _pickUp,
-        "You'll be asked for an ETA.",
+        EtaEstimator.arrival(o, _tuning) == null
+            ? "You'll be asked for an ETA."
+            : 'The arrival time is worked out for you: about '
+                  '${formatTimeOfDay(EtaEstimator.arrival(o, _tuning))} if you '
+                  'leave now. You can change it after pickup.',
       ),
       DeliveryOrderStatus.pickedUp => (
         'Hand over',
@@ -1035,4 +1182,160 @@ class _RiderOrderDetailPageState extends State<RiderOrderDetailPage> {
       color: color,
     ),
   );
+}
+
+/// What the rider chose in the arrival-time sheet.
+class _EtaChoice {
+  final bool automatic;
+
+  /// Minutes later than the automatic time; null with [automatic] or for
+  /// an exact time.
+  final int? laterBy;
+
+  const _EtaChoice.automatic() : automatic = true, laterBy = null;
+  const _EtaChoice.later(int minutes) : automatic = false, laterBy = minutes;
+  const _EtaChoice.exact() : automatic = false, laterBy = null;
+}
+
+/// "Arrival time": automatic, or later than it by a few minutes (a rider
+/// changing the time is nearly always running late, and one tap beats a
+/// clock on a bike), or an exact time.
+class _ArrivalTimeSheet extends StatefulWidget {
+  final DateTime? auto;
+  final bool manual;
+
+  const _ArrivalTimeSheet({required this.auto, required this.manual});
+
+  @override
+  State<_ArrivalTimeSheet> createState() => _ArrivalTimeSheetState();
+}
+
+class _ArrivalTimeSheetState extends State<_ArrivalTimeSheet> {
+  /// 0 = automatic; otherwise minutes later.
+  late int _pick = widget.manual ? 15 : 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final text = isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText;
+    final muted = isDark ? StockpileColors.darkTextMuted : const Color(0xFF6E6E7A);
+    final line = isDark ? StockpileColors.darkDivider : StockpileColors.divider;
+    const orange = Color(0xFFB24800);
+    final auto = widget.auto;
+    final autoLabel = auto == null ? 'Automatic' : 'Automatic · ${formatTimeOfDay(auto)}';
+    String laterLabel(int m) => auto == null
+        ? 'Set +$m min'
+        : 'Set ${formatTimeOfDay(auto.add(Duration(minutes: m)))}';
+
+    BoxDecoration choiceBox(bool on) => BoxDecoration(
+      color: on ? (isDark ? const Color(0x33FF6700) : StockpileColors.primary50) : null,
+      border: Border.all(color: on ? StockpileColors.primary900 : line, width: on ? 1.5 : 1),
+      borderRadius: BorderRadius.circular(14),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Arrival time', style: StockpileFonts.satoshi(fontSize: 20, fontWeight: FontWeight.w800, color: text)),
+          const SizedBox(height: 14),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => setState(() => _pick = 0),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: choiceBox(_pick == 0),
+                child: Row(
+                  children: [
+                    Icon(
+                      _pick == 0 ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                      color: orange,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(autoLabel, style: StockpileFonts.satoshi(fontSize: 16, fontWeight: FontWeight.w700, color: text)),
+                          const SizedBox(height: 2),
+                          Text(
+                            'From the route and where you are. Updates as you ride.',
+                            style: StockpileFonts.satoshi(fontSize: 13, color: muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Or set your own: later than automatic by',
+            style: StockpileFonts.satoshi(fontSize: 14, fontWeight: FontWeight.w700, color: muted),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              for (final m in const [5, 10, 15, 30]) ...[
+                if (m != 5) const SizedBox(width: 8),
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => setState(() => _pick = m),
+                      child: Container(
+                        height: 44,
+                        alignment: Alignment.center,
+                        decoration: choiceBox(_pick == m),
+                        child: Text(
+                          '+$m min',
+                          style: StockpileFonts.satoshi(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: _pick == m ? orange : text,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context, const _EtaChoice.exact()),
+            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+            child: const Text('Pick an exact time…'),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'A time you set stays until you change it or go back to automatic. '
+            'The customer sees it straight away.',
+            style: StockpileFonts.satoshi(fontSize: 13, height: 1.4, color: muted),
+          ),
+          const SizedBox(height: 14),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+              backgroundColor: orange,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(
+              context,
+              _pick == 0 ? const _EtaChoice.automatic() : _EtaChoice.later(_pick),
+            ),
+            child: Text(_pick == 0 ? 'Use automatic' : laterLabel(_pick)),
+          ),
+        ],
+      ),
+    );
+  }
 }

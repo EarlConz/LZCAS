@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:lzcas/utils/animations.dart';
+import 'package:lzcas/widgets/modal_kit.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
 import 'package:lzcas/utils/action_guard.dart';
@@ -14,6 +15,8 @@ import 'package:lzcas/db/db.dart';
 import 'package:lzcas/auth/auth_state.dart';
 import 'package:lzcas/auth/role_visibility.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:lzcas/widgets/member_screen.dart';
 
 /// Members page with full detail dialog, shared by Admin and Cashier.
 class AdminMembersPage extends StatefulWidget {
@@ -41,23 +44,58 @@ class AdminMembersPageState extends State<AdminMembersPage> {
     BuildContext context,
     Map<String, dynamic> member,
   ) async {
-    String packageName = '';
-    try {
-      final pkgIdRaw = member['packageId'];
-      final pkgId = pkgIdRaw is int ? pkgIdRaw : int.tryParse('$pkgIdRaw');
-      if (pkgId != null) {
-        final packages = await repository.fetchPackages();
-        final pkg = packages.where((p) => p.id == pkgId).firstOrNull;
-        if (pkg != null) packageName = pkg.name;
-      }
-    } catch (_) {}
-    if (!mounted) return;
+    // The list now carries the package name; packages are only read (once
+    // per session) for a row that came without it.
+    String packageName = (member['packageName']?.toString() ?? '').trim();
+    if (packageName.isEmpty) {
+      try {
+        final pkgIdRaw = member['packageId'];
+        final pkgId = pkgIdRaw is int ? pkgIdRaw : int.tryParse('$pkgIdRaw');
+        if (pkgId != null) {
+          final packages = await repository.fetchPackagesCached();
+          final pkg = packages.where((p) => p.id == pkgId).firstOrNull;
+          if (pkg != null) packageName = pkg.name;
+        }
+      } catch (_) {}
+    }
+    if (!mounted || !context.mounted) return;
 
     final fullName = [
       member['firstName'],
       member['middleName'],
       member['lastName'],
     ].where((p) => p != null && p.toString().trim().isNotEmpty).join(' ');
+
+    // A phone gets the member as a full screen; the same actions, and the
+    // same admin-only ones (password, delete) as the dialog below.
+    if (MediaQuery.sizeOf(context).width < kMemberScreenBreakpoint) {
+      final isAdmin = context.read<AuthState>().userRole == UserRole.admin;
+      final hasAccount = (member['email']?.toString() ?? '').trim().isNotEmpty;
+      if (packageName.isNotEmpty) member['packageName'] = packageName;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MemberScreen(
+            member: member,
+            onHistory: (ctx, _) => _showTransactionHistory(ctx, member),
+            onEdit: (ctx, _) {
+              Navigator.pop(ctx);
+              _openEditDialog(member);
+            },
+            onUpgrade: (ctx, _) => _showUpgradePackageDialog(ctx, member),
+            onCreateAccount: hasAccount
+                ? null
+                : (ctx, _) => _showCreateAccountDialog(ctx, member),
+            onViewPassword: isAdmin && hasAccount
+                ? (ctx, _) => _viewMemberPassword(ctx, member, fullName)
+                : null,
+            onDelete: isAdmin
+                ? (ctx, _) => _confirmDeleteMemberDialog(ctx, member)
+                : null,
+          ),
+        ),
+      );
+      return;
+    }
     final initials = fullName.isNotEmpty ? fullName[0].toUpperCase() : 'M';
     final isReseller =
         (member['role']?.toString() ?? '') == 'Verified Reseller';
@@ -484,34 +522,22 @@ class AdminMembersPageState extends State<AdminMembersPage> {
     );
   }
 
-  void _confirmDeleteMemberDialog(
+  /// The shared delete confirmation (modal_kit): named buttons, and a sheet
+  /// from the bottom on a phone, like Delete product (test T5).
+  Future<void> _confirmDeleteMemberDialog(
     BuildContext ctx,
     Map<String, dynamic> member,
-  ) {
-    showDialog<bool>(
-      context: ctx,
-      builder: (c) => AlertDialog(
-        title: const Text('Delete Member'),
-        content: Text(
-          'Delete ${member['firstName'] ?? 'this member'} permanently?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              Navigator.pop(c, true);
-              _deleteMember(member);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+  ) async {
+    final name = '${member['firstName'] ?? ''} ${member['lastName'] ?? ''}'.trim();
+    final ok = await confirmDestructive(
+      ctx,
+      title: 'Delete ${name.isEmpty ? 'this member' : name}?',
+      message: "Their member record is removed. This can't be undone.",
+      confirmLabel: 'Delete member',
     );
+    if (!ok || !ctx.mounted) return;
+    _deleteMember(member);
+    Navigator.pop(ctx); // close the member detail
   }
 
   void _deleteMember(Map<String, dynamic> member) {
@@ -1024,44 +1050,27 @@ class _ReferralCardState extends State<_ReferralCard> {
       if (mounted) setState(() => _loading = false);
       return;
     }
-    final memberName =
-        '${widget.member['firstName'] ?? ''} ${widget.member['lastName'] ?? ''}'
-            .trim()
-            .toLowerCase();
-    final all = await repository.fetchMembers();
-    if (!mounted) return;
-    String referrerName = '';
-    final referrerIdRaw = widget.member['referrerId'] as int?;
-    if (referrerIdRaw != null) {
-      final ref = all.where((m) => m.id == referrerIdRaw).firstOrNull;
-      if (ref != null)
-        referrerName = [
-          ref.firstName,
-          ref.lastName,
-        ].where((p) => p != null && p.isNotEmpty).join(' ');
-    }
-    if (referrerName.isEmpty)
-      referrerName = (widget.member['referrer']?.toString() ?? '').trim();
-    final direct = all.where((m) {
-      if (m.referrerId == memberId) return true;
-      if (memberName.isNotEmpty) {
-        final ref = (m.referrer ?? '').trim().toLowerCase();
-        if (ref.isNotEmpty && ref == memberName) return true;
-      }
-      return false;
-    }).toList();
-    final directIds = direct.map((d) => d.id).whereType<int>().toSet();
-    final indirect = all
-        .where((m) => m.referrerId != null && directIds.contains(m.referrerId))
-        .toList();
-    if (mounted)
+    // Asked for this one member: the old way downloaded every member.
+    try {
+      final r = await repository.fetchReferralSummary(
+        memberId: memberId,
+        referrerId: widget.member['referrerId'] as int?,
+        referrerText: widget.member['referrer']?.toString(),
+        fullName:
+            '${widget.member['firstName'] ?? ''} ${widget.member['lastName'] ?? ''}'
+                .trim(),
+      );
+      if (!mounted) return;
       setState(() {
-        _referrerName = referrerName;
-        _directReferrals = direct;
-        _indirectReferrals = indirect;
-        _referralCount = direct.length + indirect.length;
+        _referrerName = r.referrerName;
+        _directReferrals = r.direct;
+        _indirectReferrals = r.indirect;
+        _referralCount = r.direct.length + r.indirect.length;
         _loading = false;
       });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override

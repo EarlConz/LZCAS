@@ -5,6 +5,8 @@
     <!-- Location permissions for the Nearest Cashier Finder (geolocator) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <!-- Delivery push notifications (Android 13+ asks the user) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="${appLabel}"
         android:name="${applicationName}"
@@ -32,6 +34,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- Push notifications shown by Firebase while the app is closed:
+             the high-importance channel MainActivity creates (sound and a
+             banner), and a one-colour status-bar icon, which Android needs
+             in place of the full-colour launcher icon. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="deliveries" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_delivery" />
 
         <!-- FileProvider for exposing downloaded APK to the package installer -->
         <provider

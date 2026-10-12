@@ -336,7 +336,16 @@ class AuthState extends ChangeNotifier {
 
   // ── Logout ───────────────────────────────────────────────────────────────
 
+  /// Runs before the session ends, while database calls are still allowed.
+  /// Set by PushService to take this phone off the push list.
+  Future<void> Function()? beforeLogout;
+
   Future<void> logout() async {
+    try {
+      await beforeLogout?.call();
+    } catch (_) {
+      // Never let it stand between the user and signing out.
+    }
     try {
       await _sb.auth.signOut(); // onAuthStateChange handler resets everything
     } catch (_) {

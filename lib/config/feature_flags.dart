@@ -13,14 +13,13 @@ const bool enableMemberLocationSetup = true;
 /// module, the order notification chimes, and the rider-related parts of
 /// the admin Cashier Locations map.
 ///
-/// `false` on `main` and the whole 1.5.x line — those releases carry the GPS
-/// fix only, and const-false branches are tree-shaken out of release AOT
-/// builds.
+/// On for every build since v1.6.0 (2026-10-13). Until then it was on for
+/// staging builds only (`String.fromEnvironment('APP_FLAVOR') == 'staging'`),
+/// because production lacked the delivery migrations. Production got v48–v74
+/// on 2026-10-12 (supabase/DELIVERY_ROLLOUT.md), so production builds now
+/// include delivery too.
 ///
-/// `true` on the `delivery-account` branch, for testing against staging,
-/// which has v48–v52 applied. That makes this branch UNSAFE TO BUILD FOR
-/// PRODUCTION until the delivery release: production has none of v48–v50 or
-/// v52, so every delivery screen would fail against it. Build staging from
-/// here (`--flavor staging` plus the staging dart-defines), and production
-/// from `main` only.
+/// Kept as a flag rather than deleted: turning it back to `false` hides
+/// every delivery screen again (a compile-time constant, tree-shaken out),
+/// should a release ever need to ship without delivery.
 const bool enableDeliverySystem = true;

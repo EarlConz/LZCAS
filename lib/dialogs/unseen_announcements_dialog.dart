@@ -11,9 +11,12 @@
 //   * Closing it marks everything in it as seen — including "Skip all".
 //     Offering the same notice twice is what makes people stop reading them.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:lzcas/db/db.dart';
+import 'package:lzcas/services/announcement_alerts.dart';
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/animations.dart';
 import 'package:lzcas/utils/fonts.dart';
@@ -43,6 +46,8 @@ Future<void> showUnseenAnnouncements(BuildContext context) async {
   // After the dialog, not inside it: whichever way it closed — a button,
   // the Android back gesture, a route change — the set has been offered.
   await repository.markAnnouncementsSeen([for (final a in items) a.id]);
+  // They are seen now: the count on the Announcements tab drops.
+  unawaited(announcementAlerts.refresh());
 }
 
 class _UnseenAnnouncementsDialog extends StatefulWidget {

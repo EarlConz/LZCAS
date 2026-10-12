@@ -6,11 +6,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:csv/csv.dart';
+import 'package:intl/intl.dart' show DateFormat;
 import 'package:flutter/foundation.dart' hide Category;
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/feature_flags.dart';
 import '../utils/app_clock.dart';
 import '../utils/birthday_window.dart' show parseBirthday;
+import '../utils/phone_formatter.dart' show formatPhilippinePhone;
 import 'models.dart';
 
 /// Describes a page of results with metadata.
@@ -55,22 +58,51 @@ class SupabaseRepository {
   /// so realtime must (re)subscribe when the user actually signs in.
   StreamSubscription? _authSub;
 
+  /// Reloads open screens when the app returns to the foreground: realtime
+  /// does not replay what changed while it was in the background.
+  AppLifecycleListener? _lifecycle;
+
   SupabaseRepository({required SupabaseClient supabase})
     : _supabase = supabase {
     _initRealtime();
     _authSub = _supabase.auth.onAuthStateChange.listen((state) {
       switch (state.event) {
+        // A session restored at startup arrives as initialSession, not
+        // signedIn. Without it, a phone reopened while still signed in had
+        // no live updates until its token next refreshed, up to an hour.
+        case AuthChangeEvent.initialSession:
         case AuthChangeEvent.signedIn:
         case AuthChangeEvent.tokenRefreshed:
-          if (_channels.isEmpty) _initRealtime();
+          // A session restored at launch often carries an expired token:
+          // _initRealtime waits for the refresh that follows. A channel
+          // that joined with an old token, or was refused, is rebuilt.
+          if (_channels.isEmpty) {
+            _initRealtime();
+          } else {
+            _checkRealtime();
+          }
           break;
         case AuthChangeEvent.signedOut:
           _teardownRealtime();
+          _realtimeWatch?.cancel();
+          _realtimeWatch = null;
+          // The next account may see other names (RLS): start fresh.
+          _nameCacheAt = DateTime.fromMillisecondsSinceEpoch(0);
           break;
         default:
           break;
       }
     });
+    _lifecycle = AppLifecycleListener(onResume: _onResume);
+  }
+
+  void _onResume() {
+    if (_supabase.auth.currentUser == null) return;
+    _checkRealtime();
+    if (enableDeliverySystem) {
+      _changes.add('order_updated');
+      _changes.add('orders_changed');
+    }
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -103,16 +135,160 @@ class SupabaseRepository {
     'sales': 'sale',
   };
 
+  // ── Keeping realtime connected (Part 6, 2026-10-07) ────────────────
+  //
+  // Every "updates by itself" test on the admin's PC failed, and staging's
+  // realtime.subscription table showed no subscriptions at all. The app
+  // subscribed once, at launch, with the restored session's token, which
+  // is often already expired then: the server refused the channels and
+  // nothing ever tried again. Now realtime starts only with a valid token,
+  // every channel reports whether it joined, and one that didn't (or
+  // dropped later) gets the whole set rebuilt, after a short wait, then on
+  // a minute's check and whenever the app comes back to the front.
+
+  Timer? _rejoinTimer;
+  Timer? _realtimeWatch;
+  int _rejoinAttempt = 0;
+  DateTime _realtimeStartedAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// The channels the server has accepted (and not closed since).
+  final Set<RealtimeChannel> _joinedChannels = {};
+
+  /// Each table's channel, as the server last answered: 'joining',
+  /// 'connected', or why not. Shown in Settings → Live updates, so a tester
+  /// can read why screens don't update by themselves (Part 6: staging had
+  /// no subscriptions at all, and release builds print nothing).
+  final Map<String, String> _channelState = {};
+
+  /// Settings → Live updates reads this.
+  final ValueNotifier<RealtimeStatus> realtimeStatus =
+      ValueNotifier(const RealtimeStatus(note: 'Not started'));
+
+  void _publishRealtime({String? note}) {
+    realtimeStatus.value = RealtimeStatus(
+      channels: Map.unmodifiable(_channelState),
+      note: note ?? realtimeStatus.value.note,
+      at: DateTime.now(),
+    );
+  }
+
+  /// Settings → Live updates → Reconnect.
+  void reconnectRealtime() {
+    _rejoinAttempt = 0;
+    _restartRealtime();
+  }
+
+  /// Subscribes [channel] (for [table]), watching whether the server
+  /// accepts it.
+  RealtimeChannel _subscribeWatched(String table, RealtimeChannel channel) {
+    _channelState[table] = 'joining';
+    return channel.subscribe((status, error) {
+      switch (status) {
+        case RealtimeSubscribeStatus.subscribed:
+          _joinedChannels.add(channel);
+          _rejoinAttempt = 0;
+          _channelState[table] = 'connected';
+          _publishRealtime();
+          break;
+        case RealtimeSubscribeStatus.channelError:
+        case RealtimeSubscribeStatus.timedOut:
+          _joinedChannels.remove(channel);
+          debugPrint('[realtime] $table: $status ${error ?? ''}');
+          _channelState[table] = status == RealtimeSubscribeStatus.timedOut
+              ? 'timed out'
+              : 'refused: ${error ?? 'no reason given'}';
+          _publishRealtime();
+          _scheduleRejoin();
+          break;
+        case RealtimeSubscribeStatus.closed:
+          // Also what our own teardown produces; the minute's check catches
+          // a close nobody asked for.
+          _joinedChannels.remove(channel);
+          if (_channelState.containsKey(table)) {
+            _channelState[table] = 'closed';
+            _publishRealtime();
+          }
+          break;
+      }
+    });
+  }
+
+  void _scheduleRejoin() {
+    if (_rejoinTimer?.isActive ?? false) return;
+    const delays = [3, 10, 30, 60];
+    final wait = delays[_rejoinAttempt < delays.length ? _rejoinAttempt : delays.length - 1];
+    _rejoinAttempt++;
+    _rejoinTimer = Timer(Duration(seconds: wait), _restartRealtime);
+  }
+
+  /// Rebuilds every channel, then tells the screens to reload what they
+  /// may have missed while realtime was off.
+  void _restartRealtime() {
+    if (_supabase.auth.currentUser == null) return;
+    _teardownRealtime();
+    _initRealtime();
+    if (_channels.isEmpty) return;
+    for (final e in const [
+      'item_updated',
+      'sale_updated',
+      'member_updated',
+      'pending_requests_changed',
+      'withdrawal_requests_changed',
+      'member_transactions_changed',
+      'announcements_changed',
+      'branch_stock_changed',
+    ]) {
+      _changes.add(e);
+    }
+    if (enableDeliverySystem) {
+      _changes.add('order_updated');
+      _changes.add('orders_changed');
+    }
+  }
+
+  /// Starts realtime if it should be on, or rebuilds it if any channel is
+  /// not joined. Cheap: no network unless something is wrong.
+  void _checkRealtime() {
+    if (_supabase.auth.currentUser == null) return;
+    if (_channels.isEmpty) {
+      _initRealtime();
+      return;
+    }
+    // A set just started is still joining.
+    if (DateTime.now().difference(_realtimeStartedAt) < const Duration(seconds: 20)) return;
+    if (_channels.any((c) => !_joinedChannels.contains(c))) {
+      debugPrint('[realtime] a channel is not joined; reconnecting');
+      _restartRealtime();
+    }
+  }
+
   /// Initialize Supabase Realtime subscriptions for all tables.
   void _initRealtime() {
-    if (_supabase.auth.currentUser == null || _channels.isNotEmpty) return;
+    final session = _supabase.auth.currentSession;
+    if (_channels.isNotEmpty) return;
+    if (session == null) {
+      _publishRealtime(note: 'Off: not signed in');
+      return;
+    }
+    // An expired token is refused by the server: wait for the refresh
+    // (tokenRefreshed starts realtime then).
+    if (session.isExpired) {
+      _publishRealtime(note: 'Waiting for a fresh sign-in token');
+      return;
+    }
+    // The token the channels join with, set before they are made.
+    _supabase.realtime.setAuth(session.accessToken);
+    _realtimeStartedAt = DateTime.now();
+    _channelState.clear();
+    _publishRealtime(note: 'Connecting');
+    _realtimeWatch ??= Timer.periodic(const Duration(minutes: 1), (_) => _checkRealtime());
 
     // Shared business tables. Deliberately NO user_id filter: reads are
     // unfiltered (RLS scopes visibility) and each row is stamped with the
     // *writer's* user_id, so a filter here would hide a cashier's sale from
     // the admin's device. Realtime delivery is still gated by RLS.
     for (final table in _tableSingular.keys) {
-      final channel = _supabase
+      final channel = _subscribeWatched(table, _supabase
           .channel('public:$table')
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
@@ -120,13 +296,16 @@ class SupabaseRepository {
             table: table,
             callback: (payload) => _emitGranular(table, payload.eventType),
           )
-          .subscribe();
+          );
       _channels.add(channel);
     }
 
     // Approval queues — admin must see every request regardless of author.
-    for (final table in ['pending_requests', 'withdrawal_requests']) {
-      final channel = _supabase
+    // And the earnings ledger (v70): a member hears their own new
+    // commissions, so their Earnings screen moves by itself (RLS limits each
+    // member to their own rows).
+    for (final table in ['pending_requests', 'withdrawal_requests', 'member_transactions']) {
+      final channel = _subscribeWatched(table, _supabase
           .channel('public:$table')
           .onPostgresChanges(
             event: PostgresChangeEvent.all,
@@ -134,7 +313,28 @@ class SupabaseRepository {
             table: table,
             callback: (payload) => _changes.add('${table}_changed'),
           )
-          .subscribe();
+          );
+      _channels.add(channel);
+    }
+
+    // Announcements and branch stock (v73): a cashier's new post, or stock
+    // given to a branch, reach the other devices' screens by themselves. The
+    // names are the ones this device already emits for its own changes.
+    // Before v73 the tables are not published, and the channels just stay
+    // quiet.
+    for (final (table, event) in [
+      ('announcements', 'announcements_changed'),
+      ('branch_stock', 'branch_stock_changed'),
+    ]) {
+      final channel = _subscribeWatched(table, _supabase
+          .channel('public:$table')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: table,
+            callback: (payload) => _changes.add(event),
+          )
+          );
       _channels.add(channel);
     }
 
@@ -144,7 +344,7 @@ class SupabaseRepository {
     // The table only exists once v48 is applied, which goes with the delivery
     // release; subscribing to a missing table just errors the channel.
     if (!enableDeliverySystem) return;
-    final ordersChannel = _supabase
+    final ordersChannel = _subscribeWatched('orders', _supabase
         .channel('public:orders')
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
@@ -152,7 +352,7 @@ class SupabaseRepository {
           table: 'orders',
           callback: (payload) => _emitOrderEvent(payload),
         )
-        .subscribe();
+        );
     _channels.add(ordersChannel);
   }
 
@@ -215,6 +415,8 @@ class SupabaseRepository {
 
   /// Unsubscribes every channel and frees the free-tier connection slot.
   void _teardownRealtime() {
+    _joinedChannels.clear();
+    _channelState.clear();
     for (final channel in _channels) {
       _supabase.removeChannel(channel);
     }
@@ -235,9 +437,28 @@ class SupabaseRepository {
 
   // ── Fetch Methods ────────────────────────────────────────────────────────
 
+  /// Every row [query] matches, 1,000 at a time. PostgREST returns at most
+  /// 1,000 rows per request (Supabase's default) and a plain select stops
+  /// there without saying so: past 1,000 members or sales, lists, counts,
+  /// exports and totals were quietly short. [query] builds a fresh filter
+  /// each call; pages are ordered by id so none is skipped or repeated.
+  Future<List<Map<String, dynamic>>> _selectAll(
+    dynamic Function() query, {
+    String orderBy = 'id',
+  }) async {
+    const step = 1000;
+    final out = <Map<String, dynamic>>[];
+    for (var from = 0; ; from += step) {
+      final rows = (await query().order(orderBy).range(from, from + step - 1)) as List;
+      out.addAll(rows.cast<Map<String, dynamic>>());
+      if (rows.length < step) break;
+    }
+    return out;
+  }
+
   Future<List<Item>> fetchItems() async {
-    final data = await _supabase.from('items').select();
-    return (data as List).map((j) => Item.fromJson(j)).toList();
+    final data = await _selectAll(() => _supabase.from('items').select());
+    return data.map((j) => Item.fromJson(j)).toList();
   }
 
   /// Fetch members. Soft-deleted members are hidden by default; pass
@@ -249,8 +470,10 @@ class SupabaseRepository {
     // Join the availed package so Member.packageName is populated (the POS
     // buyer picker and the receipt show it). Members with no package simply
     // get a null `packages`, which _extractPackageName maps to null.
-    final data = await _supabase.from('members').select('*, packages(name)');
-    final members = (data as List).map((j) => Member.fromJson(j)).toList();
+    final data = await _selectAll(
+      () => _supabase.from('members').select('*, packages(name)'),
+    );
+    final members = data.map((j) => Member.fromJson(j)).toList();
     if (includeDeleted) return members;
     return members.where((m) => !m.isDeleted).toList();
   }
@@ -284,17 +507,100 @@ class SupabaseRepository {
   }
 
   Future<List<Sale>> fetchSales() async {
-    final data = await _supabase.from('sales').select();
-    return (data as List).map((j) => Sale.fromJson(j)).toList();
+    final data = await _selectAll(() => _supabase.from('sales').select());
+    return data.map((j) => Sale.fromJson(j)).toList();
   }
 
   Future<List<Sale>> fetchSalesBetween(DateTime start, DateTime end) async {
-    final data = await _supabase
-        .from('sales')
-        .select()
-        .gte('timestamp', start.toIso8601String())
-        .lte('timestamp', end.toIso8601String());
-    return (data as List).map((j) => Sale.fromJson(j)).toList();
+    final data = await _selectAll(
+      () => _supabase
+          .from('sales')
+          .select()
+          .gte('timestamp', start.toIso8601String())
+          .lte('timestamp', end.toIso8601String()),
+    );
+    return data.map((j) => Sale.fromJson(j)).toList();
+  }
+
+  // ── Members, one at a time or a few (no full reads) ──────────────────
+
+  /// Members matching [query] by name or contact number, for a picker:
+  /// the database searches, and only [limit] come back. Pickers used to
+  /// download every member (and stop at 1,000) to search in the app.
+  Future<List<Member>> searchMembers(
+    String query, {
+    int limit = 20,
+    Set<int> excludeIds = const {},
+  }) async {
+    final orFilter = _memberSearchFilter(query);
+    if (orFilter == null) return const [];
+    dynamic q = _supabase
+        .from('members')
+        .select('*, packages(name)')
+        .neq('is_deleted', true)
+        .or(orFilter);
+    if (excludeIds.isNotEmpty) {
+      q = q.not('id', 'in', '(${excludeIds.join(',')})');
+    }
+    final data = await q.order('last_name').order('first_name').limit(limit);
+    return (data as List).map((j) => Member.fromJson(j)).toList();
+  }
+
+  /// How many members each of [ids] referred directly, for the "N
+  /// referrals" line under a suggestion.
+  Future<Map<int, int>> referralCountsFor(Iterable<int> ids) async {
+    final list = ids.toSet().toList();
+    final counts = <int, int>{};
+    for (final batch in _chunks(list)) {
+      final rows = await _selectAll(
+        () => _supabase
+            .from('members')
+            .select('id, referrer_id')
+            .neq('is_deleted', true)
+            .inFilter('referrer_id', batch),
+      );
+      for (final r in rows) {
+        final id = (r['referrer_id'] as num).toInt();
+        counts[id] = (counts[id] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  /// Everyone below [memberId]: their referrals, those members' referrals,
+  /// and so on, one level per query. None of them may become the member's
+  /// referrer (v67). Stops on a loop or after 50 levels.
+  Future<Set<int>> fetchDownlineIds(int memberId) async {
+    final seen = <int>{};
+    var frontier = <int>[memberId];
+    for (var depth = 0; depth < 50 && frontier.isNotEmpty; depth++) {
+      final next = <int>[];
+      for (final batch in _chunks(frontier)) {
+        final rows = await _selectAll(
+          () => _supabase.from('members').select('id').inFilter('referrer_id', batch),
+        );
+        for (final r in rows) {
+          final id = (r['id'] as num).toInt();
+          if (id != memberId && seen.add(id)) next.add(id);
+        }
+      }
+      frontier = next;
+    }
+    return seen;
+  }
+
+  /// The member whose QR token is [qr], or null. Scanning used to download
+  /// every member to find one.
+  Future<Member?> getMemberByQr(String qr) async {
+    final token = qr.trim();
+    if (token.isEmpty) return null;
+    final row = await _supabase
+        .from('members')
+        .select('*, packages(name)')
+        .eq('qr', token)
+        .neq('is_deleted', true)
+        .maybeSingle();
+    return row == null ? null : Member.fromJson(row);
   }
 
   /// Replace package availment names with the current catalog name so
@@ -487,7 +793,37 @@ class SupabaseRepository {
     return categories.toList()..sort();
   }
 
-  /// Fetch a page of members with optional search and role filter.
+  /// The `or=(…)` filter for a member search: names, and the contact number
+  /// (so "0917 555" finds someone). Commas and brackets would end the
+  /// PostgREST list early, so they are dropped from what was typed.
+  static String? _memberSearchFilter(String? search) {
+    final q = (search ?? '').replaceAll(RegExp(r'[,()*%\\]'), ' ').trim();
+    if (q.isEmpty) return null;
+    // Numbers are stored as typed; match the digits however they are spaced.
+    final digits = q.replaceAll(RegExp(r'\D'), '');
+    final id = memberIdQuery(q);
+    return [
+      'first_name.ilike.%$q%',
+      'last_name.ilike.%$q%',
+      'middle_name.ilike.%$q%',
+      if (digits.length >= 3) 'contact_no.ilike.%${digits.split('').join('%')}%',
+      // A member ID as staff read it off a card (test SP3).
+      if (id != null) 'id.eq.$id',
+    ].join(',');
+  }
+
+  /// The member ID in a search, as staff type it: "6", "#6", "ID 6",
+  /// "id:6". Null when the search is not an ID.
+  static int? memberIdQuery(String search) {
+    final m = RegExp(r'^(?:id\s*:?\s*|#\s*)?(\d{1,9})$', caseSensitive: false).firstMatch(search.trim());
+    return m == null ? null : int.tryParse(m.group(1)!);
+  }
+
+  /// Fetch a page of members with optional search and role filter. Each
+  /// carries its package name (joined, as [fetchMembers] does).
+  ///
+  /// [withCount] false skips the total: the list asks for it with the first
+  /// page and reuses it, passing it back as [knownTotal].
   Future<PageResult<Member>> fetchMembersPaginated({
     int page = 1,
     int pageSize = 100,
@@ -495,26 +831,19 @@ class SupabaseRepository {
     String? roleFilter,
     String sortColumn = 'last_name',
     bool sortAscending = true,
+    bool withCount = true,
+    int? knownTotal,
   }) async {
     // Hide soft-deleted members from paginated lists (server-side so the
     // total count stays accurate). Requires the is_deleted migration.
     dynamic dataQuery = _supabase
         .from('members')
-        .select('*')
-        .neq('is_deleted', true);
-    dynamic countQuery = _supabase
-        .from('members')
-        .select('id')
+        .select('*, packages(name)')
         .neq('is_deleted', true);
 
-    if (search != null && search.isNotEmpty) {
-      final orFilter =
-          'first_name.ilike.%$search%,last_name.ilike.%$search%,middle_name.ilike.%$search%';
-      countQuery = countQuery.or(orFilter);
-      dataQuery = dataQuery.or(orFilter);
-    }
+    final orFilter = _memberSearchFilter(search);
+    if (orFilter != null) dataQuery = dataQuery.or(orFilter);
     if (roleFilter != null && roleFilter.isNotEmpty) {
-      countQuery = countQuery.eq('role', roleFilter);
       dataQuery = dataQuery.eq('role', roleFilter);
     }
 
@@ -523,14 +852,17 @@ class SupabaseRepository {
         .range((page - 1) * pageSize, page * pageSize - 1);
 
     final results = await Future.wait<dynamic>([
-      countQuery.count(CountOption.exact),
+      if (withCount) Future<int?>(() => countMembers(search: search, roleFilter: roleFilter)),
       dataQuery,
     ]);
 
-    final totalCount = (results[0] as PostgrestResponse).count;
-    final rows = (results[1] as List)
+    final rows = (results.last as List)
         .map((j) => Member.fromJson(j as Map<String, dynamic>))
         .toList();
+    final loaded = (page - 1) * pageSize + rows.length;
+    final totalCount = withCount
+        ? (results.first as int? ?? loaded)
+        : (knownTotal ?? (rows.length == pageSize ? loaded + 1 : loaded));
 
     return PageResult(
       rows: rows,
@@ -538,6 +870,75 @@ class SupabaseRepository {
       page: page,
       pageSize: pageSize,
     );
+  }
+
+  /// How many members match, without downloading them: an exact count
+  /// with a one-row limit (the count covers every match regardless).
+  Future<int> countMembers({String? search, String? roleFilter}) async {
+    dynamic q = _supabase.from('members').select('id').neq('is_deleted', true);
+    final orFilter = _memberSearchFilter(search);
+    if (orFilter != null) q = q.or(orFilter);
+    if (roleFilter != null && roleFilter.isNotEmpty) q = q.eq('role', roleFilter);
+    final res = await q.limit(1).count(CountOption.exact);
+    return (res as PostgrestResponse).count;
+  }
+
+  /// Packages, read once and kept until one changes (realtime) or the
+  /// session ends: they change rarely and several screens name them.
+  List<Package>? _packagesCache;
+
+  Future<List<Package>> fetchPackagesCached() async {
+    _watchNameCache();
+    return _packagesCache ??= await fetchPackages();
+  }
+
+  /// Who referred [memberId], and whom they referred directly and through
+  /// those (indirect), asked for this one member instead of downloading
+  /// every member. Direct referrals match on `referrer_id`, or on the old
+  /// free-text `referrer` holding this member's full name, as before.
+  Future<({String referrerName, List<Member> direct, List<Member> indirect})>
+  fetchReferralSummary({
+    required int memberId,
+    int? referrerId,
+    String? referrerText,
+    required String fullName,
+  }) async {
+    const cols = 'id, first_name, last_name, role, referrer_id';
+    Future<String> referrer() async {
+      if (referrerId != null) {
+        final r = await _supabase
+            .from('members')
+            .select('first_name, last_name')
+            .eq('id', referrerId)
+            .maybeSingle();
+        final n = '${r?['first_name'] ?? ''} ${r?['last_name'] ?? ''}'.trim();
+        if (n.isNotEmpty) return n;
+      }
+      return (referrerText ?? '').trim();
+    }
+
+    final name = fullName.replaceAll(RegExp(r'[,()*%\\"]'), ' ').trim();
+    dynamic directQ = _supabase.from('members').select(cols).neq('is_deleted', true);
+    directQ = name.isEmpty
+        ? directQ.eq('referrer_id', memberId)
+        : directQ.or('referrer_id.eq.$memberId,referrer.ilike."$name"');
+    final results = await Future.wait<dynamic>([referrer(), directQ]);
+    final direct = (results[1] as List)
+        .map((j) => Member.fromJson(j as Map<String, dynamic>))
+        .toList();
+    final ids = direct.map((m) => m.id).whereType<int>().toList();
+    var indirect = <Member>[];
+    if (ids.isNotEmpty) {
+      final data = await _supabase
+          .from('members')
+          .select(cols)
+          .neq('is_deleted', true)
+          .inFilter('referrer_id', ids);
+      indirect = (data as List)
+          .map((j) => Member.fromJson(j as Map<String, dynamic>))
+          .toList();
+    }
+    return (referrerName: results[0] as String, direct: direct, indirect: indirect);
   }
 
   /// Fetch a page of sales with optional search.
@@ -548,21 +949,25 @@ class SupabaseRepository {
     String sortColumn = 'timestamp',
     bool sortAscending = false,
     String? userId,
+    DateTime? since,
+    SaleKind? kind,
   }) async {
-    dynamic dataQuery = _supabase.from('sales').select('*');
-    dynamic countQuery = _supabase.from('sales').select('id');
-
-    // Scope to a single seller (e.g. a branch cashier sees only their sales).
-    if (userId != null) {
-      dataQuery = dataQuery.eq('user_id', userId);
-      countQuery = countQuery.eq('user_id', userId);
+    final branch = kind == null || kind == SaleKind.delivery
+        ? const <String>{}
+        : await branchCashierIds();
+    if (kind == SaleKind.branch && branch.isEmpty) {
+      return PageResult(rows: const [], totalCount: 0, page: page, pageSize: pageSize);
     }
-
-    if (search != null && search.isNotEmpty) {
-      final orFilter = 'buyer_name.ilike.%$search%,item_name.ilike.%$search%';
-      countQuery = countQuery.or(orFilter);
-      dataQuery = dataQuery.or(orFilter);
-    }
+    dynamic filtered(dynamic q) => _filterSales(
+      q,
+      userId: userId,
+      since: since,
+      kind: kind,
+      search: search,
+      branchIds: branch,
+    );
+    dynamic dataQuery = filtered(_supabase.from('sales').select('*'));
+    final dynamic countQuery = filtered(_supabase.from('sales').select('id'));
 
     dataQuery = dataQuery
         .order(sortColumn, ascending: sortAscending)
@@ -586,6 +991,35 @@ class SupabaseRepository {
     );
   }
 
+  /// The Transactions filters on a sales query: one seller (a branch
+  /// cashier's own list), the date range, Counter / Delivery / Branch
+  /// ([saleKindOf]; [branchIds] are the branch cashiers), and the search.
+  dynamic _filterSales(
+    dynamic q, {
+    String? userId,
+    DateTime? since,
+    SaleKind? kind,
+    String? search,
+    Set<String> branchIds = const {},
+  }) {
+    if (userId != null) q = q.eq('user_id', userId);
+    if (since != null) q = q.gte('timestamp', since.toUtc().toIso8601String());
+    if (kind == SaleKind.delivery) {
+      q = q.not('payment_method', 'is', null);
+    } else if (kind != null) {
+      q = q.isFilter('payment_method', null);
+      if (kind == SaleKind.branch) {
+        q = q.inFilter('user_id', branchIds.toList());
+      } else if (branchIds.isNotEmpty) {
+        q = q.not('user_id', 'in', '(${branchIds.join(',')})');
+      }
+    }
+    if (search != null && search.isNotEmpty) {
+      q = q.or('buyer_name.ilike.%$search%,item_name.ilike.%$search%');
+    }
+    return q;
+  }
+
   /// Pre-aggregated dashboard stats — avoids loading all rows.
   ///
   /// Uses date-range queries (not aggregate functions which PostgREST
@@ -597,18 +1031,22 @@ class SupabaseRepository {
     required DateTime lastMonthEnd,
   }) async {
     final results = await Future.wait<dynamic>([
-      // This month's sales
-      _supabase
-          .from('sales')
-          .select('price, quantity, package_id')
-          .gte('timestamp', thisMonthStart.toIso8601String())
-          .lt('timestamp', thisMonthEnd.toIso8601String()),
+      // This month's sales (every line: a month can pass 1,000).
+      _selectAll(
+        () => _supabase
+            .from('sales')
+            .select('id, price, quantity, package_id')
+            .gte('timestamp', thisMonthStart.toIso8601String())
+            .lt('timestamp', thisMonthEnd.toIso8601String()),
+      ),
       // Last month's sales
-      _supabase
-          .from('sales')
-          .select('price, quantity, package_id')
-          .gte('timestamp', lastMonthStart.toIso8601String())
-          .lt('timestamp', lastMonthEnd.toIso8601String()),
+      _selectAll(
+        () => _supabase
+            .from('sales')
+            .select('id, price, quantity, package_id')
+            .gte('timestamp', lastMonthStart.toIso8601String())
+            .lt('timestamp', lastMonthEnd.toIso8601String()),
+      ),
       // Low stock items (id only, lightweight) — per-category threshold
       // aware via the items_with_status view.
       _supabase
@@ -788,39 +1226,47 @@ class SupabaseRepository {
     return true;
   }
 
-  /// Reduce stock with audit trail and mandatory reason.
-  Future<bool> reduceStock({
+  /// Reduce stock with audit trail and mandatory reason, as ONE database
+  /// step (`reduce_item_stock`, v60): the item row is locked, so two
+  /// reductions at once can't both pass on the same reading, and stock
+  /// can't go below zero.
+  ///
+  /// Returns the new stock, or why it was refused. [stockNow] is set when
+  /// the refusal was "not enough stock": it is the stock the database
+  /// actually holds, which may have changed since the caller last looked.
+  Future<({int? newStock, int? stockNow, String? error})> reduceStock({
     required int itemId,
-    required String itemName,
     required int quantity,
     required String reason,
     String?
-    overriddenUserId, // if set, uses this user_id for audit instead of _uid
+    overriddenUserId, // admin approving a request: credit the requester
   }) async {
-    final item = await getItemById(itemId);
-    if (item == null) return false;
-    if (item.stock < quantity) return false;
-
-    final newStock = item.stock - quantity;
-    final updated = item.copyWith(
-      stock: newStock,
-      lastUpdated: DateTime.now(),
-      status: statusFromStock(newStock),
-    );
-    await updateItem(updated);
-
-    await _supabase.from('stock_movements').insert({
-      'user_id': overriddenUserId ?? _uid,
-      'item_id': itemId,
-      'item_name': itemName,
-      'quantity': quantity,
-      'movement_type': 'stock_out',
-      'reason': reason,
-      'created_at': DateTime.now().toUtc().toIso8601String(),
-    });
-
-    _changes.add('stock_movement_added');
-    return true;
+    try {
+      final result = await _supabase.rpc(
+        'reduce_item_stock',
+        params: {
+          'p_item_id': itemId,
+          'p_quantity': quantity,
+          'p_reason': reason,
+          'p_on_behalf_of': ?overriddenUserId,
+        },
+      );
+      _changes.add('stock_movement_added');
+      return (newStock: (result as num).toInt(), stockNow: null, error: null);
+    } on PostgrestException catch (e) {
+      if (e.hint == 'stock_too_low') {
+        return (
+          newStock: null,
+          stockNow: int.tryParse('${e.details}'),
+          error: e.message,
+        );
+      }
+      debugPrint('[reduceStock] refused: ${e.message}');
+      return (newStock: null, stockNow: null, error: e.message);
+    } catch (e) {
+      debugPrint('[reduceStock] failed: $e');
+      return (newStock: null, stockNow: null, error: _friendlyError(e));
+    }
   }
 
   Future<List<StockMovement>> fetchStockMovements() async {
@@ -1000,27 +1446,37 @@ class SupabaseRepository {
     return true;
   }
 
-  /// Count members who selected each package.
+  /// Count members who selected each package: one count per package,
+  /// counted by the database. It used to download every member's package to
+  /// count them here, which also stops at 1,000 members.
   Future<Map<int, int>> fetchPackageAvailerCounts() async {
-    final data = await _supabase
-        .from('members')
-        .select('package_id')
-        .not('package_id', 'is', null);
-    final counts = <int, int>{};
-    for (final row in (data as List)) {
-      final pid = (row['package_id'] as num).toInt();
-      counts[pid] = (counts[pid] ?? 0) + 1;
-    }
-    return counts;
+    final ids = ((await _supabase.from('packages').select('id')) as List)
+        .map((r) => ((r as Map<String, dynamic>)['id'] as num).toInt())
+        .toList();
+    final counts = await Future.wait(ids.map((id) async {
+      // Deleted members are not counted, as on every other list (SP5).
+      final res = await _supabase
+          .from('members')
+          .select('id')
+          .eq('package_id', id)
+          .neq('is_deleted', true)
+          .limit(1)
+          .count(CountOption.exact);
+      return MapEntry(id, res.count);
+    }));
+    return {for (final e in counts) if (e.value > 0) e.key: e.value};
   }
 
-  /// Fetch members who selected a specific package.
+  /// Fetch members who selected a specific package (not deleted ones).
   Future<List<Member>> fetchMembersByPackage(int packageId) async {
-    final data = await _supabase
-        .from('members')
-        .select()
-        .eq('package_id', packageId);
-    return (data as List).map((j) => Member.fromJson(j)).toList();
+    final data = await _selectAll(
+      () => _supabase
+          .from('members')
+          .select()
+          .eq('package_id', packageId)
+          .neq('is_deleted', true),
+    );
+    return data.map((j) => Member.fromJson(j)).toList();
   }
 
   Future<int> addSale({
@@ -1217,6 +1673,27 @@ class SupabaseRepository {
     return (data as List)
         .map((j) => UserProfile.fromJson(Map<String, dynamic>.from(j)))
         .toList();
+  }
+
+  /// Riders carrying an order right now, as rider id → the ids of the
+  /// orders they carry, whoever dispatched them (v62). A cashier's own
+  /// order list cannot tell: it holds only their orders and unclaimed ones.
+  /// Empty on failure or before v62; callers also check their own list.
+  Future<Map<String, Set<String>>> fetchBusyRiders() async {
+    try {
+      final rows = await _supabase.rpc('delivery_busy_rider_ids');
+      final out = <String, Set<String>>{};
+      for (final r in (rows as List).cast<Map<String, dynamic>>()) {
+        final rider = r['rider_id']?.toString();
+        final order = r['order_id']?.toString();
+        if (rider == null || order == null) continue;
+        out.putIfAbsent(rider, () => {}).add(order);
+      }
+      return out;
+    } catch (e) {
+      debugPrint('[fetchBusyRiders] failed: $e');
+      return const {};
+    }
   }
 
   /// The saved location for one profile (null when never set).
@@ -1421,6 +1898,16 @@ class SupabaseRepository {
     return true;
   }
 
+  /// Removes a member's referrer. [updateMember] can't: [Member.toJson]
+  /// leaves out a null referrer_id, so an update keeps the old one.
+  Future<void> clearMemberReferrer(int memberId) async {
+    await _supabase
+        .from('members')
+        .update({'referrer_id': null})
+        .eq('id', memberId);
+    _changes.add('member_updated');
+  }
+
   Future<bool> updateSale(Sale sale) async {
     if (sale.id == null) return false;
     await _supabase.from('sales').update(sale.toJson()).eq('id', sale.id!);
@@ -1592,6 +2079,17 @@ class SupabaseRepository {
       // Legacy key from the old weekly-Friday chairman model; the RPC now
       // always returns 0 (v24 made Chairman's Bonus per-direct-referral).
       'chairmanFridays': asInt('chairmanFridays'),
+      // v56: withdrawals awaiting approval, and what is left after them.
+      // Before v56 (or after its rollback) nothing is on hold, so the
+      // available figure is the whole bucket — exactly the old behaviour.
+      'pendingEarnings': asInt('pendingEarnings'),
+      'pendingBalance': asInt('pendingBalance'),
+      'availableEarnings': map.containsKey('availableEarnings')
+          ? asInt('availableEarnings')
+          : asInt('totalEarnings'),
+      'availableBalance': map.containsKey('availableBalance')
+          ? asInt('availableBalance')
+          : asInt('balance'),
     };
   }
 
@@ -1805,6 +2303,45 @@ class SupabaseRepository {
     }
   }
 
+  /// Ids of the current announcements this account has not seen, leaving
+  /// out its own posts: the count on the Announcements tab
+  /// (lib/services/announcement_alerts.dart). Like
+  /// [fetchUnseenAnnouncements] but without fetching posters, since it
+  /// runs every minute. Empty when signed out or on failure.
+  Future<List<int>> fetchUnseenAnnouncementIds() async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return [];
+
+    try {
+      final rows = await _supabase
+          .from('announcements')
+          .select()
+          .isFilter('archived_at', null);
+
+      final seen = await _supabase
+          .from('announcement_reads')
+          .select('announcement_id')
+          .eq('profile_id', uid);
+
+      final seenIds = {
+        for (final r in seen as List)
+          ((r as Map)['announcement_id'] as num).toInt(),
+      };
+
+      return (rows as List)
+          .map((j) => Announcement.fromJson(j as Map<String, dynamic>))
+          .where(
+            (a) =>
+                a.isCurrent() && !seenIds.contains(a.id) && a.createdBy != uid,
+          )
+          .map((a) => a.id)
+          .toList();
+    } catch (e) {
+      debugPrint('[fetchUnseenAnnouncementIds] failed: $e');
+      return [];
+    }
+  }
+
   /// Record that this account has seen [announcementIds].
   ///
   /// Called on dismissal, including "Skip all" — an announcement someone
@@ -1973,6 +2510,70 @@ class SupabaseRepository {
       _posterUrls.remove(path.trim());
     } catch (e) {
       debugPrint('[deletePoster] failed for $path: $e');
+    }
+  }
+
+  // ── Product pictures (v63) ──────────────────────────────────────────
+  //
+  // A PUBLIC bucket, unlike the posters: every member who can open the
+  // Marketplace sees every product, so there is nothing to sign. Names are
+  // random, so a replaced picture gets a new URL and the old one is never
+  // served from a cache.
+
+  static const String _productBucket = 'product-images';
+
+  /// The URL to draw a product's picture from, or null when it has none.
+  /// No network call: a public URL is built from the path.
+  String? productImageUrl(String? path) {
+    if (path == null || path.trim().isEmpty) return null;
+    return _supabase.storage.from(_productBucket).getPublicUrl(path.trim());
+  }
+
+  /// Upload a prepared picture and return the path to store on the item.
+  Future<String> uploadProductImage(
+    Uint8List bytes, {
+    required String extension,
+    required String contentType,
+  }) async {
+    final rand = Random.secure();
+    final name = List.generate(
+      16,
+      (_) => rand.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final path = 'products/$name.$extension';
+    await _supabase.storage
+        .from(_productBucket)
+        .uploadBinary(
+          path,
+          bytes,
+          // A path is never reused, so its file never changes: let the CDN
+          // and devices keep it for a year.
+          fileOptions: FileOptions(
+            contentType: contentType,
+            upsert: false,
+            cacheControl: '31536000',
+          ),
+        );
+    return path;
+  }
+
+  /// Point a product at a picture, or at none when [path] is null.
+  Future<void> setItemImage(int itemId, String? path) async {
+    await _supabase
+        .from('items')
+        .update({'image_path': path})
+        .eq('id', itemId);
+    _changes.add('item_updated');
+  }
+
+  /// Remove a picture's file after the product stopped pointing at it.
+  /// Swallows failures, like [deletePoster]: the worst case is an orphan.
+  Future<void> deleteProductImage(String? path) async {
+    if (path == null || path.trim().isEmpty) return;
+    try {
+      await _supabase.storage.from(_productBucket).remove([path.trim()]);
+    } catch (e) {
+      debugPrint('[deleteProductImage] failed for $path: $e');
     }
   }
 
@@ -2156,11 +2757,15 @@ class SupabaseRepository {
   }
 
   /// Post a new announcement. Returns null on success, else a message.
+  ///
+  /// [publishedAt] in the future schedules it: nobody sees it, and nothing
+  /// is pushed (v74), until then. Null means now (the column's default).
   Future<String?> createAnnouncement({
     required String title,
     required String body,
     required AnnouncementAudience audience,
     DateTime? endsAt,
+    DateTime? publishedAt,
     String? imagePath,
   }) async {
     try {
@@ -2173,6 +2778,7 @@ class SupabaseRepository {
         'image_path': imagePath,
         'audience': audience.wire,
         'ends_at': endsAt?.toUtc().toIso8601String(),
+        if (publishedAt != null) 'published_at': publishedAt.toUtc().toIso8601String(),
         'created_by': _uid,
       });
       _changes.add('announcements_changed');
@@ -2190,12 +2796,16 @@ class SupabaseRepository {
   /// [imagePath] is written unconditionally, so passing null CLEARS the
   /// poster. The editor always sends the value it means, which is why there
   /// is no separate "leave it alone" case to get wrong.
+  ///
+  /// [publishedAt], unlike the rest, is left alone when null: only a
+  /// scheduled announcement's start can be moved.
   Future<String?> updateAnnouncement({
     required int id,
     required String title,
     required String body,
     required AnnouncementAudience audience,
     DateTime? endsAt,
+    DateTime? publishedAt,
     String? imagePath,
   }) async {
     try {
@@ -2207,6 +2817,7 @@ class SupabaseRepository {
             'image_path': imagePath,
             'audience': audience.wire,
             'ends_at': endsAt?.toUtc().toIso8601String(),
+            if (publishedAt != null) 'published_at': publishedAt.toUtc().toIso8601String(),
           })
           .eq('id', id);
       _changes.add('announcements_changed');
@@ -2262,15 +2873,17 @@ class SupabaseRepository {
   /// one that says so.
   Future<({int total, int withoutBirthday})> birthdayCoverage() async {
     try {
-      final rows = await _supabase
-          .from('members')
-          .select('birthday')
-          .eq('role', 'Verified Reseller')
-          .eq('is_deleted', false);
+      final rows = await _selectAll(
+        () => _supabase
+            .from('members')
+            .select('id, birthday')
+            .eq('role', 'Verified Reseller')
+            .eq('is_deleted', false),
+      );
 
       var total = 0;
       var missing = 0;
-      for (final r in rows as List) {
+      for (final r in rows) {
         total++;
         if (parseBirthday((r as Map)['birthday'] as String?) == null) {
           missing++;
@@ -2476,8 +3089,20 @@ class SupabaseRepository {
   // ── Delete Methods ───────────────────────────────────────────────────────
 
   Future<int> deleteItemById(int id) async {
+    // Its picture's file goes too. Read first; a failure here (say, before
+    // v63) only leaves a file behind.
+    String? imagePath;
+    try {
+      final row = await _supabase
+          .from('items')
+          .select('image_path')
+          .eq('id', id)
+          .maybeSingle();
+      imagePath = row?['image_path'] as String?;
+    } catch (_) {}
     await _supabase.from('items').delete().eq('id', id);
     _changes.add('item_deleted');
+    await deleteProductImage(imagePath);
     return 1;
   }
 
@@ -2910,14 +3535,20 @@ class SupabaseRepository {
       if (req.requestType == 'delete') {
         await deleteItemById(req.itemId!);
       } else if (req.requestType == 'reduce_stock') {
-        final ok = await reduceStock(
+        final r = await reduceStock(
           itemId: req.itemId!,
-          itemName: req.itemName!,
           quantity: req.quantity ?? 0,
           reason: req.reason ?? 'Admin-approved stock reduction',
           overriddenUserId: req.userId, // credit the original requester
         );
-        if (!ok) return 'Insufficient stock for this item';
+        if (r.error != null) {
+          // The request stays pending: approving it later, once stock is
+          // back, still works.
+          return r.stockNow != null
+              ? 'Insufficient stock for ${req.itemName ?? 'this item'}: '
+                    'only ${r.stockNow} in stock, ${req.quantity} requested.'
+              : r.error;
+        }
       } else if (req.requestType == 'delete_member' && req.memberId != null) {
         final ok = await deleteMemberById(req.memberId!);
         if (!ok) return 'Failed to delete member';
@@ -2959,7 +3590,27 @@ class SupabaseRepository {
 
   // ── Withdrawal Requests ──────────────────────────────────────────────────
 
+  // ── Push notifications (v58) ─────────────────────────────────────────────
+
+  /// Register this phone's FCM token for the signed-in account. Moves it
+  /// from whoever had it before.
+  Future<void> registerPushToken(String token) async {
+    await _supabase.rpc(
+      'register_push_token',
+      params: {'p_token': token, 'p_platform': 'android'},
+    );
+  }
+
+  /// Stop sending this account's alerts to this phone.
+  Future<void> unregisterPushToken(String token) async {
+    await _supabase.rpc('unregister_push_token', params: {'p_token': token});
+  }
+
   /// Submit a withdrawal request for admin approval.
+  ///
+  /// Throws [PostgrestException] when the database refuses it (v56: the
+  /// amount does not fit in what is left after approved and pending
+  /// requests). Its `message` is a sentence written for the member.
   Future<String?> submitWithdrawalRequest({
     required int memberId,
     required String sourceBucket,
@@ -3067,10 +3718,10 @@ class SupabaseRepository {
       // legitimate and simply out of date, and rejecting needs a reason
       // the admin writes, not one this method invents.
       //
-      // This closes the hole for one approver at a time. Two admins
-      // approving at the same instant can still slip between the check
-      // and the write — that needs a database-level constraint, which
-      // belongs with the full fix.
+      // Since v56 the database enforces this itself (a trigger on
+      // withdrawal_requests, which also covers two admins approving at
+      // once). This early check stays so a database without v56 is still
+      // guarded, and so the admin gets the answer without a round trip.
       final available = req.sourceBucket == 'total_earnings'
           ? currentTotalEarnings
           : currentBalance;
@@ -3079,6 +3730,24 @@ class SupabaseRepository {
             '₱$available available in ${req.sourceLabel}. The member has '
             'other approved or pending withdrawals. Reject this one and ask '
             'them to submit a new request.';
+      }
+
+      // Approve FIRST. The database has the final say (v56) and may refuse;
+      // the history snapshot below must only be written for an approval
+      // that happened. Filtered on 'pending' so a second click, or a second
+      // admin, cannot approve the same request twice.
+      final approved = await _supabase
+          .from('withdrawal_requests')
+          .update({
+            'status': 'approved',
+            'reviewed_by': _uid,
+            'reviewed_at': now,
+          })
+          .eq('id', requestId)
+          .eq('status', 'pending')
+          .select('id');
+      if ((approved as List).isEmpty) {
+        return 'This request was already reviewed.';
       }
 
       // Deduct the requested amount from the appropriate pool
@@ -3096,32 +3765,39 @@ class SupabaseRepository {
         );
       }
 
-      // Record a negative snapshot to reflect the deduction
-      await _supabase.from('earnings_history').insert({
-        'member_id': req.memberId,
-        'total_earnings': newTotalEarnings,
-        'balance': newBalance,
-        'earnings_delta': newTotalEarnings - currentTotalEarnings,
-        'balance_delta': newBalance - currentBalance,
-        'indirect_bonus': breakdown['indirectBonus'] ?? 0,
-        'group_sales': breakdown['groupSales'] ?? 0,
-        'passive_income': breakdown['passiveIncome'] ?? 0,
-        'repeat_purchase': breakdown['repeatPurchase'] ?? 0,
-        'chairman_bonus': breakdown['chairmanBonus'] ?? 0,
-        'upgrade_bonus': breakdown['upgradeBonus'] ?? 0,
-      });
+      // Record a negative snapshot to reflect the deduction. The approval
+      // above already stands; this is the history line, and failing to
+      // write it must not tell the admin the approval failed.
+      try {
+        await _supabase.from('earnings_history').insert({
+          'member_id': req.memberId,
+          'total_earnings': newTotalEarnings,
+          'balance': newBalance,
+          'earnings_delta': newTotalEarnings - currentTotalEarnings,
+          'balance_delta': newBalance - currentBalance,
+          'indirect_bonus': breakdown['indirectBonus'] ?? 0,
+          'group_sales': breakdown['groupSales'] ?? 0,
+          'passive_income': breakdown['passiveIncome'] ?? 0,
+          'repeat_purchase': breakdown['repeatPurchase'] ?? 0,
+          'chairman_bonus': breakdown['chairmanBonus'] ?? 0,
+          'upgrade_bonus': breakdown['upgradeBonus'] ?? 0,
+        });
+      } catch (e) {
+        debugPrint('[approveWithdrawalRequest] snapshot failed: $e');
+      }
+    } on PostgrestException catch (e) {
+      debugPrint('[approveWithdrawalRequest] refused: ${e.message}');
+      // The v56 refusal is a sentence written for the admin. Anything else
+      // raised by the database is not, and gets the generic wording.
+      return e.message.startsWith('Cannot approve')
+          ? e.message
+          : 'Failed to approve: ${_friendlyError(e)}';
     } catch (e) {
-      debugPrint('[approveWithdrawalRequest] deduction failed: $e');
+      debugPrint('[approveWithdrawalRequest] failed: $e');
       // `$_friendlyError(e)` interpolated the method itself and printed
       // "Closure: (Object) => String(e)" at the admin. Braces call it.
-      return 'Failed to process deduction: ${_friendlyError(e)}';
+      return 'Failed to approve: ${_friendlyError(e)}';
     }
-
-    // Mark as approved
-    await _supabase
-        .from('withdrawal_requests')
-        .update({'status': 'approved', 'reviewed_by': _uid, 'reviewed_at': now})
-        .eq('id', requestId);
 
     _changes.add('withdrawal_request_approved');
     return null; // success
@@ -3269,79 +3945,68 @@ class SupabaseRepository {
   }
 
   /// Edit a grouped sale atomically.
-  Future<String?> editSaleGroup({
-    required DateTime timestamp,
+  /// A central POS checkout (v64): the database locks each product, refuses
+  /// the whole sale if any line wants more than is left, then subtracts and
+  /// records every line together. Null on success, else a sentence to show.
+  Future<String?> recordPosSale({
+    required List<({int itemId, int quantity, int price})> lines,
     int? buyerId,
-    required List<Sale> newLines,
+    String? buyerName,
+    required DateTime timestamp,
   }) async {
     try {
-      final allSales = await fetchSales();
-      final timestampStr = timestamp.toUtc().toIso8601String();
-      final originals = allSales
-          .where((s) => s.timestamp?.toUtc().toIso8601String() == timestampStr)
-          .toList();
-
-      // Compute per-item quantity deltas
-      final Map<int, int> origQty = {};
-      for (final o in originals) {
-        origQty[o.itemId] = (origQty[o.itemId] ?? 0) + o.quantity;
-      }
-      final Map<int, int> newQty = {};
-      for (final n in newLines) {
-        newQty[n.itemId] = (newQty[n.itemId] ?? 0) + n.quantity;
-      }
-
-      final items = await fetchItems();
-      final now = DateTime.now();
-
-      // Validate stock
-      for (final itemId in {...origQty.keys, ...newQty.keys}) {
-        final before = origQty[itemId] ?? 0;
-        final after = newQty[itemId] ?? 0;
-        final deltaQ = after - before;
-        final item = items.cast<Item?>().firstWhere(
-          (it) => it!.id == itemId,
-          orElse: () => null,
-        );
-        if (item == null) return 'Item id=$itemId not found';
-        if (deltaQ > 0 && item.stock < deltaQ) {
-          return 'Insufficient stock for ${item.name}';
-        }
-      }
-
-      // Apply stock adjustments
-      for (final itemId in {...origQty.keys, ...newQty.keys}) {
-        final before = origQty[itemId] ?? 0;
-        final after = newQty[itemId] ?? 0;
-        final deltaQ = after - before;
-        final item = items.firstWhere((it) => it.id == itemId);
-        if (deltaQ != 0) {
-          final updated = item.copyWith(
-            stock: item.stock - deltaQ,
-            lastUpdated: now,
-          );
-          await updateItem(updated);
-        }
-      }
-
-      // Remove original grouped sales
-      await _supabase.from('sales').delete().eq('timestamp', timestampStr);
-
-      // Insert new sale rows
-      for (final n in newLines) {
-        await addSale(
-          itemId: n.itemId,
-          itemName: n.itemName,
-          quantity: n.quantity,
-          price: n.price,
-          timestamp: timestamp,
-          buyerId: buyerId,
-        );
-      }
-
+      await _supabase.rpc(
+        'pos_record_sale',
+        params: {
+          'p_lines': [
+            for (final l in lines)
+              {'item_id': l.itemId, 'quantity': l.quantity, 'price': l.price},
+          ],
+          'p_buyer_id': buyerId,
+          'p_buyer_name': buyerName,
+          'p_timestamp': timestamp.toUtc().toIso8601String(),
+        },
+      );
+      _changes.add('item_updated');
+      _changes.add('sale_added');
       return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[recordPosSale] ${e.code} ${e.message}');
+      return e.message.trim().isEmpty ? _friendlyError(e) : e.message.trim();
     } catch (e) {
-      print('[Stockpile] editSaleGroup failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// Edit Sale, admins only (v64): replace one checkout's lines (the rows
+  /// [userId] recorded at [timestamp]) and move stock by the difference, in
+  /// one transaction. Commissions follow through the sales triggers.
+  Future<String?> adminEditSaleGroup({
+    required String userId,
+    required DateTime timestamp,
+    int? buyerId,
+    required List<({int itemId, int quantity, int price})> lines,
+  }) async {
+    try {
+      await _supabase.rpc(
+        'admin_edit_sale_group',
+        params: {
+          'p_user_id': userId,
+          'p_timestamp': timestamp.toUtc().toIso8601String(),
+          'p_buyer_id': buyerId,
+          'p_lines': [
+            for (final l in lines)
+              {'item_id': l.itemId, 'quantity': l.quantity, 'price': l.price},
+          ],
+        },
+      );
+      _changes.add('item_updated');
+      _changes.add('sale_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[adminEditSaleGroup] ${e.code} ${e.message}');
+      return e.message.trim().isEmpty ? _friendlyError(e) : e.message.trim();
+    } catch (e) {
       return _friendlyError(e);
     }
   }
@@ -3546,11 +4211,12 @@ class SupabaseRepository {
         'Last Name',
         'First Name',
         'Middle Name',
-        'Role',
+        'Package',
         'Contact No',
         'Birthday',
         'Address',
         'Referrer',
+        'Login',
       ],
       for (final m in members)
         [
@@ -3558,11 +4224,14 @@ class SupabaseRepository {
           m.lastName ?? '',
           m.firstName ?? '',
           m.middleName ?? '',
-          m.role ?? '',
-          m.contactNo ?? '',
+          m.packageName ?? '',
+          // "0917 123 4567": with the spaces Excel keeps it as text, so the
+          // leading 0 stays (as digits alone it read 9171234567; Part 6).
+          formatPhilippinePhone(m.contactNo ?? ''),
           m.birthday ?? '',
           m.address ?? '',
           m.referrer ?? '',
+          (m.email ?? '').trim().isNotEmpty ? 'Yes' : 'No',
         ],
     ];
     return const ListToCsvConverter().convert(rows);
@@ -3598,15 +4267,82 @@ class SupabaseRepository {
 
   Future<String> exportSalesCsv() => exportSalesCsvString();
 
+  /// The sales Transactions is showing (same range, chip, search and
+  /// seller), every line of them, with how each was paid and who sold it.
+  Future<String> exportSalesCsvFiltered({
+    String? userId,
+    DateTime? since,
+    SaleKind? kind,
+    String? search,
+  }) async {
+    final branch = await branchCashierIds();
+    final data = kind == SaleKind.branch && branch.isEmpty
+        ? const <Map<String, dynamic>>[]
+        : await _selectAll(
+            () => _filterSales(
+              _supabase.from('sales').select('*'),
+              userId: userId,
+              since: since,
+              kind: kind,
+              search: search,
+              branchIds: branch,
+            ),
+          );
+    final sales = data.map(Sale.fromJson).toList()
+      ..sort((a, b) => (a.timestamp ?? DateTime(2000)).compareTo(b.timestamp ?? DateTime(2000)));
+    final sellers = await staffNamesFor(sales.map((x) => x.userId).whereType<String>().toSet());
+    String paid(Sale x) {
+      if (x.isPackage) return 'Package';
+      return switch (x.kind(branch)) {
+        SaleKind.counter => 'Counter',
+        SaleKind.branch => 'Branch',
+        SaleKind.delivery => switch (x.paymentMethod) {
+          'funds' => 'Delivery · funds',
+          'cod' => 'Delivery · cash',
+          'counter' => 'Delivery · at counter',
+          'outside' => 'Delivery · outside',
+          _ => 'Delivery',
+        },
+      };
+    }
+
+    final rows = <List<String>>[
+      ['Sale ID', 'Date', 'Time', 'Buyer ID', 'Buyer', 'Item', 'Quantity', 'Price', 'Total', 'Paid', 'Sold by'],
+      for (final x in sales)
+        [
+          x.id?.toString() ?? '',
+          x.timestamp == null ? '' : DateFormat('yyyy-MM-dd').format(x.timestamp!.toLocal()),
+          x.timestamp == null ? '' : DateFormat('HH:mm').format(x.timestamp!.toLocal()),
+          x.buyerId?.toString() ?? '',
+          x.buyerName ?? (x.buyerId == null ? 'Walk-in' : ''),
+          x.itemName,
+          x.quantity.toString(),
+          x.price.toString(),
+          (x.quantity * x.price).toString(),
+          paid(x),
+          x.userId == null ? '' : (sellers[x.userId] ?? ''),
+        ],
+    ];
+    return const ListToCsvConverter().convert(rows);
+  }
+
   // ── Member Ordering & Delivery Negotiation (v48) ─────────────────────────
 
   /// Items shown in the Member Marketplace. Products carry NO fixed price —
   /// they are listed "Price set upon order" and the Cashier prices each line
-  /// when the order arrives. Only in-stock items are offered.
+  /// when the order arrives.
+  ///
+  /// Sold-out products are included, after everything in stock, so a
+  /// member sees the whole range and knows one is only out for now; the
+  /// Marketplace shows them greyed out and they can't be added.
   Future<List<Item>> fetchMarketplaceItems() async {
     final items = await fetchItems();
-    return items.where((i) => i.stock > 0).toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    return [...items]
+      ..sort((a, b) {
+        final outA = a.stock <= 0, outB = b.stock <= 0;
+        if (outA != outB) return outA ? 1 : -1;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
   }
 
   /// Delivery orders. Unscoped for the Cashier/Admin module; scoped to one
@@ -3650,21 +4386,85 @@ class SupabaseRepository {
       debugPrint('fetchDeliveryOrders first row: ${rows.first}');
     }
 
-    // Fetch the lines for exactly the returned orders, then join in memory.
+    return _withOrderItems(rows);
+  }
+
+  /// What the staff's Delivery Orders page needs, without every order ever
+  /// placed: every order still open, every order whose cash a rider still
+  /// holds (whatever its age), and orders finished since [historySince].
+  /// History is the only part that grows without end, so only it is cut.
+  /// Before, the page read the whole table on every refresh, and with every
+  /// cashier seeing every order (v65) that grew with each day of trading.
+  Future<List<DeliveryOrder>> fetchStaffDeliveryOrders({
+    required DateTime historySince,
+  }) async {
+    final since = historySince.toUtc().toIso8601String();
+    final rows = await _supabase
+        .from('orders')
+        .select()
+        .or(
+          'status.not.in.(Completed,Cancelled),'
+          'and(payment_method.eq.cod,payment_status.eq.paid,cod_remitted_at.is.null),'
+          'updated_at.gte."$since"',
+        )
+        .order('created_at', ascending: false);
+    return _withOrderItems(rows as List);
+  }
+
+  /// The last [limit] rider deliveries that have a route and both times:
+  /// the map's car time for the route, and pickup to delivered as it
+  /// really went. For the delivery time estimate's "how it has done".
+  Future<List<({int routeSeconds, int actualSeconds})>> fetchRiderTripTimes({
+    int limit = 30,
+  }) async {
+    final rows = await _supabase
+        .from('orders')
+        .select('route_duration_s, picked_up_at, delivered_at')
+        .eq('delivery_route', 'rider')
+        .not('route_duration_s', 'is', null)
+        .not('picked_up_at', 'is', null)
+        .not('delivered_at', 'is', null)
+        .order('delivered_at', ascending: false)
+        .limit(limit);
+    final out = <({int routeSeconds, int actualSeconds})>[];
+    for (final r in (rows as List).cast<Map<String, dynamic>>()) {
+      final route = (r['route_duration_s'] as num?)?.toInt();
+      final from = DateTime.tryParse(r['picked_up_at']?.toString() ?? '');
+      final to = DateTime.tryParse(r['delivered_at']?.toString() ?? '');
+      if (route == null || route <= 0 || from == null || to == null) continue;
+      final actual = to.difference(from).inSeconds;
+      // A delivery left "picked up" overnight says nothing about traffic.
+      if (actual <= 0 || actual > 4 * 3600) continue;
+      out.add((routeSeconds: route, actualSeconds: actual));
+    }
+    return out;
+  }
+
+  /// One order with its lines, or null when it is gone or not visible to
+  /// this account. For a screen showing a single order, which used to read
+  /// every order to find it.
+  Future<DeliveryOrder?> fetchDeliveryOrderById(String id) async {
+    final row = await _supabase.from('orders').select().eq('id', id).maybeSingle();
+    if (row == null) return null;
+    final orders = await _withOrderItems([row]);
+    return orders.firstOrNull;
+  }
+
+  /// Fetches the lines for exactly [rows], then joins them in memory. In
+  /// batches: PostgREST puts the ids in the URL.
+  Future<List<DeliveryOrder>> _withOrderItems(List<dynamic> rows) async {
     final orderIds = rows
         .map((j) => (j as Map<String, dynamic>)['id']?.toString() ?? '')
         .where((id) => id.isNotEmpty)
         .toList();
     final itemRows = <Map<String, dynamic>>[];
-    if (orderIds.isNotEmpty) {
+    for (final batch in _chunks(orderIds)) {
       final data = await _supabase
           .from('order_items')
           .select()
-          .inFilter('order_id', orderIds);
+          .inFilter('order_id', batch);
       itemRows.addAll((data as List).cast<Map<String, dynamic>>());
-      debugPrint('fetchDeliveryOrders → ${itemRows.length} order_item row(s)');
     }
-
     return _hydrateDeliveryOrders(rows, itemRows: itemRows);
   }
 
@@ -3913,6 +4713,224 @@ class SupabaseRepository {
     }
   }
 
+  // ── Names on delivery orders, cached ───────────────────────────────
+  //
+  // Every order list reload used to download every product, every member
+  // (with their package) and every profile just to put names on a few
+  // orders. Now only the ids those orders use are asked for, and only the
+  // ones not already known. Names are dropped when realtime says a product,
+  // member or package changed, and all of them after [_nameCacheTtl], which
+  // also catches renamed profiles (no realtime on that table).
+
+  final Map<int, String> _itemNameCache = {};
+
+  /// Product pictures (v63), filled with the names; null = none.
+  final Map<int, String?> _itemImageCache = {};
+  final Map<int, ({String name, String? package})> _memberNameCache = {};
+
+  /// Null for an id that came back with no row (deleted, or not visible to
+  /// this account), so it is not asked for again until the cache expires.
+  final Map<String, String?> _profileNameCache = {};
+  DateTime _nameCacheAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _nameCacheTtl = Duration(minutes: 30);
+  StreamSubscription<String>? _nameCacheSub;
+
+  void _watchNameCache() {
+    _nameCacheSub ??= _changes.stream.listen((e) {
+      if (e.startsWith('item_')) {
+        _itemNameCache.clear();
+        _itemImageCache.clear();
+      }
+      if (e.startsWith('member_') || e.startsWith('package_')) {
+        _memberNameCache.clear();
+      }
+      if (e.startsWith('package_')) _packagesCache = null;
+    });
+  }
+
+  static int? _intOrNull(Object? v) =>
+      v is int ? v : (v is num ? v.toInt() : int.tryParse('${v ?? ''}'));
+
+  /// PostgREST puts `in.(…)` in the URL, so long id lists go in batches.
+  static Iterable<List<T>> _chunks<T>(List<T> all, [int size = 150]) sync* {
+    for (var i = 0; i < all.length; i += size) {
+      yield all.sublist(i, i + size > all.length ? all.length : i + size);
+    }
+  }
+
+  /// Usernames of staff accounts by profile id, from the shared name cache
+  /// (null for an id with no profile). For "Sold by" on Transactions.
+  Future<Map<String, String?>> staffNamesFor(Set<String> ids) async {
+    if (ids.isEmpty) return const {};
+    await _loadOrderNames(productIds: const {}, memberIds: const {}, profileIds: ids);
+    return {for (final id in ids) id: _profileNameCache[id]};
+  }
+
+  Set<String>? _branchCashierIds;
+  DateTime _branchCashierIdsAt = DateTime(2000);
+
+  /// The branch cashiers' account ids: their sales are the Branch ones on
+  /// Transactions. Read again after ten minutes.
+  Future<Set<String>> branchCashierIds() async {
+    final cached = _branchCashierIds;
+    if (cached != null && DateTime.now().difference(_branchCashierIdsAt) < const Duration(minutes: 10)) {
+      return cached;
+    }
+    try {
+      final data = await _supabase.from('profiles').select('id').eq('role', 'branch_cashier');
+      final ids = {for (final r in (data as List)) r['id'] as String};
+      _branchCashierIds = ids;
+      _branchCashierIdsAt = DateTime.now();
+      return ids;
+    } catch (e) {
+      debugPrint('[branchCashierIds] $e');
+      return cached ?? const {};
+    }
+  }
+
+  /// Checkouts and money since [since], in all and per kind: for the
+  /// Transactions caption and chips. One checkout is the sale lines with
+  /// the same time and buyer (as the list groups them).
+  Future<SalesSummary> fetchSalesSummary({required DateTime since, String? userId}) async {
+    final rows = await _selectAll(() {
+      dynamic q = _supabase
+          .from('sales')
+          .select('price, quantity, timestamp, buyer_id, user_id, payment_method')
+          .gte('timestamp', since.toUtc().toIso8601String());
+      if (userId != null) q = q.eq('user_id', userId);
+      return q;
+    });
+    final branch = await branchCashierIds();
+    final checkouts = <String, SaleKind>{};
+    var total = 0;
+    for (final r in rows) {
+      total += ((r['price'] as num?) ?? 0).toInt() * ((r['quantity'] as num?) ?? 0).toInt();
+      final key = '${r['timestamp']}_${r['buyer_id']}';
+      checkouts[key] ??= saleKindOf(
+        paymentMethod: r['payment_method'] as String?,
+        userId: r['user_id'] as String?,
+        branchIds: branch,
+      );
+    }
+    int count(SaleKind k) => checkouts.values.where((v) => v == k).length;
+    return SalesSummary(
+      checkouts: checkouts.length,
+      total: total,
+      counter: count(SaleKind.counter),
+      delivery: count(SaleKind.delivery),
+      branch: count(SaleKind.branch),
+    );
+  }
+
+  /// Names (and package) of just [ids], from the shared name cache. For a
+  /// list that shows a few buyers: it used to read the whole members table
+  /// for them, which also stops at 1,000 rows.
+  Future<Map<int, ({String name, String? package})>> memberNamesFor(Set<int> ids) async {
+    if (ids.isEmpty) return const {};
+    await _loadOrderNames(productIds: const {}, memberIds: ids, profileIds: const {});
+    return {
+      for (final id in ids)
+        if (_memberNameCache[id] != null) id: _memberNameCache[id]!,
+    };
+  }
+
+  Future<void> _loadOrderNames({
+    required Set<int> productIds,
+    required Set<int> memberIds,
+    required Set<String> profileIds,
+  }) async {
+    _watchNameCache();
+    final now = DateTime.now();
+    if (now.difference(_nameCacheAt) > _nameCacheTtl) {
+      _itemNameCache.clear();
+      _itemImageCache.clear();
+      _memberNameCache.clear();
+      _profileNameCache.clear();
+      _nameCacheAt = now;
+    }
+
+    final items = productIds.where((id) => !_itemNameCache.containsKey(id)).toList();
+    final members = memberIds.where((id) => !_memberNameCache.containsKey(id)).toList();
+    final profiles = profileIds.where((id) => !_profileNameCache.containsKey(id)).toList();
+
+    // Each lookup on its own: one failing must not blank the other names.
+    await Future.wait([
+      () async {
+        try {
+          for (final ids in _chunks(items)) {
+            List data;
+            try {
+              data = await _supabase.from('items').select('id, name, image_path').inFilter('id', ids);
+            } on PostgrestException {
+              // A database before v63 has no image_path: names still matter.
+              data = await _supabase.from('items').select('id, name').inFilter('id', ids);
+            }
+            for (final r in data) {
+              final id = _intOrNull(r['id']);
+              if (id == null) continue;
+              _itemNameCache[id] = r['name'] as String? ?? 'Item #$id';
+              final img = (r['image_path'] as String?)?.trim();
+              _itemImageCache[id] = (img == null || img.isEmpty) ? null : img;
+            }
+          }
+        } catch (e) {
+          debugPrint('[orderNames] items: $e');
+        }
+      }(),
+      () async {
+        try {
+          for (final ids in _chunks(members)) {
+            final data = await _supabase
+                .from('members')
+                .select('id, first_name, last_name, packages(name)')
+                .inFilter('id', ids);
+            for (final r in (data as List)) {
+              final id = _intOrNull(r['id']);
+              if (id == null) continue;
+              final name = '${r['first_name'] ?? ''} ${r['last_name'] ?? ''}'.trim();
+              final p = r['packages'];
+              final pkg = (p is Map ? p['name'] : (p is List && p.isNotEmpty ? p.first['name'] : null))
+                  ?.toString()
+                  .trim();
+              _memberNameCache[id] = (
+                name: name.isEmpty ? 'Member #$id' : name,
+                package: (pkg == null || pkg.isEmpty) ? null : pkg,
+              );
+            }
+          }
+        } catch (e) {
+          debugPrint('[orderNames] members: $e');
+        }
+      }(),
+      () async {
+        try {
+          for (final ids in _chunks(profiles)) {
+            final data = await _supabase.from('profiles').select('id, username').inFilter('id', ids);
+            final found = <String>{};
+            for (final r in (data as List)) {
+              final id = r['id'] as String;
+              found.add(id);
+              _profileNameCache[id] = r['username'] as String? ?? 'Unknown';
+            }
+            for (final id in ids) {
+              if (!found.contains(id)) _profileNameCache[id] = null;
+            }
+          }
+        } catch (e) {
+          debugPrint('[orderNames] profiles: $e');
+        }
+      }(),
+    ]);
+  }
+
+  /// Pictures (v63) for products by id, from the same cache as the names on
+  /// delivery orders: for screens that list POS sales, like My Purchases.
+  Future<Map<int, String?>> productImages(Iterable<int> ids) async {
+    final wanted = ids.where((id) => id > 0).toSet();
+    await _loadOrderNames(productIds: wanted, memberIds: const {}, profileIds: const {});
+    return {for (final id in wanted) id: _itemImageCache[id]};
+  }
+
   /// Resolves display names (product / member / cashier / rider) client-side
   /// and attaches [itemRows] to their orders — no reliance on PostgREST
   /// nested selects or foreign keys.
@@ -3920,26 +4938,31 @@ class SupabaseRepository {
     List<dynamic> rows, {
     List<Map<String, dynamic>> itemRows = const [],
   }) async {
-    final itemNames = <int, String>{};
-    final memberNames = <int, String>{};
-    var cashierNames = <String, String>{};
-    try {
-      final items = await fetchItems();
-      for (final i in items) {
-        if (i.id != null) itemNames[i.id!] = i.name;
-      }
-    } catch (_) {}
-    try {
-      final members = await fetchMembers(includeDeleted: true);
-      for (final m in members) {
-        if (m.id == null) continue;
-        final name = '${m.firstName ?? ''} ${m.lastName ?? ''}'.trim();
-        memberNames[m.id!] = name.isEmpty ? 'Member #${m.id}' : name;
-      }
-    } catch (_) {}
-    try {
-      cashierNames = await fetchProfilesMap();
-    } catch (_) {}
+    final maps = rows.cast<Map<String, dynamic>>();
+    await _loadOrderNames(
+      productIds: {
+        for (final r in itemRows) ?_intOrNull(r['product_id']),
+      },
+      memberIds: {for (final r in maps) ?_intOrNull(r['member_id'])},
+      profileIds: {
+        for (final r in maps) ...[
+          ?r['cashier_id']?.toString(),
+          ?r['delivery_id']?.toString(),
+        ],
+      },
+    );
+    final itemNames = _itemNameCache;
+    final memberNames = {
+      for (final e in _memberNameCache.entries) e.key: e.value.name,
+    };
+    final memberPackages = {
+      for (final e in _memberNameCache.entries)
+        if (e.value.package != null) e.key: e.value.package!,
+    };
+    final cashierNames = {
+      for (final e in _profileNameCache.entries)
+        if (e.value != null) e.key: e.value!,
+    };
 
     // Group lines by order_id, then attach each order's lines in memory.
     final itemsByOrder = <String, List<DeliveryOrderItem>>{};
@@ -3957,12 +4980,14 @@ class SupabaseRepository {
           .map(
             (it) => it.copyWith(
               productName: itemNames[it.productId] ?? 'Item #${it.productId}',
+              productImagePath: _itemImageCache[it.productId],
             ),
           )
           .toList();
       return order.copyWith(
         items: lines,
         memberName: memberNames[order.memberId],
+        memberPackage: memberPackages[order.memberId],
         cashierName: order.cashierId == null
             ? null
             : cashierNames[order.cashierId],
@@ -3980,19 +5005,27 @@ class SupabaseRepository {
   /// `memberId` must be the numeric `members.id` bigint — NOT the Supabase
   /// auth UUID. `items` is a `List<Map<String, dynamic>>` of
   /// `{"product_id": int, "quantity": int}` lines.
+  ///
+  /// [receiverName] / [receiverContact] (v57): who takes the order at the
+  /// door, and the number the rider calls. Checkout always passes them,
+  /// prefilled with the member's own. Needs v57: the keys are only sent
+  /// when non-null, and before v57 the function has no such parameters.
   Future<String> createDeliveryOrder({
     required int memberId,
     String? deliveryAddress,
     double? deliveryLatitude,
     double? deliveryLongitude,
     required List<Map<String, dynamic>> items,
+    String? receiverName,
+    String? receiverContact,
   }) async {
     assert(memberId > 0, 'p_member_id must be the numeric members.id bigint');
 
     // Parameter keys MUST match the SQL signature of
     // public.create_delivery_order(p_member_id bigint,
     //   p_delivery_address text, p_delivery_latitude double precision,
-    //   p_delivery_longitude double precision, p_items jsonb) exactly —
+    //   p_delivery_longitude double precision, p_items jsonb
+    //   [, p_receiver_name text, p_receiver_contact text]) exactly —
     // PostgREST resolves the function from these named arguments, and a
     // missing/mistyped key yields PGRST202 ("function not found").
     final params = <String, dynamic>{
@@ -4001,6 +5034,8 @@ class SupabaseRepository {
       'p_delivery_latitude': deliveryLatitude, // double?
       'p_delivery_longitude': deliveryLongitude, // double?
       'p_items': items, // List<Map<String, dynamic>>
+      if (receiverName != null) 'p_receiver_name': receiverName,
+      if (receiverContact != null) 'p_receiver_contact': receiverContact,
     };
 
     try {
@@ -4017,7 +5052,7 @@ class SupabaseRepository {
         debugPrint(
           'PGRST202: public.create_delivery_order was not found in the '
           'PostgREST schema cache. Apply '
-          'supabase/migrations/migration_v48_delivery_orders.sql, then '
+          'supabase/migrations/v40-v49/migration_v48_delivery_orders.sql, then '
           "reload the cache: NOTIFY pgrst, 'reload schema';",
         );
       }
@@ -4025,14 +5060,16 @@ class SupabaseRepository {
     }
   }
 
-  /// Cashier "Send Quote" — fixes every item price and proposes the initial
-  /// delivery fee via `cashier_send_quote`.
+  /// Cashier "Send Quote" — fixes every item price, proposes the delivery
+  /// fee and says how it travels ([route], one of [DeliveryRoute], v61)
+  /// via `cashier_send_quote`.
   Future<void> sendDeliveryQuote({
     required String orderId,
     required String cashierId,
     required double itemsTotal,
     required double deliveryFee,
     required List<Map<String, dynamic>> lines,
+    String route = DeliveryRoute.rider,
   }) async {
     await _supabase.rpc(
       'cashier_send_quote',
@@ -4042,7 +5079,100 @@ class SupabaseRepository {
         'p_items_total': itemsTotal,
         'p_delivery_fee': deliveryFee,
         'p_lines': lines,
+        'p_route': route,
       },
+    );
+    _changes.add('order_updated');
+  }
+
+  // ── Courier and outside payment (v61) ──────────────────────────────
+  // The staff calls throw, like the rest of the cashier's: the order pane
+  // shows the database's sentence. The member's return it, like
+  // payOrderWithFunds.
+
+  /// Member pays a courier order by GCash or another way outside the app.
+  Future<String?> memberChooseOutsidePayment(String orderId) =>
+      _memberOrderCall('member_choose_outside_payment', {'p_order_id': orderId});
+
+  /// Member says they sent the outside payment.
+  Future<String?> memberMarkPaymentSent({
+    required String orderId,
+    String? reference,
+  }) => _memberOrderCall('member_mark_payment_sent', {
+    'p_order_id': orderId,
+    'p_reference': reference,
+  });
+
+  Future<String?> _memberOrderCall(String fn, Map<String, dynamic> params) async {
+    try {
+      await _supabase.rpc(fn, params: params);
+      _changes.add('order_updated');
+      return null;
+    } on PostgrestException catch (e) {
+      debugPrint('[$fn] rejected: ${e.message}');
+      final msg = e.message.trim();
+      return msg.isEmpty ? 'That did not go through.' : msg;
+    } catch (e) {
+      debugPrint('[$fn] failed: $e');
+      return _friendlyError(e);
+    }
+  }
+
+  /// Staff tell the member where to send an outside payment.
+  Future<void> cashierSendPaymentDetails({
+    required String orderId,
+    required String details,
+  }) async {
+    await _supabase.rpc(
+      'cashier_send_payment_details',
+      params: {'p_order_id': orderId, 'p_details': details},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Staff checked: the outside payment arrived.
+  Future<void> cashierConfirmOutsidePayment(String orderId) async {
+    await _supabase.rpc(
+      'cashier_confirm_outside_payment',
+      params: {'p_order_id': orderId},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Staff checked: it did not arrive, or does not match. [note] says why.
+  Future<void> cashierRejectOutsidePayment({
+    required String orderId,
+    required String note,
+  }) async {
+    await _supabase.rpc(
+      'cashier_reject_outside_payment',
+      params: {'p_order_id': orderId, 'p_note': note},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// Booked with the courier. The goods leave the shelf now.
+  Future<void> cashierMarkShipped({
+    required String orderId,
+    required String tracking,
+  }) async {
+    await _supabase.rpc(
+      'cashier_mark_shipped',
+      params: {'p_order_id': orderId, 'p_tracking': tracking},
+    );
+    _changes.add('order_updated');
+  }
+
+  /// A shipped parcel that never reached the member. [returned]: it came
+  /// back, so its goods go back on the shelf.
+  Future<void> cashierCancelShippedOrder({
+    required String orderId,
+    required String reason,
+    required bool returned,
+  }) async {
+    await _supabase.rpc(
+      'cashier_cancel_shipped_order',
+      params: {'p_order_id': orderId, 'p_reason': reason, 'p_returned': returned},
     );
     _changes.add('order_updated');
   }
@@ -4114,10 +5244,26 @@ class SupabaseRepository {
   }
 
   void dispose() {
+    _rejoinTimer?.cancel();
+    _realtimeWatch?.cancel();
     _teardownRealtime();
     _supabase.removeAllChannels();
     _authSub?.cancel();
+    _lifecycle?.dispose();
     _changes.close();
     _orderEvents.close();
   }
+}
+
+/// What Settings → Live updates shows: each table's channel and how the
+/// server last answered it.
+class RealtimeStatus {
+  final Map<String, String> channels;
+  final String note;
+  final DateTime? at;
+
+  const RealtimeStatus({this.channels = const {}, this.note = '', this.at});
+
+  int get connected => channels.values.where((v) => v == 'connected').length;
+  bool get allConnected => channels.isNotEmpty && connected == channels.length;
 }

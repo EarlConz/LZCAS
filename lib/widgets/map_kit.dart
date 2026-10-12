@@ -14,6 +14,7 @@
 //   • MapBanner            one line of context, top-left
 //   • MapStatusChip        one fact about the whole map, bottom-right
 //   • MapFrame             the rounded, bordered card that clips a map
+//   • MapCredit            the tile and routing credits MapOverlay adds
 //   • osmTileLayer / fitPoints / MapEdge   the bits every FlutterMap needs
 //   • roadRoute / lastStretch / remainingAlongRoute   a stored road route
 //                          (v53): solid along the roads, dashed where no
@@ -27,6 +28,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:lzcas/theme.dart';
 import 'package:lzcas/utils/fonts.dart';
@@ -490,6 +492,10 @@ class MapOverlay extends StatelessWidget {
   final Widget? bottomLeft;
   final Widget? bottomRight;
 
+  /// Set when the map draws a stored road route ([roadRoute]): the credit
+  /// then names openrouteservice.org as well, as its terms require.
+  final bool showsRoadRoute;
+
   const MapOverlay({
     super.key,
     required this.map,
@@ -497,13 +503,26 @@ class MapOverlay extends StatelessWidget {
     this.topRight = const [],
     this.bottomLeft,
     this.bottomRight,
+    this.showsRoadRoute = false,
   });
+
+  /// Room left under the bottom corners for [MapCredit].
+  static const double _creditClearance = 24;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         Positioned.fill(child: map),
+        Positioned(
+          left: 48,
+          right: 0,
+          bottom: 0,
+          child: Align(
+            alignment: Alignment.bottomRight,
+            child: MapCredit(roadRoute: showsRoadRoute),
+          ),
+        ),
         if (topRight.isNotEmpty)
           Positioned(
             top: 12,
@@ -527,10 +546,56 @@ class MapOverlay extends StatelessWidget {
             child: topLeft!,
           ),
         if (bottomLeft != null)
-          Positioned(bottom: 12, left: 12, child: bottomLeft!),
+          Positioned(bottom: _creditClearance, left: 12, child: bottomLeft!),
         if (bottomRight != null)
-          Positioned(bottom: 12, right: 12, child: bottomRight!),
+          Positioned(bottom: _creditClearance, right: 12, child: bottomRight!),
       ],
+    );
+  }
+}
+
+/// Who the map comes from, in the bottom-right corner. Required, not
+/// decoration: OpenStreetMap's tile policy asks for "© OpenStreetMap
+/// contributors" on every map that shows its tiles, and openrouteservice's
+/// terms ask for their credit wherever one of their routes is drawn.
+/// Tapping it opens OpenStreetMap's copyright page, as their guidelines ask.
+class MapCredit extends StatelessWidget {
+  final bool roadRoute;
+
+  const MapCredit({super.key, this.roadRoute = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final text = roadRoute
+        // The short OSM form is theirs to allow where space is tight, and a
+        // phone-width map with both credits is exactly that.
+        ? '© OpenStreetMap · © openrouteservice.org by HeiGIT'
+        : '© OpenStreetMap contributors';
+    return Semantics(
+      link: true,
+      label: text,
+      child: GestureDetector(
+        onTap: () => launchUrl(
+          Uri.parse('https://www.openstreetmap.org/copyright'),
+          mode: LaunchMode.externalApplication,
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: (isDark ? StockpileColors.darkSurface : Colors.white).withAlpha(210),
+            borderRadius: const BorderRadius.only(topLeft: Radius.circular(6)),
+          ),
+          child: Text(
+            text,
+            textAlign: TextAlign.end,
+            style: StockpileFonts.satoshi(
+              fontSize: 10,
+              color: isDark ? StockpileColors.darkTextPrimary : StockpileColors.darkText,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -733,6 +798,9 @@ class FullscreenMapPage extends StatefulWidget {
   final Widget? legend;
   final Widget? statusChip;
 
+  /// See [MapOverlay.showsRoadRoute].
+  final bool showsRoadRoute;
+
   const FullscreenMapPage({
     super.key,
     required this.title,
@@ -741,6 +809,7 @@ class FullscreenMapPage extends StatefulWidget {
     this.polylines = const [],
     this.legend,
     this.statusChip,
+    this.showsRoadRoute = false,
   });
 
   @override
@@ -788,6 +857,7 @@ class _FullscreenMapPageState extends State<FullscreenMapPage> {
         ],
         bottomLeft: widget.legend,
         bottomRight: widget.statusChip,
+        showsRoadRoute: widget.showsRoadRoute,
       ),
     );
   }

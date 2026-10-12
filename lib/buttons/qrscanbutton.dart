@@ -54,10 +54,11 @@ class QRScanButton extends StatelessWidget {
   }
 
   Future<void> _lookupByQr(BuildContext context, String qrValue) async {
-    final rows = await repository.fetchMembers();
+    // Looked up by the QR column. It used to download every member, and
+    // past 1,000 members a real QR could come back "not found".
     Member? memberRow;
     try {
-      memberRow = rows.firstWhere((r) => r.qr == qrValue);
+      memberRow = await repository.getMemberByQr(qrValue);
     } catch (_) {
       memberRow = null;
     }

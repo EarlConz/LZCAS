@@ -9,9 +9,35 @@ Baseline: last released build is tag **v1.3.0** (2026-08-20).
 
 ---
 
-## Unreleased — next production release
+## v1.6.0 — 2026-10-13 · the delivery release
 
-**Status:** in development.
+**Status:** production database and Edge Functions done 2026-10-12/13; app
+build pending. Rollout record: `supabase/DELIVERY_ROLLOUT.md`; runbook:
+`docs/prod_rollout_delivery.md`.
+
+- **`enableDeliverySystem` is now `true` for every build** (was staging only).
+- **Migrations v48–v74** on production (v51 was already there). v71 and v72
+  were not needed on production: its commission triggers and the orders
+  `updated_at` trigger already existed. Checked one by one: earnings of all
+  105 members unchanged by v52/v56, `items_with_status` unchanged by v63,
+  no referral loops for v67, v1.5.1's writes rehearsed and rolled back
+  (`diagnostics/rehearse_v151_writes.sql`).
+- **Edge Functions** `order-route` (ORS), `order-push` and
+  `announcement-push` (FCM; the latter two `--no-verify-jwt`, signed with
+  `PUSH_WEBHOOK_SECRET` = Vault `order_push_secret`). The user-management
+  functions did not change.
+- **Rider accounts only after this app is installed**: v1.5.1 throws on the
+  `delivery` role.
+- The production Supabase secret key used as `SERVICE_ROLE_KEY` was rotated
+  on 2026-10-13. The Firebase Android API key is **not** rotated in 1.6.0
+  (built with the existing `google-services.json`); rotate it at the next
+  production release.
+
+---
+
+## Earlier, unreleased notes (shipped in 1.5.x)
+
+*Written before 1.5.0 and never moved under a version.*
 
 ### Added
 - **Admin fund adjustments** (migration v35) — `admin_adjust_member_funds`,

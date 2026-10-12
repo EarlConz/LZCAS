@@ -173,8 +173,10 @@ delivery_update_position(lat, lng)            caller is_delivery(); writes own p
 ### RLS on `orders` (part of v49)
 
 - member: rows where `member_id` maps to their `profiles.member_id`
-- cashier / branch cashier: rows where `cashier_id = auth.uid()`, plus
-  unassigned *Order Placed* rows (so they can pick them up)
+- cashier: rows where `cashier_id = auth.uid()`, plus unassigned rows (so
+  they can pick them up). Main cashiers only — branch cashier and inventory
+  accounts see none (client decision; enforced in v55 by
+  `can_handle_orders()`, which replaced `is_staff()` in every delivery rule)
 - rider: rows where `delivery_id = auth.uid()`
 - admin: everything
 

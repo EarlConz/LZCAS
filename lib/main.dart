@@ -14,6 +14,7 @@ import 'router/app_router.dart';
 import 'router/route_guard.dart';
 import 'services/notification_service.dart';
 import 'services/delivery_notification_service.dart';
+import 'services/push_service.dart';
 import 'services/config_service.dart';
 import 'services/updater_service.dart';
 
@@ -67,6 +68,9 @@ Future<void> main() async {
   final deliveryNotificationService = DeliveryNotificationService();
   // Off until the delivery release: nothing to listen to, nothing to chime.
   if (enableDeliverySystem) deliveryNotificationService.start(authState);
+
+  // ── Push notifications (Android; reach the phone when the app is closed)
+  if (enableDeliverySystem) PushService().start(authState);
 
   runApp(
     MultiProvider(

@@ -127,10 +127,10 @@ class LocationSelectionWidget extends StatefulWidget {
 
   @override
   State<LocationSelectionWidget> createState() =>
-      _LocationSelectionWidgetState();
+      LocationSelectionWidgetState();
 }
 
-class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
+class LocationSelectionWidgetState extends State<LocationSelectionWidget> {
   bool _loading = true;
   bool _saving = false;
   bool _searching = false;
@@ -489,15 +489,15 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
     );
   }
 
-  /// Persist the pin and whatever is in the address field.
-  Future<void> _saveLocation() async {
-    if (_saving) return;
-    if (!_formKey.currentState!.validate()) return;
+  /// Persist the pin and whatever is in the address field. True when saved.
+  Future<bool> _saveLocation() async {
+    if (_saving) return false;
+    if (!_formKey.currentState!.validate()) return false;
     final lat = _detectedLat;
     final lng = _detectedLng;
     if (lat == null || lng == null) {
       BotToast.showText(text: 'Detect your location or pick a place first.');
-      return;
+      return false;
     }
     if (_needsAdjustment) {
       BotToast.showText(
@@ -505,25 +505,41 @@ class _LocationSelectionWidgetState extends State<LocationSelectionWidget> {
             'This point is only approximate. Tap Adjust pin and place it '
             'exactly, or pick a search result, then save.',
       );
-      return;
+      return false;
     }
 
     setState(() => _saving = true);
     try {
       await widget.onSave(lat, lng, _detailCtrl.text.trim());
-      if (!mounted) return;
+      if (!mounted) return true;
       BotToast.showText(
         text: _detectedApproximate
             ? widget.approximateToast
             : widget.savedToast,
       );
       await _load();
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       BotToast.showText(text: 'Could not save location: $e');
+      return false;
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// Saves the pin and address if they differ from what is saved, exactly
+  /// as the action button would. For a host with its own "use this" button
+  /// (the member's Review order): a moved pin or an edited address must not
+  /// be dropped because the member did not also tap save. True when what
+  /// is saved now matches what is on screen.
+  Future<bool> saveIfChanged() async {
+    if (_detectedPoint == null) return _location != null;
+    final saved = _location;
+    final moved = saved == null || (_driftFromSaved ?? 0) >= 1;
+    final retyped = _detailCtrl.text.trim() != (saved?.address ?? '').trim();
+    if (!moved && !retyped) return true;
+    return _saveLocation();
   }
 
   @override

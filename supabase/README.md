@@ -7,7 +7,7 @@ nothing here is auto-migrated. Folders group files by purpose.
 supabase/
 ├── functions/     Edge Functions (create-user, create-member-user, …)
 ├── schema/        Baseline objects — run on a fresh project
-├── migrations/    Ordered, apply-once changes (v2 … v53)
+├── migrations/    Ordered, apply-once changes (v2 … v74), a folder per ten versions
 ├── rollbacks/     Undo scripts, paired with a migration
 ├── diagnostics/   Read-only tools (write nothing)
 └── maintenance/   Destructive/reset scripts — use with care
@@ -54,6 +54,11 @@ infers the same thing by checking for the objects each migration creates.
 Numbered changes applied over time. Each file's header explains what it does
 and whether it supersedes an earlier one. Apply in ascending version order on a
 fresh DB; on an existing DB only the ones not yet applied.
+
+The files sit in one folder per ten versions (`v02-v09/`, `v10-v19/`, …
+`v70-v79/`); the file names are unchanged, so a version's file is always
+`<its tens>/migration_vNN_<name>.sql`. A new migration goes in the folder for
+its number, creating the next one at v80.
 
 > The _"applied to staging and prod"_ / _"not yet applied anywhere"_ labels
 > below are **historical notes, not current state** — they were accurate when
@@ -403,8 +408,212 @@ the build that stops recording sales client-side._
   Any order in any order: without the function, the key or the columns, the
   maps fall back to the straight line they drew before.
 
-  The payment hardening noted with v52 — recording a counter payment, and
-  refusing to mark an unpaid order delivered — is **v54**, not yet written.
+**Payment hardening (v54)** — _applied to staging._
+
+- v54 — `payment_method` accepts `'counter'` and a counter sale records it;
+  `delivery_mark_delivered` refuses an unpaid order; `order_fee_offers`
+  keeps every delivery-fee offer (written by a trigger).
+
+**Main cashiers only (v55)** — _requires v54._
+
+- v55 — `can_handle_orders()` (admin or cashier) replaces `is_staff()` in
+  every delivery rule: the staff arm of `orders_select`, quoting, answering
+  a counter-offer, dispatch, cancelling, completing and cash remittance.
+  Inventory and branch cashier accounts pass `is_staff()`, so until now they
+  could work delivery orders by calling the RPCs directly, though the app
+  never showed them the page. `get_member_earnings` keeps `is_staff()` — it
+  is not a delivery rule.
+
+**Withdrawal reservations (v56)** — _requires v52._
+
+- v56 — a pending withdrawal holds its amount. A trigger on
+  `withdrawal_requests` refuses a request that does not fit in what is left
+  after approved AND pending requests, refuses an approval that would
+  overdraw, and stops members inserting a request that is already approved.
+  Being a trigger, it also covers the 1.5.1 app, which writes the table
+  directly. `get_member_earnings` gains `pending…` and `available…` keys
+  (existing keys unchanged); `pay_order_with_funds` spends only the
+  available figure. Both take one per-member lock, so simultaneous requests
+  and payments are checked one at a time. Run section 2 of
+  `diagnostics/audit_withdrawal_overdrafts.sql` before approving the queue
+  that was there before it.
+
+**Refunds and receiver (v57)** — _requires v56._
+
+- v57 — cancelling an order paid from funds refunds it: one positive
+  `member_transactions` row under the payment's own prefix, so every sum that
+  subtracted the payment adds it back; the order reads `payment_status =
+  'refunded'`. `create_delivery_order` gains optional `p_receiver_name` /
+  `p_receiver_contact` (the five-argument version is dropped, not overloaded).
+  Verify query 2 lists paid orders cancelled before v57, which kept the money.
+
+**Push notifications (v58)** — _needs the `order-push` Edge Function, a Firebase
+project and two Vault secrets. Does nothing until all are in place._
+
+- v58 — `push_tokens` (one row per phone, written only through
+  `register_push_token` / `unregister_push_token`) and a trigger on `orders`
+  that queues a call to `order-push` through pg_net when an order's status or
+  rider changes. The function decides who to tell (the same rules as the
+  in-app alerts) and sends through Firebase Cloud Messaging, so the alert
+  reaches a phone whose app is closed. Android only.
+
+  To turn it on in an environment:
+
+  1. Firebase: one project with Android apps `com.lzcas.app` and
+     `com.lzcas.app.staging`; `google-services.json` goes in `android/app/`.
+     Service accounts → Generate new private key. That file is a secret.
+  2. Make a long random shared secret. Set the function's secrets
+     `PUSH_WEBHOOK_SECRET` (that value) and `FIREBASE_SERVICE_ACCOUNT` (the
+     whole key file) with `supabase secrets set --env-file <file>`.
+  3. `supabase functions deploy order-push --no-verify-jwt --project-ref <ref>`
+     — no JWT check, because the caller is the database, which proves itself
+     with the shared secret instead.
+  4. Apply v58, then in the SQL editor create the two Vault secrets:
+     `order_push_url` = `https://<ref>.supabase.co/functions/v1/order-push`,
+     and `order_push_secret` = the same shared secret as step 2.
+  5. `notify pgrst, 'reload schema';` then reopen the app on each phone and
+     check `select * from public.push_tokens;` has a row per phone.
+
+  Verified on staging 2026-10-01: pushes arrive with sound, app backgrounded
+  or swiped away. Two things went wrong on the way; check them first:
+
+  - **No rows in `push_tokens`** after applying v58: the API had not picked up
+    `register_push_token` yet. The schema reload in step 5 fixed it.
+  - **`401 {"error":"Unauthorized"}`** in `net._http_response`: the Vault
+    secret did not match `PUSH_WEBHOOK_SECRET`. On staging the placeholder
+    text had been saved instead of the value. Set both from ONE PowerShell
+    variable, never by hand: `supabase secrets set "PUSH_WEBHOOK_SECRET=$secret"`,
+    then `Set-Clipboard` the line
+    `select vault.update_secret((select id from vault.secrets where name = 'order_push_secret'), '<secret>');`
+    and paste it straight into the SQL editor. To confirm they match without
+    revealing either, compare `supabase secrets list`'s digest with
+    `encode(extensions.digest(decrypted_secret, 'sha256'), 'hex')` from
+    `vault.decrypted_secrets` (a 64-character hex secret has length 64).
+
+  `net._http_response` shows each call and its answer: `200 {"sent":N}` is
+  success; `sent: 0` means nobody to notify had a registered phone.
+
+**No rider before payment (v59)** — _requires v58; deploy `order-push` from
+the same commit._
+
+- v59 — `cashier_assign_rider` refuses an Agreed order until it is paid from
+  funds or cash on delivery is chosen (client decision, 2026-10-01). Counter
+  handover and reassignment are unaffected. The push trigger also fires on
+  `payment_status` / `payment_method` changes and sends their old values, so
+  "Ready to dispatch" goes out when the order becomes dispatchable, not when
+  the price is agreed.
+
+**Reduce stock in one step (v60)** — _independent of the delivery chain; ship
+with the app build that calls it._
+
+- v60 — `reduce_item_stock(item, quantity, reason, on_behalf_of)`: locks the
+  item row, refuses a reduction past the current stock (the stock goes in the
+  error's `detail`, `hint = 'stock_too_low'`), writes stock + status and the
+  `stock_out` movement in one transaction. Used by Edit Product's Reduce
+  Stock and by approving an inventory user's reduction request; before this
+  both read and wrote from the app, and an over-large reduction was skipped
+  silently. POS sales still lower stock from the app (see the file's header).
+
+**Courier delivery (v61)** — _requires v59; deploy
+`order-push` from the same commit; ship with the app build that sends the
+route._
+
+- v61 — while pricing, the cashier or admin chooses Rider, LBC or J&T
+  (`cashier_send_quote` gains `p_route`, default `'rider'`, so older builds
+  still quote). A courier order has no cash on delivery: the member pays
+  from Balance / Total Earnings, or outside the app (GCash or similar:
+  `member_choose_outside_payment` → staff `cashier_send_payment_details` →
+  member `member_mark_payment_sent` → staff
+  `cashier_confirm_outside_payment` or `cashier_reject_outside_payment`).
+  Staff then book it and `cashier_mark_shipped` with the tracking number:
+  status `Shipped`, and the **stock leaves now**. The sale and Group Sales
+  commissions still wait for the member's "I received it"
+  (`member_confirm_received`, or staff `complete_delivery_order` as an
+  override). `cashier_cancel_shipped_order` cancels a parcel that never
+  arrived, returning the stock only if it came back. Stock-taking moved out
+  of `order_record_sales` into `_order_take_stock` (idempotent via
+  `stock_taken_at`), and v57's refund into `_order_refund_funds`. The push
+  trigger also fires on the three outside-payment steps and sends `event`.
+  Decisions: the "Courier Delivery Flow (LBC / J&T)" doc (2026-10-01).
+
+**Short cash code, busy riders (v62)** — _requires v61; ship with the app
+build that formats the code._
+
+- v62 — new cash-on-delivery codes are 8 characters (0-9, A-F), shown as
+  `AB12-CD34`; `confirm_cod_delivery` ignores dashes, spaces and case, so
+  older 32-character codes still work. `delivery_busy_rider_ids()` returns
+  (rider, order) for every order on the road, so a cashier sees a rider as
+  busy even when another cashier or an admin dispatched them.
+
+**Product pictures (v63)** — _independent; apply before the app build that
+uploads pictures._
+
+- v63 — `items.image_path` (a storage path; null shows the letter tile),
+  `items_with_status` rebuilt so the column reaches the inventory list, and a
+  PUBLIC `product-images` bucket (5 MB, JPEG/PNG) that only admins write to.
+  Public because every Marketplace member sees every product, so no signed
+  URLs; file names are random, so a replaced picture never serves stale.
+  Rollback leaves the bucket (Supabase will not delete one with files).
+
+**POS sale guard and Edit Sale (v64)** — _apply before the app build that
+uses them: checkout calls `pos_record_sale`._
+
+- v64 — `pos_record_sale(lines, buyer, name, ts)` locks each product, refuses
+  the whole cart if any line wants more than is left, then subtracts and
+  inserts every line in one transaction (central POS; branch cashiers keep
+  `record_branch_sale`). `admin_edit_sale_group(user, ts, buyer, lines)`,
+  admins only, replaces one checkout and moves stock by the difference;
+  refused for delivery-order, package and branch sales. Group Sales follow
+  through the v19 triggers.
+
+**Central Delivery Orders (v65)** — _apply with the app build that shows
+another cashier's order read-only._
+
+- v65 — `orders_select` lets every admin and main cashier see every order
+  (was: their own plus unclaimed). Changing an order still needs its cashier
+  or an admin. `order_items` and `order_fee_offers` follow the parent.
+
+**Edit Sale fix (v66)** — _no app change; apply any time after v64._
+
+- v66 — `_item_status(bigint, text)`, handing over to the integer version.
+  Edit Sale sums quantities (a bigint) and failed without it.
+
+**No referral loops (v67)** — _independent; apply any time._
+
+- v67 — trigger `members_guard_referrer`: on insert or a changed
+  `referrer_id`, refuses the member themselves or anyone in their downline.
+  Existing loops are left alone and don't block other edits.
+
+**Live updates (v68)** — _independent; apply any time._
+
+- v68 — adds every table the app subscribes to (items, members, sales,
+  pending_requests, withdrawal_requests, orders) to `supabase_realtime`
+  when missing; the ledger note records which, for the rollback.
+
+**Unique tracking numbers (v69)** — _needs v61._
+
+- v69 — trigger `orders_guard_tracking_number` refuses a tracking number
+  another order already has, compared by `_tracking_key()` (upper case, no
+  spaces or dashes). Existing duplicates are left alone.
+
+**Live earnings (v70)** — _independent; apply any time._
+
+- v70 — adds `member_transactions` to `supabase_realtime`, so a member's
+  Earnings update when a commission is written. RLS (v7) still limits each
+  member to their own rows.
+
+**Commission triggers (v71)** — _staging needed it; production: check first._
+
+- v71 — re-creates, verbatim from their last definitions, the Group Sales
+  (v19) and referral-bonus (v25–v27) functions, `process_package_upgrade`
+  (v26) and the four triggers on `sales`. No backfill: staging uses
+  `maintenance/backfill_missed_commissions_staging.sql`.
+- v72 — re-creates v48's `orders_touch_updated_at` trigger (missing on
+  staging). Never re-run v48 for it: that restores old order functions.
+- v73 — puts `announcements` and `branch_stock` in the realtime
+  publication, so a cashier's post and branch stock changes reach other
+  devices by themselves. Adds only what is missing; the rollback removes
+  only what it added.
 
 > **Rollout order (all environments):** DB migrations first (invisible/reversible)
 > → app release second (`UserRole.fromString` throws on unknown roles, so the new
