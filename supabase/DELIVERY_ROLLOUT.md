@@ -150,5 +150,6 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-12 | Checkpoint on production: v1.5.1's writes rehearsed and rolled back (`diagnostics/rehearse_v151_writes.sql`): till sale, withdrawal, overdraw refused, approval, earnings read, all OK. |
 | 2026-10-12 | v70, v73, v74 applied on production; v71 and v72 not needed there (their triggers already existed). **Production database is complete for the release.** RLS is on for every table the release created or put in realtime. Next: Edge Functions, secrets and Vault. |
 | 2026-10-13 | Production phase 3 done: ORS_API_KEY, SERVICE_ROLE_KEY (a new secret key; an exposed one was replaced), FIREBASE_SERVICE_ACCOUNT, a new PUSH_WEBHOOK_SECRET; order-route, order-push and announcement-push deployed; Vault order_push_url and order_push_secret set. Checked: the Vault secret's sha256 matches the function secret's digest, and both push functions answer 400 "… is required" to an empty signed call. Next: the app (phase 4). |
+| 2026-10-13 | Production SERVICE_ROLE_KEY rotated (the secret key exposed during phase 3 replaced, then deleted). Firebase Android key rotation deferred to the next production release; v1.6.0 builds with the current google-services.json. |
 | 2026-10-06 | Added v73 (realtime announcements and branch stock), not applied anywhere yet. |
 | 2026-10-06 | v73 applied on staging. |

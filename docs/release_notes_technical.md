@@ -28,9 +28,10 @@ build pending. Rollout record: `supabase/DELIVERY_ROLLOUT.md`; runbook:
   functions did not change.
 - **Rider accounts only after this app is installed**: v1.5.1 throws on the
   `delivery` role.
-- Pending before or with the build: rotate the Firebase Android API key
-  (new `google-services.json`), and the production Supabase secret key set
-  as `SERVICE_ROLE_KEY`.
+- The production Supabase secret key used as `SERVICE_ROLE_KEY` was rotated
+  on 2026-10-13. The Firebase Android API key is **not** rotated in 1.6.0
+  (built with the existing `google-services.json`); rotate it at the next
+  production release.
 
 ---
 
