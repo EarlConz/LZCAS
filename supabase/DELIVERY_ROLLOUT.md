@@ -83,13 +83,13 @@ Every migration has a rollback in `supabase/rollbacks/`, named after it.
 
 | What | Staging | Production |
 |---|:-:|:-:|
-| `order-route` deployed | ✅ | ❌ |
-| secret `ORS_API_KEY` (openrouteservice) | ✅ | ❌ |
-| `order-push` deployed **with `--no-verify-jwt`** | ✅ 2026-10-05 (admin rules of 2026-10-03) | ❌ |
-| secrets `PUSH_WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT`, `SERVICE_ROLE_KEY` | ✅ | ❌ |
-| Vault `order_push_url` = the production `order-push` URL | ✅ | ❌ |
-| Vault `order_push_secret` = the same value as `PUSH_WEBHOOK_SECRET` | ✅ | ❌ |
-| `announcement-push` deployed **with `--no-verify-jwt`** (v74; same secrets and Vault entries as order-push) | ✅ 2026-10-08 | ❌ |
+| `order-route` deployed | ✅ | ✅ 2026-10-13 |
+| secret `ORS_API_KEY` (openrouteservice) | ✅ | ✅ 2026-10-13 |
+| `order-push` deployed **with `--no-verify-jwt`** | ✅ 2026-10-05 (admin rules of 2026-10-03) | ✅ 2026-10-13 |
+| secrets `PUSH_WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT`, `SERVICE_ROLE_KEY` | ✅ | ✅ 2026-10-13 |
+| Vault `order_push_url` = the production `order-push` URL | ✅ | ✅ 2026-10-13 |
+| Vault `order_push_secret` = the same value as `PUSH_WEBHOOK_SECRET` | ✅ | ✅ 2026-10-13 |
+| `announcement-push` deployed **with `--no-verify-jwt`** (v74; same secrets and Vault entries as order-push) | ✅ 2026-10-08 | ✅ 2026-10-13 |
 
 Set secrets from a variable, never by typing them into chat or a file in the
 repo. The README's v58 section has the commands, the Set-Clipboard trick for
@@ -149,5 +149,6 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-12 | v59–v69 applied on production, each verified. v63: items_with_status returns the same 23 rows. v67: no referral loops at any depth. v68 added nothing (all six tables were already published). |
 | 2026-10-12 | Checkpoint on production: v1.5.1's writes rehearsed and rolled back (`diagnostics/rehearse_v151_writes.sql`): till sale, withdrawal, overdraw refused, approval, earnings read, all OK. |
 | 2026-10-12 | v70, v73, v74 applied on production; v71 and v72 not needed there (their triggers already existed). **Production database is complete for the release.** RLS is on for every table the release created or put in realtime. Next: Edge Functions, secrets and Vault. |
+| 2026-10-13 | Production phase 3 done: ORS_API_KEY, SERVICE_ROLE_KEY (a new secret key; an exposed one was replaced), FIREBASE_SERVICE_ACCOUNT, a new PUSH_WEBHOOK_SECRET; order-route, order-push and announcement-push deployed; Vault order_push_url and order_push_secret set. Checked: the Vault secret's sha256 matches the function secret's digest, and both push functions answer 400 "… is required" to an empty signed call. Next: the app (phase 4). |
 | 2026-10-06 | Added v73 (realtime announcements and branch stock), not applied anywhere yet. |
 | 2026-10-06 | v73 applied on staging. |
