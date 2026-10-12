@@ -13,18 +13,13 @@ const bool enableMemberLocationSetup = true;
 /// module, the order notification chimes, and the rider-related parts of
 /// the admin Cashier Locations map.
 ///
-/// On for STAGING builds only, until the delivery release. Staging has the
-/// delivery migrations (v48–v56); production does not, so a production
-/// build with this on would show screens that fail against it. Tying it to
-/// the build flavor rather than the branch means every branch — `main`
-/// included — is safe to build for production, and every staging build
-/// (which always passes `--dart-define=APP_FLAVOR=staging`) gets delivery.
+/// On for every build since v1.6.0 (2026-10-13). Until then it was on for
+/// staging builds only (`String.fromEnvironment('APP_FLAVOR') == 'staging'`),
+/// because production lacked the delivery migrations. Production got v48–v74
+/// on 2026-10-12 (supabase/DELIVERY_ROLLOUT.md), so production builds now
+/// include delivery too.
 ///
-/// Still a compile-time constant: production builds tree-shake the delivery
-/// screens out entirely. Exact match, no trimming — `AppFlavor.current`
-/// normalises, but that is not const, and the member sidebar needs this to
-/// be. The staging build commands pass exactly `staging`.
-///
-/// On release day, once production has the migrations: set this to `true`.
-const bool enableDeliverySystem =
-    String.fromEnvironment('APP_FLAVOR') == 'staging';
+/// Kept as a flag rather than deleted: turning it back to `false` hides
+/// every delivery screen again (a compile-time constant, tree-shaken out),
+/// should a release ever need to ship without delivery.
+const bool enableDeliverySystem = true;
