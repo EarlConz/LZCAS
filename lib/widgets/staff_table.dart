@@ -150,13 +150,18 @@ class StaffChip extends StatelessWidget {
           child: Container(
             height: 36,
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            alignment: Alignment.center,
-            child: Text(
-              text,
-              style: StockpileFonts.satoshi(
-                fontSize: 15,
-                fontWeight: selected || tone != StaffTone.neutral ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? s.chipOnText : offText,
+            // Centred with widthFactor 1, not Container.alignment: an
+            // aligned Container fills the width it is offered, so in the
+            // chip bar's Wrap every chip became a full-width bar (1.6.0, PC).
+            child: Center(
+              widthFactor: 1,
+              child: Text(
+                text,
+                style: StockpileFonts.satoshi(
+                  fontSize: 15,
+                  fontWeight: selected || tone != StaffTone.neutral ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? s.chipOnText : offText,
+                ),
               ),
             ),
           ),

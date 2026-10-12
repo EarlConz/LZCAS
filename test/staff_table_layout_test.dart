@@ -137,6 +137,18 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('chips hug their labels and sit in one row on a PC', (tester) async {
+    // 1.6.0 smoke test: each chip filled the whole width, one per line.
+    await _pumpAt(tester, const Size(1366, 768), _transactionsTable());
+    final chips = tester.widgetList<StaffChip>(find.byType(StaffChip)).toList();
+    expect(chips, hasLength(4));
+    final boxes = [for (final c in chips) tester.getRect(find.byWidget(c))];
+    for (final r in boxes) {
+      expect(r.width, lessThan(400), reason: 'a chip is as wide as its label (the bug made it ~940)');
+    }
+    expect(boxes.map((r) => r.top).toSet(), hasLength(1), reason: 'all on one line');
+  });
+
   testWidgets('phone rows fit a 360 px phone', (tester) async {
     await _pumpAt(tester, const Size(360, 780), _phoneRows());
     expect(tester.takeException(), isNull);
