@@ -68,11 +68,11 @@ order by version;
 | v67 | `migration_v67_no_referral_loops.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Refuses a referrer from the member's own downline (referral loops, X6). Existing loops untouched; the app also hides those choices. |
 | v68 | `migration_v68_realtime_tables.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Puts items, members, sales, the request queues and orders in the realtime publication, so changes reach other devices (Part 3 live-update failures). Adds only what is missing. |
 | v69 | `migration_v69_unique_tracking_numbers.sql` | ✅ 2026-10-04 | ✅ 2026-10-12 | Refuses a tracking number already on another order (ignores case, spaces, dashes). Needs v61. The app's Generate button relies on it to avoid repeats. |
-| v70 | `migration_v70_realtime_member_transactions.sql` | ✅ 2026-10-05 | ❌ | Puts member_transactions in realtime so a member's Earnings update by themselves (G2). Members still only receive their own rows (v7). |
-| v71 | `migration_v71_restore_commission_triggers.sql` | ✅ 2026-10-05 | ❓ | **Staging had no commission triggers** (Group Sales, referral bonuses): built from schema.sql, v19–v27 only assumed by v45. Restores the latest versions. Production: check section 1 of `diagnose_recent_commissions.sql` first; if the 4 triggers are there, it is not needed. **Production 2026-10-12: all 4 present and enabled, so v71 is skipped there.** Then on staging only: `maintenance/backfill_missed_commissions_staging.sql`. |
-| v72 | `migration_v72_orders_touch_updated_at.sql` | ✅ 2026-10-05 | ❓ | Restores the orders `updated_at` trigger (missing on staging; found by `find_missing_objects.sql`). Do NOT re-run v48 for it. Harmless where present. |
-| v73 | `migration_v73_realtime_announcements_branch_stock.sql` | ✅ 2026-10-06 | ❌ | Puts announcements and branch_stock in realtime, so a cashier's post and branch stock changes reach the admin's screens by themselves (Part 5, G2 note). Adds only what is missing. |
-| v74 | `migration_v74_announcement_push.sql` | ❌ | ❌ | Push notification for each new announcement, sent when it goes live (Part 7, AT2). Needs v58 and its Vault secrets; no new ones. Deploy `announcement-push` with it. Scheduled announcements need pg_cron (enabled by the migration where allowed). |
+| v70 | `migration_v70_realtime_member_transactions.sql` | ✅ 2026-10-05 | ✅ 2026-10-12 | Puts member_transactions in realtime so a member's Earnings update by themselves (G2). Members still only receive their own rows (v7). |
+| v71 | `migration_v71_restore_commission_triggers.sql` | ✅ 2026-10-05 | — not needed | **Staging had no commission triggers** (Group Sales, referral bonuses): built from schema.sql, v19–v27 only assumed by v45. Restores the latest versions. Production: check section 1 of `diagnose_recent_commissions.sql` first; if the 4 triggers are there, it is not needed. **Production 2026-10-12: all 4 present and enabled, so v71 is skipped there.** Then on staging only: `maintenance/backfill_missed_commissions_staging.sql`. |
+| v72 | `migration_v72_orders_touch_updated_at.sql` | ✅ 2026-10-05 | — not needed (v48 made it) | Restores the orders `updated_at` trigger (missing on staging; found by `find_missing_objects.sql`). Do NOT re-run v48 for it. Harmless where present. |
+| v73 | `migration_v73_realtime_announcements_branch_stock.sql` | ✅ 2026-10-06 | ✅ 2026-10-12 | Puts announcements and branch_stock in realtime, so a cashier's post and branch stock changes reach the admin's screens by themselves (Part 5, G2 note). Adds only what is missing. |
+| v74 | `migration_v74_announcement_push.sql` | ✅ 2026-10-08 | ✅ 2026-10-12 | Push notification for each new announcement, sent when it goes live (Part 7, AT2). Needs v58 and its Vault secrets; no new ones. Deploy `announcement-push` with it. Scheduled announcements need pg_cron (enabled by the migration where allowed). |
 
 ¹ Staging's ledger names v52 `saved_items_policy_repair`; its changes are in
 place. On production it will record itself correctly.
@@ -89,7 +89,7 @@ Every migration has a rollback in `supabase/rollbacks/`, named after it.
 | secrets `PUSH_WEBHOOK_SECRET`, `FIREBASE_SERVICE_ACCOUNT`, `SERVICE_ROLE_KEY` | ✅ | ❌ |
 | Vault `order_push_url` = the production `order-push` URL | ✅ | ❌ |
 | Vault `order_push_secret` = the same value as `PUSH_WEBHOOK_SECRET` | ✅ | ❌ |
-| `announcement-push` deployed **with `--no-verify-jwt`** (v74; same secrets and Vault entries as order-push) | ❌ | ❌ |
+| `announcement-push` deployed **with `--no-verify-jwt`** (v74; same secrets and Vault entries as order-push) | ✅ 2026-10-08 | ❌ |
 
 Set secrets from a variable, never by typing them into chat or a file in the
 repo. The README's v58 section has the commands, the Set-Clipboard trick for
@@ -147,5 +147,7 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-12 | Production rollout started. Snapshot `snapshot_20261012` taken (free tier: no dashboard backups). Readiness clean: no overdrawing withdrawals, no referral loops, v71 not needed, pg_cron installed. v48 and v49 applied on production. |
 | 2026-10-12 | v50, v52–v58 applied on production, each verified. v52 and v56: all 105 members' earnings unchanged (compared with a copy taken before v52); the 6 pending withdrawals still approvable under v56. |
 | 2026-10-12 | v59–v69 applied on production, each verified. v63: items_with_status returns the same 23 rows. v67: no referral loops at any depth. v68 added nothing (all six tables were already published). |
+| 2026-10-12 | Checkpoint on production: v1.5.1's writes rehearsed and rolled back (`diagnostics/rehearse_v151_writes.sql`): till sale, withdrawal, overdraw refused, approval, earnings read, all OK. |
+| 2026-10-12 | v70, v73, v74 applied on production; v71 and v72 not needed there (their triggers already existed). **Production database is complete for the release.** RLS is on for every table the release created or put in realtime. Next: Edge Functions, secrets and Vault. |
 | 2026-10-06 | Added v73 (realtime announcements and branch stock), not applied anywhere yet. |
 | 2026-10-06 | v73 applied on staging. |

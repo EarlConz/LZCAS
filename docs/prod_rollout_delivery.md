@@ -15,8 +15,8 @@ you go.
 | Production project | `cyfyydzxdsdzycbpvqox` |
 | Staging project | `sisyujbpcueifeonnzfw` |
 | Production app today | **v1.5.1** (`1.5.1+5`, delivery off) |
-| Production database (as far as the notes know) | v46, plus v47 and v51; v48 unknown |
-| This release | migrations **v48 → v69**, Edge Functions `order-push` and `order-route`, app **v1.6.0** |
+| Production database | v74 as of 2026-10-12 (v71 and v72 not needed there); see the tracker |
+| This release | migrations **v48 → v74**, Edge Functions `order-route`, `order-push` and `announcement-push`, app **v1.6.0** |
 
 > ⛔ **Never on production:** `supabase/schema/schema.sql` and
 > `supabase/maintenance/wipe_delivery_orders_staging.sql`. Production only
@@ -126,12 +126,17 @@ Each file ends with a `Verify` block; run it where noted.
 | [ ] | v67 | `migration_v67_no_referral_loops.sql` | |
 | [ ] | v68 | `migration_v68_realtime_tables.sql` | `select note from schema_migrations where version = 68;` says which tables it added. |
 | [ ] | v69 | `migration_v69_unique_tracking_numbers.sql` | |
+| [ ] | v70 | `migration_v70_realtime_member_transactions.sql` | member_transactions in realtime; RLS on it. |
+| [ ] | v71 | `migration_v71_restore_commission_triggers.sql` | **Only if** `prod_readiness_delivery.sql` row 6 lacks the 4 triggers. Production 2026-10-12: not needed. |
+| [ ] | v72 | `migration_v72_orders_touch_updated_at.sql` | **Only if** `check_applied_migrations.sql` says MISSING after v48. Production 2026-10-12: not needed. |
+| [ ] | v73 | `migration_v73_realtime_announcements_branch_stock.sql` | Both in realtime; RLS on both. |
+| [ ] | v74 | `migration_v74_announcement_push.sql` | `pushed_at`, the trigger and the `announcement-push` cron job; old announcements marked pushed. |
 
 - [ ] **Check the whole set.** Run `check_applied_migrations.sql` again:
-      every row v35–v69 reads **APPLIED**.
-- [ ] **v1.5.1 still works.** On a v1.5.1 install against production: log in
-      as a cashier, make one POS sale, open Members and Inventory; log in as
-      a member and open the earnings screen. Nothing errors.
+      every row v35–v74 reads **APPLIED**.
+- [ ] **v1.5.1 still works.** Where the live app can't be used for testing,
+      run `supabase/diagnostics/rehearse_v151_writes.sql`: it does v1.5.1's
+      writes as the real accounts and rolls them back. Expect "REHEARSAL OK".
 
 **If a migration fails:** don't continue. The SQL editor normally runs a
 whole file as one transaction, so a failed file usually leaves nothing
@@ -154,6 +159,7 @@ v58 sections). Point the CLI at the **production** ref.
 - [ ] Secrets `FIREBASE_SERVICE_ACCOUNT`, `PUSH_WEBHOOK_SECRET` and
       `SERVICE_ROLE_KEY` set on production.
 - [ ] `order-push` deployed **with `--no-verify-jwt`**.
+- [ ] `announcement-push` deployed **with `--no-verify-jwt`** (v74; uses the same secrets and Vault entries).
 - [ ] Vault `order_push_url` = production's `order-push` URL
       (`https://cyfyydzxdsdzycbpvqox.supabase.co/functions/v1/order-push`).
 - [ ] Vault `order_push_secret` = the same value as `PUSH_WEBHOOK_SECRET`.
