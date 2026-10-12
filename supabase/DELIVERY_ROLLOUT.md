@@ -48,15 +48,15 @@ order by version;
 | v47 | `migration_v47_member_location.sql` | ✅ | ✅ | — |
 | v48 | `migration_v48_delivery_orders.sql` | ✅ | ✅ 2026-10-12 | Was not on production (no orders table). Run without RLS, then v49 at once, which turns it on. |
 | v49 | `migration_v49_orders_authorization.sql` | ✅ | ✅ 2026-10-12 | RLS on orders and order_items, one SELECT policy each; ledger has v48 and v49. |
-| v50 | `migration_v50_delivery_role.sql` | ✅ | ❌ | — |
+| v50 | `migration_v50_delivery_role.sql` | ✅ | ✅ 2026-10-12 | — |
 | v51 | `migration_v51_cashier_announcements.sql` | ✅ | ✅ | — |
-| v52 | `migration_v52_order_payment_and_sales.sql` | ✅ ¹ | ❌ | — |
-| v53 | `migration_v53_order_route.sql` | ✅ | ❌ | Deploy `order-route` (section 2) in the same sitting. |
-| v54 | `migration_v54_delivery_payment_hardening.sql` | ✅ | ❌ | — |
-| v55 | `migration_v55_delivery_cashiers_only.sql` | ✅ | ❌ | — |
-| v56 | `migration_v56_withdrawal_reservations.sql` | ✅ | ❌ | **Run section 2 of `supabase/diagnostics/audit_withdrawal_overdrafts.sql` on production right before**: any stacked pending withdrawals must be settled first. |
-| v57 | `migration_v57_order_refunds_and_receiver.sql` | ✅ | ❌ | — |
-| v58 | `migration_v58_push_notifications.sql` | ✅ | ❌ | Vault secrets and `order-push` (section 2). Without the Vault entries the trigger does nothing; it never fails an order. |
+| v52 | `migration_v52_order_payment_and_sales.sql` | ✅ ¹ | ✅ 2026-10-12 | — |
+| v53 | `migration_v53_order_route.sql` | ✅ | ✅ 2026-10-12 | Deploy `order-route` (section 2) in the same sitting. |
+| v54 | `migration_v54_delivery_payment_hardening.sql` | ✅ | ✅ 2026-10-12 | — |
+| v55 | `migration_v55_delivery_cashiers_only.sql` | ✅ | ✅ 2026-10-12 | — |
+| v56 | `migration_v56_withdrawal_reservations.sql` | ✅ | ✅ 2026-10-12 | **Run section 2 of `supabase/diagnostics/audit_withdrawal_overdrafts.sql` on production right before**: any stacked pending withdrawals must be settled first. |
+| v57 | `migration_v57_order_refunds_and_receiver.sql` | ✅ | ✅ 2026-10-12 | — |
+| v58 | `migration_v58_push_notifications.sql` | ✅ | ✅ 2026-10-12 | Vault secrets and `order-push` (section 2). Without the Vault entries the trigger does nothing; it never fails an order. |
 | v59 | `migration_v59_dispatch_needs_payment.sql` | ✅ | ❌ | — |
 | v60 | `migration_v60_reduce_item_stock.sql` | ✅ | ❌ | Independent of delivery, but the app's Edit Product calls it: apply before the new app ships. |
 | v61 | `migration_v61_courier_delivery.sql` | ✅ 2026-10-02 | ❌ | — |
@@ -145,5 +145,6 @@ must know v59's payment events and v61's `event` field.
 | 2026-10-05 | order-push redeployed on staging with the 2026-10-03 admin alert rules. |
 | 2026-10-08 | Added v74 (announcement push) and the `announcement-push` function, neither applied anywhere yet. |
 | 2026-10-12 | Production rollout started. Snapshot `snapshot_20261012` taken (free tier: no dashboard backups). Readiness clean: no overdrawing withdrawals, no referral loops, v71 not needed, pg_cron installed. v48 and v49 applied on production. |
+| 2026-10-12 | v50, v52–v58 applied on production, each verified. v52 and v56: all 105 members' earnings unchanged (compared with a copy taken before v52); the 6 pending withdrawals still approvable under v56. |
 | 2026-10-06 | Added v73 (realtime announcements and branch stock), not applied anywhere yet. |
 | 2026-10-06 | v73 applied on staging. |
