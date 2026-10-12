@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:lzcas/widgets/modal_kit.dart' show ChoicePills;
 import 'package:lzcas/widgets/staff_table.dart';
 
 const _long = 'Villanueva-Dela Cruz, Maria Carmencita Josefina';
@@ -145,6 +146,24 @@ void main() {
     final boxes = [for (final c in chips) tester.getRect(find.byWidget(c))];
     for (final r in boxes) {
       expect(r.width, lessThan(400), reason: 'a chip is as wide as its label (the bug made it ~940)');
+    }
+    expect(boxes.map((r) => r.top).toSet(), hasLength(1), reason: 'all on one line');
+  });
+
+  testWidgets('form choice pills hug their labels on a PC', (tester) async {
+    // Same bug as the chips: Edit Product's reasons filled the whole width.
+    await _pumpAt(
+      tester,
+      const Size(1366, 768),
+      ChoicePills(options: const ['Damaged', 'Expired', 'Lost'], value: 'Damaged', onChanged: (_) {}),
+    );
+    final pills = [for (final o in const ['Damaged', 'Expired', 'Lost']) tester.getRect(find.text(o))];
+    final boxes = [
+      for (final o in const ['Damaged', 'Expired', 'Lost'])
+        tester.getRect(find.ancestor(of: find.text(o), matching: find.byType(InkWell)).first),
+    ];
+    for (var i = 0; i < boxes.length; i++) {
+      expect(boxes[i].width, lessThan(pills[i].width + 60), reason: 'a pill is its label plus padding');
     }
     expect(boxes.map((r) => r.top).toSet(), hasLength(1), reason: 'all on one line');
   });

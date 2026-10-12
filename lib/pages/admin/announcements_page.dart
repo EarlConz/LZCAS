@@ -1746,7 +1746,7 @@ class _DayChip extends StatelessWidget {
         borderRadius: radius,
         child: Container(
           height: 44,
-          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
             borderRadius: radius,
             border: Border.all(
@@ -1754,12 +1754,17 @@ class _DayChip extends StatelessWidget {
               width: selected ? 1.5 : 1,
             ),
           ),
-          child: Text(
-            '$days days',
-            style: StockpileFonts.satoshi(
-              fontSize: 14,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-              color: selected ? StockpileColors.primary900 : idleText,
+          // widthFactor 1: as wide as its label in the Wrap on a PC, not
+          // the whole row (a phone gives it a fixed 76 px instead).
+          child: Center(
+            widthFactor: 1,
+            child: Text(
+              '$days days',
+              style: StockpileFonts.satoshi(
+                fontSize: 14,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: selected ? StockpileColors.primary900 : idleText,
+              ),
             ),
           ),
         ),

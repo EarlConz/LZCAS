@@ -668,17 +668,21 @@ class ChoicePills extends StatelessWidget {
                 child: Container(
                   height: 40,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  alignment: Alignment.center,
-                  child: Text(
-                    o,
-                    style: StockpileFonts.satoshi(
-                      fontSize: 14,
-                      fontWeight: o == value
-                          ? FontWeight.w600
-                          : FontWeight.w400,
-                      color: o == value
-                          ? (p.dark ? StockpileColors.primary500 : _orangeText)
-                          : p.text,
+                  // widthFactor 1: a pill is as wide as its label; with
+                  // Container.alignment it filled the Wrap's whole width.
+                  child: Center(
+                    widthFactor: 1,
+                    child: Text(
+                      o,
+                      style: StockpileFonts.satoshi(
+                        fontSize: 14,
+                        fontWeight: o == value
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        color: o == value
+                            ? (p.dark ? StockpileColors.primary500 : _orangeText)
+                            : p.text,
+                      ),
                     ),
                   ),
                 ),
